@@ -1,0 +1,16 @@
+[package]
+name = "printpdf"
+version = "0.1.0"
+authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
+repository = "https://github.com/sharazam/printpdf"
+homepage = "https://github.com/sharazam/printpdf"
+license = "GPL"
+readme = "README.md"
+description = "Library for writing PDF files"
+
+[dependencies]
+lopdf = "0.6.*"
+freetype-rs = "0.11.*"
+log = "0.3.*"
+fern = "0.3.*"
+error-chain = "0.10.*"
