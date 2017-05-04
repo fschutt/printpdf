@@ -6,9 +6,9 @@ use errors::*;
 #[derive(Debug, Clone)]
 pub struct PdfPage {
     /// page width in point
-    pub width_pt: f32,
+    pub width_pt: f64,
     /// page height in point
-    pub heigth_pt: f32,
+    pub heigth_pt: f64,
     /// Page layers
     layers: Vec<PdfLayer>
 }
@@ -18,7 +18,7 @@ impl PdfPage {
     /// Create a new page, notice that width / height are in millimeter
     /// Page must contain at least one layer
     #[inline]
-    pub fn new(width_mm: f32, height_mm: f32)
+    pub fn new(width_mm: f64, height_mm: f64)
     -> Self
     {
         Self {

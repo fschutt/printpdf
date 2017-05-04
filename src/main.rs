@@ -1,4 +1,3 @@
-#[macro_use]
 extern crate printpdf;
 
 use printpdf::*;
@@ -30,7 +29,7 @@ fn main() {
     let marker = doc.add_marker(100.0, 100.0, &layer1).unwrap();
 
     // Write the text with font + font size
-    doc.add_text(text, roboto_font, 48, &marker);
+    doc.add_text(text, roboto_font, 48, &marker).unwrap();
 
     // printpdf support 2d graphics only (currently) - Lines, Points, Polygons and SVG Symbols
     let page2 = doc.add_page(250.0, 250.0);
@@ -49,11 +48,9 @@ fn main() {
     use api::types::plugins::graphics::Outline;
     use api::types::plugins::graphics::*;
     let outline = Outline::new(Color::Cmyk(Cmyk::new(1.0, 0.75, 0.0, 0.0, None)), 5);
-    doc.add_line(points, &layer2, Some(&outline), None);
+    doc.add_line(points, &layer2, Some(&outline), None).unwrap();
 
-    // A special thing is transcoding SVG files directly into PDF (for mapping symbols)
-    use api::types::plugins::graphics::two_dimensional::Svg;
-    
+    // A special thing is transcoding SVG files directly into PDF (for mapping symbols)    
     // Specify the lower left corner of the SVG
     let marker6 = doc.add_marker(700.0, 700.0, &layer2).unwrap();
     let svg = doc.add_svg(File::open("assets/svg/sample.svg").unwrap()).unwrap();
@@ -61,5 +58,5 @@ fn main() {
 
     // There is no support for comments, images, annotations, 3D objects, signatures, gradients, etc. yet.
     // Save the PDF file
-    doc.save(File::open("output.pdf").unwrap()).unwrap();
+    doc.save(&mut File::create("output.pdf").unwrap()).unwrap();
 }

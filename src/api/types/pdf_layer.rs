@@ -27,7 +27,7 @@ impl PdfLayer {
 
     /// Add a marker to the layer
     #[inline]
-    pub fn add_marker(&mut self, x_mm: f32, y_mm: f32)
+    pub fn add_marker(&mut self, x_mm: f64, y_mm: f64)
     -> usize
     {
         self.markers.push(PdfMarker::new(x_mm, y_mm));

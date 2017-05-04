@@ -81,22 +81,19 @@
 //! TODO
 //! 
 
-#[allow(dead_code)]
-#[allow(unused_imports)]
+#![allow(dead_code)]
 
 #[macro_use] extern crate error_chain;
 #[macro_use] extern crate log;
-#[macro_use] extern crate fern;
 
              extern crate lopdf;
              extern crate freetype;
 
 #[macro_use] pub mod glob_macros;
-
-             pub mod glob_defines;
              pub mod api;
              pub mod errors;
-
+             mod glob_defines;
+             
 pub use api::*;
 pub use errors::*;
 pub(crate) use glob_defines::*;

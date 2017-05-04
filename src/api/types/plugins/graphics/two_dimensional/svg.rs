@@ -2,6 +2,7 @@ extern crate lopdf;
 
 use traits::*;
 
+#[derive(Debug)]
 pub struct Svg {
     /* same as font: parse + store metrics, then in convert function, convert to pdf object */
     svg_data: Vec<u8>,

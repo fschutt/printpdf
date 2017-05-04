@@ -6,15 +6,15 @@ use super::*;
 #[derive(Debug, Copy, Clone)]
 pub struct PdfMarker {
     /// Horizontal postion in point
-    pub x_pt: f32,
+    pub x_pt: f64,
     /// Horizontal postion in point
-    pub y_pt: f32,
+    pub y_pt: f64,
 }
 
 impl PdfMarker {
     
     /// Create a new marker, notice that x and y are in millimeters
-    pub fn new(x_mm: f32, y_mm: f32)
+    pub fn new(x_mm: f64, y_mm: f64)
     -> Self 
     {
         Self {
