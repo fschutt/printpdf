@@ -23,8 +23,6 @@ pub struct PdfDocument {
     contents: Vec<Box<IntoPdfObject>>,
     /// Inner PDF document
     inner_doc: lopdf::Document,
-    /// Current PDF marker (where we are in the document)
-    current_marker: PdfMarkerIndex,
 }
 
 impl<'a> PdfDocument {
@@ -32,52 +30,40 @@ impl<'a> PdfDocument {
     /// Creates a new PDF document
     #[inline]
     pub fn new<S>(initial_page: PdfPage, title: S, creator: S)
-    -> Self where S: Into<String>
+    -> (Self, PdfPageIndex, PdfLayerIndex) where S: Into<String>
     {
-        let title_str = title.into();
-        let creator_str = creator.into();
-        let mut inner_doc = lopdf::Document::new();
-
-        Self {
+        (Self {
             pages: vec![initial_page],
-            title: title_str,
-            creator: creator_str,
+            title: title.into(),
+            creator: creator.into(),
             contents: Vec::new(),
-            inner_doc: inner_doc,
-            current_marker: (0, 0, 0),
-        }
+            inner_doc: lopdf::Document::new(),
+        },
+        PdfPageIndex(0),
+        PdfLayerIndex(0))
     }
 
     /// # `add_*` functions
 
     /// Create a new pdf page and returns the index of the page
     #[inline]
-    pub fn add_page(&mut self, x_mm: f64, y_mm: f64)
-    -> PdfPageIndex
+    pub fn add_page(&mut self, x_mm: f64, y_mm: f64, inital_layer: PdfLayer)
+    -> (PdfPageIndex, PdfLayerIndex)
     {
-        self.pages.push(PdfPage::new(x_mm, y_mm));
-        self.pages.len() - 1
+        self.pages.push(PdfPage::new(x_mm, y_mm, inital_layer));
+        (PdfPageIndex(self.pages.len() - 1), PdfLayerIndex(0))
     }
 
-    /// Create a new pdf layer and returns the index to it
+    /// Create a new pdf layer on the given page and returns the index of the new layer
     #[inline]
-    pub fn add_layer<S>(&mut self, name: S, page: &PdfPageIndex)
-    -> ::std::result::Result<PdfLayerIndex, Error> where S: Into<String>
+    pub fn add_layer(&mut self, page: PdfPageIndex, added_layer: PdfLayer)
+    -> ::std::result::Result<PdfLayerIndex, Error>
     {
-        let layer_index = self.get_mut_page(page)?
-                              .add_layer(name);
-        Ok((*page, layer_index))
-    }
-
-    /// Create a new marker on the layer. Error if the page does not exist
-    #[inline]
-    pub fn add_marker(&mut self, x_mm: f64, y_mm: f64, layer: &PdfLayerIndex)
-    -> ::std::result::Result<PdfMarkerIndex, Error>
-    {
-        let marker_index = self.get_mut_page(&layer.0)?
-                               .get_mut_layer(&layer.1)?
-                               .add_marker(x_mm, y_mm);
-        Ok((layer.0, layer.1, marker_index))
+        use errors::index_error::ErrorKind::*;
+        let layer_index = self.pages.get_mut(page.0)
+                              .ok_or(Error::from_kind(IndexError(PdfPageIndexError))).unwrap()
+                              .add_layer(added_layer);
+        Ok(layer_index)
     }
 
     /// Add arbitrary Pdf Objects. These are tracked by reference and get 
@@ -87,7 +73,7 @@ impl<'a> PdfDocument {
     -> PdfContentIndex where C: 'static + IntoPdfObject
     {
         self.contents.push(content);
-        self.contents.len() - 1
+        PdfContentIndex(self.contents.len() - 1)
     }
 
     /// ## `add_*` functions for arbitrary PDF content
@@ -108,8 +94,10 @@ impl<'a> PdfDocument {
     pub fn add_text<S>(&mut self, 
                       text: S, 
                       font: FontIndex, 
-                      font_size: usize, 
-                      position: &PdfMarkerIndex)
+                      font_size: usize,
+                      x_mm: f64,
+                      y_mm: f64,
+                      layer: PdfLayerIndex)
     -> ::std::result::Result<(), Error> where S: Into<String>
     {
         // todo
@@ -120,9 +108,9 @@ impl<'a> PdfDocument {
     #[inline]
     pub fn add_line(&mut self,
                     points: Vec<(Point, bool)>, 
-                    layer: &PdfLayerIndex, 
                     outline: Option<&Outline>, 
-                    fill: Option<&Fill>)
+                    fill: Option<&Fill>,
+                    layer: PdfLayerIndex)
     -> ::std::result::Result<(), Error>
     {
         // todo
@@ -143,97 +131,39 @@ impl<'a> PdfDocument {
     /// Instantiate SVG data
     #[inline]
     pub fn add_svg_at(&mut self,
-                      svg_data_index: &SvgIndex,
+                      svg_data_index: SvgIndex,
                       width_mm: f64,
                       height_mm: f64,
-                      position: &PdfMarkerIndex)
+                      x_mm: f64,
+                      y_mm: f64,
+                      layer: PdfLayerIndex)
     {
         // todo
     }
 
     /// # `get_*` functions
 
-    /// Validates that a page is accessible and returns the page
+    /// Validates that a page is accessible and returns the page index
     #[inline]
-    pub fn get_page(&self, page: &PdfPageIndex)
-    -> ::std::result::Result<&PdfPage, Error>
+    pub fn get_page(&self, page: usize)
+    -> ::std::result::Result<PdfPageIndex, Error>
     {
         use errors::index_error::ErrorKind::*;
-        self.pages.get(*page)
-                  .ok_or(Error::from_kind(IndexError(PdfPageIndexError)))
-    }
-
-    /// Validates that a page is accessible and returns the page
-    #[inline]
-    pub fn get_mut_page(&mut self, page: &PdfPageIndex)
-    -> ::std::result::Result<&mut PdfPage, Error>
-    {
-        use errors::index_error::ErrorKind::*;
-        self.pages.get_mut(*page)
-                  .ok_or(Error::from_kind(IndexError(PdfPageIndexError)))
-    }
-
-    /// Validates that a layer is accessible and returns the layer
-    #[inline]
-    pub fn get_layer(&self, layer: &PdfLayerIndex)
-    -> ::std::result::Result<&PdfLayer, Error>
-    {
-        let layer = self.get_page(&layer.0)?
-                        .get_layer(&layer.1)?;
-        Ok(layer)
-    }
-
-    /// Validates that a layer is accessible and returns the mutable layer
-    #[inline]
-    pub fn get_mut_layer(&mut self, layer: &PdfLayerIndex)
-    -> ::std::result::Result<&mut PdfLayer, Error>
-    {
-        let layer = self.get_mut_page(&layer.0)?
-                        .get_mut_layer(&layer.1)?;
-        Ok(layer)
-    }
-
-    /// Validates that a marker is present and returns the marker
-    #[inline]
-    pub fn get_marker(&self, marker: &PdfMarkerIndex)
-    -> ::std::result::Result<&PdfMarker, Error>
-    {
-        let marker = self.get_page(&marker.0)?
-                         .get_layer(&marker.1)?
-                         .get_marker(&marker.2)?;
-         Ok(marker)
-    }
-
-    /// Validates that a marker is present and returns the marker
-    #[inline]
-    pub fn get_mut_marker(&mut self, marker: &PdfMarkerIndex)
-    -> ::std::result::Result<&mut PdfMarker, Error>
-    {
-        let marker = self.get_mut_page(&marker.0)?
-                         .get_mut_layer(&marker.1)?
-                         .get_mut_marker(&marker.2)?;
-         Ok(marker)
+        let index = self.pages.get(page)
+                              .ok_or(Error::from_kind(IndexError(PdfPageIndexError)));
+        Ok(PdfPageIndex(page))
     }
 
     /// Drops the PDFDocument, returning the inner `lopdf::Document`. 
     /// Document may be only half-written
     #[inline]
-    pub fn get_inner(self)
-    -> (lopdf::Document, Vec<Box<IntoPdfObject>>, PdfMarker)
+    pub unsafe fn get_inner(self)
+    -> (lopdf::Document, Vec<Box<IntoPdfObject>>)
     {
-
-        let marker = self.get_marker(&self.current_marker).unwrap().clone();
-        (self.inner_doc, self.contents, marker)
+        (self.inner_doc, self.contents)
     }
 
     /// ## Miscellaneous functions
-
-    /// Sets the current PDF marker
-    #[inline]
-    pub fn set_current_marker(&mut self, marker: &PdfMarkerIndex)
-    {
-        self.current_marker = *marker;
-    }
 
     /// Save PDF Document, writing the contents to the target
     pub fn save<W: Write + Seek>(mut self, target: &mut W)
