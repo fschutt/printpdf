@@ -13,14 +13,14 @@ fn main() {
     let (mut doc, page1, layer1) = PdfDocument::new(
                                       PdfPage::new(247.0, 210.0, 
                                           PdfLayer::new("Layer 1")), 
-                                  "Hello World PDF!",
-                                  "superprogram_v1.1");
+                                  "PDF_Document_title");
+
+    // printpdf support 2d graphics only (currently) - Lines, Points, Polygons and SVG Symbols
+    let (page2, layer1) = doc.add_page(10.0, 250.0, PdfLayer::new("Page 2, Layer 1"));
+    let layer2 = doc.get_page_mut(page2).add_layer(PdfLayer::new("Layer 2"));
+    let layer3 = doc.get_page_mut(page2).add_layer(PdfLayer::new("Layer 3"));
 
 /*
-    // printpdf support 2d graphics only (currently) - Lines, Points, Polygons and SVG Symbols
-    let (page2, layer2) = doc.add_page(10.0, 250.0, PdfLayer::new("Layer2"));
-    let layer2 = doc.get_page(page2).add_layer(PdfLayer::new("Layer 2")).unwrap();
-
     // Write the text with font + font size
     // printpdf is made for PDF-X/1A conform documents. 
     // As such, using the default fonts is not permitted. You have to use your own fonts here

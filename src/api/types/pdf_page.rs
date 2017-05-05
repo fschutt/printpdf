@@ -39,12 +39,13 @@ impl PdfPage {
 
     /// Validates that a layer is present and returns a reference to it
     #[inline]
-    pub fn get_layer(&self, layer: usize)
-    -> ::std::result::Result<PdfLayerIndex, Error>
+    pub fn get_layer(&self, layer: PdfLayerIndex)
+    -> ::std::result::Result<&PdfLayer, Error>
     {
         use errors::index_error::ErrorKind::*;
-        let index = self.layers.get(layer)
-                               .ok_or(Error::from_kind(IndexError(PdfLayerIndexError)));
-        Ok(PdfLayerIndex(layer))
+        let layer = self.layers.get(layer.0)
+                               .ok_or(Error::from_kind(IndexError(PdfLayerIndexError)))
+                               .unwrap();
+        Ok(layer)
     }
 }
