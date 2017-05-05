@@ -13,7 +13,7 @@ fn main() {
                                           PdfLayer::new("Layer 1")), 
                                   "Hello World PDF!",
                                   "superprogram_v1.1");
-
+/*
     // Write the text with font + font size
     // printpdf is made for PDF-X/1A conform documents. 
     // As such, using the default fonts is not permitted. You have to use your own fonts here
@@ -45,7 +45,7 @@ fn main() {
     // Specify the lower left corner of the SVG
     let svg = doc.add_svg(File::open("assets/svg/sample.svg").unwrap()).unwrap();
     doc.add_svg_at(svg, 20.0, 20.0, 700.0, 700.0, layer2);
-
+*/
     // There is no support for comments, images, annotations, 3D objects, signatures, gradients, etc. yet.
     // Save the PDF file
     doc.save(&mut File::create("output.pdf").unwrap()).unwrap();

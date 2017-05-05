@@ -174,20 +174,20 @@ impl<'a> PdfDocument {
         use std::iter::FromIterator;
 
         // add root, catalog & pages
-        let start = self.inner_doc.new_object_id();
+        let pages_id = self.inner_doc.new_object_id();
 
         let catalog = Dictionary::from_iter(vec![
                       ("Type", "Catalog".into()),
                       ("PageLayout", "OneColumn".into()),
                       ("PageMode", "Use0".into()),
-                      ("Pages", Reference(start)), ]);
+                      ("Pages", Reference(pages_id)), ]);
 
         let mut pages = Dictionary::from_iter(vec![
                       ("Type", "Pages".into()),
                       ("Count", Integer(self.pages.len() as i64)),
-                      /* Resources, Fonts */
+                      /* Kids and Resources missing */
                       ]);
-        
+
         // add all contents, save references
         // todo
 
@@ -196,14 +196,12 @@ impl<'a> PdfDocument {
 
         for page in self.pages.clone().into_iter() {
             
-            let mut p = Dictionary::from_iter(vec![
+            let p = Dictionary::from_iter(vec![
                       ("Type", "Page".into()),
                       ("MediaBox", vec![0.into(), 0.into(),
                        page.width_pt.into(), page.heigth_pt.into()].into()),
-                      ("Parent", Reference(start)),
+                      ("Parent", Reference(pages_id)),
                       /* todo: ArtBox */ ]);
-
-            p.set("Parent", Reference(start));
 
             // add page content references
             // todo
@@ -211,7 +209,9 @@ impl<'a> PdfDocument {
             page_ids.push(Reference(self.inner_doc.add_object(p)))
         }
 
+        println!("{:?}", page_ids);
         pages.set::<String, Object>("Kids".into(), page_ids.into());
+        self.inner_doc.objects.insert(pages_id, Object::Dictionary(pages));
 
         // save inner document
         let catalog_id = self.inner_doc.add_object(catalog);
