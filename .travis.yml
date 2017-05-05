@@ -1,6 +1,8 @@
 language: rust
-
 rust:
   - nightly
+matrix:
+  allow_failures:
+    - rust: nightly -toolchain=nightly-2017-05-03
 
 sudo: false

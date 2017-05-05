@@ -112,6 +112,7 @@ impl<'a> PdfDocument {
 
         // add root, catalog & pages
         let pages_id = self.inner_doc.new_object_id();
+        let info_id = self.inner_doc.new_object_id();
         let dest_output_profile = self.inner_doc.new_object_id();
 
         let create_date = "2017-05-05T15:02:24+02:00";
@@ -126,15 +127,15 @@ impl<'a> PdfDocument {
         let trapped = "False";
 
         // extra pdf infos required for pdf/x-3
-        let info = Dictionary(LoDictionary::from_iter(vec![
+        let info = LoDictionary::from_iter(vec![
             ("Trapped", "False".into()),
             ("CreationDate", String("D:20170505150224+02'00'".into(), StringFormat::Literal)),
             ("ModDate", String("D:20170505150224+02'00'".into(), StringFormat::Literal)),
-            ("GTX_PDFXVersion", String(pdf_x_version.into(), StringFormat::Literal)),
+            ("GTS_PDFXVersion", String(pdf_x_version.into(), StringFormat::Literal)),
             ("Title", String(document_title.clone().into(), StringFormat::Literal))
-        ]));
+        ]);
 
-        let info_id = self.inner_doc.add_object(info);
+        self.inner_doc.objects.insert(info_id, Dictionary(info));
         
         // overprint key as name
         // document id - random hash in trailer, for checking if a PDF document has been modified
@@ -180,7 +181,6 @@ impl<'a> PdfDocument {
                           ("Info", String("Coated FOGRA39 (ISO 12647-2:2004)".into(), StringFormat::Literal)), 
                           ])),
                       ])),
-
                     ]);
 
         let mut pages = LoDictionary::from_iter(vec![
@@ -219,7 +219,12 @@ impl<'a> PdfDocument {
 
         // save inner document
         let catalog_id = self.inner_doc.add_object(catalog);
+        
         self.inner_doc.trailer.set("Root", Reference(catalog_id));
+        self.inner_doc.trailer.set("Info", Reference(info_id));
+        
+        self.inner_doc.prune_objects();
+        self.inner_doc.delete_zero_length_streams();
         self.inner_doc.compress();
         self.inner_doc.save_to(target).unwrap();
 
