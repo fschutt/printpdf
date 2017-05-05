@@ -10,6 +10,6 @@ pub mod graphics;
 pub mod media;
 pub mod interactive;
 
-use graphics::*;
-use media::*;
-use interactive::*;
+pub use self::graphics::*;
+pub use self::media::*;
+pub use self::interactive::*;

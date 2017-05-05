@@ -1,10 +1,9 @@
 //! Module for operation 
-use super::*;
-use super::indices::*;
-use errors::*;
+
+use *;
 
 /// PDF page
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct PdfPage {
     /// page width in point
     pub width_pt: f64,

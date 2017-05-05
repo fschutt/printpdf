@@ -3,5 +3,5 @@
 pub mod traits;
 pub mod types;
 
-pub use types::*;
-pub use traits::*;
+pub use self::types::*;
+pub use self::traits::*;

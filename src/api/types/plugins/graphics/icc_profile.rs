@@ -2,7 +2,7 @@
 
 extern crate lopdf;
 
-pub use traits::*;
+use *;
 
 #[derive(Debug, Clone)]
 pub struct IccProfile {

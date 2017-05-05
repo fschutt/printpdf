@@ -3,5 +3,5 @@
 pub mod audio;
 pub mod video;
 
-use self::audio::*;
-use self::video::*;
+pub use self::audio::*;
+pub use self::video::*;

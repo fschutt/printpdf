@@ -5,6 +5,8 @@ use std::fs::File;
 
 fn main() {
 
+    ::std::env::set_current_dir(::std::env::current_exe().unwrap().parent().unwrap().parent().unwrap().parent().unwrap()).unwrap();
+
     // To prevent empty documents, you must specify at least one page with one layer
     // You can later on add more pages with the add_page() function
     // You also have to specify the title of the PDF and the document creator
@@ -49,5 +51,5 @@ fn main() {
 */
     // There is no support for comments, images, annotations, 3D objects, signatures, gradients, etc. yet.
     // Save the PDF file
-    doc.save(&mut File::create("output.pdf").unwrap()).unwrap();
+    doc.save(&mut File::create("test_working.pdf").unwrap()).unwrap();
 }

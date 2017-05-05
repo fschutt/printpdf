@@ -2,7 +2,7 @@
 
 extern crate lopdf;
 
-use traits::*;
+use *;
 use lopdf::{Stream, Dictionary};
 
 #[derive(Debug)]

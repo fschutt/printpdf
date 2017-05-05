@@ -1,5 +1,4 @@
-
-use super::*;
+use *;
 
 #[derive(Debug, Clone)]
 pub struct Line { 

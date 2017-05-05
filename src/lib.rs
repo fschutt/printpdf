@@ -46,6 +46,7 @@
 #![allow(dead_code)]
 #![feature(placement_in_syntax)]
 #![feature(collection_placement)]
+#![feature(custom_attribute)]
 
 #[macro_use] extern crate error_chain;
 #[macro_use] extern crate log;

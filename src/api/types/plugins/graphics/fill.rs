@@ -2,9 +2,7 @@
 
 extern crate lopdf;
 
-use super::*;
-use traits::*;
-use glob_defines::*;
+use *;
 
 /// Fill color
 #[derive(Debug, Clone)]

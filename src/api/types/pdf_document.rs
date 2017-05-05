@@ -2,13 +2,7 @@
 
 extern crate lopdf;
 
-use super::*;
-use super::super::traits::*;
-use super::indices::*;
-
-use errors::*;
-use api::types::plugins::graphics::two_dimensional::*;
-use api::types::plugins::graphics::*;
+use *;
 use std::io::{Write, Seek};
 
 /// PDF document
@@ -90,34 +84,6 @@ impl<'a> PdfDocument {
         Ok(FontIndex(index))
     }
 
-    /// Add text to the file
-    #[inline]
-    pub fn add_text<S>(&mut self, 
-                      text: S, 
-                      font: FontIndex, 
-                      font_size: usize,
-                      x_mm: f64,
-                      y_mm: f64,
-                      layer: PdfLayerIndex)
-    -> ::std::result::Result<(), Error> where S: Into<String>
-    {
-        // todo
-        Ok(())
-    }
-
-    /// Add a line to the document
-    #[inline]
-    pub fn add_line(&mut self,
-                    points: Vec<(Point, bool)>, 
-                    outline: Option<&Outline>, 
-                    fill: Option<&Fill>,
-                    layer: PdfLayerIndex)
-    -> ::std::result::Result<(), Error>
-    {
-        // todo
-        Ok(())
-    }
-
     /// Add SVG content to the document
     #[inline]
     pub fn add_svg<R>(&mut self,
@@ -127,19 +93,6 @@ impl<'a> PdfDocument {
     {
         // todo
         unimplemented!()
-    }
-
-    /// Instantiate SVG data
-    #[inline]
-    pub fn add_svg_at(&mut self,
-                      svg_data_index: SvgIndex,
-                      width_mm: f64,
-                      height_mm: f64,
-                      x_mm: f64,
-                      y_mm: f64,
-                      layer: PdfLayerIndex)
-    {
-        // todo
     }
 
     /// # `get_*` functions
@@ -195,7 +148,7 @@ impl<'a> PdfDocument {
         // add pages
         let mut page_ids = Vec::<Object>::new();
 
-        for page in self.pages.clone().into_iter() {
+        for page in self.pages.into_iter() {
             
             let p = Dictionary::from_iter(vec![
                       ("Type", "Page".into()),

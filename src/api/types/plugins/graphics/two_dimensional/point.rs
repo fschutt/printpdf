@@ -1,7 +1,6 @@
 extern crate lopdf;
 
-use traits::*;
-use glob_macros::*;
+use *;
 
 #[derive(Debug, Copy, Clone)]
 pub struct Point { 

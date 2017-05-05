@@ -1,8 +1,7 @@
 //! Embedding fonts in 2D for Pdf
 extern crate lopdf;
 
-use traits::*;
-use errors::*;
+use *;
 
 #[derive(Debug, Clone)]
 pub struct Font {

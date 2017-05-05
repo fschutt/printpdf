@@ -1,6 +1,6 @@
 //! Color module (CMYK or RGB). Shared between 2D and 3D module.
 
-use super::*;
+use *;
 
 #[derive(Debug, Clone)]
 pub enum Color {
