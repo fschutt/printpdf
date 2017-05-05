@@ -1,4 +1,5 @@
-//! Example implementation of an arbitrary PDF Blob
+//! ICC profile that can be embedded into a PDF
+
 extern crate lopdf;
 
 pub use traits::*;
@@ -10,7 +11,7 @@ pub struct IccProfile {
 }
 
 impl IntoPdfObject for IccProfile {
-    fn into(self)
+    fn into_obj(self: Box<Self>)
     -> lopdf::Object
     {
         // todo: contruct stream object, put the icc profile in it, etc.

@@ -1,3 +1,5 @@
+//! Module for graphics (line, polygon, 3D, etc.)
+
 pub mod two_dimensional;
 pub mod three_dimensional;
 
@@ -11,5 +13,5 @@ pub mod icc_profile;
 
 pub use self::outline::Outline;
 pub use self::fill::Fill;
-pub use self::color::{Color, Rgb, Cmyk};
+pub use self::color::{Color, Rgb, Cmyk, Grayscale};
 pub use self::icc_profile::IccProfile;

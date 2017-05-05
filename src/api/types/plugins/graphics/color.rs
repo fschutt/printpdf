@@ -1,9 +1,12 @@
+//! Color module (CMYK or RGB). Shared between 2D and 3D module.
+
 use super::*;
 
 #[derive(Debug, Clone)]
 pub enum Color {
     Rbg(Rgb),
     Cmyk(Cmyk),
+    Grayscale(Grayscale)
 }
 
 #[derive(Debug, Clone)]
@@ -11,7 +14,7 @@ pub struct Rgb {
     pub r: f64,
     pub g: f64,
     pub b: f64,
-    pub color_space: Option<IccProfile>
+    pub color_space: Option<IccProfile>,
 }
 
 impl Rgb {
@@ -29,14 +32,19 @@ pub struct Cmyk {
     pub m: f64,
     pub y: f64,
     pub k: f64,
-    pub color_space: Option<IccProfile>
+    pub color_space: Option<IccProfile>,
 }
 
 impl Cmyk {
-
     pub fn new(c: f64, m: f64, y: f64, k: f64, color_space: Option<IccProfile>)
     -> Self
     {
         Self { c, m, y, k, color_space }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct Grayscale {
+    pub percent: f64,
+    pub color_space: Option<IccProfile>,
 }

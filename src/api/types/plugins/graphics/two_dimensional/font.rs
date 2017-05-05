@@ -19,7 +19,7 @@ impl Font {
 }
 
 impl IntoPdfObject for Font {
-    fn into(self)
+    fn into_obj(self: Box<Self>)
     -> lopdf::Object
     {
         // todo: make stream from font, embed stream

@@ -1,4 +1,4 @@
-# pdflib
+# pdflib [![Build Status](https://travis-ci.org/sharazam/printpdf.svg?branch=master)](https://travis-ci.org/sharazam/printpdf)
 
 printpdf is a library designed for creating printable (PDF-X/1-A conform) 
 PDF documents.

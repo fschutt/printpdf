@@ -8,8 +8,8 @@ macro_rules! mm_to_pt {
 
 /// Simple macro to cut down on typing when making a simple operation
 macro_rules! operation {
-    ($e: expr) => (lopdf::content::Operation {
+    ($e: expr) => (vec![lopdf::content::Operation {
                       operator: $e.into(),
                       operands: vec![],
-                  })
+                  }])
 }

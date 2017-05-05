@@ -13,19 +13,20 @@ fn main() {
                                           PdfLayer::new("Layer 1")), 
                                   "Hello World PDF!",
                                   "superprogram_v1.1");
+
 /*
+    // printpdf support 2d graphics only (currently) - Lines, Points, Polygons and SVG Symbols
+    let (page2, layer2) = doc.add_page(10.0, 250.0, PdfLayer::new("Layer2"));
+    let layer2 = doc.get_page(page2).add_layer(PdfLayer::new("Layer 2")).unwrap();
+
     // Write the text with font + font size
     // printpdf is made for PDF-X/1A conform documents. 
     // As such, using the default fonts is not permitted. You have to use your own fonts here
     let text = "Hello World! Unicode test: стуфхfцчшщъыьэюя";
     let roboto_font_file = File::open("assets/fonts/Roboto.ttf").unwrap();
     let roboto_font = doc.add_font(roboto_font_file).unwrap();
-    doc.add_text(text, roboto_font, 48, 200.0, 200.0, layer1).unwrap();
-
-    // printpdf support 2d graphics only (currently) - Lines, Points, Polygons and SVG Symbols
-    let (page2, layer2) = doc.add_page(250.0, 250.0, PdfLayer::new("Layer2"));
-    let layer2 = doc.add_layer(page2, PdfLayer::new("Layer 2")).unwrap();
-
+    doc.get_page(page1).get_layer(layer1).add_text(text, roboto_font, 48, 200.0, 200.0, layer1).unwrap();
+    
     let point1  = Point::new(200.0, 200.0);
     let point2  = Point::new(200.0, 200.0);
     let point3  = Point::new(200.0, 200.0);

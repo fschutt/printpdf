@@ -1,5 +1,6 @@
 //! Module for operation 
 use super::*;
+use super::indices::*;
 use errors::*;
 
 /// PDF page

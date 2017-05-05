@@ -13,3 +13,7 @@ lopdf = { git = "https://github.com/sharazam/lopdf" }
 freetype-rs = "0.11.*"
 log = "0.3.*"
 error-chain = "0.10.*"
+
+[[bin]]
+doc = false
+name = "printpdf"

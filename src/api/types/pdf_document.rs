@@ -4,6 +4,7 @@ extern crate lopdf;
 
 use super::*;
 use super::super::traits::*;
+use super::indices::*;
 
 use errors::*;
 use api::types::plugins::graphics::two_dimensional::*;
@@ -209,7 +210,6 @@ impl<'a> PdfDocument {
             page_ids.push(Reference(self.inner_doc.add_object(p)))
         }
 
-        println!("{:?}", page_ids);
         pages.set::<String, Object>("Kids".into(), page_ids.into());
         self.inner_doc.objects.insert(pages_id, Object::Dictionary(pages));
 

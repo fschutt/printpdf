@@ -1,6 +1,7 @@
 extern crate lopdf;
 
 use traits::*;
+use glob_macros::*;
 
 #[derive(Debug, Copy, Clone)]
 pub struct Point { 
@@ -40,8 +41,8 @@ impl PartialEq for Point {
 }
 
 impl IntoPdfStreamOperation for Point {
-    fn into(self)
-    -> lopdf::content::Operation 
+    fn into_stream_op(self: Box<Self>)
+    -> Vec<lopdf::content::Operation>
     {
         unimplemented!()
     }
