@@ -114,8 +114,28 @@ impl<'a> PdfDocument {
         let pages_id = self.inner_doc.new_object_id();
         let dest_output_profile = self.inner_doc.new_object_id();
 
+        let create_date = "2017-05-05T15:02:24+02:00";
+        let modify_date = "2017-05-05T15:02:24+02:00";
+        let metadata_date = "2017-05-05T15:02:24+02:00";
+        let document_title = self.title.clone();
+        let document_id = "6b23e74f-ab86-435e-b5b0-2ffc876ba5a2";
+        let instance_id = "2898d852-f86f-4479-955b-804d81046b19";
+        let document_version = "1";
+        let rendition_class = "default";
+        let pdf_x_version = "PDF/X-3:2002";
+        let trapped = "False";
+
         // extra pdf infos required for pdf/x-3
-        // ArtBox must be present
+        let info = Dictionary(LoDictionary::from_iter(vec![
+            ("Trapped", "False".into()),
+            ("CreationDate", String("D:20170505150224+02'00'".into(), StringFormat::Literal)),
+            ("ModDate", String("D:20170505150224+02'00'".into(), StringFormat::Literal)),
+            ("GTX_PDFXVersion", String(pdf_x_version.into(), StringFormat::Literal)),
+            ("Title", String(document_title.clone().into(), StringFormat::Literal))
+        ]));
+
+        let info_id = self.inner_doc.add_object(info);
+        
         // overprint key as name
         // document id - random hash in trailer, for checking if a PDF document has been modified
         // document creation date (CreationDate)
@@ -127,21 +147,14 @@ impl<'a> PdfDocument {
         // note: standard rgb is not allowed
         // note: lzw compression is prohibited
 
-        // additional
-        // document needs trapping? (true)
+        // let random_str: String = ::std::rand::thread_rng().gen_ascii_chars().take(len).collect();
+
         // xmp metadata
 
-        let date = "2017-05-05T15:02:24+02:00";
-        let document_id = "6b23e74f-ab86-435e-b5b0-2ffc876ba5a2";
-        let instance_id = "2898d852-f86f-4479-955b-804d81046b19";
-        let pdf_x_version = "PDF/X-3:2002";
-        let trapped = "False";
-        let document_name = self.title.clone();
-
+        
         let xmp_metadata = format!(include_str!("../../templates/catalog_xmp_metadata.txt"),
-                           date, document_name, document_id, instance_id, pdf_x_version, trapped);
-
-        println!("{}", xmp_metadata);
+                           create_date, modify_date, metadata_date, document_title, document_id, 
+                           instance_id, rendition_class, document_version, pdf_x_version, trapped);
 
         let stream = Stream(LoStream::new(LoDictionary::from_iter(vec![
                           ("Type", "Metadata".into()),
@@ -158,7 +171,7 @@ impl<'a> PdfDocument {
                           ("S", Name("GTS_PDFX".into())),
                           ("OutputCondition", String("Commercial and special offset print acccording  \
                                                to ISO 12647-2:2004 / Amd 1, paper type 1 or 2  \
-                                               (matt coated or coated offset paper, 115 g/m2), \
+                                               (matte or gloss-coated offset paper, 115 g/m2), \
                                                screen ruling 60/cm".into(), StringFormat::Literal)),
                           ("Type", Name("OutputIntent".into())),
                           ("OutputConditionIdentifier", String("FOGRA39".into(), StringFormat::Literal)),
