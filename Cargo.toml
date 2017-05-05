@@ -17,3 +17,4 @@ error-chain = "0.10.*"
 [[bin]]
 doc = false
 name = "printpdf"
+path = "src/main.rs"

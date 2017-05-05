@@ -1,5 +1,3 @@
-//! # printpdf
-//! 
 //! printpdf is a library designed for creating printable (PDF-X/1-A conform) 
 //! PDF documents.
 //! 
