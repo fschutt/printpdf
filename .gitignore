@@ -1,4 +1,3 @@
 target/*
-*.pdf
+./*.pdf
 *.lock
-*.ttf﻿
