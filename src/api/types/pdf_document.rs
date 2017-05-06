@@ -17,7 +17,7 @@ pub struct PdfDocument {
     inner_doc: lopdf::Document,
     /// PDF document title
     pub title: String,
-    /// Is the document trapped? (Read More)[https://www.adobe.com/studio/print/pdf/trapping.pdf]
+    /// Is the document trapped? [Read More](https://www.adobe.com/studio/print/pdf/trapping.pdf)
     pub trapping: bool,
     /// Document version
     pub document_version: u32,
@@ -29,6 +29,8 @@ pub struct PdfDocument {
     pub document_id: String,
     /// Instance ID, changed when the document is saved
     pub instance_id: Option<String>,
+    /// Target color profile
+    pub target_icc_profile: IccProfile,
 }
 
 impl<'a> PdfDocument {
@@ -49,6 +51,7 @@ impl<'a> PdfDocument {
             xmp_metadata: None,
             document_id: "6b23e74f-ab86-435e-b5b0-2ffc876ba5a2".into(), // todo!
             instance_id: None,
+            target_icc_profile: IccProfile::new(ICC_PROFILE_ECI_V2.to_vec()),
         },
         PdfPageIndex(0),
         PdfLayerIndex(0))

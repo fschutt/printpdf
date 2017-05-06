@@ -10,6 +10,15 @@ pub struct IccProfile {
     icc: Vec<u8>,
 }
 
+impl IccProfile {
+    /// Creates a new Icc Profile
+    pub fn new(icc: Vec<u8>)
+    -> Self 
+    {
+        Self { icc }
+    }
+}
+
 impl IntoPdfObject for IccProfile {
     fn into_obj(self: Box<Self>)
     -> lopdf::Object

@@ -19,3 +19,6 @@ pub(crate) const PDF_TAG_3BEZIER_CURVE_V2: &'static str       = "y";
 pub(crate) const PDF_TAG_4BEZIER_CURVE: &'static str          = "c";
 pub(crate) const PDF_TAG_END_LINE_OUTLINE: &'static str       = "b";
 pub(crate) const PDF_TAG_END_LINE_FILL: &'static str          = "S";
+
+/// These color profiles are included in the binary
+pub const ICC_PROFILE_ECI_V2: &[u8] = include_bytes!("templates/ISOcoated_v2_eci.icc");

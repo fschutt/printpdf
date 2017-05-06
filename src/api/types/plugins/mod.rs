@@ -1,3 +1,5 @@
+//! Any kind of PDF objects. Every object that can be added to the PDF is a "plugin".
+//! 
 //! Plugins are type that do not have to do with the core structure of PDF
 //! (such as pagination, etc) but are "extensions" to the core PDF model.
 //! 

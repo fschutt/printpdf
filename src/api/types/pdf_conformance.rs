@@ -11,6 +11,7 @@
 /// **PDF/X** (printing), **PDF/E** (engineering / CAD), **PDF/VT** (large volume transactions with 
 /// repeated content)
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[allow(non_camel_case_types)]
 pub enum PdfConformance {
     /// `PDF/A-1b` basic PDF, many features restricted
     A1B_2005_PDF_1_4,
@@ -19,7 +20,7 @@ pub enum PdfConformance {
     A1A_2005_PDF_1_4,
     /// `PDF/A-2:2011` - JPEG compression, transpareny, layering, OpenType fonts
     A2_2011_PDF_1_7,
-    /// `PDF/A-2a:2011`- 
+    /// `PDF/A-2a:2011`
     A2A_2011_PDF_1_7,
     /// `PDF/A-2b:2011`
     A2B_2011_PDF_1_7,
