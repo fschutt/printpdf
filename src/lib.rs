@@ -18,13 +18,13 @@
 //! use printpdf::*;
 //! use std::fs::File;
 //! 
-//! let (doc, _, _) = PdfDocument::new(
-//!                       PdfPage::new(247.0, 210.0,
-//!                           PdfLayer::new("Layer 1")), 
-//!                   "Hello World PDF!", "superprogram_v1.1");
-//! 
-//! let output_file = File::create("test_simple_empty_file.pdf").unwrap();
-//! doc.save(&mut file).unwrap();
+//! let (mut doc, page1, layer1) = PdfDocument::new(
+//!                                    PdfPage::new(247.0, 210.0, 
+//!                                       PdfLayer::new("Layer 1")), 
+//!                                "PDF_Document_title");
+//!
+//! let mut output_file = File::create("test_simple_empty_file.pdf").unwrap();
+//! doc.save(&mut output_file).unwrap();
 //! ```
 //! 
 //! ### Page with embedded font

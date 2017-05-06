@@ -1,8 +1,6 @@
 //! Out of bounds errors
 extern crate error_chain;
 
-use super::super::api;
-
 error_chain! {
 
     types {

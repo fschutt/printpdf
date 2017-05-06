@@ -22,13 +22,13 @@ instantiate blobs / content when you have a reference to the layer. Here are som
 use printpdf::*;
 use std::fs::File;
 
-let (doc, _, _) = PdfDocument::new(
-                      PdfPage::new(247.0, 210.0,
-                          PdfLayer::new("Layer 1")), 
-                  "Hello World PDF!", "superprogram_v1.1");
+let (mut doc, page1, layer1) = PdfDocument::new(
+                                   PdfPage::new(247.0, 210.0, 
+                                      PdfLayer::new("Layer 1")), 
+                               "PDF_Document_title");
 
-let output_file = File::create("test_simple_empty_file.pdf").unwrap();
-doc.save(&mut file).unwrap();
+let mut output_file = File::create("test_simple_empty_file.pdf").unwrap();
+doc.save(&mut output_file).unwrap();
 ```
 
 #### Page with embedded font
@@ -40,6 +40,9 @@ doc.save(&mut file).unwrap();
 Resources I found while working on this library
 
 [Official PDF 1.7 reference](http://www.adobe.com/content/dam/Adobe/en/devnet/acrobat/pdfs/pdf_reference_1-7.pdf)
+
 [[GERMAN] How to embed unicode fonts in PDF](http://www.p2501.ch/pdf-howto/typographie/vollzugriff/direkt)
+
 [PDF X/1-a Validator](https://www.pdf-online.com/osa/validate.aspx)
+
 [PDF X/3 technical notes](http://www.pdfxreport.com/lib/exe/fetch.php?media=en:technote_pdfx_checks.pdf)
