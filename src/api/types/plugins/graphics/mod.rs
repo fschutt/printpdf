@@ -14,4 +14,4 @@ pub mod icc_profile;
 pub use self::outline::Outline;
 pub use self::fill::Fill;
 pub use self::color::{Color, Rgb, Cmyk, Grayscale};
-pub use self::icc_profile::IccProfile;
+pub use self::icc_profile::{IccProfile, IccProfileType};

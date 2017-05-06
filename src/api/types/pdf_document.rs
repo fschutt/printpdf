@@ -51,7 +51,7 @@ impl<'a> PdfDocument {
             xmp_metadata: None,
             document_id: "6b23e74f-ab86-435e-b5b0-2ffc876ba5a2".into(), // todo!
             instance_id: None,
-            target_icc_profile: IccProfile::new(ICC_PROFILE_ECI_V2.to_vec()),
+            target_icc_profile: IccProfile::new(ICC_PROFILE_ECI_V2.to_vec(), IccProfileType::Cmyk),
         },
         PdfPageIndex(0),
         PdfLayerIndex(0))
