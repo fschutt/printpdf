@@ -36,8 +36,11 @@
 //! Resources I found while working on this library
 //! 
 //! [Official PDF 1.7 reference](http://www.adobe.com/content/dam/Adobe/en/devnet/acrobat/pdfs/pdf_reference_1-7.pdf)
+//!
 //! [[GERMAN] How to embed unicode fonts in PDF](http://www.p2501.ch/pdf-howto/typographie/vollzugriff/direkt)
+//!
 //! [PDF X/1-a Validator](https://www.pdf-online.com/osa/validate.aspx)
+//!
 //! [PDF X/3 technical notes](http://www.pdfxreport.com/lib/exe/fetch.php?media=en:technote_pdfx_checks.pdf)
 
 
