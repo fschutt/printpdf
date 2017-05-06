@@ -45,7 +45,7 @@ impl<'a> PdfDocument {
             inner_doc: lopdf::Document::with_version("1.3"),
             trapping: false,
             document_version: 1,
-            conformance: PdfConformance::Pdf_X3_ISO_15930_4_2004_Pdf_1_4,
+            conformance: PdfConformance::X3_2003_PDF_1_4,
             xmp_metadata: None,
             document_id: "6b23e74f-ab86-435e-b5b0-2ffc876ba5a2".into(), // todo!
             instance_id: None,
