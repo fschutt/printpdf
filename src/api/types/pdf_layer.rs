@@ -1,4 +1,4 @@
-//! One PDF layer = one optional content group
+//! PDF layer management. Layers can contain referenced or real content.
 
 use *;
 

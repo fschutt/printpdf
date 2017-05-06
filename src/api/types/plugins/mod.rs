@@ -9,7 +9,9 @@
 pub mod graphics;
 pub mod media;
 pub mod interactive;
+pub mod xmp;
 
 pub use self::graphics::*;
 pub use self::media::*;
 pub use self::interactive::*;
+pub use self::xmp::*;

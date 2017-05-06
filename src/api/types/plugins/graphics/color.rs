@@ -6,7 +6,8 @@ use *;
 pub enum Color {
     Rbg(Rgb),
     Cmyk(Cmyk),
-    Grayscale(Grayscale)
+    Grayscale(Grayscale),
+    SpotColor(SpotColor)
 }
 
 #[derive(Debug, Clone)]
@@ -47,4 +48,22 @@ impl Cmyk {
 pub struct Grayscale {
     pub percent: f64,
     pub color_space: Option<IccProfile>,
+}
+
+
+/// Spot colors are like Cmyk, but without color space
+#[derive(Debug, Clone)]
+pub struct SpotColor {
+    pub c: f64,
+    pub m: f64,
+    pub y: f64,
+    pub k: f64,
+}
+
+impl SpotColor {
+    pub fn new(c: f64, m: f64, y: f64, k: f64)
+    -> Self
+    {
+        Self { c, m, y, k }
+    }
 }

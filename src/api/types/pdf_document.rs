@@ -3,19 +3,32 @@
 extern crate lopdf;
 
 use *;
+use api::types::indices::*;
 use std::io::{Write, Seek};
 
 /// PDF document
 #[derive(Debug)]
 pub struct PdfDocument {
-    // Pages of the document
+    /// Pages of the document
     pages: Vec<PdfPage>,
-    /// PDF document title
-    title: String,
     /// PDF contents (subject to change)
     contents: Vec<Box<IntoPdfObject>>,
     /// Inner PDF document
     inner_doc: lopdf::Document,
+    /// PDF document title
+    pub title: String,
+    /// Is the document trapped? (Read More)[https://www.adobe.com/studio/print/pdf/trapping.pdf]
+    pub trapping: bool,
+    /// Document version
+    pub document_version: u32,
+    /// PDF conformance currently set for this document
+    pub conformance: PdfConformance,
+    /// XMP Metadata. Is ignored on save if the PDF conformance does not allow XMP
+    pub xmp_metadata: Option<XmpMetadata>,
+    /// Document ID, used for comparing two documents for equality
+    pub document_id: String,
+    /// Instance ID, changed when the document is saved
+    pub instance_id: Option<String>,
 }
 
 impl<'a> PdfDocument {
@@ -30,9 +43,71 @@ impl<'a> PdfDocument {
             title: title.into(),
             contents: Vec::new(),
             inner_doc: lopdf::Document::with_version("1.3"),
+            trapping: false,
+            document_version: 1,
+            conformance: PdfConformance::Pdf_X3_ISO_15930_4_2004_Pdf_1_4,
+            xmp_metadata: None,
+            document_id: "6b23e74f-ab86-435e-b5b0-2ffc876ba5a2".into(), // todo!
+            instance_id: None,
         },
         PdfPageIndex(0),
         PdfLayerIndex(0))
+    }
+
+    /// Checks for invalid settings in the document
+    pub fn check_for_errors(&mut self) 
+    -> ::std::result::Result<(), Error>
+    {
+        // todo
+        Ok(())
+    }
+
+    /// Tries to match the document to the given conformance.
+    /// Errors only on an unrecoverable error.
+    pub fn repair_errors(&mut self, conformance: PdfConformance)
+    -> ::std::result::Result<(), Error>
+    {
+        //todo
+        Ok(())
+    }
+
+    // ----- BUILDER FUNCTIONS
+
+    /// Set the trapping of the document
+    #[inline]
+    pub fn with_trapping(mut self, trapping: bool)
+    -> Self 
+    {
+        self.trapping = trapping;
+        self
+    }
+
+    /// Sets the document ID (for comparing two PDF documents for equality)
+    #[inline]
+    pub fn with_document_id(mut self, id: String)
+    -> Self
+    {
+        self.document_id = id;
+        self
+    }
+
+    /// Set the version of the document
+    #[inline]
+    pub fn with_document_version(mut self, version: u32)
+    -> Self 
+    {
+        self.document_version = version;
+        self
+    }
+
+    /// Changes the conformance of this document. It is recommended to call `check_for_errors()`
+    /// after changing it.
+    #[inline]
+    pub fn with_conformance(mut self, conformance: PdfConformance)
+    -> Self
+    {
+        self.conformance = conformance;
+        self
     }
 
     // ----- ADD FUNCTIONS
@@ -113,13 +188,13 @@ impl<'a> PdfDocument {
         // add root, catalog & pages
         let pages_id = self.inner_doc.new_object_id();
         let info_id = self.inner_doc.new_object_id();
-        let dest_output_profile = self.inner_doc.new_object_id();
+        let target_icc_profile = self.inner_doc.new_object_id();
 
         let create_date = "2017-05-05T15:02:24+02:00";
         let modify_date = "2017-05-05T15:02:24+02:00";
         let metadata_date = "2017-05-05T15:02:24+02:00";
         let document_title = self.title.clone();
-        let document_id = "6b23e74f-ab86-435e-b5b0-2ffc876ba5a2";
+        let document_id = self.document_id.clone();
         let instance_id = "2898d852-f86f-4479-955b-804d81046b19";
         let document_version = "1";
         let rendition_class = "default";
@@ -177,7 +252,7 @@ impl<'a> PdfDocument {
                           ("Type", Name("OutputIntent".into())),
                           ("OutputConditionIdentifier", String("FOGRA39".into(), StringFormat::Literal)),
                           ("RegistryName", String("www.color.org".into(), StringFormat::Literal)),
-                          ("DestinationOutputProfile", Reference(dest_output_profile)),
+                          ("DestinationOutputProfile", Reference(target_icc_profile)),
                           ("Info", String("Coated FOGRA39 (ISO 12647-2:2004)".into(), StringFormat::Literal)), 
                           ])),
                       ])),

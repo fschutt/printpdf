@@ -1,4 +1,4 @@
-//! Module for operation 
+//! PDF page management
 
 use *;
 
@@ -15,7 +15,7 @@ pub struct PdfPage {
 
 impl PdfPage {
 
-    /// Create a new page, notice that width / height are in millimeter
+    /// Create a new page, notice that width / height are in millimeter.
     /// Page must contain at least one layer
     #[inline]
     pub fn new(width_mm: f64, height_mm: f64, initial_layer: PdfLayer)

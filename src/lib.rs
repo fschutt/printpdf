@@ -64,3 +64,4 @@ mod glob_defines;
 pub use self::api::*;
 pub use self::errors::*;
 use glob_defines::*;
+use api::types::indices::*;
