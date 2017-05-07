@@ -1,0 +1,8 @@
+<20> 1469
+endcidchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end
+%%EndResource
+%%EOF

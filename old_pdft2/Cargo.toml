@@ -1,0 +1,10 @@
+[package]
+name = "pdft2"
+version = "0.1.0"
+authors = ["felix"]
+
+[dependencies]
+lopdf = "0.6.0"
+freetype-rs = "0.11.0"
+unicode-normalization = "0.1.4"
+lcms2 = { git = "https://github.com/sharazam/rust-lcms2" }

@@ -1,0 +1,13 @@
+Validating file "example_6.pdf" for conformance level pdf1.4
+The encoding for character code 0 in font 'FreeSans' is missing.
+The encoding for character code 28 in font 'FreeSans' is missing.
+The encoding for character code 29 in font 'FreeSans' is missing.
+The encoding for character code 24 in font 'FreeSans' is missing.
+The encoding for character code 25 in font 'FreeSans' is missing.
+The encoding for character code 1 in font 'FreeSans' is missing.
+The encoding for character code 19 in font 'FreeSans' is missing.
+The operator has an invalid number of operands.
+The document does not conform to the requested standard.
+The document doesn't conform to the PDF reference (missing required entries, wrong value types, etc.).
+The document contains fonts without embedded font programs or encoding information (CMAPs).
+Done.
