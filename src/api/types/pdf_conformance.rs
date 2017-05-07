@@ -61,3 +61,99 @@ pub enum PdfConformance {
     /// (like postcards, stamps), that require customization before printing
     VT_2010_PDF_1_4,
 }
+
+impl PdfConformance {
+
+    /// Get the identifier string for PDF
+    pub fn get_identifier_string(&self)
+    -> String
+    {
+        let identifier = match self {
+            A1B_2005_PDF_1_4  => "PDF/A-1b:2005",
+            A1A_2005_PDF_1_4  => "PDF/A-1a:2005",
+            A2_2011_PDF_1_7   => "PDF/A-2:2011",
+            A2A_2011_PDF_1_7  => "PDF/A-2a:2011",
+            A2B_2011_PDF_1_7  => "PDF/A-2b:2011",
+            A2U_2011_PDF_1_7  => "PDF/A-2u:2011",
+            A3_2012_PDF_1_7   => "PDF/A-3:2012",
+            UA_2014_PDF_1_6   => "PDF/UA",
+            X1A_2001_PDF_1_3  => "PDF/X-1a:2001",
+            X3_2002_PDF_1_3   => "PDF/X-3:2002",
+            X1A_2003_PDF_1_4  => "PDF/X-1a:2003",
+            X3_2003_PDF_1_4   => "PDF/X-3:2003",
+            X4_2010_PDF_1_4   => "PDF/X-4:2010",
+            X4P_2010_PDF_1_6  => "PDF/X-4",
+            X5G_2010_PDF_1_6  => "PDF/X-5",
+            X5PG_2010_PDF_1_6 => "PDF/X-5",
+            X5N_2010_PDF_1_6  => "PDF/X-5",
+            E1_2008_PDF_1_6   => "PDF/E-1",
+            VT_2010_PDF_1_4   => "PDF/VT",
+        };
+
+        identifier.to_string()
+    }
+
+    pub fn is_3d_content_allowed(&self)
+    -> bool
+    {
+        match self {
+           E1_2008_PDF_1_6   => return true,
+        }
+
+        false
+    }
+
+    /// Does this conformance level allow video
+    pub fn is_video_content_allowed(&self)
+    -> bool
+    {
+        // todo
+        false
+    }
+
+    /// Does this conformance level allow video
+    pub fn is_audio_content_allowed(&self)
+    -> bool
+    {
+        // todo
+        false
+    }
+
+    pub fn is_javascript_content_allowed(&self)
+    -> bool
+    {
+        // todo
+        false
+    }
+
+    pub fn is_jpeg_content_allowed(&self)
+    -> bool
+    {
+        // todo
+        false
+    }
+
+    pub fn must_have_xmp_metadata(&self)
+    -> bool
+    {
+        match self {
+            X1A_2001_PDF_1_3  => { true },
+            X3_2002_PDF_1_3   => { true },
+            X1A_2003_PDF_1_4  => { true },
+            X3_2003_PDF_1_4   => { true },
+            X4_2010_PDF_1_4   => { true },
+            X4P_2010_PDF_1_6  => { true },
+            X5G_2010_PDF_1_6  => { true },
+            X5PG_2010_PDF_1_6 => { true },
+            _                 => { false },
+        }
+    }
+
+    /// Check if the conformance level must have an ICC Profile
+    pub fn must_have_icc_profile(&self)
+    -> bool
+    {
+        // todo
+        true
+    }
+}

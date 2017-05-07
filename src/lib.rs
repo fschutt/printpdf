@@ -55,6 +55,8 @@
 
 extern crate lopdf;
 extern crate freetype;
+extern crate chrono;
+extern crate rand;
 
 pub mod api;
 pub mod errors;

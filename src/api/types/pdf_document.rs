@@ -1,6 +1,8 @@
 //! A `PDFDocument` represents the whole content of the file
 
 extern crate lopdf;
+extern crate chrono;
+extern crate rand;
 
 use *;
 use api::types::indices::*;
@@ -30,7 +32,7 @@ pub struct PdfDocument {
     /// Instance ID, changed when the document is saved
     pub instance_id: Option<String>,
     /// Target color profile
-    pub target_icc_profile: IccProfile,
+    pub target_icc_profile: Option<IccProfile>,
 }
 
 impl<'a> PdfDocument {
@@ -51,7 +53,7 @@ impl<'a> PdfDocument {
             xmp_metadata: None,
             document_id: "6b23e74f-ab86-435e-b5b0-2ffc876ba5a2".into(), // todo!
             instance_id: None,
-            target_icc_profile: IccProfile::new(ICC_PROFILE_ECI_V2.to_vec(), IccProfileType::Cmyk),
+            target_icc_profile: None,
         },
         PdfPageIndex(0),
         PdfLayerIndex(0))
@@ -175,7 +177,6 @@ impl<'a> PdfDocument {
         (self.inner_doc, self.contents)
     }
 
-    /// ## Miscellaneous functions
 
     /// Save PDF Document, writing the contents to the target
     pub fn save<W: Write + Seek>(mut self, target: &mut W)
@@ -187,59 +188,77 @@ impl<'a> PdfDocument {
         use lopdf::Object::*;
         use lopdf::StringFormat;
         use std::iter::FromIterator;
+        use PdfConformance::*;
+        use api::traits::IntoPdfObject;
+        use rand::Rng;
 
-        // add root, catalog & pages
         let pages_id = self.inner_doc.new_object_id();
         let info_id = self.inner_doc.new_object_id();
-        let target_icc_profile = self.inner_doc.new_object_id();
 
-        let create_date = "2017-05-05T15:02:24+02:00";
-        let modify_date = "2017-05-05T15:02:24+02:00";
-        let metadata_date = "2017-05-05T15:02:24+02:00";
-        let document_title = self.title.clone();
-        let document_id = self.document_id.clone();
-        let instance_id = "2898d852-f86f-4479-955b-804d81046b19";
-        let document_version = "1";
-        let rendition_class = "default";
-        let pdf_x_version = "PDF/X-3:2002";
-        let trapped = "False";
+        let current_time = chrono::Local::now();
+        let xmp_create_date = current_time.to_rfc3339();
+        let xmp_modify_date = xmp_create_date.clone();
+        let xmp_document_metadata_date = xmp_create_date.clone(); /* preliminary */
+        
+        // info_mod timestamp: D:20170505150224+02'00'
+        let info_create_date = current_time.format("D:");
+        let time_zone = current_time.format("%z").to_string();
+        let mod_date = current_time.format("D:%Y%m%d%H%M%S");
+        let info_mod_date = format!("{}+{}'{}'", mod_date, 
+                                    time_zone.chars().take(2).collect(), 
+                                    time_zone.chars().rev().take(2).collect());
+
+        let xmp_document_title = self.title.clone();
+        let xmp_document_id = self.document_id.clone();
+        // let xmp_instance_id = "2898d852-f86f-4479-955b-804d81046b19";
+        let xmp_instance_id = rand::thread_rng().gen_ascii_chars().take(32).collect();
+
+        let rendition_class = match self.xmp_metadata {
+            Some(meta) => { Some(Box::new(meta).into_obj()) },
+            None => match self.conformance.must_have_xmp_metadata() {
+                        true => { None }, /* todo: error on certain conformance levels */
+                        false => { None },
+                    }
+            } 
+        };
+
+        let document_version = self.document_version.to_string();
+        let pdf_x_version = self.conformance.get_identifier_string();
+        let trapped = match self.trapping { true => "True", false => "False" };
 
         // extra pdf infos required for pdf/x-3
         let info = LoDictionary::from_iter(vec![
-            ("Trapped", "False".into()),
-            ("CreationDate", String("D:20170505150224+02'00'".into(), StringFormat::Literal)),
-            ("ModDate", String("D:20170505150224+02'00'".into(), StringFormat::Literal)),
+            ("Trapped", trapped.into()),
+            ("CreationDate", String(info_mod_date.into_bytes(), StringFormat::Literal)),
+            ("ModDate", String(info_mod_date.into_bytes(), StringFormat::Literal)),
             ("GTS_PDFXVersion", String(pdf_x_version.into(), StringFormat::Literal)),
-            ("Title", String(document_title.clone().into(), StringFormat::Literal))
+            ("Title", String(xmp_document_title.clone().into(), StringFormat::Literal))
         ]);
 
         self.inner_doc.objects.insert(info_id, Dictionary(info));
-        
-        // overprint key as name
-        // document id - random hash in trailer, for checking if a PDF document has been modified
-        // document creation date (CreationDate)
-        // date of last change (ModDate)
-        // document title (Title)
-        // output intent (OutputIntent)
-        // PDF/X conformance key (GTX_PDFXVersion - "PDF/X-3:2002")
 
-        // note: standard rgb is not allowed
-        // note: lzw compression is prohibited
+        // add icc profile
+        let icc_profile = match self.icc_profile {
 
-        // let random_str: String = ::std::rand::thread_rng().gen_ascii_chars().take(len).collect();
+            Some(icc) => { let stream_obj = Box::new(icc).into_obj(); 
+                           Some(Reference(self.inner_doc.add_object(stream_obj)))
+                         },
+
+            None =>      match self.conformance.must_have_icc_profile() {
+                             true => Some(IccProfile::new(ICC_PROFILE_ECI_V2.to_vec(), 
+                                          IccProfileType::Cmyk)),
+                             false => None,
+                         }
+            }
+        };
+
+        let icc_profile_descr = "Commercial and special offset print acccording to ISO \
+                                 12647-2:2004 / Amd 1, paper type 1 or 2 (matte or gloss-coated \
+                                 offset paper, 115 g/m2), screen ruling 60/cm";
+        let icc_profile_str = "Coated FOGRA39 (ISO 12647-2:2004)";
+        let icc_profile_short = "FOGRA39";
 
         // xmp metadata
-
-        
-        let xmp_metadata = format!(include_str!("../../templates/catalog_xmp_metadata.txt"),
-                           create_date, modify_date, metadata_date, document_title, document_id, 
-                           instance_id, rendition_class, document_version, pdf_x_version, trapped);
-
-        let stream = Stream(LoStream::new(LoDictionary::from_iter(vec![
-                          ("Type", "Metadata".into()),
-                          ("Subtype", "XML".into()), ]),
-                          xmp_metadata.as_bytes().to_vec() ));
-
         let catalog = LoDictionary::from_iter(vec![
                       ("Type", "Catalog".into()),
                       ("PageLayout", "OneColumn".into()),
@@ -248,18 +267,16 @@ impl<'a> PdfDocument {
                       ("Metadata", Reference(self.inner_doc.add_object(stream)) ),
                       ("OutputIntents", Array(vec![Dictionary(LoDictionary::from_iter(vec![
                           ("S", Name("GTS_PDFX".into())),
-                          ("OutputCondition", String("Commercial and special offset print acccording  \
-                                               to ISO 12647-2:2004 / Amd 1, paper type 1 or 2  \
-                                               (matte or gloss-coated offset paper, 115 g/m2), \
-                                               screen ruling 60/cm".into(), StringFormat::Literal)),
+                          ("OutputCondition", String(icc_profile_descr.into(), StringFormat::Literal)),
                           ("Type", Name("OutputIntent".into())),
-                          ("OutputConditionIdentifier", String("FOGRA39".into(), StringFormat::Literal)),
+                          ("OutputConditionIdentifier", String(icc_profile_short.into(), StringFormat::Literal)),
                           ("RegistryName", String("www.color.org".into(), StringFormat::Literal)),
-                          ("DestinationOutputProfile", Reference(target_icc_profile)),
-                          ("Info", String("Coated FOGRA39 (ISO 12647-2:2004)".into(), StringFormat::Literal)), 
+                          ("Info", String(icc_profile_str.into(), StringFormat::Literal)), 
                           ])),
                       ])),
                     ]);
+
+        if let Some(i) = icc_profile { ("DestinationOutputProfile", Reference(i))}
 
         let mut pages = LoDictionary::from_iter(vec![
                       ("Type", "Pages".into()),
