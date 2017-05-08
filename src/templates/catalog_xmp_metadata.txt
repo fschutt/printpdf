@@ -17,8 +17,8 @@
                <rdf:li xml:lang="x-default">{3}</rdf:li>
             </rdf:Alt>
          </dc:title>
-         <xmpMM:DocumentID>{4}</xmpMM:DocumentID>
-         <xmpMM:InstanceID>{5}</xmpMM:InstanceID>
+         <xmpMM:DocumentID>uuid:{4}</xmpMM:DocumentID>
+         <xmpMM:InstanceID>uuid:{5}</xmpMM:InstanceID>
          <xmpMM:RenditionClass>{6}</xmpMM:RenditionClass>
          <xmpMM:VersionID>{7}</xmpMM:VersionID>
          <pdfxid:GTS_PDFXVersion>{8}</pdfxid:GTS_PDFXVersion>

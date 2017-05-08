@@ -18,7 +18,12 @@ pub struct IccProfile {
     /// Binary Icc profile
     icc: Vec<u8>,
     /// CMYK or RGB or LAB icc profile?
-    icc_type: IccProfileType, 
+    icc_type: IccProfileType,
+    /// Does the ICC profile have an "Alternate" version or not?
+    pub has_alternate: bool,
+    /// Does the ICC profile have an "Range" dictionary
+    /// Really not sure why this is needed, but this is needed on the documents Info dictionary
+    pub has_range: bool,
 }
 
 impl IccProfile {
@@ -26,10 +31,32 @@ impl IccProfile {
     pub fn new(icc: Vec<u8>, icc_type: IccProfileType)
     -> Self 
     {
-        Self { icc, icc_type }
+        Self { 
+            icc: icc, 
+            icc_type: icc_type,
+            has_alternate: true,
+            has_range: false,
+        }
     }
 
-    // todo: transfer functions, etc.
+    /// Does the ICC profile have an alternate version (such as "DeviceCMYk")?
+    #[inline]
+    pub fn with_alternate_profile(mut self, has_alternate: bool)
+    -> Self 
+    {
+        self.has_alternate = has_alternate;
+        self
+    }
+
+    /// Does the ICC profile have an "Range" dictionary?
+    #[inline]
+    pub fn with_range(mut self, has_range: bool)
+    -> Self 
+    {
+        self.has_range = has_range;
+        self
+    }
+
 }
 
 impl IntoPdfObject for IccProfile {
@@ -37,7 +64,6 @@ impl IntoPdfObject for IccProfile {
     -> lopdf::Object
     {
         use lopdf::{Dictionary as LoDictionary, 
-                    Object as LoObject, 
                     Stream as LoStream};
         use lopdf::Object::*;
         use std::iter::FromIterator;
@@ -48,12 +74,27 @@ impl IntoPdfObject for IccProfile {
             IccProfileType::Grayscale => (1, "DeviceGray"),
         };
 
-        let stream = LoStream::new(LoDictionary::from_iter(vec![
+        let mut stream_dict = LoDictionary::from_iter(vec![
                 ("N", Integer(num_icc_fields)).into(),
-                ("Alternate", Name(alternate.into())).into(),
-                ("Length", Integer(self.icc.len() as i64).into())]),
-            self.icc
-        );
+                ("Length", Integer(self.icc.len() as i64).into())]);
+
+        if self.has_alternate {
+            stream_dict.set("Alternate", Name(alternate.into()));
+        }
+
+        if self.has_range {
+            stream_dict.set("Range", Array(vec![
+                                        Real(0.0),
+                                        Real(1.0),
+                                        Real(0.0),
+                                        Real(1.0),
+                                        Real(0.0),
+                                        Real(1.0),
+                                        Real(0.0),
+                                        Real(1.0)]));
+        }
+
+        let stream = LoStream::new(stream_dict, self.icc);
 
         Stream(stream)
     }

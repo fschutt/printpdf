@@ -17,12 +17,8 @@ pub struct PdfDocument {
     contents: Vec<Box<IntoPdfObject>>,
     /// Inner PDF document
     inner_doc: lopdf::Document,
-    /// XMP Metadata. Is ignored on save if the PDF conformance does not allow XMP
-    pub xmp_metadata: XmpMetadata,
-    /// PDF Info dictionary. Contains metadata for this document
-    pub document_info: DocumentInfo,
-    /// Target color profile
-    pub target_icc_profile: Option<IccProfile>,
+    /// Metadata for this document
+    pub metadata: PdfMetadata,
 }
 
 impl<'a> PdfDocument {
@@ -36,9 +32,7 @@ impl<'a> PdfDocument {
             pages: vec![initial_page],
             contents: Vec::new(),
             inner_doc: lopdf::Document::with_version("1.3"),
-            xmp_metadata: XmpMetadata::new(title.clone(), 1, false, PdfConformance::X3_2003_PDF_1_4),
-            document_info: DocumentInfo::new(title.clone(), 1, false, PdfConformance::X3_2003_PDF_1_4),
-            target_icc_profile: None,
+            metadata: PdfMetadata::new(title.clone(), 1, false, PdfConformance::X3_2003_PDF_1_4),
         },
         PdfPageIndex(0),
         PdfLayerIndex(0))
@@ -68,7 +62,7 @@ impl<'a> PdfDocument {
     pub fn with_trapping(mut self, trapping: bool)
     -> Self 
     {
-        self.xmp_metadata.trapping = trapping;
+        self.metadata.trapping = trapping;
         self
     }
 
@@ -77,7 +71,7 @@ impl<'a> PdfDocument {
     pub fn with_document_id(mut self, id: String)
     -> Self
     {
-        self.xmp_metadata.document_id = id;
+        self.metadata.xmp_metadata.document_id = id;
         self
     }
 
@@ -86,7 +80,7 @@ impl<'a> PdfDocument {
     pub fn with_document_version(mut self, version: u32)
     -> Self 
     {
-        self.xmp_metadata.document_version = version;
+        self.metadata.document_version = version;
         self
     }
 
@@ -96,7 +90,7 @@ impl<'a> PdfDocument {
     pub fn with_conformance(mut self, conformance: PdfConformance)
     -> Self
     {
-        self.xmp_metadata.conformance = conformance;
+        self.metadata.conformance = conformance;
         self
     }
 
@@ -106,8 +100,7 @@ impl<'a> PdfDocument {
     pub fn with_mod_date(mut self, mod_date: chrono::DateTime<chrono::Local>)
     -> Self
     {
-        self.document_info.modify_date = mod_date.clone();
-        self.xmp_metadata.modify_date = mod_date;
+        self.metadata.modification_date = mod_date;
         self
     }
 
@@ -178,10 +171,9 @@ impl<'a> PdfDocument {
     /// Changes the title on both the document info dictionary as well as the metadata
     #[inline]
     pub fn set_title<S>(mut self, new_title: S)
-    -> () where S: Into<String> + Clone
+    -> () where S: Into<String>
     {
-        self.xmp_metadata.document_title = new_title.clone().into();
-        self.document_info.document_title = new_title.clone().into();
+        self.metadata.document_title = new_title.into();
     }
 
     /// Save PDF Document, writing the contents to the target
@@ -189,34 +181,15 @@ impl<'a> PdfDocument {
     -> ::std::result::Result<(), Error>
     {
         use lopdf::{Dictionary as LoDictionary, 
-                    Object as LoObject, 
-                    Stream as LoStream};
+                    Object as LoObject};
         use lopdf::Object::*;
-        use lopdf::StringFormat;
         use std::iter::FromIterator;
-        use PdfConformance::*;
-        use api::traits::IntoPdfObject;
-        use rand::Rng;
 
         let pages_id = self.inner_doc.new_object_id();
 
-        // add icc profile if necessary
-        let icc_profile = {
-            if self.xmp_metadata.conformance.must_have_icc_profile() {
-                match self.target_icc_profile {
-                    Some(icc) => Some(icc),
-                    None =>      Some(IccProfile::new(ICC_PROFILE_ECI_V2.to_vec(), 
-                                      IccProfileType::Cmyk)),
-                }
-            } else {
-                None
-            }
-        };
-
         // extra pdf infos
-        let xmp_metadata = Box::new(self.xmp_metadata).into_obj();
+        let (xmp_metadata, document_info, icc_profile) = self.metadata.into_obj();
         let xmp_metadata_id = self.inner_doc.add_object(xmp_metadata);
-        let document_info = Box::new(self.document_info).into_obj();
         let document_info_id = self.inner_doc.add_object(document_info);
             
         // add catalog 
@@ -227,27 +200,31 @@ impl<'a> PdfDocument {
         let icc_profile_short = "FOGRA39";
 
         use lopdf::StringFormat::Literal as Literal;
-        let mut catalog = LoDictionary::from_iter(vec![
+        let mut output_intents = LoDictionary::from_iter(vec![
+                          ("S", Name("GTS_PDFX".into())),
+                          ("OutputCondition", String(icc_profile_descr.into(), Literal)),
+                          ("Type", Name("OutputIntent".into())),
+                          ("OutputConditionIdentifier", String(icc_profile_short.into(), Literal)),
+                          ("RegistryName", String("http://www.color.org".into(), Literal)),
+                          ("Info", String(icc_profile_str.into(), Literal)), 
+                          ]);
+
+        // "Metadata" dictionary nicht komprimieren
+
+        if let Some(profile) = icc_profile { 
+            use api::traits::IntoPdfObject;
+            let icc_profile_id = self.inner_doc.add_object(Box::new(profile).into_obj());
+            output_intents.set("DestinationOutputProfile", Reference(icc_profile_id));
+        }
+
+        let catalog = LoDictionary::from_iter(vec![
                       ("Type", "Catalog".into()),
                       ("PageLayout", "OneColumn".into()),
                       ("PageMode", "Use0".into()),
                       ("Pages", Reference(pages_id)),
                       ("Metadata", Reference(xmp_metadata_id) ),
-                      ("OutputIntents", Array(vec![Dictionary(LoDictionary::from_iter(vec![
-                          ("S", Name("GTS_PDFX".into())),
-                          ("OutputCondition", String(icc_profile_descr.into(), Literal)),
-                          ("Type", Name("OutputIntent".into())),
-                          ("OutputConditionIdentifier", String(icc_profile_short.into(), Literal)),
-                          ("RegistryName", String("www.color.org".into(), Literal)),
-                          ("Info", String(icc_profile_str.into(), Literal)), 
-                          ])),
-                      ])),
+                      ("OutputIntents", Array(vec![Dictionary(output_intents)])),
                     ]);
-
-        // this may have to go onto the OutputIntents dictionary
-        if let Some(profile) = icc_profile { 
-            catalog.set("DestinationOutputProfile", Reference(self.inner_doc.add_object(Box::new(profile).into_obj())));
-        }
 
         let mut pages = LoDictionary::from_iter(vec![
                       ("Type", "Pages".into()),
