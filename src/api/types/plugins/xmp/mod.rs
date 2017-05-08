@@ -29,7 +29,7 @@ impl IntoPdfObject for XmpMetadata {
         use lopdf::Object::*;
         use lopdf::StringFormat;
 
-        let xmp_metadata = format!(include_str!("../../templates/catalog_xmp_metadata.txt"),
+        let xmp_metadata = format!(include_str!("../../../../templates/catalog_xmp_metadata.txt"),
                            create_date, modify_date, metadata_date, document_title, document_id, 
                            instance_id, rendition_class, document_version, pdf_x_version, trapped);
 

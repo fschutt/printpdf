@@ -214,12 +214,11 @@ impl<'a> PdfDocument {
         let xmp_instance_id = rand::thread_rng().gen_ascii_chars().take(32).collect();
 
         let rendition_class = match self.xmp_metadata {
-            Some(meta) => { Some(Box::new(meta).into_obj()) },
+            Some(meta) => Some(Box::new(meta).into_obj()),
             None => match self.conformance.must_have_xmp_metadata() {
-                        true => { None }, /* todo: error on certain conformance levels */
-                        false => { None },
+                        true => None, /* todo: error on certain conformance levels */
+                        false => None,
                     }
-            } 
         };
 
         let document_version = self.document_version.to_string();
@@ -241,15 +240,13 @@ impl<'a> PdfDocument {
         let icc_profile = match self.icc_profile {
 
             Some(icc) => { let stream_obj = Box::new(icc).into_obj(); 
-                           Some(Reference(self.inner_doc.add_object(stream_obj)))
-                         },
+                           Some(Reference(self.inner_doc.add_object(stream_obj))) },
 
             None =>      match self.conformance.must_have_icc_profile() {
                              true => Some(IccProfile::new(ICC_PROFILE_ECI_V2.to_vec(), 
                                           IccProfileType::Cmyk)),
                              false => None,
                          }
-            }
         };
 
         let icc_profile_descr = "Commercial and special offset print acccording to ISO \
