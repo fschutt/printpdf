@@ -48,6 +48,7 @@
 #![feature(placement_in_syntax)]
 #![feature(collection_placement)]
 #![feature(custom_attribute)]
+#![feature(pub_restricted)]
 
 #[macro_use] extern crate error_chain;
 #[macro_use] extern crate log;

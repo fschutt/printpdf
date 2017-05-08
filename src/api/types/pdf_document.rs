@@ -17,20 +17,10 @@ pub struct PdfDocument {
     contents: Vec<Box<IntoPdfObject>>,
     /// Inner PDF document
     inner_doc: lopdf::Document,
-    /// PDF document title
-    pub title: String,
-    /// Is the document trapped? [Read More](https://www.adobe.com/studio/print/pdf/trapping.pdf)
-    pub trapping: bool,
-    /// Document version
-    pub document_version: u32,
-    /// PDF conformance currently set for this document
-    pub conformance: PdfConformance,
     /// XMP Metadata. Is ignored on save if the PDF conformance does not allow XMP
-    pub xmp_metadata: Option<XmpMetadata>,
-    /// Document ID, used for comparing two documents for equality
-    pub document_id: String,
-    /// Instance ID, changed when the document is saved
-    pub instance_id: Option<String>,
+    pub xmp_metadata: XmpMetadata,
+    /// PDF Info dictionary. Contains metadata for this document
+    pub document_info: DocumentInfo,
     /// Target color profile
     pub target_icc_profile: Option<IccProfile>,
 }
@@ -40,19 +30,14 @@ impl<'a> PdfDocument {
     /// Creates a new PDF document
     #[inline]
     pub fn new<S>(initial_page: PdfPage, title: S)
-    -> (Self, PdfPageIndex, PdfLayerIndex) where S: Into<String>
+    -> (Self, PdfPageIndex, PdfLayerIndex) where S: Into<String> + Clone
     {
         (Self {
             pages: vec![initial_page],
-            title: title.into(),
             contents: Vec::new(),
             inner_doc: lopdf::Document::with_version("1.3"),
-            trapping: false,
-            document_version: 1,
-            conformance: PdfConformance::X3_2003_PDF_1_4,
-            xmp_metadata: None,
-            document_id: "6b23e74f-ab86-435e-b5b0-2ffc876ba5a2".into(), // todo!
-            instance_id: None,
+            xmp_metadata: XmpMetadata::new(title.clone(), 1, false, PdfConformance::X3_2003_PDF_1_4),
+            document_info: DocumentInfo::new(title.clone(), 1, false, PdfConformance::X3_2003_PDF_1_4),
             target_icc_profile: None,
         },
         PdfPageIndex(0),
@@ -83,7 +68,7 @@ impl<'a> PdfDocument {
     pub fn with_trapping(mut self, trapping: bool)
     -> Self 
     {
-        self.trapping = trapping;
+        self.xmp_metadata.trapping = trapping;
         self
     }
 
@@ -92,7 +77,7 @@ impl<'a> PdfDocument {
     pub fn with_document_id(mut self, id: String)
     -> Self
     {
-        self.document_id = id;
+        self.xmp_metadata.document_id = id;
         self
     }
 
@@ -101,17 +86,28 @@ impl<'a> PdfDocument {
     pub fn with_document_version(mut self, version: u32)
     -> Self 
     {
-        self.document_version = version;
+        self.xmp_metadata.document_version = version;
         self
     }
 
-    /// Changes the conformance of this document. It is recommended to call `check_for_errors()`
-    /// after changing it.
+    /// Changes the conformance of this document. It is recommended to call 
+    /// `check_for_errors()` after changing it.
     #[inline]
     pub fn with_conformance(mut self, conformance: PdfConformance)
     -> Self
     {
-        self.conformance = conformance;
+        self.xmp_metadata.conformance = conformance;
+        self
+    }
+
+    /// Sets the modification date on the document. Intended to be used when
+    /// reading documents that already have a modification date.
+    #[inline]
+    pub fn with_mod_date(mut self, mod_date: chrono::DateTime<chrono::Local>)
+    -> Self
+    {
+        self.document_info.modify_date = mod_date.clone();
+        self.xmp_metadata.modify_date = mod_date;
         self
     }
 
@@ -177,6 +173,16 @@ impl<'a> PdfDocument {
         (self.inner_doc, self.contents)
     }
 
+    // --- MISC FUNCTIONS
+
+    /// Changes the title on both the document info dictionary as well as the metadata
+    #[inline]
+    pub fn set_title<S>(mut self, new_title: S)
+    -> () where S: Into<String> + Clone
+    {
+        self.xmp_metadata.document_title = new_title.clone().into();
+        self.document_info.document_title = new_title.clone().into();
+    }
 
     /// Save PDF Document, writing the contents to the target
     pub fn save<W: Write + Seek>(mut self, target: &mut W)
@@ -193,87 +199,55 @@ impl<'a> PdfDocument {
         use rand::Rng;
 
         let pages_id = self.inner_doc.new_object_id();
-        let info_id = self.inner_doc.new_object_id();
 
-        let current_time = chrono::Local::now();
-        let xmp_create_date = current_time.to_rfc3339();
-        let xmp_modify_date = xmp_create_date.clone();
-        let xmp_document_metadata_date = xmp_create_date.clone(); /* preliminary */
-        
-        // info_mod timestamp: D:20170505150224+02'00'
-        let info_create_date = current_time.format("D:");
-        let time_zone = current_time.format("%z").to_string();
-        let mod_date = current_time.format("D:%Y%m%d%H%M%S");
-        let info_mod_date = format!("{}+{}'{}'", mod_date, 
-                                    time_zone.chars().take(2).collect(), 
-                                    time_zone.chars().rev().take(2).collect());
-
-        let xmp_document_title = self.title.clone();
-        let xmp_document_id = self.document_id.clone();
-        // let xmp_instance_id = "2898d852-f86f-4479-955b-804d81046b19";
-        let xmp_instance_id = rand::thread_rng().gen_ascii_chars().take(32).collect();
-
-        let rendition_class = match self.xmp_metadata {
-            Some(meta) => Some(Box::new(meta).into_obj()),
-            None => match self.conformance.must_have_xmp_metadata() {
-                        true => None, /* todo: error on certain conformance levels */
-                        false => None,
-                    }
+        // add icc profile if necessary
+        let icc_profile = {
+            if self.xmp_metadata.conformance.must_have_icc_profile() {
+                match self.target_icc_profile {
+                    Some(icc) => Some(icc),
+                    None =>      Some(IccProfile::new(ICC_PROFILE_ECI_V2.to_vec(), 
+                                      IccProfileType::Cmyk)),
+                }
+            } else {
+                None
+            }
         };
 
-        let document_version = self.document_version.to_string();
-        let pdf_x_version = self.conformance.get_identifier_string();
-        let trapped = match self.trapping { true => "True", false => "False" };
-
-        // extra pdf infos required for pdf/x-3
-        let info = LoDictionary::from_iter(vec![
-            ("Trapped", trapped.into()),
-            ("CreationDate", String(info_mod_date.into_bytes(), StringFormat::Literal)),
-            ("ModDate", String(info_mod_date.into_bytes(), StringFormat::Literal)),
-            ("GTS_PDFXVersion", String(pdf_x_version.into(), StringFormat::Literal)),
-            ("Title", String(xmp_document_title.clone().into(), StringFormat::Literal))
-        ]);
-
-        self.inner_doc.objects.insert(info_id, Dictionary(info));
-
-        // add icc profile
-        let icc_profile = match self.icc_profile {
-
-            Some(icc) => { let stream_obj = Box::new(icc).into_obj(); 
-                           Some(Reference(self.inner_doc.add_object(stream_obj))) },
-
-            None =>      match self.conformance.must_have_icc_profile() {
-                             true => Some(IccProfile::new(ICC_PROFILE_ECI_V2.to_vec(), 
-                                          IccProfileType::Cmyk)),
-                             false => None,
-                         }
-        };
-
+        // extra pdf infos
+        let xmp_metadata = Box::new(self.xmp_metadata).into_obj();
+        let xmp_metadata_id = self.inner_doc.add_object(xmp_metadata);
+        let document_info = Box::new(self.document_info).into_obj();
+        let document_info_id = self.inner_doc.add_object(document_info);
+            
+        // add catalog 
         let icc_profile_descr = "Commercial and special offset print acccording to ISO \
                                  12647-2:2004 / Amd 1, paper type 1 or 2 (matte or gloss-coated \
                                  offset paper, 115 g/m2), screen ruling 60/cm";
         let icc_profile_str = "Coated FOGRA39 (ISO 12647-2:2004)";
         let icc_profile_short = "FOGRA39";
 
-        // xmp metadata
-        let catalog = LoDictionary::from_iter(vec![
+        use lopdf::StringFormat::Literal as Literal;
+        let mut catalog = LoDictionary::from_iter(vec![
                       ("Type", "Catalog".into()),
                       ("PageLayout", "OneColumn".into()),
                       ("PageMode", "Use0".into()),
                       ("Pages", Reference(pages_id)),
-                      ("Metadata", Reference(self.inner_doc.add_object(stream)) ),
+                      ("Metadata", Reference(xmp_metadata_id) ),
                       ("OutputIntents", Array(vec![Dictionary(LoDictionary::from_iter(vec![
                           ("S", Name("GTS_PDFX".into())),
-                          ("OutputCondition", String(icc_profile_descr.into(), StringFormat::Literal)),
+                          ("OutputCondition", String(icc_profile_descr.into(), Literal)),
                           ("Type", Name("OutputIntent".into())),
-                          ("OutputConditionIdentifier", String(icc_profile_short.into(), StringFormat::Literal)),
-                          ("RegistryName", String("www.color.org".into(), StringFormat::Literal)),
-                          ("Info", String(icc_profile_str.into(), StringFormat::Literal)), 
+                          ("OutputConditionIdentifier", String(icc_profile_short.into(), Literal)),
+                          ("RegistryName", String("www.color.org".into(), Literal)),
+                          ("Info", String(icc_profile_str.into(), Literal)), 
                           ])),
                       ])),
                     ]);
 
-        if let Some(i) = icc_profile { ("DestinationOutputProfile", Reference(i))}
+        // this may have to go onto the OutputIntents dictionary
+        if let Some(profile) = icc_profile { 
+            catalog.set("DestinationOutputProfile", Reference(self.inner_doc.add_object(Box::new(profile).into_obj())));
+        }
 
         let mut pages = LoDictionary::from_iter(vec![
                       ("Type", "Pages".into()),
@@ -281,10 +255,7 @@ impl<'a> PdfDocument {
                       /* Kids and Resources missing */
                       ]);
 
-        // add all contents, save references
-        // todo
-
-        // add pages
+        // add all pages with contents
         let mut page_ids = Vec::<LoObject>::new();
 
         for page in self.pages.into_iter() {
@@ -300,8 +271,7 @@ impl<'a> PdfDocument {
                        page.width_pt.into(), page.heigth_pt.into()].into()),
                       ("Parent", Reference(pages_id)) ]);
 
-            // add page content references
-            // todo
+            // add page content (todo)
 
             page_ids.push(Reference(self.inner_doc.add_object(p)))
         }
@@ -313,8 +283,8 @@ impl<'a> PdfDocument {
         let catalog_id = self.inner_doc.add_object(catalog);
         
         self.inner_doc.trailer.set("Root", Reference(catalog_id));
-        self.inner_doc.trailer.set("Info", Reference(info_id));
-        
+        self.inner_doc.trailer.set("Info", Reference(document_info_id));
+
         self.inner_doc.prune_objects();
         self.inner_doc.delete_zero_length_streams();
         self.inner_doc.compress();

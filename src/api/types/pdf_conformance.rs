@@ -68,26 +68,26 @@ impl PdfConformance {
     pub fn get_identifier_string(&self)
     -> String
     {
-        let identifier = match self {
-            A1B_2005_PDF_1_4  => "PDF/A-1b:2005",
-            A1A_2005_PDF_1_4  => "PDF/A-1a:2005",
-            A2_2011_PDF_1_7   => "PDF/A-2:2011",
-            A2A_2011_PDF_1_7  => "PDF/A-2a:2011",
-            A2B_2011_PDF_1_7  => "PDF/A-2b:2011",
-            A2U_2011_PDF_1_7  => "PDF/A-2u:2011",
-            A3_2012_PDF_1_7   => "PDF/A-3:2012",
-            UA_2014_PDF_1_6   => "PDF/UA",
-            X1A_2001_PDF_1_3  => "PDF/X-1a:2001",
-            X3_2002_PDF_1_3   => "PDF/X-3:2002",
-            X1A_2003_PDF_1_4  => "PDF/X-1a:2003",
-            X3_2003_PDF_1_4   => "PDF/X-3:2003",
-            X4_2010_PDF_1_4   => "PDF/X-4:2010",
-            X4P_2010_PDF_1_6  => "PDF/X-4",
-            X5G_2010_PDF_1_6  => "PDF/X-5",
-            X5PG_2010_PDF_1_6 => "PDF/X-5",
-            X5N_2010_PDF_1_6  => "PDF/X-5",
-            E1_2008_PDF_1_6   => "PDF/E-1",
-            VT_2010_PDF_1_4   => "PDF/VT",
+        let identifier = match *self {
+            PdfConformance::A1B_2005_PDF_1_4  => "PDF/A-1b:2005",
+            PdfConformance::A1A_2005_PDF_1_4  => "PDF/A-1a:2005",
+            PdfConformance::A2_2011_PDF_1_7   => "PDF/A-2:2011",
+            PdfConformance::A2A_2011_PDF_1_7  => "PDF/A-2a:2011",
+            PdfConformance::A2B_2011_PDF_1_7  => "PDF/A-2b:2011",
+            PdfConformance::A2U_2011_PDF_1_7  => "PDF/A-2u:2011",
+            PdfConformance::A3_2012_PDF_1_7   => "PDF/A-3:2012",
+            PdfConformance::UA_2014_PDF_1_6   => "PDF/UA",
+            PdfConformance::X1A_2001_PDF_1_3  => "PDF/X-1a:2001",
+            PdfConformance::X3_2002_PDF_1_3   => "PDF/X-3:2002",
+            PdfConformance::X1A_2003_PDF_1_4  => "PDF/X-1a:2003",
+            PdfConformance::X3_2003_PDF_1_4   => "PDF/X-3:2003",
+            PdfConformance::X4_2010_PDF_1_4   => "PDF/X-4:2010",
+            PdfConformance::X4P_2010_PDF_1_6  => "PDF/X-4",
+            PdfConformance::X5G_2010_PDF_1_6  => "PDF/X-5",
+            PdfConformance::X5PG_2010_PDF_1_6 => "PDF/X-5",
+            PdfConformance::X5N_2010_PDF_1_6  => "PDF/X-5",
+            PdfConformance::E1_2008_PDF_1_6   => "PDF/E-1",
+            PdfConformance::VT_2010_PDF_1_4   => "PDF/VT",
         };
 
         identifier.to_string()
@@ -96,11 +96,10 @@ impl PdfConformance {
     pub fn is_3d_content_allowed(&self)
     -> bool
     {
-        match self {
-           E1_2008_PDF_1_6   => return true,
+        match *self {
+           PdfConformance::E1_2008_PDF_1_6   => true,
+           _ => false,
         }
-
-        false
     }
 
     /// Does this conformance level allow video
@@ -136,15 +135,15 @@ impl PdfConformance {
     pub fn must_have_xmp_metadata(&self)
     -> bool
     {
-        match self {
-            X1A_2001_PDF_1_3  => { true },
-            X3_2002_PDF_1_3   => { true },
-            X1A_2003_PDF_1_4  => { true },
-            X3_2003_PDF_1_4   => { true },
-            X4_2010_PDF_1_4   => { true },
-            X4P_2010_PDF_1_6  => { true },
-            X5G_2010_PDF_1_6  => { true },
-            X5PG_2010_PDF_1_6 => { true },
+        match *self {
+            PdfConformance::X1A_2001_PDF_1_3  => { true },
+            PdfConformance::X3_2002_PDF_1_3   => { true },
+            PdfConformance::X1A_2003_PDF_1_4  => { true },
+            PdfConformance::X3_2003_PDF_1_4   => { true },
+            PdfConformance::X4_2010_PDF_1_4   => { true },
+            PdfConformance::X4P_2010_PDF_1_6  => { true },
+            PdfConformance::X5G_2010_PDF_1_6  => { true },
+            PdfConformance::X5PG_2010_PDF_1_6 => { true },
             _                 => { false },
         }
     }

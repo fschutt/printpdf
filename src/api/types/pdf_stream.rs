@@ -1,4 +1,6 @@
 //! A PDF stream consisting of various IntoPdfStream - able objects
+//! **WARNING** A PDF stream MUST be referenced indirectly, while the
+//! referencing dictionary must be referenced directly
 
 extern crate lopdf;
 
