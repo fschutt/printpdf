@@ -4,6 +4,7 @@ extern crate chrono;
 extern crate lopdf;
 
 use *;
+use rand::Rng;
 
 /// Initial struct for Xmp metatdata. This should be expanded later for XML handling, etc.
 /// Right now it just fills out the necessary fields
@@ -20,11 +21,12 @@ pub struct XmpMetadata {
 impl XmpMetadata {
 
     /// Creates a new XmpMetadata object
-    pub fn new<S>(rendition_class: Option<String>, document_version: u32, document_id: S)
-    -> Self where S: Into<String>
+    pub fn new(rendition_class: Option<String>, document_version: u32)
+    -> Self
     {
+        let document_id: std::string::String = rand::thread_rng().gen_ascii_chars().take(32).collect();
         Self {
-            document_id: document_id.into(), // todo!
+            document_id: document_id,
             rendition_class: rendition_class,
             document_version: document_version,
         }
@@ -43,7 +45,6 @@ impl XmpMetadata {
     {
         use lopdf::{Stream as LoStream, Dictionary as LoDictionary};
         use lopdf::Object::*;
-        use rand::Rng;
         use std::iter::FromIterator;
 
         // Shared between XmpMetadata and DocumentInfo

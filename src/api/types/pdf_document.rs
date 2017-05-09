@@ -7,6 +7,7 @@ extern crate rand;
 use *;
 use api::types::indices::*;
 use std::io::{Write, Seek};
+use rand::Rng;
 
 /// PDF document
 #[derive(Debug)]
@@ -17,6 +18,8 @@ pub struct PdfDocument {
     contents: Vec<Box<IntoPdfObject>>,
     /// Inner PDF document
     inner_doc: lopdf::Document,
+    /// Document ID. Must be changed if the document is loaded / parsed from a file
+    pub document_id: std::string::String,
     /// Metadata for this document
     pub metadata: PdfMetadata,
 }
@@ -30,6 +33,7 @@ impl<'a> PdfDocument {
     {
         (Self {
             pages: vec![initial_page],
+            document_id: rand::thread_rng().gen_ascii_chars().take(32).collect(),
             contents: Vec::new(),
             inner_doc: lopdf::Document::with_version("1.3"),
             metadata: PdfMetadata::new(title.clone(), 1, false, PdfConformance::X3_2003_PDF_1_4),
@@ -258,9 +262,14 @@ impl<'a> PdfDocument {
 
         // save inner document
         let catalog_id = self.inner_doc.add_object(catalog);
-        
+        let instance_id: std::string::String = rand::thread_rng().gen_ascii_chars().take(32).collect();
+
         self.inner_doc.trailer.set("Root", Reference(catalog_id));
         self.inner_doc.trailer.set("Info", Reference(document_info_id));
+        self.inner_doc.trailer.set("ID", Array(vec![
+                                            String(self.document_id.as_bytes().to_vec(), Literal), 
+                                            String(instance_id.as_bytes().to_vec(), Literal)
+                                        ]));
 
         self.inner_doc.prune_objects();
         self.inner_doc.delete_zero_length_streams();

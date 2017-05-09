@@ -48,7 +48,7 @@ impl PdfMetadata {
 			trapping: trapping,
 			document_version: document_version,
 			conformance: conformance,
-			xmp_metadata: XmpMetadata::new(Some("default".into()), 1, "document-id"), /* todo */
+			xmp_metadata: XmpMetadata::new(Some("default".into()), 1),
 			document_info: DocumentInfo::new(),
 			target_icc_profile: None,
 		}
