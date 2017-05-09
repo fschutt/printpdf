@@ -22,7 +22,7 @@ impl DocumentInfo {
 
     /// This functions is similar to the IntoPdfObject trait method,
     /// but takes additional arguments in order to delay the setting
-    pub(api::types) fn into_obj<S>(self, 
+    pub(in api::types) fn into_obj<S>(self, 
                                    document_title: S, 
                                    trapping: bool, 
                                    conformance: PdfConformance,

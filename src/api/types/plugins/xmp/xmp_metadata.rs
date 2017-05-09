@@ -32,7 +32,7 @@ impl XmpMetadata {
 
     /// Consumes the XmpMetadata and turns it into a PDF Object.
     /// This is similar to the 
-    pub(api::types) fn into_obj<S>(self, 
+    pub(in api::types) fn into_obj<S>(self, 
                            conformance: PdfConformance, 
                            trapping: bool,
                            creation_date: chrono::DateTime<chrono::Local>,
