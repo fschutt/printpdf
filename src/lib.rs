@@ -59,11 +59,13 @@ extern crate freetype;
 extern crate chrono;
 extern crate rand;
 
-pub mod api;
+pub mod traits;
+pub mod types;
 pub mod errors;
 mod glob_defines;
 #[cfg(test)] mod tests;
 
-pub use self::api::*;
+pub use self::traits::*;
+pub use self::types::*;
 pub use self::errors::*;
 use glob_defines::*;

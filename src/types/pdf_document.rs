@@ -5,7 +5,7 @@ extern crate chrono;
 extern crate rand;
 
 use *;
-use api::types::indices::*;
+use types::indices::*;
 use std::io::{Write, Seek};
 use rand::Rng;
 
@@ -134,7 +134,7 @@ impl<'a> PdfDocument {
     pub fn add_font<R>(&mut self, font_stream: R)
     -> ::std::result::Result<FontIndex, Error> where R: ::std::io::Read
     {
-        use api::types::plugins::graphics::two_dimensional::Font;
+        use types::plugins::graphics::two_dimensional::Font;
         let font = Font::new(font_stream)?;
         let index = self.add_arbitrary_content(Box::new(font));
         Ok(FontIndex(index))
@@ -216,7 +216,7 @@ impl<'a> PdfDocument {
         // "Metadata" dictionary nicht komprimieren
 
         if let Some(profile) = icc_profile { 
-            use api::traits::IntoPdfObject;
+            use traits::IntoPdfObject;
             let icc_profile_id = self.inner_doc.add_object(Box::new(profile).into_obj());
             output_intents.set("DestinationOutputProfile", Reference(icc_profile_id));
         }

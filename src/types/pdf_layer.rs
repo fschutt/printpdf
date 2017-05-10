@@ -1,7 +1,7 @@
 //! PDF layer management. Layers can contain referenced or real content.
 
 use *;
-use api::types::indices::*;
+use types::indices::*;
 
 /// One layer of PDF data
 #[derive(Debug)]

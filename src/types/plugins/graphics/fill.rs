@@ -8,16 +8,14 @@ use *;
 #[derive(Debug, Clone)]
 pub struct Fill {
     pub color: Color,
-    pub outline: Option<Outline>,
 }
 
 impl Fill {
-    pub fn new(color: Color, outline: Option<Outline>)
+    pub fn new(color: Color)
     -> Self
     {
         Self {
             color,
-            outline
         }
     }
 }

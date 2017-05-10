@@ -1,7 +1,7 @@
 //! PDF page management
 
 use *;
-use api::types::indices::*;
+use types::indices::*;
 
 /// PDF page
 #[derive(Debug)]
