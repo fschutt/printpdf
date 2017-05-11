@@ -14,6 +14,7 @@ impl Point {
 
     /// Create a new point. 
     /// **WARNING: The reference point for a point is the bottom left corner, not the top left**
+    #[inline]
     pub fn new(x_mm: f64, y_mm: f64)
     -> Self
     {
@@ -38,13 +39,3 @@ impl PartialEq for Point {
         return false;
     }
 }
-
-impl IntoPdfStreamOperation for Point {
-    fn into_stream_op(self: Box<Self>)
-    -> Vec<lopdf::content::Operation>
-    {
-        unimplemented!()
-    }
-}
-
-

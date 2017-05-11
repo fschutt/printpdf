@@ -14,10 +14,13 @@ use rand::Rng;
 pub struct PdfDocument {
     /// Pages of the document
     pages: Vec<PdfPage>,
-    /// PDF contents (subject to change)
-    contents: Vec<Box<IntoPdfObject>>,
+    /// PDF contents as references.
+    /// As soon as data gets added to the inner_doc, a reference gets pushed into here
+    #[doc_hidden]
+    pub(in types) contents: Vec<lopdf::Object>,
     /// Inner PDF document
-    inner_doc: lopdf::Document,
+    #[doc_hidden]
+    pub(in types) inner_doc: lopdf::Document,
     /// Document ID. Must be changed if the document is loaded / parsed from a file
     pub document_id: std::string::String,
     /// Metadata for this document
@@ -125,7 +128,8 @@ impl<'a> PdfDocument {
     pub fn add_arbitrary_content<C>(&mut self, content: Box<C>)
     -> PdfContentIndex where C: 'static + IntoPdfObject
     {
-        self.contents.push(content);
+        let obj_id = self.inner_doc.add_object(content.into_obj());
+        self.contents.place_back() <- lopdf::Object::Reference(obj_id);
         PdfContentIndex(self.contents.len() - 1)
     }
 
@@ -165,7 +169,7 @@ impl<'a> PdfDocument {
     /// Document may be only half-written
     #[inline]
     pub unsafe fn get_inner(self)
-    -> (lopdf::Document, Vec<Box<IntoPdfObject>>)
+    -> (lopdf::Document, Vec<lopdf::Object>)
     {
         (self.inner_doc, self.contents)
     }

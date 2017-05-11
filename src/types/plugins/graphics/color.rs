@@ -2,57 +2,83 @@
 
 use *;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Color {
-    Rbg(Rgb),
+    Rgb(Rgb),
     Cmyk(Cmyk),
     Grayscale(Grayscale),
     SpotColor(SpotColor)
 }
 
-#[derive(Debug, Clone)]
+impl Color {
+    /// Consumes the color and converts into into a vector of numbers
+    pub fn into_vec(self)
+    -> Vec<f64>
+    {
+        match self {
+            Color::Rgb(rgb) => { vec![rgb.r, rgb.g, rgb.b ]},
+            Color::Cmyk(cmyk) => { vec![cmyk.c, cmyk.m, cmyk.y, cmyk.k ]},
+            Color::Grayscale(gs) => { vec![gs.percent]},
+            Color::SpotColor(spot) => { vec![spot.c, spot.m, spot.y, spot.k ]},
+        }
+    }
+
+    /// Returns if the color has an icc profile attached
+    pub fn get_icc_profile(&self)
+    -> Option<&Option<IccProfile>>
+    {
+        match *self {
+            Color::Rgb(ref rgb) => Some(&rgb.icc_profile),
+            Color::Cmyk(ref cmyk) => Some(&cmyk.icc_profile),
+            Color::Grayscale(ref gs) => Some(&gs.icc_profile),
+            Color::SpotColor(ref spot) => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Rgb {
     pub r: f64,
     pub g: f64,
     pub b: f64,
-    pub color_space: Option<IccProfile>,
+    pub icc_profile: Option<IccProfile>,
 }
 
 impl Rgb {
 
-    pub fn new(r: f64, g: f64, b: f64, color_space: Option<IccProfile>)
+    pub fn new(r: f64, g: f64, b: f64, icc_profile: Option<IccProfile>)
     -> Self
     {
-        Self { r, g, b, color_space }
+        Self { r, g, b, icc_profile }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Cmyk {
     pub c: f64,
     pub m: f64,
     pub y: f64,
     pub k: f64,
-    pub color_space: Option<IccProfile>,
+    pub icc_profile: Option<IccProfile>,
 }
 
 impl Cmyk {
-    pub fn new(c: f64, m: f64, y: f64, k: f64, color_space: Option<IccProfile>)
+    pub fn new(c: f64, m: f64, y: f64, k: f64, icc_profile: Option<IccProfile>)
     -> Self
     {
-        Self { c, m, y, k, color_space }
+        Self { c, m, y, k, icc_profile }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Grayscale {
     pub percent: f64,
-    pub color_space: Option<IccProfile>,
+    pub icc_profile: Option<IccProfile>,
 }
 
 
 /// Spot colors are like Cmyk, but without color space
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SpotColor {
     pub c: f64,
     pub m: f64,

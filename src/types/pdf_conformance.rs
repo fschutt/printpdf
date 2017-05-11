@@ -144,7 +144,7 @@ impl PdfConformance {
             PdfConformance::X4P_2010_PDF_1_6  => { true },
             PdfConformance::X5G_2010_PDF_1_6  => { true },
             PdfConformance::X5PG_2010_PDF_1_6 => { true },
-            _                 => { false },
+            _                                 => { false },
         }
     }
 
@@ -153,6 +153,22 @@ impl PdfConformance {
     -> bool
     {
         // todo
-        true
+        match *self {
+            PdfConformance::X1A_2001_PDF_1_3  => { false },
+            _                                 => { true },
+        }
+    }
+
+    pub fn is_layering_allowed(&self)
+    -> bool
+    {
+        match *self {
+            PdfConformance::X1A_2001_PDF_1_3  => { false },
+            PdfConformance::X1A_2001_PDF_1_3  => { false },
+            PdfConformance::X3_2002_PDF_1_3   => { false },
+            PdfConformance::X1A_2003_PDF_1_4  => { false },
+            PdfConformance::X3_2003_PDF_1_4   => { false },
+            _                                 => { true },
+        }
     }
 }

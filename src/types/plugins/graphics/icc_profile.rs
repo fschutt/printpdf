@@ -5,7 +5,7 @@ extern crate lopdf;
 use *;
 
 /// Type of the icc profile
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum IccProfileType {
     Cmyk,
     Rgb,
@@ -13,7 +13,7 @@ pub enum IccProfileType {
 }
 
 /// Icc profile
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct IccProfile {
     /// Binary Icc profile
     icc: Vec<u8>,

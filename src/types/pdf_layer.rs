@@ -2,6 +2,7 @@
 
 use *;
 use types::indices::*;
+use types::indices::PdfContent::*;
 
 /// One layer of PDF data
 #[derive(Debug)]
@@ -79,5 +80,34 @@ impl PdfLayer {
                    svg_data_index: SvgIndex)
     {
         // todo
+    }
+
+    /// Similar to the into_obj function, but takes the document as a second parameter (for lookup)
+    /// and conformance checking
+    /// Layers are prohibited if the conformance does not allow PDF layers. However, they are still
+    /// used for z-indexing content
+    fn into_obj(self: Box<Self>, doc: &PdfDocument)
+    -> Vec<lopdf::Object>
+    {
+        let mut final_contents = Vec::<lopdf::Object>::new();
+
+        if doc.metadata.conformance.is_layering_allowed() {
+            // todo: write begin of pdf layer
+        }
+
+        for content in self.contents.into_iter() {
+            match content {
+                ActualContent(a) => { final_contents.place_back() <- a.into_obj(); },
+                ReferencedContent(r) => { let content_ref = doc.contents.get(r.0).unwrap();
+                                            final_contents.place_back() <- content_ref.clone();
+                                        }
+            }
+        }
+
+        if doc.metadata.conformance.is_layering_allowed() {
+            // todo: write end of pdf layer
+        }
+
+        final_contents
     }
 }

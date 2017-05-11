@@ -15,6 +15,7 @@ log = "0.3.*"
 error-chain = "0.10.*"
 chrono = "0.3.1"
 rand = "0.3.15"
+num = "0.1.37"
 
 [[bin]]
 doc = false

@@ -66,11 +66,11 @@ impl DocumentInfo {
     /// This functions is similar to the IntoPdfObject trait method,
     /// but takes additional arguments in order to delay the setting
     pub(in types) fn into_obj<S>(self, 
-                                   document_title: S, 
-                                   trapping: bool, 
-                                   conformance: PdfConformance,
-                                   creation_date: chrono::DateTime<chrono::Local>,
-                                   modification_date: chrono::DateTime<chrono::Local>)
+                                 document_title: S, 
+                                 trapping: bool, 
+                                 conformance: PdfConformance,
+                                 creation_date: chrono::DateTime<chrono::Local>,
+                                 modification_date: chrono::DateTime<chrono::Local>)
     -> lopdf::Object where S: Into<String>
     {
         use lopdf::Dictionary as LoDictionary;

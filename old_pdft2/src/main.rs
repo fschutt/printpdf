@@ -370,8 +370,8 @@ impl MapDocument {
 					 line: &Line,
 					 outline_col: Option<&CMYK>,
 					 outline_pt: Option<i64>,
-					 fill_col: Option<&CMYK>){
-
+					 fill_col: Option<&CMYK>)
+	{
 		if line.points.is_empty() { return; };
 
 		// Set color space and width
