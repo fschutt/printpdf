@@ -1,4 +1,5 @@
 extern crate error_chain;
+extern crate freetype;
 
 use super::*;
 
@@ -9,7 +10,7 @@ error_chain! {
     }
 
     foreign_links {
-        /*FileError(::std::io::Error);*/
+        FontFaceError(freetype::Error);
     }
 
     links {

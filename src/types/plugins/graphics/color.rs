@@ -31,7 +31,7 @@ impl Color {
             Color::Rgb(ref rgb) => Some(&rgb.icc_profile),
             Color::Cmyk(ref cmyk) => Some(&cmyk.icc_profile),
             Color::Grayscale(ref gs) => Some(&gs.icc_profile),
-            Color::SpotColor(ref spot) => None,
+            Color::SpotColor(_) => None,
         }
     }
 }

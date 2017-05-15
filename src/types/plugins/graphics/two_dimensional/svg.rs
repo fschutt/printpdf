@@ -21,7 +21,7 @@ impl Svg {
 
 impl IntoPdfObject for Svg {
     fn into_obj(self: Box<Self>)
-    -> lopdf::Object
+    -> Vec<lopdf::Object>
     {
         // make SVG to stream, then use it in the doument as a reference
         unimplemented!()

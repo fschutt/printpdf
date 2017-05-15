@@ -36,7 +36,7 @@ impl PdfMetadata {
 
 	/// Creates a new metadat object
 	pub fn new<S>(title: S, document_version: u32, trapping: bool, conformance: PdfConformance)
-	-> Self where S: Into<String> + Clone
+	-> Self where S: Into<String>
 	{
 		let current_time = chrono::Local::now();
 

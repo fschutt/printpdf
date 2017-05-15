@@ -4,11 +4,9 @@ extern crate error_chain;
 error_chain! {
 
     errors {
-/*
-        MissingUsername {
-           description("Missing username")
-           display("Missing username")
+        FontFaceError {
+           description("Invalid or corrupt font face")
+           display("Invalid or corrupt font face")
         }
-*/
     }
 }

@@ -5,7 +5,7 @@ extern crate lopdf;
 pub trait IntoPdfObject: ::std::fmt::Debug {
     /// Consumes the object and converts it to an PDF object
     fn into_obj(self: Box<Self>)
-    -> lopdf::Object;
+    -> Vec<lopdf::Object>;
 }
 
 /// Object can be used within a stream, such as a drawing operation, etc.
@@ -13,4 +13,12 @@ pub trait IntoPdfStreamOperation: ::std::fmt::Debug {
     /// Consumes the object and converts it to an PDF stream operation
     fn into_stream_op(self: Box<Self>)
     -> Vec<lopdf::content::Operation>;
+}
+
+impl IntoPdfStreamOperation for lopdf::content::Operation {
+    fn into_stream_op(self: Box<Self>)
+    -> Vec<lopdf::content::Operation>
+    {
+        vec![*self]
+    }
 }

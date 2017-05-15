@@ -15,11 +15,26 @@ pub struct PdfLayerIndex(pub usize);
 pub struct PdfContentIndex(pub usize);
 
 /// Index of a font
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FontIndex(pub PdfContentIndex);
+
+impl Into<PdfContentIndex> for FontIndex {
+    fn into(self) -> PdfContentIndex
+    {
+        self.0
+    }
+}
+
 /// Index of a svg file
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct SvgIndex(pub PdfContentIndex);
+
+impl Into<PdfContentIndex> for SvgIndex {
+    fn into(self) -> PdfContentIndex
+    {
+        self.0
+    }
+}
 
 /// Wrapper for storing either a type or a reference to the type
 #[derive(Debug)]

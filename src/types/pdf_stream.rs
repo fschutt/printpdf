@@ -9,7 +9,7 @@ use lopdf::{Stream, Dictionary};
 
 #[derive(Debug)]
 pub struct PdfStream {
-    dictionary: Dictionary,
+    pub dictionary: Dictionary,
     objects: Vec<Box<IntoPdfStreamOperation>>
 }
 
@@ -24,12 +24,19 @@ impl PdfStream {
             objects: Vec::new(),
         }
     }
+
+    /// Adds a stream operation to the stream
+    #[inline]
+    pub fn add_operation(&mut self, operation: Box<IntoPdfStreamOperation>)
+    {
+        self.objects.place_back() <- operation;
+    }
 }
 
 impl IntoPdfObject for PdfStream {
 
-    fn into_obj(self: Box<Self>) -> lopdf::Object {
-        
+    fn into_obj(self: Box<Self>) 
+    -> Vec<lopdf::Object> {
         let mut stream_operations = Vec::<lopdf::content::Operation>::new();
         let dict = self.dictionary.clone();
 
@@ -42,6 +49,6 @@ impl IntoPdfObject for PdfStream {
 
         let mut stream = Stream::new(dict, stream_content.encode().unwrap());
         stream.compress();
-        lopdf::Object::Stream(stream)
+        vec![lopdf::Object::Stream(stream)]
     }
 }

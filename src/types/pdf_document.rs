@@ -8,6 +8,7 @@ use *;
 use types::indices::*;
 use std::io::{Write, Seek};
 use rand::Rng;
+use std::sync::{Arc, Mutex};
 
 /// PDF document
 #[derive(Debug)]
@@ -17,32 +18,45 @@ pub struct PdfDocument {
     /// PDF contents as references.
     /// As soon as data gets added to the inner_doc, a reference gets pushed into here
     #[doc_hidden]
-    pub(in types) contents: Vec<lopdf::Object>,
+    pub(super) contents: Vec<lopdf::Object>,
     /// Inner PDF document
     #[doc_hidden]
-    pub(in types) inner_doc: lopdf::Document,
+    pub(super) inner_doc: lopdf::Document,
     /// Document ID. Must be changed if the document is loaded / parsed from a file
     pub document_id: std::string::String,
     /// Metadata for this document
     pub metadata: PdfMetadata,
 }
 
-impl<'a> PdfDocument {
+impl PdfDocument {
 
     /// Creates a new PDF document
     #[inline]
-    pub fn new<S>(initial_page: PdfPage, title: S)
-    -> (Self, PdfPageIndex, PdfLayerIndex) where S: Into<String> + Clone
+    pub fn new<S>(document_title: S,
+                  initial_page_width_mm: f64, 
+                  initial_page_height_mm: f64, 
+                  initial_layer_name: S)
+    -> (Arc<Mutex<Self>>, PdfPageIndex, PdfLayerIndex) where S: Into<String>
     {
-        (Self {
-            pages: vec![initial_page],
+        let mut doc = Self {
+            pages: Vec::new(),
             document_id: rand::thread_rng().gen_ascii_chars().take(32).collect(),
             contents: Vec::new(),
             inner_doc: lopdf::Document::with_version("1.3"),
-            metadata: PdfMetadata::new(title.clone(), 1, false, PdfConformance::X3_2003_PDF_1_4),
-        },
-        PdfPageIndex(0),
-        PdfLayerIndex(0))
+            metadata: PdfMetadata::new(document_title, 1, false, PdfConformance::X3_2003_PDF_1_4)
+        };
+
+        let doc_ref = Arc::new(Mutex::new(doc));
+
+        let (initial_page, layer_index) = PdfPage::new(
+            Arc::downgrade(&doc_ref), 
+            initial_page_width_mm, 
+            initial_page_height_mm, 
+            initial_layer_name);
+
+        { doc_ref.lock().unwrap().pages.push(initial_page); }
+
+        (doc_ref, PdfPageIndex(0), layer_index)
     }
 
     /// Checks for invalid settings in the document
@@ -115,11 +129,16 @@ impl<'a> PdfDocument {
 
     /// Create a new pdf page and returns the index of the page
     #[inline]
-    pub fn add_page(&mut self, x_mm: f64, y_mm: f64, inital_layer: PdfLayer)
-    -> (PdfPageIndex, PdfLayerIndex)
+    pub fn add_page<S>(&mut self, x_mm: f64, y_mm: f64, inital_layer_name: S)
+    -> (PdfPageIndex, PdfLayerIndex) where S: Into<String>
     {
-        self.pages.push(PdfPage::new(x_mm, y_mm, inital_layer));
-        (PdfPageIndex(self.pages.len() - 1), PdfLayerIndex(0))
+        /* temporary, there has to be at least one root node */
+        let document_weak_ptr = self.pages[0].document.clone();
+        let (pdf_page, pdf_layer_index) = 
+            PdfPage::new(document_weak_ptr, x_mm, y_mm, inital_layer_name);
+
+        self.pages.push(pdf_page);
+        (PdfPageIndex(self.pages.len() - 1), pdf_layer_index)
     }
 
     /// Add arbitrary Pdf Objects. These are tracked by reference and get 
@@ -138,7 +157,6 @@ impl<'a> PdfDocument {
     pub fn add_font<R>(&mut self, font_stream: R)
     -> ::std::result::Result<FontIndex, Error> where R: ::std::io::Read
     {
-        use types::plugins::graphics::two_dimensional::Font;
         let font = Font::new(font_stream)?;
         let index = self.add_arbitrary_content(Box::new(font));
         Ok(FontIndex(index))
@@ -148,11 +166,17 @@ impl<'a> PdfDocument {
     #[inline]
     pub fn add_svg<R>(&mut self,
                       svg_data: R)
-    -> ::std::result::Result<SvgIndex, Error> 
+    -> SvgIndex
     where R: ::std::io::Read
     {
+        use lopdf::Object::*;
+        use traits::IntoPdfObject;
+
         // todo
-        unimplemented!()
+        let svg_obj = Svg::new(svg_data);
+        let svg_obj_id = self.inner_doc.add_object(Box::new(svg_obj).into_obj());
+        self.contents.push(Reference(svg_obj_id));
+        SvgIndex(PdfContentIndex(self.contents.len() - 1))
     }
 
     // ----- GET FUNCTIONS
@@ -277,7 +301,7 @@ impl<'a> PdfDocument {
 
         self.inner_doc.prune_objects();
         self.inner_doc.delete_zero_length_streams();
-        self.inner_doc.compress();
+        // self.inner_doc.compress();
         self.inner_doc.save_to(target).unwrap();
 
         Ok(())

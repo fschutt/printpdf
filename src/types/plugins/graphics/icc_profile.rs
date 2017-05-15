@@ -61,7 +61,7 @@ impl IccProfile {
 
 impl IntoPdfObject for IccProfile {
     fn into_obj(self: Box<Self>)
-    -> lopdf::Object
+    -> Vec<lopdf::Object>
     {
         use lopdf::{Dictionary as LoDictionary, 
                     Stream as LoStream};
@@ -96,6 +96,6 @@ impl IntoPdfObject for IccProfile {
 
         let stream = LoStream::new(stream_dict, self.icc);
 
-        Stream(stream)
+        vec![Stream(stream)]
     }
 }

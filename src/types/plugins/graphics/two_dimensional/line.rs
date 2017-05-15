@@ -1,42 +1,46 @@
 use *;
 use traits::*;
-use types::indices::*;
 
 #[derive(Debug, Clone)]
 pub struct Line { 
     /// 2D Points for the line
     pub points: Vec<(Point, bool)>,
     /// Is the line closed or open?
-    pub closed: bool,
+    pub is_closed: bool,
+    /// Should the line be filled (via winding-number rule), for polygons
+    pub has_fill: bool,
 }
 
-// the current outline of the line
-static mut CURRENT_OUTLINE: Outline = Outline {
-                                        color: Color::Rgb(Rgb { r: 0.0, g: 0.0, b: 0.0, icc_profile: None }),
-                                        thickness: 5,
-                                      };
-
 impl Line {
-
-
 
     /// Creates a new line from the given points
     /// Each point has a bool, indicating if the next point is a bezier curve
     /// This allows compression inside the pdf since PDF knows several operators for this.
     #[inline]
-    pub fn new(points: Vec<(Point, bool)>, closed: bool)
+    pub fn new(points: Vec<(Point, bool)>, 
+               is_closed: bool, 
+               has_fill: bool)
     -> Self
     {
         Self {
             points,
-            closed,
+            is_closed,
+            has_fill,
         }
     }
 
+    /// Changes the fill color for following lines
+    #[inline]
+    pub fn set_fill(fill: Fill) 
+    { 
+        *super::CURRENT_FILL.lock().unwrap() = fill;
+    }
+
     /// Changes the outline for following lines
+    #[inline]
     pub fn set_outline(outline: Outline) 
     { 
-        unsafe { CURRENT_OUTLINE = outline };
+        *super::CURRENT_OUTLINE.lock().unwrap() = outline;
     }
 }
 
@@ -91,7 +95,7 @@ impl IntoPdfStreamOperation for Line {
             current += 1;
         }
 
-        match self.closed {
+        match self.is_closed {
             true  => { operations.place_back() <- Operation::new(OP_PATH_PAINT_STROKE_CLOSE, vec![]); },
             false => { operations.place_back() <- Operation::new(OP_PATH_PAINT_STROKE, vec![]); },
         }        

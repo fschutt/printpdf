@@ -3,7 +3,6 @@
 extern crate lopdf;
 
 use *;
-use std::default::Default;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Outline {
@@ -52,6 +51,7 @@ impl IntoPdfStreamOperation for Outline {
         operations.place_back() <- Operation::new(color_identifier, color_vec);
 
         let thickness_op = Operation::new(OP_PATH_STATE_SET_LINE_WIDTH, vec![Integer(thickness)]);
+        operations.place_back() <- thickness_op;
         operations
     }
 }
