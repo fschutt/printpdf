@@ -81,7 +81,7 @@ impl PdfConformance {
             PdfConformance::X3_2002_PDF_1_3   => "PDF/X-3:2002",
             PdfConformance::X1A_2003_PDF_1_4  => "PDF/X-1a:2003",
             PdfConformance::X3_2003_PDF_1_4   => "PDF/X-3:2003",
-            PdfConformance::X4_2010_PDF_1_4   => "PDF/X-4:2010",
+            PdfConformance::X4_2010_PDF_1_4   => "PDF/X-4",
             PdfConformance::X4P_2010_PDF_1_6  => "PDF/X-4",
             PdfConformance::X5G_2010_PDF_1_6  => "PDF/X-5",
             PdfConformance::X5PG_2010_PDF_1_6 => "PDF/X-5",

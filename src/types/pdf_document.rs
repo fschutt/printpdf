@@ -43,7 +43,7 @@ impl PdfDocument {
             document_id: rand::thread_rng().gen_ascii_chars().take(32).collect(),
             contents: Vec::new(),
             inner_doc: lopdf::Document::with_version("1.3"),
-            metadata: PdfMetadata::new(document_title, 1, false, PdfConformance::X3_2003_PDF_1_4)
+            metadata: PdfMetadata::new(document_title, 1, false, PdfConformance::X3_2002_PDF_1_3)
         };
 
         let doc_ref = Arc::new(Mutex::new(doc));
@@ -241,11 +241,10 @@ impl PdfDocument {
                           ("Info", String(icc_profile_str.into(), Literal)), 
                           ]);
 
-        // "Metadata" dictionary nicht komprimieren
-
         if let Some(profile) = icc_profile { 
             use traits::IntoPdfObject;
-            let icc_profile_id = self.inner_doc.add_object(Box::new(profile).into_obj());
+            let vec_icc_profiles = Box::new(profile).into_obj();
+            let icc_profile_id = self.inner_doc.add_object(vec_icc_profiles[0].clone());
             output_intents.set("DestinationOutputProfile", Reference(icc_profile_id));
         }
 
