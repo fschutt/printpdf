@@ -20,12 +20,16 @@
 //! use std::sync::Arc;
 //! 
 //! let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 247.0, 210.0, "Layer 1");
+//!
 //! let mut output_file = File::create("test_simple_empty_file.pdf").unwrap();
+//! 
 //! Arc::try_unwrap(doc).unwrap().into_inner().unwrap().save(&mut output_file).unwrap();
 //! ```
 //! 
-//! ### Page with embedded font
+//! ### Adding pages
 //! 
+//! 
+//! ### Adding fonts
 //! 
 //! 
 //! # Useful links and resources
@@ -45,7 +49,6 @@
 #![feature(placement_in_syntax)]
 #![feature(collection_placement)]
 #![feature(custom_attribute)]
-#![feature(pub_restricted)]
 #![feature(drop_types_in_const)]
 
 #[macro_use] extern crate error_chain;
@@ -62,6 +65,7 @@ pub mod traits;
 pub mod types;
 pub mod errors;
 mod glob_defines;
+mod indices;
 #[cfg(test)] mod tests;
 
 pub use self::traits::*;

@@ -10,6 +10,11 @@ pub struct PdfPageIndex(pub usize);
 /// Index of the layer on the nth page
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct PdfLayerIndex(pub usize);
+
+impl PdfLayerIndex {
+
+}
+
 /// Index of the arbitrary content data
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct PdfContentIndex(pub usize);
@@ -42,3 +47,4 @@ pub enum PdfContent {
     ReferencedContent(PdfContentIndex),
     ActualContent(Box<IntoPdfObject>),
 }
+

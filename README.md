@@ -21,14 +21,11 @@ instantiate blobs / content when you have a reference to the layer. Here are som
 ```rust
 use printpdf::*;
 use std::fs::File;
+use std::sync::Arc;
 
-let (mut doc, page1, layer1) = PdfDocument::new(
-                                   PdfPage::new(247.0, 210.0, 
-                                      PdfLayer::new("Layer 1")), 
-                               "PDF_Document_title");
-
+let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 247.0, 210.0, "Layer 1");
 let mut output_file = File::create("test_simple_empty_file.pdf").unwrap();
-doc.save(&mut output_file).unwrap();
+Arc::try_unwrap(doc).unwrap().into_inner().unwrap().save(&mut output_file).unwrap();
 ```
 
 #### Page with embedded font

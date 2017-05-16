@@ -14,20 +14,22 @@ fn main() {
     // You also have to specify the title of the PDF and the document creator
     let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 247.0, 210.0, "Layer 1");
 
+    // You can add more pages and layers to the PDF. 
+    // Just make sure you don't lose the references, otherwise, you can't add things to the layer anymore
+    let (page2, layer1) = doc.add_page(10.0, 250.0,"Page 2, Layer 1");
+    let layer2 = doc.get_page(page2).add_layer("Layer 2");
+    let layer3 = doc.get_page(page2).add_layer("Layer 3");
+
     // printpdf support 2d graphics only (currently) - Lines, Points, Polygons and SVG Symbols
-    let (page2, layer1) = { doc.lock().unwrap().add_page(10.0, 250.0,"Page 2, Layer 1") };
-/*
-    let layer2 = { doc.lock().unwrap().get_page_mut(page2).add_layer("Layer 2") };
-    let layer3 = { doc.lock().unwrap().get_page_mut(page2).add_layer("Layer 3") };
 
     // Write the text with font + font size
     // printpdf is made for PDF-X/1A conform documents. 
     // As such, using the default fonts is not permitted. You have to use your own fonts here
+/*
     let text = "Hello World! Unicode test: стуфхfцчшщъыьэюя";
     let roboto_font_file = File::open("assets/fonts/RobotoMedium.ttf").unwrap();
-    let roboto_font = { doc.lock().unwrap().add_font(roboto_font_file).unwrap() };
-    // println!("{:?}", doc);
-    { doc.lock().unwrap().get_page_mut(page1).get_layer_mut(layer1).use_text(text, 48, 200.0, 200.0, roboto_font); }
+    let roboto_font = doc.add_font(roboto_font_file).unwrap();
+    doc.get_page(page1).get_layer(layer1).use_text(text, 48, 200.0, 200.0, roboto_font);
     
     let point1  = Point::new(200.0, 200.0);
     let point2  = Point::new(200.0, 200.0);
@@ -51,5 +53,5 @@ fn main() {
 */
     // There is no support for comments, images, annotations, 3D objects, signatures, gradients, etc. yet.
     // Save the PDF file
-    Arc::try_unwrap(doc).unwrap().into_inner().unwrap().save(&mut File::create("test_working.pdf").unwrap()).unwrap();
+    doc.save(&mut File::create("test_working.pdf").unwrap()).unwrap();
 }

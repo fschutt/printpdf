@@ -7,12 +7,11 @@ pub mod pdf_metadata;
 pub mod pdf_page;
 pub mod pdf_stream;
 pub mod plugins;
-mod indices;
 
+pub use self::pdf_document::{PdfDocument, PdfDocumentReference};
+pub use self::pdf_layer::{PdfLayer, PdfLayerReference};
+pub use self::pdf_page::{PdfPage, PdfPageReference};
 pub use self::pdf_conformance::PdfConformance;
-pub use self::pdf_document::PdfDocument;
-pub use self::pdf_layer::PdfLayer;
 pub use self::pdf_metadata::PdfMetadata;
-pub use self::pdf_page::PdfPage;
 pub use self::pdf_stream::PdfStream;
 pub use self::plugins::*;

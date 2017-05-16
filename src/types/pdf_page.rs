@@ -1,7 +1,7 @@
 //! PDF page management
 
 use *;
-use types::indices::*;
+use indices::*;
 use std::sync::{Arc, Mutex, Weak};
 
 /// PDF page
@@ -12,9 +12,16 @@ pub struct PdfPage {
     /// page height in point
     pub heigth_pt: f64,
     /// Page layers
-    layers: Vec<PdfLayer>,
-    /// Document this page is contained in
-    pub(super) document: Weak<Mutex<PdfDocument>>,
+    pub layers: Vec<PdfLayer>
+}
+
+/// This struct is only a marker struct to indicate the function
+/// "Hey, don't use the document directly, but use the page"
+/// We can't pass a reference to the page, because doing so would borrow the document
+/// and make it non-mutable
+pub struct PdfPageReference {
+    pub document: Weak<Mutex<PdfDocument>>,
+    pub page: PdfPageIndex,
 }
 
 impl PdfPage {
@@ -22,8 +29,7 @@ impl PdfPage {
     /// Create a new page, notice that width / height are in millimeter.
     /// Page must contain at least one layer
     #[inline]
-    pub fn new<S>(document: Weak<Mutex<PdfDocument>>,
-                  width_mm: f64, 
+    pub fn new<S>(width_mm: f64, 
                   height_mm: f64, 
                   layer_name: S)
     -> (Self, PdfLayerIndex) where S: Into<String>
@@ -32,37 +38,53 @@ impl PdfPage {
             width_pt: mm_to_pt!(width_mm),
             heigth_pt: mm_to_pt!(height_mm),
             layers: Vec::new(),
-            document: document,
         };
 
-        let initial_layer = PdfLayer::new(layer_name, page.document.clone());
+        let initial_layer = PdfLayer::new(layer_name);
         page.layers.push(initial_layer);
-        (page, PdfLayerIndex(0))
+
+        let layer_index = page.layers.len() - 1;
+
+        (page, PdfLayerIndex(layer_index))
     }
+}
+
+impl PdfPageReference {
 
     /// Adds a page and returns the index of the currently added page
     #[inline]
-    pub fn add_layer<S>(&mut self, layer_name: S)
-    -> PdfLayerIndex where S: Into<String>
+    pub fn add_layer<S>(&self, layer_name: S)
+    -> PdfLayerReference where S: Into<String>
     {
-        let layer = PdfLayer::new(layer_name, self.document.clone());
-        self.layers.push(layer);
-        PdfLayerIndex(self.layers.len() - 1)
+        let layer = PdfLayer::new(layer_name);
+
+        let doc = self.document.upgrade().unwrap();
+        let mut doc = doc.lock().unwrap();
+
+        doc.pages.get_mut(self.page.0).unwrap().layers.push(layer);
+        let index = PdfLayerIndex(doc.pages.get(self.page.0).unwrap().layers.len() - 1);
+
+        PdfLayerReference {
+            document: self.document.clone(),
+            page: self.page.clone(),
+            layer: index,
+        }
     }
 
     /// Validates that a layer is present and returns a reference to it
     #[inline]
     pub fn get_layer(&self, layer: PdfLayerIndex)
-    -> &PdfLayer
+    -> PdfLayerReference
     {
-        self.layers.get(layer.0).unwrap()
-    }
+        let doc = self.document.upgrade().unwrap();
+        let mut doc = doc.lock().unwrap();
 
-    /// Validates that a layer is present and returns a reference to it
-    #[inline]
-    pub fn get_layer_mut(&mut self, layer: PdfLayerIndex)
-    -> &mut PdfLayer
-    {
-        self.layers.get_mut(layer.0).unwrap()
+        doc.pages.get(self.page.0).unwrap().layers.get(layer.0).unwrap();
+
+        PdfLayerReference {
+            document: self.document.clone(),
+            page: self.page.clone(),
+            layer: layer,
+        }
     }
 }
