@@ -36,9 +36,7 @@ impl PdfDocument {
 
     /// Creates a new PDF document
     #[inline]
-    pub fn new<S>(document_title: S,
-                  initial_page_width_mm: f64, 
-                  initial_page_height_mm: f64, 
+    pub fn new<S>(document_title: S, initial_page_width_mm: f64, initial_page_height_mm: f64, 
                   initial_layer_name: S)
     -> (PdfDocumentReference, PdfPageIndex, PdfLayerIndex) where S: Into<String>
     {

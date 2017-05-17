@@ -19,18 +19,22 @@
 //! use std::fs::File;
 //! 
 //! let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 247.0, 210.0, "Layer 1");
-//! 
 //! let (page2, layer1) = doc.add_page(10.0, 250.0,"Page 2, Layer 1");
-//!
+//! 
 //! doc.save(&mut File::create("test_working.pdf").unwrap()).unwrap();
 //! ```
 //! 
 //! ### Adding fonts
 //! 
 //! ```rust
+//! use printpdf::*;
+//! use std::fs::File;
+//! 
+//! let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 247.0, 210.0, "Layer 1");
 //! let text = "Hello World! Unicode test: стуфхfцчшщъыьэюя";
 //! let roboto_font_file = File::open("assets/fonts/RobotoMedium.ttf").unwrap();
 //! let roboto_font = doc.add_font(roboto_font_file).unwrap();
+//!
 //! doc.get_page(page1).get_layer(layer1).use_text(text, 48, 200.0, 200.0, roboto_font);
 //! ```
 //! 

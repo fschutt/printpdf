@@ -9,7 +9,7 @@ readme = "README.md"
 description = "Library for writing PDF files"
 
 [dependencies]
-lopdf = { path = "../lopdf" }
+lopdf = { git = "https://github.com/sharazam/lopdf" }
 freetype-rs = "0.11.*"
 log = "0.3.*"
 error-chain = "0.10.*"

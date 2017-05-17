@@ -138,14 +138,12 @@ impl PdfLayerReference {
             let list_gid: Vec<u16>;
             let face_name;
 
-            println!("font_idx: {:?}", font_idx);
-
             {
                 let font =  doc.inner_doc.get_object(font_idx).unwrap();
                                 
                 let font_data = match *font {
                     lopdf::Object::Stream(ref s) => s,
-                    _ => { println!("{:?}", font); panic!("use_text() called with a corrupt font index!") }
+                    _ => { panic!("use_text() called with a corrupt font index!") }
                 };
 
                 let library = ft::Library::init().unwrap();
