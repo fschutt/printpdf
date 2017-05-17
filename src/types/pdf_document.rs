@@ -14,14 +14,11 @@ use std::sync::{Arc, Mutex};
 #[derive(Debug)]
 pub struct PdfDocument {
     /// Pages of the document
-    #[doc_hidden]
     pub(super) pages: Vec<PdfPage>,
     /// PDF contents as references.
     /// As soon as data gets added to the inner_doc, a reference gets pushed into here
-    #[doc_hidden]
     pub(super) contents: Vec<lopdf::Object>,
     /// Inner PDF document
-    #[doc_hidden]
     pub(super) inner_doc: lopdf::Document,
     /// Document ID. Must be changed if the document is loaded / parsed from a file
     pub document_id: std::string::String,
@@ -45,7 +42,7 @@ impl PdfDocument {
                   initial_layer_name: S)
     -> (PdfDocumentReference, PdfPageIndex, PdfLayerIndex) where S: Into<String>
     {
-        let mut doc = Self {
+        let doc = Self {
             pages: Vec::new(),
             document_id: rand::thread_rng().gen_ascii_chars().take(32).collect(),
             contents: Vec::new(),
@@ -142,12 +139,18 @@ impl PdfDocumentReference {
     /// Add arbitrary Pdf Objects. These are tracked by reference and get 
     /// instantiated / referenced when the document is saved.
     #[inline]
-    pub fn add_arbitrary_content<C>(&self, content: Box<C>)
+    pub fn add_arbitrary_content<C>(&self, content: Box<C>, only_use_first_item: bool)
     -> PdfContentIndex where C: 'static + IntoPdfObject
     {
-        let obj_id = self.document.lock().unwrap().inner_doc.add_object(content.into_obj());
-        self.document.lock().unwrap().contents.push(lopdf::Object::Reference(obj_id));
-        PdfContentIndex(self.document.lock().unwrap().contents.len() - 1)
+        let mut doc = self.document.lock().unwrap();
+        let obj_id = if only_use_first_item {
+            doc.inner_doc.add_object(content.into_obj()[0].to_owned())
+        } else {
+            doc.inner_doc.add_object(content.into_obj())
+        };
+
+        doc.contents.push(lopdf::Object::Reference(obj_id));
+        PdfContentIndex(doc.contents.len() - 1)
     }
 
     /// Add a font from a font stream
@@ -156,7 +159,7 @@ impl PdfDocumentReference {
     -> ::std::result::Result<FontIndex, Error> where R: ::std::io::Read
     {
         let font = Font::new(font_stream)?;
-        let index = self.add_arbitrary_content(Box::new(font));
+        let index = self.add_arbitrary_content(Box::new(font), true);
         Ok(FontIndex(index))
     }
 
@@ -166,12 +169,9 @@ impl PdfDocumentReference {
     -> SvgIndex
     where R: ::std::io::Read
     {
-        use lopdf::Object::*;
-        use traits::IntoPdfObject;
-
         // todo
         let svg_obj = Svg::new(svg_data);
-        let index = self.add_arbitrary_content(Box::new(svg_obj));
+        let index = self.add_arbitrary_content(Box::new(svg_obj), false);
         SvgIndex(index)
     }
 
@@ -203,6 +203,7 @@ impl PdfDocumentReference {
     -> ::std::result::Result<(), Error>
     {
         // todo
+        warn!("Checking PDFs for errors is currently not supported!");
         Ok(())
     }
 
@@ -212,6 +213,7 @@ impl PdfDocumentReference {
     -> ::std::result::Result<(), Error>
     {
         //todo
+        warn!("Reparing PDFs is currently not supported!");
         Ok(())
     }
 
@@ -253,7 +255,7 @@ impl PdfDocumentReference {
         if let Some(profile) = icc_profile { 
             use traits::IntoPdfObject;
             let vec_icc_profiles = Box::new(profile).into_obj();
-            let icc_profile_id = doc.inner_doc.add_object(vec_icc_profiles[0].clone());
+            let icc_profile_id = doc.inner_doc.add_object(vec_icc_profiles[0].to_owned());
             output_intents.set("DestinationOutputProfile", Reference(icc_profile_id));
         }
 

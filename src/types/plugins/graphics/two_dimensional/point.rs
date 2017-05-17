@@ -1,7 +1,5 @@
 extern crate lopdf;
 
-use *;
-
 #[derive(Debug, Copy, Clone)]
 pub struct Point { 
     /// x position from the bottom left corner in pt

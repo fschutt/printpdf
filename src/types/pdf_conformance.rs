@@ -164,7 +164,6 @@ impl PdfConformance {
     {
         match *self {
             PdfConformance::X1A_2001_PDF_1_3  => { false },
-            PdfConformance::X1A_2001_PDF_1_3  => { false },
             PdfConformance::X3_2002_PDF_1_3   => { false },
             PdfConformance::X1A_2003_PDF_1_4  => { false },
             PdfConformance::X3_2003_PDF_1_4   => { false },

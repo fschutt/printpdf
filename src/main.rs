@@ -2,8 +2,6 @@ extern crate printpdf;
 
 use printpdf::*;
 use std::fs::File;
-use std::borrow::BorrowMut;
-use std::sync::Arc;
 
 fn main() {
 
@@ -25,11 +23,12 @@ fn main() {
     // Write the text with font + font size
     // printpdf is made for PDF-X/1A conform documents. 
     // As such, using the default fonts is not permitted. You have to use your own fonts here
-/*
     let text = "Hello World! Unicode test: стуфхfцчшщъыьэюя";
     let roboto_font_file = File::open("assets/fonts/RobotoMedium.ttf").unwrap();
     let roboto_font = doc.add_font(roboto_font_file).unwrap();
     doc.get_page(page1).get_layer(layer1).use_text(text, 48, 200.0, 200.0, roboto_font);
+
+/*
     
     let point1  = Point::new(200.0, 200.0);
     let point2  = Point::new(200.0, 200.0);

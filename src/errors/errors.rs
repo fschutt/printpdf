@@ -11,6 +11,7 @@ error_chain! {
 
     foreign_links {
         FontFaceError(freetype::Error);
+        IoError(::std::io::Error);
     }
 
     links {

@@ -15,7 +15,7 @@ impl Font {
     {
         // read font from stream and parse font metrics
         let mut buf = Vec::<u8>::new();
-        font_stream.read_to_end(&mut buf);
+        font_stream.read_to_end(&mut buf)?;
 
         Ok(Self {
             font_bytes: buf,
@@ -51,7 +51,7 @@ impl IntoPdfObject for Font {
             font_buf_ref.to_vec());
 
         // Begin setting required font attributes
-        let mut font_vec: Vec<(std::string::String, Object)> = vec![
+        let font_vec: Vec<(std::string::String, Object)> = vec![
             ("Type".into(), Name("Font".into())),
             ("Subtype".into(), Name("Type0".into())),
             ("BaseFont".into(), Name(face_name.clone().into_bytes())),
@@ -133,7 +133,7 @@ impl IntoPdfObject for Font {
         cid_to_unicode_map.push_str(include_str!("../../../../templates/gid_to_unicode_end.txt"));
         let cid_to_unicode_map_stream = LoStream::new(LoDictionary::new(), cid_to_unicode_map.as_bytes().to_vec());
 
-        let mut desc_fonts = LoDictionary::from_iter(vec![
+        let desc_fonts = LoDictionary::from_iter(vec![
             ("Type", Name("Font".into())),
             ("Subtype", Name("CIDFontType0".into())),
             ("BaseFont", Name(face_name.clone().into())),

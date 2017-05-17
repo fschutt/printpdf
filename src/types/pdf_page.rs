@@ -2,7 +2,7 @@
 
 use *;
 use indices::*;
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Mutex, Weak};
 
 /// PDF page
 #[derive(Debug)]
@@ -77,7 +77,7 @@ impl PdfPageReference {
     -> PdfLayerReference
     {
         let doc = self.document.upgrade().unwrap();
-        let mut doc = doc.lock().unwrap();
+        let doc = doc.lock().unwrap();
 
         doc.pages.get(self.page.0).unwrap().layers.get(layer.0).unwrap();
 

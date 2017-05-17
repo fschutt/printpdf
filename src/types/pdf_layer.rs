@@ -119,10 +119,11 @@ impl PdfLayerReference {
             use lopdf::StringFormat::Hexadecimal;
             use lopdf::content::Operation;
 
-            let doc = self.document.upgrade().unwrap();
-            let mut doc = doc.lock().unwrap();
-
             // we need to transform the characters into glyph ids and then add them to the layer
+
+            let doc = self.document.upgrade().unwrap();
+
+            let mut doc = doc.lock().unwrap();
 
             // load font from in-memory buffer
             // temporarily clone the font stream. This way we can still mutably borrow the document
@@ -137,12 +138,14 @@ impl PdfLayerReference {
             let list_gid: Vec<u16>;
             let face_name;
 
+            println!("font_idx: {:?}", font_idx);
+
             {
                 let font =  doc.inner_doc.get_object(font_idx).unwrap();
-                
+                                
                 let font_data = match *font {
                     lopdf::Object::Stream(ref s) => s,
-                    _ => { panic!("use_text() called with a corrupt font index!") }
+                    _ => { println!("{:?}", font); panic!("use_text() called with a corrupt font index!") }
                 };
 
                 let library = ft::Library::init().unwrap();
