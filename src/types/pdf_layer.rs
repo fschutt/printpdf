@@ -36,6 +36,39 @@ impl PdfLayer {
             layer_stream: PdfStream::new(),
         }
     }
+
+    /// Similar to the into_obj function, but takes the document as a second parameter (for lookup)
+    /// and conformance checking
+    /// Layers are prohibited if the conformance does not allow PDF layers. However, they are still
+    /// used for z-indexing content
+    pub fn into_obj(self, metadata: &PdfMetadata, contents: &Vec<lopdf::Object>)
+    -> Vec<lopdf::Object>
+    {
+        let mut final_contents = Vec::<lopdf::Object>::new();
+        // let mut doc = doc.lock().unwrap();
+
+        if metadata.conformance.is_layering_allowed() {
+            // todo: write begin of pdf layer
+        }
+
+        /// TODO: if two items are ActualContent and the type is stream,
+        /// we can merge the streams together into one
+
+        for content in self.contents.into_iter() {
+            match content {
+                ActualContent(a)     => { final_contents.append(&mut a.into_obj()); },
+                ReferencedContent(r) => { let content_ref = contents.get(r.0).unwrap();
+                                          final_contents.place_back() <- content_ref.clone(); }
+            }
+        }
+
+        if metadata.conformance.is_layering_allowed() {
+
+            // todo: write end of pdf layer
+        }
+
+        final_contents
+    }
 }
 
 impl PdfLayerReference {
@@ -111,8 +144,8 @@ impl PdfLayerReference {
 
     /// Add text to the file
     #[inline]
-    pub fn use_text<S>(&self, text: S, font_size: usize, x_mm: f64,
-                       y_mm: f64, font: FontIndex)
+    pub fn use_text<S>(&self, text: S, font_size: usize, rotation: f64,
+                       x_mm: f64, y_mm: f64, font: FontIndex)
     -> () where S: Into<std::string::String>
     {
             use lopdf::Object::*;
@@ -209,42 +242,5 @@ impl PdfLayerReference {
         doc.pages.get_mut(self.page.0).unwrap()
             .layers.get_mut(self.layer.0).unwrap()
                 .contents.place_back() <- PdfContent::ReferencedContent(svg_data_index.0.clone());
-    }
-
-    /// Similar to the into_obj function, but takes the document as a second parameter (for lookup)
-    /// and conformance checking
-    /// Layers are prohibited if the conformance does not allow PDF layers. However, they are still
-    /// used for z-indexing content
-    fn into_obj(self)
-    -> Vec<lopdf::Object>
-    {
-        let mut final_contents = Vec::<lopdf::Object>::new();
-        let doc = self.document.upgrade().unwrap();
-        let mut doc = doc.lock().unwrap();
-
-        if doc.metadata.conformance.is_layering_allowed() {
-            // todo: write begin of pdf layer
-        }
-
-        /// TODO: if two items are ActualContent and the type is stream,
-        /// we can merge the streams together into one
-
-        let layer = doc.pages.get_mut(self.page.0).unwrap()
-                            .layers.remove(self.layer.0);
-
-        for content in layer.contents.into_iter() {
-            match content {
-                ActualContent(a)     => { final_contents.append(&mut a.into_obj()); },
-                ReferencedContent(r) => { let content_ref = doc.contents.get(r.0).unwrap();
-                                          final_contents.place_back() <- content_ref.clone(); }
-            }
-        }
-
-        if doc.metadata.conformance.is_layering_allowed() {
-
-            // todo: write end of pdf layer
-        }
-
-        final_contents
     }
 }

@@ -8,7 +8,7 @@ use *;
 /// "Info" dictionary of a PDF document. 
 /// Actual data is contained in DocumentMetadata, to keep it in sync with the XmpMetadata 
 /// (if the timestamps / settings are not in sync, Preflight will complain)
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DocumentInfo {
     // DocumentInfo is older than XmpMetadata
     // The following is a list of things available to the DocumentInfo dictionary.

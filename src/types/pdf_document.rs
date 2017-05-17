@@ -224,12 +224,12 @@ impl PdfDocumentReference {
         use lopdf::Object::*;
         use std::iter::FromIterator;
 
-        /* todo: remove unwrap, handle error */
+        // todo: remove unwrap, handle error
         let mut doc = Arc::try_unwrap(self.document).unwrap().into_inner().unwrap();
         let pages_id = doc.inner_doc.new_object_id();
 
         // extra pdf infos
-        let (xmp_metadata, document_info, icc_profile) = doc.metadata.into_obj();
+        let (xmp_metadata, document_info, icc_profile) = doc.metadata.clone().into_obj();
         let xmp_metadata_id = doc.inner_doc.add_object(xmp_metadata);
         let document_info_id = doc.inner_doc.add_object(document_info);
             
@@ -288,7 +288,14 @@ impl PdfDocumentReference {
                        page.width_pt.into(), page.heigth_pt.into()].into()),
                       ("Parent", Reference(pages_id)) ]);
 
-            // add page content (todo)
+            // add page content
+            for layer in page.layers.into_iter() {
+                let layer_objs = layer.into_obj(&doc.metadata, &doc.contents);
+                // resources via fontindex?
+                for obj in layer_objs {
+                    doc.inner_doc.add_object(obj);
+                }
+            }
 
             page_ids.push(Reference(doc.inner_doc.add_object(p)))
         }
@@ -307,7 +314,7 @@ impl PdfDocumentReference {
                                             String(instance_id.as_bytes().to_vec(), Literal)
                                         ]));
 
-        doc.inner_doc.prune_objects();
+        // doc.inner_doc.prune_objects();
         doc.inner_doc.delete_zero_length_streams();
         // self.inner_doc.compress();
         doc.inner_doc.save_to(target).unwrap();

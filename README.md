@@ -39,10 +39,11 @@ let text = "Hello World! Unicode test: стуфхfцчшщъыьэюя";
 let roboto_font_file = File::open("assets/fonts/RobotoMedium.ttf").unwrap();
 let roboto_font = doc.add_font(roboto_font_file).unwrap();
 
-doc.get_page(page1).get_layer(layer1).use_text(text, 48, 200.0, 200.0, roboto_font);
+// text, font size, rotation, x from left edge, y from top edge, font
+doc.get_page(page1).get_layer(layer1).use_text(text, 48, 0.0, 200.0, 200.0, roboto_font);
 ```
 
-#### Adding fonts
+#### Adding graphical shapes
 
 ## Goals and Roadmap
 

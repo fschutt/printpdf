@@ -10,11 +10,11 @@ fn main() {
     // To prevent empty documents, you must specify at least one page with one layer
     // You can later on add more pages with the add_page() function
     // You also have to specify the title of the PDF and the document creator
-    let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 247.0, 210.0, "Layer 1");
+    let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 500.0, 500.0, "Layer 1");
 
     // You can add more pages and layers to the PDF. 
     // Just make sure you don't lose the references, otherwise, you can't add things to the layer anymore
-    let (page2, layer1) = doc.add_page(10.0, 250.0,"Page 2, Layer 1");
+    let (page2, layer1) = doc.add_page(500.0, 500.0,"Page 2, Layer 1");
     let layer2 = doc.get_page(page2).add_layer("Layer 2");
     let layer3 = doc.get_page(page2).add_layer("Layer 3");
 
@@ -26,9 +26,8 @@ fn main() {
     let text = "Hello World! Unicode test: стуфхfцчшщъыьэюя";
     let roboto_font_file = File::open("assets/fonts/RobotoMedium.ttf").unwrap();
     let roboto_font = doc.add_font(roboto_font_file).unwrap();
-    doc.get_page(page1).get_layer(layer1).use_text(text, 48, 200.0, 200.0, roboto_font);
+    doc.get_page(page1).get_layer(layer1).use_text(text, 48, 0.0, 200.0, 200.0, roboto_font);
 
-/*
     
     let point1  = Point::new(200.0, 200.0);
     let point2  = Point::new(200.0, 200.0);
@@ -40,10 +39,13 @@ fn main() {
                       (point3, false),
                       (point4, false)];
 
-    use api::types::plugins::graphics::Outline;
-    use api::types::plugins::graphics::*;
     let outline = Outline::new(Color::Cmyk(Cmyk::new(1.0, 0.75, 0.0, 0.0, None)), 5);
-    doc.add_line(points, Some(&outline), None, layer2).unwrap();
+    doc.get_page(page1).get_layer(layer1).set_outline(outline);
+
+    // points, is the shape closed?, is the shape filled (polygon)?
+    doc.get_page(page1).get_layer(layer1).add_shape(points, false, false).unwrap();
+
+/*
 
     // A special thing is transcoding SVG files directly into PDF (for mapping symbols)    
     // Specify the lower left corner of the SVG

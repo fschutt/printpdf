@@ -7,7 +7,7 @@ use *;
 
 /// This is a wrapper in order to keep shared data between the documents XMP metadata and
 /// the "Info" dictionary in sync
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PdfMetadata {
 	/// Creation date of the document
 	pub creation_date: chrono::DateTime<chrono::Local>,
