@@ -38,32 +38,35 @@ impl PdfLayer {
     }
 
     /// Similar to the into_obj function, but takes the document as a second parameter (for lookup)
-    /// and conformance checking
-    /// Layers are prohibited if the conformance does not allow PDF layers. However, they are still
-    /// used for z-indexing content
+    /// and conformance checking. Layers are prohibited if the conformance does not allow PDF 
+    /// layers. However, they are still used for z-indexing content
     pub fn into_obj(self, metadata: &PdfMetadata, contents: &Vec<lopdf::Object>)
     -> Vec<lopdf::Object>
     {
         let mut final_contents = Vec::<lopdf::Object>::new();
-        // let mut doc = doc.lock().unwrap();
 
         if metadata.conformance.is_layering_allowed() {
             // todo: write begin of pdf layer
         }
 
-        /// TODO: if two items are ActualContent and the type is stream,
-        /// we can merge the streams together into one
+        // TODO: if two items are ActualContent and the type is stream,
+        // we can merge the streams together into one
+
+        final_contents.append(&mut Box::new(self.layer_stream).into_obj());
+
+        println!("{:?}", self.contents);
 
         for content in self.contents.into_iter() {
             match content {
-                ActualContent(a)     => { final_contents.append(&mut a.into_obj()); },
-                ReferencedContent(r) => { let content_ref = contents.get(r.0).unwrap();
+                ActualContent(a)     => { println!("actual content!");
+                                          final_contents.append(&mut a.into_obj()); },
+                ReferencedContent(r) => { println!("referenced content!");
+                                          let content_ref = contents.get(r.0).unwrap();
                                           final_contents.place_back() <- content_ref.clone(); }
             }
         }
 
         if metadata.conformance.is_layering_allowed() {
-
             // todo: write end of pdf layer
         }
 
@@ -152,10 +155,10 @@ impl PdfLayerReference {
             use lopdf::StringFormat::Hexadecimal;
             use lopdf::content::Operation;
 
+            self.use_arbitrary_content(font.clone());
+
             // we need to transform the characters into glyph ids and then add them to the layer
-
             let doc = self.document.upgrade().unwrap();
-
             let mut doc = doc.lock().unwrap();
 
             // load font from in-memory buffer
@@ -167,6 +170,7 @@ impl PdfLayerReference {
                     _ => panic!(),
                 }
             };
+
 
             let list_gid: Vec<u16>;
             let face_name;
@@ -186,14 +190,13 @@ impl PdfLayerReference {
                 face_name = face.postscript_name().unwrap();
                 let text_to_embed = text.into();
 
-                // convert into list of glyph ids
+                // convert into list of glyph ids - unicode magic
                 list_gid = text_to_embed
                            .chars()
                            .map(|x| face.get_char_index(x as usize) as u16)
                            .collect();
             }
 
-            // let str: Vec<u16> = string.encode_utf16().collect();
             let bytes: Vec<u8> = list_gid.iter()
                 .flat_map(|x| vec!((x >> 8) as u8, (x & 255) as u8))
                 .collect::<Vec<u8>>();
@@ -225,15 +228,19 @@ impl PdfLayerReference {
 
     /// Instantiate SVG data
     #[inline]
-    pub fn use_svg(&mut self, doc: Arc<Mutex<PdfDocument>>, width_mm: f64, height_mm: f64, 
+    pub fn use_svg(&self, width_mm: f64, height_mm: f64, 
                    x_mm: f64, y_mm: f64, svg_data_index: SvgIndex)
     {
+        /* 
+        
         let svg_element_ref = {
             use std::clone::Clone;
             let doc = doc.lock().unwrap();
             let element = doc.contents.get((svg_data_index.0).0).expect("invalid svg reference");
             (*element).clone()
-        };
+        }; 
+        
+        */
 
         let doc = self.document.upgrade().unwrap();
         let mut doc = doc.lock().unwrap();

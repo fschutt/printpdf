@@ -158,19 +158,42 @@ impl PdfDocumentReference {
     {
         let font = Font::new(font_stream)?;
         let index = self.add_arbitrary_content(Box::new(font), true);
+
+        // let doc = self.document.lock().unwrap();
+        // let font_ref = doc.contents.get(index.0).unwrap();
+        // let font = doc.inner_doc.get_object(font_ref);
+
+        // let font_stream_id = &self.doc.add_object(font_stream);
+        // font_descriptor_vec.push(("FontFile3".into(), Reference(*font_stream_id)));
+
+        // Create dictionaries and add to DOM
+        // let font_descriptor_id = &self.doc.add_object(LoDictionary::from_iter(font_descriptor_vec));
+        // desc_fonts.set("FontDescriptor".to_string(), Reference(*font_descriptor_id));
+
+        // Embed character ids
+        // let cid_to_unicode_map_stream_id = &self.doc.add_object(Stream(cid_to_unicode_map_stream));
+        // font_vec.push(("ToUnicode".into(), Reference(*cid_to_unicode_map_stream_id)));
+        // let char_to_cid_map_stream_id = &self.doc.add_object(Stream(char_to_cid_map_stream));
+        // font_vec.push(("Encoding".into(), Name("Identity-H".into())));
+
+        // let desc_fonts_id = &self.doc.add_object(Array(vec![Dictionary(desc_fonts)]));
+        // font_vec.push(("DescendantFonts".into(), Reference(*desc_fonts_id)));
+
+        // let font = LoDictionary::from_iter(font_vec);
+        // &self.fonts.insert(face_name.clone(), font);
+
         Ok(FontIndex(index))
     }
 
     /// Add SVG content to the document
     #[inline]
     pub fn add_svg<R>(&self, svg_data: R)
-    -> SvgIndex
+    -> ::std::result::Result<SvgIndex, Error>
     where R: ::std::io::Read
     {
-        // todo
-        let svg_obj = Svg::new(svg_data);
+        let svg_obj = Svg::new(svg_data)?;
         let index = self.add_arbitrary_content(Box::new(svg_obj), false);
-        SvgIndex(index)
+        Ok(SvgIndex(index))
     }
 
     // ----- GET FUNCTIONS
@@ -289,10 +312,9 @@ impl PdfDocumentReference {
                       ("Parent", Reference(pages_id)) ]);
 
             // add page content
+            // add resources via font index?
             for layer in page.layers.into_iter() {
-                let layer_objs = layer.into_obj(&doc.metadata, &doc.contents);
-                // resources via fontindex?
-                for obj in layer_objs {
+                for obj in layer.into_obj(&doc.metadata, &doc.contents) {
                     doc.inner_doc.add_object(obj);
                 }
             }
@@ -315,8 +337,8 @@ impl PdfDocumentReference {
                                         ]));
 
         // doc.inner_doc.prune_objects();
-        doc.inner_doc.delete_zero_length_streams();
-        // self.inner_doc.compress();
+        // doc.inner_doc.delete_zero_length_streams();
+        // doc.inner_doc.compress();
         doc.inner_doc.save_to(target).unwrap();
 
         Ok(())

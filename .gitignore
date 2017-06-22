@@ -1,3 +1,4 @@
 target/*
 ./*.pdf
 *.lock
+.vscode/*

@@ -41,6 +41,8 @@
 //! 
 //! ### Adding graphical shapes
 //! 
+//! ### Adding SVG elements
+//! 
 //! # Goals and Roadmap
 //!
 //! The goal of printpdf is to be a general-use PDF library, such as libharu or similar.
@@ -119,6 +121,7 @@ extern crate lopdf;
 extern crate freetype;
 extern crate chrono;
 extern crate rand;
+extern crate svg;
 
 pub mod traits;
 pub mod types;

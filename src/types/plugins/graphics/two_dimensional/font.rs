@@ -4,9 +4,13 @@ extern crate freetype as ft;
 
 use *;
 
+/// The font
 #[derive(Debug, Clone)]
 pub struct Font {
+    /// Font data
     font_bytes: Vec<u8>,
+    /// Font name, for adding as a resource on the document
+    face_name: String,
 }
 
 impl Font {
@@ -17,8 +21,16 @@ impl Font {
         let mut buf = Vec::<u8>::new();
         font_stream.read_to_end(&mut buf)?;
 
+        let face_name = {
+            let library = ft::Library::init().unwrap();
+            let face = library.new_memory_face(&buf, 0).unwrap();
+            face.postscript_name().expect("Could not read font name!")
+        };
+
+
         Ok(Self {
             font_bytes: buf,
+            face_name: face_name,
         })
     }
 }
@@ -34,13 +46,14 @@ impl IntoPdfObject for Font {
         use std::collections::BTreeMap;
         use std::iter::FromIterator;
 
+        let face_name = self.face_name.clone();
+
         let font_buf_ref: Box<[u8]> = self.font_bytes.into_boxed_slice();
         let library = ft::Library::init().unwrap();
         let face = library.new_memory_face(&*font_buf_ref, 0).unwrap();
 
         // Extract basic font information
         // TODO: return specific error when returning
-        let face_name = face.postscript_name().expect("Could not read font name!");
         let face_metrics = face.size_metrics().expect("Could not read font metrics!");
 
         let font_stream = LoStream::new(
@@ -155,24 +168,7 @@ impl IntoPdfObject for Font {
                                Stream(cid_to_unicode_map_stream),
                                Array(vec![Dictionary(desc_fonts)]),
                                Dictionary(LoDictionary::from_iter(font_vec))];
+                               
         pdf_obj_vec
-        // let font_stream_id = &self.doc.add_object(font_stream);
-        // font_descriptor_vec.push(("FontFile3".into(), Reference(*font_stream_id)));
-
-        // Create dictionaries and add to DOM
-        // let font_descriptor_id = &self.doc.add_object(LoDictionary::from_iter(font_descriptor_vec));
-        // desc_fonts.set("FontDescriptor".to_string(), Reference(*font_descriptor_id));
-
-        // Embed character ids
-        // let cid_to_unicode_map_stream_id = &self.doc.add_object(Stream(cid_to_unicode_map_stream));
-        // font_vec.push(("ToUnicode".into(), Reference(*cid_to_unicode_map_stream_id)));
-        // let char_to_cid_map_stream_id = &self.doc.add_object(Stream(char_to_cid_map_stream));
-        // font_vec.push(("Encoding".into(), Name("Identity-H".into())));
-
-        // let desc_fonts_id = &self.doc.add_object(Array(vec![Dictionary(desc_fonts)]));
-        // font_vec.push(("DescendantFonts".into(), Reference(*desc_fonts_id)));
-
-        // let font = LoDictionary::from_iter(font_vec);
-        // &self.fonts.insert(face_name.clone(), font);
     }
 }
