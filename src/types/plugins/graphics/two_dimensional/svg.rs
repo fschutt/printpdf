@@ -45,8 +45,8 @@ impl Svg {
     pub fn new<R>(svg_data: R)
     -> Result<Self, ::std::io::Error> where R: ::std::io::Read
     {
-        use svg::node::element::path::{Command, Data};
-        use svg::node::element::tag::Path;
+        // use svg::node::element::path::{Command, Data};
+        // use svg::node::element::tag::Path;
         use svg::parser::Event;
 
         let mut initial_width = None;
@@ -57,7 +57,7 @@ impl Svg {
         // get width and height
         for event in parser {
             match event {
-                Event::Tag(Path, _, attributes) => {
+                Event::Tag(_, _, attributes) => {
                     let mut mark_break = false;
                     if let Some(w) = attributes.get("width") {
                         if let Ok(parsed_w) = w.parse::<f64>() {
