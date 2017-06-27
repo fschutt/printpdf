@@ -29,21 +29,24 @@ fn main() {
     let roboto_font = doc.add_font(roboto_font_file).unwrap();
     doc.get_page(page1).get_layer(layer1).use_text(text, 48, 0.0, 200.0, 200.0, roboto_font);
 */
-    let point1  = Point::new(200.0, 200.0);
-    let point2  = Point::new(400.0, 600.0);
-    let point3  = Point::new(800.0, 700.0);
-    let point4  = Point::new(900.0, 900.0);
+    let point1  = Point::new(100.0, 100.0);
+    let point2  = Point::new(100.0, 200.0);
+    let point3  = Point::new(300.0, 200.0);
+    let point4  = Point::new(300.0, 100.0);
 
-    let points = vec![(point1, false),
-                      (point2, false),
-                      (point3, false),
-                      (point4, false)];
+    let points = vec![(point1, true),
+                      (point2, true),
+                      (point3, true),
+                      (point4, true)];
 
-    let outline = Outline::new(Color::Cmyk(Cmyk::new(1.0, 0.75, 0.0, 0.0, None)), 5);
+    let outline = Outline::new(Color::Cmyk(Cmyk::new(1.0, 0.75, 0.0, 0.0, None)), 10);
+    let fill = Fill::new(Color::Cmyk(Cmyk::new(0.0, 1.0, 0.0, 0.0, None)));
+    
     doc.get_page(page1).get_layer(layer1).set_outline(outline);
+    doc.get_page(page1).get_layer(layer1).set_fill(fill);
 
-    // points, is the shape closed?, is the shape filled (polygon)?
-    doc.get_page(page1).get_layer(layer1).add_shape(points, false, false).unwrap();
+    // points, is the shape stroked, is the shape closed (lines only)?, is the shape filled (polygon)?
+    doc.get_page(page1).get_layer(layer1).add_shape(points, true, true, false).unwrap();
 
 /*
     // A special thing is transcoding SVG files directly into PDF (for mapping symbols)    

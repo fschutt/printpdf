@@ -315,7 +315,7 @@ impl PdfDocumentReference {
             // add resources via font index?
             for layer in page.layers.into_iter() {
                 for obj in layer.into_obj(&doc.metadata, &doc.contents) {
-                    let layer_stream = doc.inner_doc.add_object(obj); // todo: merge streams
+                    let layer_stream = doc.inner_doc.add_object(obj);
                     p.set("Contents", Reference(layer_stream));
                 }
             }

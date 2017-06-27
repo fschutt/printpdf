@@ -28,9 +28,19 @@ impl IntoPdfStreamOperation for Fill {
         use lopdf::Object::*;
         use lopdf::content::Operation;
 
-        let mut operations = Vec::<lopdf::content::Operation>::new();
-        let color_vec = self.color.into_vec().iter().map(move |float| Real(*float)).collect();
-        operations.place_back() <- Operation::new(OP_COLOR_SET_FILL_COLOR, color_vec);
-        operations
+        // same as outline
+        // a bit weird, I expected OP_COLOR_SET_FILL_COLOR to work, ...
+
+        // todo: incorporate ICC profile instead of just setting the default device cmyk color space
+        let color_identifier = match self.color {
+            Color::Rgb(_) => { OP_COLOR_SET_FILL_CS_DEVICERGB }
+            Color::Cmyk(_) => { OP_COLOR_SET_FILL_CS_DEVICECMYK }
+            Color::Grayscale(_) => { OP_COLOR_SET_FILL_CS_DEVICEGRAY }
+            Color::SpotColor(_) => { OP_COLOR_SET_FILL_CS_DEVICECMYK }
+        };
+
+        let color_vec = self.color.into_vec().into_iter().map(move |float| Real(float)).collect();
+
+        vec![Operation::new(color_identifier, color_vec)]
     }
 }

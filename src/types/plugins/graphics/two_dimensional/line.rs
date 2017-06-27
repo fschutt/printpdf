@@ -9,6 +9,8 @@ pub struct Line {
     pub is_closed: bool,
     /// Should the line be filled (via winding-number rule), for polygons
     pub has_fill: bool,
+    /// Should the line have an outline (stroke)?
+    pub has_stroke: bool,
 }
 
 impl Line {
@@ -19,13 +21,15 @@ impl Line {
     #[inline]
     pub fn new(points: Vec<(Point, bool)>, 
                is_closed: bool, 
-               has_fill: bool)
+               has_fill: bool,
+               has_stroke: bool)
     -> Self
     {
         Self {
             points,
             is_closed,
             has_fill,
+            has_stroke,
         }
     }
 
@@ -66,6 +70,7 @@ impl IntoPdfStreamOperation for Line {
             let p1 = &self.points[current - 1];                      // prev pt
             let p2 = &self.points[current];                          // current pt
 
+
             if p1.1 && p2.1 {
                 // current point is a bezier handle
                 // valid bezier curve must have two sequential bezier handles
@@ -94,11 +99,36 @@ impl IntoPdfStreamOperation for Line {
             current += 1;
         }
 
-        match self.is_closed {
-            true  => { operations.place_back() <- Operation::new(OP_PATH_PAINT_STROKE_CLOSE, vec![]); },
-            false => { operations.place_back() <- Operation::new(OP_PATH_PAINT_STROKE, vec![]); },
-        }        
-        
+        // how to paint the path
+        if self.has_stroke {
+            if self.has_fill {
+                if self.is_closed {
+                    // is filled and stroked and closed
+                    operations.place_back() <- Operation::new(OP_PATH_PAINT_FILL_STROKE_CLOSE_NZ, vec![]);
+                } else {
+                    // is filled and stroked but not closed
+                    operations.place_back() <- Operation::new(OP_PATH_PAINT_FILL_NZ, vec![]);
+                }
+            } else {
+                if self.is_closed {
+                    // not filled, but stroked and closed
+                    operations.place_back() <- Operation::new(OP_PATH_PAINT_STROKE_CLOSE, vec![]);
+                } else {
+                    // not filled, not closed but only stroked (regular path)
+                    operations.place_back() <- Operation::new(OP_PATH_PAINT_STROKE, vec![]);
+                } 
+            } 
+        } else {
+            if self.has_fill {
+                // is not stroked, only filled
+                // closed-ness doesn't matter in this case, an area is always closed
+                operations.place_back() <- Operation::new(OP_PATH_PAINT_FILL_NZ, vec![]);
+            } else {
+                // no painting operation nothing, path is invisible, only end the path
+                operations.place_back() <- Operation::new(OP_PATH_PAINT_END, vec![]);
+            }
+        }
+
         operations
     }
 

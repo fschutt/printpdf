@@ -105,13 +105,13 @@ impl PdfLayerReference {
     /// Add a shape to the layer. Use `closed` to indicate whether the line is a closed line
     /// Use has_fill to determine if the line should be filled. 
     #[inline]
-    pub fn add_shape(&self, points: Vec<(Point, bool)>, closed: bool, has_fill: bool)
+    pub fn add_shape(&self, points: Vec<(Point, bool)>, has_stroke: bool, is_closed: bool, has_fill: bool)
     -> ::std::result::Result<(), Error>
     {
         let doc = self.document.upgrade().unwrap();
         let mut doc = doc.lock().unwrap();
 
-        let line = Line::new(points, closed, has_fill);
+        let line = Line::new(points, is_closed, has_fill, has_stroke);
 
         doc.pages.get_mut(self.page.0).unwrap()
               .layers.get_mut(self.layer.0).unwrap()
