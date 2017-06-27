@@ -49,7 +49,6 @@ impl IntoPdfStreamOperation for Line {
     fn into_stream_op(self: Box<Self>)
     -> Vec<lopdf::content::Operation>
     {
-        /* &mut self, line: &Line, outline_col: Option<&Cmyk>, outline_pt: Option<i64>, fill_col: Option<&Cmyk> */
         use lopdf::content::Operation;
         let mut operations = Vec::<Operation>::new();
 

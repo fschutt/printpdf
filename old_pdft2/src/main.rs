@@ -396,7 +396,7 @@ impl MapDocument {
 				// valid bezier curve must have two sequential bezier handles
 				// we also can"t build a valid cubic bezier curve if the cuve contains less than
 				// four points. If p3 or p4 is marked as "next point is bezier handle" or not, doesn"t matter
-				if let Some(p3) = line.points.get(current + 1){
+				if let Some(p3) = line.points.get(current + 1) {
 					if let Some(p4) = line.points.get(current + 2){
 						if p1.0 == p2.0 {
 							// first control point coincides with initial point of curve

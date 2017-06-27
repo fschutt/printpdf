@@ -92,6 +92,6 @@ impl IntoPdfObject for Svg {
     -> Vec<lopdf::Object>
     {
         // make SVG to stream, then use it in the doument as a reference
-        unimplemented!()
+        Vec::new()
     }
 } 

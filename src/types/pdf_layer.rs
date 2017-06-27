@@ -54,14 +54,10 @@ impl PdfLayer {
 
         final_contents.append(&mut Box::new(self.layer_stream).into_obj());
 
-        println!("{:?}", self.contents);
-
         for content in self.contents.into_iter() {
             match content {
-                ActualContent(a)     => { println!("actual content!");
-                                          final_contents.append(&mut a.into_obj()); },
-                ReferencedContent(r) => { println!("referenced content!");
-                                          let content_ref = contents.get(r.0).unwrap();
+                ActualContent(a)     => { final_contents.append(&mut a.into_obj()); },
+                ReferencedContent(r) => { let content_ref = contents.get(r.0).unwrap();
                                           final_contents.place_back() <- content_ref.clone(); }
             }
         }
@@ -109,13 +105,18 @@ impl PdfLayerReference {
     pub fn add_shape(&self, points: Vec<(Point, bool)>, closed: bool, has_fill: bool)
     -> ::std::result::Result<(), Error>
     {
-        let line = Line::new(points, closed, has_fill);
         let doc = self.document.upgrade().unwrap();
         let mut doc = doc.lock().unwrap();
+
+        let line = Line::new(points, closed, has_fill);
+
+        println!("in function: add_shape", );
+        println!("{:?}", Box::new(line.clone()).into_stream_op());
 
         doc.pages.get_mut(self.page.0).unwrap()
               .layers.get_mut(self.layer.0).unwrap()
                   .layer_stream.add_operation(Box::new(line));
+        
         Ok(())
     }
 
@@ -139,6 +140,9 @@ impl PdfLayerReference {
     {
         let doc = self.document.upgrade().unwrap();
         let mut doc = doc.lock().unwrap();
+
+        println!("in function: set_outline");
+        println!("{:?}", Box::new(outline.clone()).into_stream_op());
 
         doc.pages.get_mut(self.page.0).unwrap()
             .layers.get_mut(self.layer.0).unwrap()
