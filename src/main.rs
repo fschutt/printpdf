@@ -30,9 +30,9 @@ fn main() {
     doc.get_page(page1).get_layer(layer1).use_text(text, 48, 0.0, 200.0, 200.0, roboto_font);
 */
     let point1  = Point::new(200.0, 200.0);
-    let point2  = Point::new(200.0, 200.0);
-    let point3  = Point::new(200.0, 200.0);
-    let point4  = Point::new(200.0, 200.0);
+    let point2  = Point::new(400.0, 600.0);
+    let point3  = Point::new(800.0, 700.0);
+    let point4  = Point::new(900.0, 900.0);
 
     let points = vec![(point1, false),
                       (point2, false),

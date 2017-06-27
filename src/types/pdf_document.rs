@@ -300,7 +300,7 @@ impl PdfDocumentReference {
 
         for page in doc.pages.into_iter() {
             
-            let p = LoDictionary::from_iter(vec![
+            let mut p = LoDictionary::from_iter(vec![
                       ("Type", "Page".into()),
                       ("Rotate", Integer(0)),
                       ("MediaBox", vec![0.into(), 0.into(),
@@ -315,7 +315,8 @@ impl PdfDocumentReference {
             // add resources via font index?
             for layer in page.layers.into_iter() {
                 for obj in layer.into_obj(&doc.metadata, &doc.contents) {
-                    doc.inner_doc.add_object(obj);
+                    let layer_stream = doc.inner_doc.add_object(obj); // todo: merge streams
+                    p.set("Contents", Reference(layer_stream));
                 }
             }
 

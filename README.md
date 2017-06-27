@@ -75,6 +75,8 @@ Over time, there will be more standards supported. Checking a PDF for errors is 
 
 ## Testing
 
+Note: this project needs `libfreetype6-dev` to be installed first.
+
 Testing should be done in two stages. First, test the individual PDF objects, if the conversion into
 a PDF object is done correctly. The second stage is manual inspection of PDF objects via Adobe Preflight.
 

@@ -52,6 +52,9 @@ impl PdfLayer {
         // TODO: if two items are ActualContent and the type is stream,
         // we can merge the streams together into one
 
+        // this should be set as a dictionary "Contents" and set a reference to a stream
+        // otherwise it doesn't show up
+
         final_contents.append(&mut Box::new(self.layer_stream).into_obj());
 
         for content in self.contents.into_iter() {
@@ -110,9 +113,6 @@ impl PdfLayerReference {
 
         let line = Line::new(points, closed, has_fill);
 
-        println!("in function: add_shape", );
-        println!("{:?}", Box::new(line.clone()).into_stream_op());
-
         doc.pages.get_mut(self.page.0).unwrap()
               .layers.get_mut(self.layer.0).unwrap()
                   .layer_stream.add_operation(Box::new(line));
@@ -140,9 +140,6 @@ impl PdfLayerReference {
     {
         let doc = self.document.upgrade().unwrap();
         let mut doc = doc.lock().unwrap();
-
-        println!("in function: set_outline");
-        println!("{:?}", Box::new(outline.clone()).into_stream_op());
 
         doc.pages.get_mut(self.page.0).unwrap()
             .layers.get_mut(self.layer.0).unwrap()
