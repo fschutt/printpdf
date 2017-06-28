@@ -88,19 +88,9 @@ impl PdfLayerReference {
     /// Add a shape to the layer. Use `closed` to indicate whether the line is a closed line
     /// Use has_fill to determine if the line should be filled. 
     #[inline]
-    pub fn add_shape(&self, points: Vec<(Point, bool)>, has_stroke: bool, is_closed: bool, has_fill: bool)
-    -> ::std::result::Result<(), Error>
+    pub fn add_shape(&self, line: Line)
     {
-        let doc = self.document.upgrade().unwrap();
-        let mut doc = doc.lock().unwrap();
-
-        let line = Line::new(points, is_closed, has_fill, has_stroke);
-
-        doc.pages.get_mut(self.page.0).unwrap()
-              .layers.get_mut(self.layer.0).unwrap()
-                  .layer_stream.add_operation(Box::new(line));
-        
-        Ok(())
+        add_operation!(self, Box::new(line));
     }
 
     /// Set the current fill color for the layer
@@ -108,17 +98,11 @@ impl PdfLayerReference {
     pub fn set_fill(&self, fill_color: Fill)
     -> ()
     {
-        let doc = self.document.upgrade().unwrap();
-        let mut doc = doc.lock().unwrap();
-
-        doc.pages.get_mut(self.page.0).unwrap()
-            .layers.get_mut(self.layer.0).unwrap()
-                .layer_stream.add_operation(Box::new(fill_color));
+        add_operation!(self, Box::new(fill_color));
     }
 
     /// Set the overprint mode of the stroke color to true (overprint) or false (no overprint)
     pub fn set_overprint_fill(&self, overprint: bool)
-    -> ()
     {
         /* let doc = self.document.upgrade().unwrap();
         let mut doc = doc.lock().unwrap();
@@ -132,7 +116,6 @@ impl PdfLayerReference {
 
     /// Set the overprint mode of the fill color to true (overprint) or false (no overprint)
     pub fn set_overprint_stroke(&self, overprint: bool)
-    -> ()
     {
         /* let doc = self.document.upgrade().unwrap();
         let mut doc = doc.lock().unwrap();
@@ -147,54 +130,44 @@ impl PdfLayerReference {
     /// Set the current fill color for the layer
     #[inline]
     pub fn set_outline(&mut self, outline: Outline)
-    -> ()
     {
-        let doc = self.document.upgrade().unwrap();
-        let mut doc = doc.lock().unwrap();
-
-        doc.pages.get_mut(self.page.0).unwrap()
-            .layers.get_mut(self.layer.0).unwrap()
-                .layer_stream.add_operation(Box::new(outline));
+        add_operation!(self, Box::new(outline));
     }
 
     /// Set the current line join style for outlines
     #[inline]
     pub fn set_line_join_style(&mut self, line_join: LineJoinStyle) {
-        let doc = self.document.upgrade().unwrap();
-        let mut doc = doc.lock().unwrap();
-
-        doc.pages.get_mut(self.page.0).unwrap()
-            .layers.get_mut(self.layer.0).unwrap()
-                .layer_stream.add_operation(Box::new(line_join));
+        add_operation!(self, Box::new(line_join));
     }
 
     /// Set the current line join style for outlines
     #[inline]
     pub fn set_line_cap_style(&mut self, line_cap: LineCapStyle) {
-        let doc = self.document.upgrade().unwrap();
-        let mut doc = doc.lock().unwrap();
-
-        doc.pages.get_mut(self.page.0).unwrap()
-            .layers.get_mut(self.layer.0).unwrap()
-                .layer_stream.add_operation(Box::new(line_cap));
+        add_operation!(self, Box::new(line_cap));
     }
 
-    /// Set the current transformation matrix
+    /// Set the current line join style for outlines
+    #[inline]
+    pub fn set_line_dash_pattern(&mut self, dash_pattern: LineDashPattern) {
+        add_operation!(self, Box::new(dash_pattern));
+    }
+
+    /// Set the current transformation matrix (TODO)
     #[inline]
     pub fn set_ctm(&mut self, ctm: CurrentTransformationMatrix) {
-        // todo
+        add_operation!(self, Box::new(ctm));
     }
 
-    /// Saves the current graphic state (q operator)
+    /// Saves the current graphic state (q operator) (TODO)
     #[inline]
     pub fn save_graphics_state(&mut self) {
-        // todo
+        add_operation!(self, Box::new(lopdf::content::Operation::new("q", Vec::new())));
     }
 
-    /// Restores the previous graphic state (q operator)
+    /// Restores the previous graphic state (Q operator) (TODO)
     #[inline]
     pub fn restore_graphics_state(&mut self) {
-        // todo
+        add_operation!(self, Box::new(lopdf::content::Operation::new("Q", Vec::new())));
     }
 
     /// Add text to the file

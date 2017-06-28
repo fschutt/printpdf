@@ -32,27 +32,33 @@ fn main() {
 */
 
     // quad
-    let shape1 = vec![(Point::new(100.0, 100.0), false),
+    let points1 = vec![(Point::new(100.0, 100.0), false),
                       (Point::new(100.0, 200.0), false),
                       (Point::new(300.0, 200.0), false),
                       (Point::new(300.0, 100.0), false)];
+    let line1 = Line::new(points1, true, true, true);
 
-    let shape2 = vec![(Point::new(150.0, 150.0), false),
+    let points2 = vec![(Point::new(150.0, 150.0), false),
                     (Point::new(150.0, 250.0), false),
                     (Point::new(350.0, 250.0), false)];
+    let line2 = Line::new(points2, true, false, false);
 
-    let outline = Outline::new(Color::Cmyk(Cmyk::new(1.0, 0.75, 0.0, 0.0, None)), 10);
+    let outline = Outline::new(Color::Cmyk(Cmyk::new(1.0, 0.75, 0.75, 0.0, None)), 10);
     let fill = Fill::new(Color::Cmyk(Cmyk::new(0.0, 1.0, 0.0, 0.0, None)));
     
+    let mut dash_pattern = LineDashPattern::default();
+    dash_pattern.dash_1 = Some(20);
+
     doc.get_page(page1).get_layer(layer1).set_outline(outline);
     doc.get_page(page1).get_layer(layer1).set_fill(fill);
-    
+
     // first batch of points
     // points, is the shape stroked, is the shape closed (lines only)?, is the shape filled (polygon)?
-    doc.get_page(page1).get_layer(layer1).add_shape(shape1, true, true, true).unwrap();
+    doc.get_page(page1).get_layer(layer1).add_shape(line1);
 
     let outline_2 = Outline::new(Color::Cmyk(Cmyk::new(0.0, 1.0, 0.0, 0.0, None)), 10);
     let fill_2 = Fill::new(Color::Cmyk(Cmyk::new(1.0, 0.75, 0.0, 0.0, None)));
+    doc.get_page(page1).get_layer(layer1).set_line_dash_pattern(dash_pattern);
 
     // doc.get_page(page1).get_layer(layer1).set_overprint_fill(true);
     // doc.get_page(page1).get_layer(layer1).set_overprint_stroke(false);
@@ -62,7 +68,7 @@ fn main() {
     doc.get_page(page1).get_layer(layer1).set_fill(fill_2);
 
     // second batch of points
-    doc.get_page(page1).get_layer(layer1).add_shape(shape2, true, false, false).unwrap();
+    doc.get_page(page1).get_layer(layer1).add_shape(line2);
 
 /*
     // A special thing is transcoding SVG files directly into PDF (for mapping symbols)    

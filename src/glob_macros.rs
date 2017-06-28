@@ -13,3 +13,12 @@ macro_rules! operation {
                       operands: vec![],
                   }])
 }
+
+macro_rules! add_operation {
+    ($d: expr, $e: expr) => (let doc = $d.document.upgrade().unwrap();
+		           let mut doc = doc.lock().unwrap();
+
+		           doc.pages.get_mut($d.page.0).unwrap()
+		               .layers.get_mut($d.layer.0).unwrap()
+		                   .layer_stream.add_operation($e);)
+}

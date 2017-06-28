@@ -19,10 +19,10 @@ impl Line {
     /// Each point has a bool, indicating if the next point is a bezier curve
     /// This allows compression inside the pdf since PDF knows several operators for this.
     #[inline]
-    pub fn new(points: Vec<(Point, bool)>, 
+    pub fn new(points: Vec<(Point, bool)>,
+               has_stroke: bool,
                is_closed: bool, 
-               has_fill: bool,
-               has_stroke: bool)
+               has_fill: bool)
     -> Self
     {
         Self {
