@@ -3,7 +3,7 @@ extern crate freetype as ft;
 
 use *;
 use indices::*;
-use indices::PdfContent::*;
+use indices::PdfResource::*;
 use std::sync::{Arc, Mutex, Weak};
 
 /// One layer of PDF data
@@ -11,8 +11,10 @@ use std::sync::{Arc, Mutex, Weak};
 pub struct PdfLayer {
     /// Name of the layer. Must be present for the OCG
     name: String,
-    /// Element instantiated in this layer
-    contents: Vec<PdfContent>,
+    /// Resources used in this layer. They can either be real objects (`ActualResource`)
+    /// or references to other objects defined at the document level. If you are unsure,
+    /// add the content to the document and use `ReferencedResource`.
+    resources: Vec<(std::string::String, PdfResource)>,
     /// Stream objects in this layer. Usually, one layer == one stream
     layer_stream: PdfStream,
 }
@@ -32,73 +34,54 @@ impl PdfLayer {
     {
         Self {
             name: name.into(),
-            contents: Vec::new(),
+            resources: Vec::new(),
             layer_stream: PdfStream::new(),
         }
     }
 
-    /// Similar to the into_obj function, but takes the document as a second parameter (for lookup)
-    /// and conformance checking. Layers are prohibited if the conformance does not allow PDF 
-    /// layers. However, they are still used for z-indexing content
-    pub fn into_obj(self, metadata: &PdfMetadata, contents: &Vec<lopdf::Object>)
-    -> Vec<lopdf::Object>
+    /// Builds a dictionary-like thing from the resources needed by this page
+    /// First tuple item: (string, dictionary) pair that should be added to the pages resources dictionary
+    /// Second tuple struct: Stream object
+    pub(crate) fn collect_resources_and_streams(self, contents: &Vec<lopdf::Object>)
+    -> (Vec<(std::string::String, lopdf::Object)>, lopdf::Stream)
     {
-        let mut final_contents = Vec::<lopdf::Object>::new();
+        let mut layer_resources = Vec::<(std::string::String, lopdf::Object)>::new();
 
-        if metadata.conformance.is_layering_allowed() {
-            // todo: write begin of pdf layer
-        }
-
-        // TODO: if two items are ActualContent and the type is stream,
-        // we can merge the streams together into one
-
-        // this should be set as a dictionary "Contents" and set a reference to a stream
-        // otherwise it doesn't show up
-
-        final_contents.append(&mut Box::new(self.layer_stream).into_obj());
-
-        for content in self.contents.into_iter() {
-            match content {
-                ActualContent(a)     => { final_contents.append(&mut a.into_obj()); },
-                ReferencedContent(r) => { let content_ref = contents.get(r.0).unwrap();
-                                          final_contents.place_back() <- content_ref.clone(); }
+        for resource in self.resources.into_iter() {
+            match resource.1 {
+                ActualResource(a)     => {
+                    let current_resources =  a.into_obj();
+                    // if the resource has more than one thing in it (shouldn't happen), push an array
+                    if current_resources.len() > 1 {
+                        layer_resources.push((resource.0.clone(), lopdf::Object::Array(current_resources)));
+                    } else {
+                       layer_resources.push((resource.0.clone(), current_resources[0].clone()));
+                    }
+                },
+                ReferencedResource(r) => { let content_ref = contents.get(r.0).unwrap();
+                                           layer_resources.push((resource.0.clone(), content_ref.clone())); }
             }
         }
 
-        if metadata.conformance.is_layering_allowed() {
-            // todo: write end of pdf layer
-        }
-
-        final_contents
+        let layer_streams = self.layer_stream.into_obj();
+        return (layer_resources, layer_streams);
     }
 }
 
 impl PdfLayerReference {
 
-    /// Instantiate arbitrary pdf objects from the documents list of
-    /// blobs / arbitrary pdf objects
+    /// Add a resource to the pages resource dictionary. The resources of the seperate layers
+    /// will be colleted when the page is saved.
     #[inline]
-    pub fn use_arbitrary_content<T>(&self, content_index: T)
-    -> () where T: Into<PdfContentIndex>
-    {
-        let doc = self.document.upgrade().unwrap();
-        let mut doc = doc.lock().unwrap();
-        
-        doc.pages.get_mut(self.page.0).unwrap()
-            .layers.get_mut(self.layer.0).unwrap()
-            .contents.push(PdfContent::ReferencedContent(content_index.into()));
-    }
-
-    /// Instantiate arbitrary pdf objects by directly adding them to the layer
-    #[inline]
-    pub fn add_arbitrary_content(&mut self, content: Box<IntoPdfObject>)
+    pub fn add_arbitrary_resource<S>(&mut self, key: S, resource: Box<IntoPdfObject>)
+    -> () where S: Into<String>
     {
         let doc = self.document.upgrade().unwrap();
         let mut doc = doc.lock().unwrap();
 
         doc.pages.get_mut(self.page.0).unwrap()
             .layers.get_mut(self.layer.0).unwrap()
-                .contents.push(PdfContent::ActualContent(content));
+                .resources.push((key.into(), PdfResource::ActualResource(resource)));
 
     }
 
@@ -133,6 +116,34 @@ impl PdfLayerReference {
                 .layer_stream.add_operation(Box::new(fill_color));
     }
 
+    /// Set the overprint mode of the stroke color to true (overprint) or false (no overprint)
+    pub fn set_overprint_fill(&self, overprint: bool)
+    -> ()
+    {
+        let doc = self.document.upgrade().unwrap();
+        let mut doc = doc.lock().unwrap();
+
+        use lopdf::content::Operation;
+        let operation = Operation::new("OP", vec![lopdf::Object::Boolean(overprint)]);
+        doc.pages.get_mut(self.page.0).unwrap()
+            .layers.get_mut(self.layer.0).unwrap()
+                .layer_stream.add_operation(Box::new(operation));
+    }
+
+    /// Set the overprint mode of the fill color to true (overprint) or false (no overprint)
+    pub fn set_overprint_stroke(&self, overprint: bool)
+    -> ()
+    {
+        let doc = self.document.upgrade().unwrap();
+        let mut doc = doc.lock().unwrap();
+
+        use lopdf::content::Operation;
+        let operation = Operation::new("op", vec![lopdf::Object::Boolean(overprint)]);
+        doc.pages.get_mut(self.page.0).unwrap()
+            .layers.get_mut(self.layer.0).unwrap()
+                .layer_stream.add_operation(Box::new(operation));
+    }
+
     /// Set the current fill color for the layer
     #[inline]
     pub fn set_outline(&mut self, outline: Outline)
@@ -156,7 +167,8 @@ impl PdfLayerReference {
             use lopdf::StringFormat::Hexadecimal;
             use lopdf::content::Operation;
 
-            self.use_arbitrary_content(font.clone());
+            // TODO !!! 
+            // self.add_arbitrary_resource("Font", font.clone());
 
             // we need to transform the characters into glyph ids and then add them to the layer
             let doc = self.document.upgrade().unwrap();
@@ -241,14 +253,13 @@ impl PdfLayerReference {
             (*element).clone()
         }; 
         
-        */
-
         let doc = self.document.upgrade().unwrap();
         let mut doc = doc.lock().unwrap();
 
         // todo: what about width / height?
         doc.pages.get_mut(self.page.0).unwrap()
             .layers.get_mut(self.layer.0).unwrap()
-                .contents.place_back() <- PdfContent::ReferencedContent(svg_data_index.0.clone());
+                .layer.place_back() <- PdfResource::ReferencedResource(svg_data_index.0.clone());
+        */
     }
 }

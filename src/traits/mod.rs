@@ -15,6 +15,7 @@ pub trait IntoPdfStreamOperation: ::std::fmt::Debug {
     -> Vec<lopdf::content::Operation>;
 }
 
+// implement this trait for simple operations
 impl IntoPdfStreamOperation for lopdf::content::Operation {
     fn into_stream_op(self: Box<Self>)
     -> Vec<lopdf::content::Operation>

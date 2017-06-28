@@ -311,14 +311,27 @@ impl PdfDocumentReference {
                        page.width_pt.into(), page.heigth_pt.into()].into()),
                       ("Parent", Reference(pages_id)) ]);
 
-            // add page content
-            // add resources via font index?
-            for layer in page.layers.into_iter() {
-                for obj in layer.into_obj(&doc.metadata, &doc.contents) {
-                    let layer_stream = doc.inner_doc.add_object(obj);
-                    p.set("Contents", Reference(layer_stream));
-                }
+            // this will collect the resources needed for rendering this page
+            let (resources_page, layer_streams) = page.collect_resources(&doc.contents);
+            let resources_page_id = doc.inner_doc.add_object(lopdf::Object::Dictionary(resources_page));
+            p.set("Resources", Reference(resources_page_id));
+
+            // merge layer streams
+            let mut layer_streams_merged_vec = Vec::<u8>::new();
+
+            // merge all streams of the individual layers into one big stream
+            for mut stream in layer_streams {
+
+                // todo: write begin of pdf layer
+                // todo: check if pdf is allowed to have layers
+                // if metadata.conformance.is_layering_allowed() { }
+                layer_streams_merged_vec.append(&mut stream.content);
+                // todo: write end of pdf layer
             }
+
+            let merged_layer_stream = lopdf::Stream::new(lopdf::Dictionary::new(), layer_streams_merged_vec);
+            let page_content_id = doc.inner_doc.add_object(merged_layer_stream);
+            p.set("Contents", Reference(page_content_id));
 
             page_ids.push(Reference(doc.inner_doc.add_object(p)))
         }

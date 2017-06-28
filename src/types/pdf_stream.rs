@@ -31,12 +31,10 @@ impl PdfStream {
     {
         self.objects.place_back() <- operation;
     }
-}
 
-impl IntoPdfObject for PdfStream {
-
-    fn into_obj(self: Box<Self>) 
-    -> Vec<lopdf::Object> {
+    /// Similar to the trait function, but only returns a single object
+    pub fn into_obj(self) 
+    -> lopdf::Stream {
         let mut stream_operations = Vec::<lopdf::content::Operation>::new();
         let dict = self.dictionary.clone();
 
@@ -49,6 +47,6 @@ impl IntoPdfObject for PdfStream {
 
         let mut stream = Stream::new(dict, stream_content.encode().unwrap());
         stream.compress();
-        vec![lopdf::Object::Stream(stream)]
+        return stream
     }
 }

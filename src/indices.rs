@@ -43,8 +43,8 @@ impl Into<PdfContentIndex> for SvgIndex {
 
 /// Wrapper for storing either a type or a reference to the type
 #[derive(Debug)]
-pub enum PdfContent {
-    ReferencedContent(PdfContentIndex),
-    ActualContent(Box<IntoPdfObject>),
+pub enum PdfResource {
+    ReferencedResource(PdfContentIndex),
+    ActualResource(Box<IntoPdfObject>),
 }
 

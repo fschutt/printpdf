@@ -6,7 +6,7 @@ use traits::*;
 /// Unit for SVG elements. Uses uom crate for normalization
 /// Since this library is designed to output PDFs, the only measurement
 /// that PDF understands is point, so eventually everything is converted into point.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SvgUnit {
     /// Multiple of the total height of the first seen font (usually 16px)
     /// Not yet supported, will be 16px
@@ -29,8 +29,8 @@ pub enum SvgUnit {
     Pc(f64),
 }
 
-/// SVG data ()
-#[derive(Debug)]
+/// SVG data 
+#[derive(Debug, Clone)]
 pub struct Svg {
     /// Raw data from the input
     svg_data: Vec<u8>,

@@ -23,30 +23,46 @@ fn main() {
     // printpdf is made for PDF-X/1A conform documents. 
     // As such, using the default fonts is not permitted. You have to use your own fonts here
 
+
 /*
     let text = "Hello World! Unicode test: стуфхfцчшщъыьэюя";
     let roboto_font_file = File::open("./assets/fonts/RobotoMedium.ttf").unwrap();
     let roboto_font = doc.add_font(roboto_font_file).unwrap();
     doc.get_page(page1).get_layer(layer1).use_text(text, 48, 0.0, 200.0, 200.0, roboto_font);
 */
-    let point1  = Point::new(100.0, 100.0);
-    let point2  = Point::new(100.0, 200.0);
-    let point3  = Point::new(300.0, 200.0);
-    let point4  = Point::new(300.0, 100.0);
 
-    let points = vec![(point1, true),
-                      (point2, true),
-                      (point3, true),
-                      (point4, true)];
+    // quad
+    let shape1 = vec![(Point::new(100.0, 100.0), false),
+                      (Point::new(100.0, 200.0), false),
+                      (Point::new(300.0, 200.0), false),
+                      (Point::new(300.0, 100.0), false)];
+
+    let shape2 = vec![(Point::new(150.0, 150.0), false),
+                    (Point::new(150.0, 250.0), false),
+                    (Point::new(350.0, 250.0), false)];
 
     let outline = Outline::new(Color::Cmyk(Cmyk::new(1.0, 0.75, 0.0, 0.0, None)), 10);
     let fill = Fill::new(Color::Cmyk(Cmyk::new(0.0, 1.0, 0.0, 0.0, None)));
     
     doc.get_page(page1).get_layer(layer1).set_outline(outline);
     doc.get_page(page1).get_layer(layer1).set_fill(fill);
-
+    
+    // first batch of points
     // points, is the shape stroked, is the shape closed (lines only)?, is the shape filled (polygon)?
-    doc.get_page(page1).get_layer(layer1).add_shape(points, true, true, false).unwrap();
+    doc.get_page(page1).get_layer(layer1).add_shape(shape1, true, true, true).unwrap();
+
+
+    let outline_2 = Outline::new(Color::Cmyk(Cmyk::new(0.0, 1.0, 0.0, 0.0, None)), 10);
+    let fill_2 = Fill::new(Color::Cmyk(Cmyk::new(1.0, 0.75, 0.0, 0.0, None)));
+
+    doc.get_page(page1).get_layer(layer1).set_overprint_fill(true);
+    doc.get_page(page1).get_layer(layer1).set_overprint_stroke(false);
+
+    doc.get_page(page1).get_layer(layer1).set_outline(outline_2);
+    doc.get_page(page1).get_layer(layer1).set_fill(fill_2);
+
+    // second batch of points
+    doc.get_page(page1).get_layer(layer1).add_shape(shape2, true, true, true).unwrap();
 
 /*
     // A special thing is transcoding SVG files directly into PDF (for mapping symbols)    

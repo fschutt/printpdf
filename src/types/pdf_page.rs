@@ -47,6 +47,31 @@ impl PdfPage {
 
         (page, PdfLayerIndex(layer_index))
     }
+
+    /// Iterates through the layers attached to this page and gathers all resources,
+    /// which the layers need. Then returns a dictonary with all the resources 
+    /// (fonts, image XObjects, etc.)
+    #[inline]
+    pub(crate) fn collect_resources(self, contents: &Vec<lopdf::Object>)
+    -> (lopdf::Dictionary, Vec<lopdf::Stream>)
+    {
+        let mut resource_dictionary = lopdf::Dictionary::new();
+        let mut layer_streams = Vec::<lopdf::Stream>::new();
+
+        for layer in self.layers {
+            // everything returned by layer.collect_resources() is expected to be an entry in the 
+            // pages resource dictionary. For example the layer.collect_resources will return ("Font", Stream("MyFont", etc.))
+            // If the resources is shared with in the document, it will be ("Font", Reference(4, 0))
+            let (resources, layer_stream) = layer.collect_resources_and_streams(contents);
+            
+            for (resource_dictionary_key, resource_dictionary_entry) in resources {
+                resource_dictionary.set(resource_dictionary_key, resource_dictionary_entry);
+            }
+            layer_streams.push(layer_stream);
+        }
+
+        return (resource_dictionary, layer_streams);
+    }
 }
 
 impl PdfPageReference {
