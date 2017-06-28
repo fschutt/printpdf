@@ -54,14 +54,15 @@ fn main() {
     let outline_2 = Outline::new(Color::Cmyk(Cmyk::new(0.0, 1.0, 0.0, 0.0, None)), 10);
     let fill_2 = Fill::new(Color::Cmyk(Cmyk::new(1.0, 0.75, 0.0, 0.0, None)));
 
-    doc.get_page(page1).get_layer(layer1).set_overprint_fill(true);
-    doc.get_page(page1).get_layer(layer1).set_overprint_stroke(false);
+    // doc.get_page(page1).get_layer(layer1).set_overprint_fill(true);
+    // doc.get_page(page1).get_layer(layer1).set_overprint_stroke(false);
+    doc.get_page(page1).get_layer(layer1).set_line_cap_style(LineCapStyle::Round);
 
     doc.get_page(page1).get_layer(layer1).set_outline(outline_2);
     doc.get_page(page1).get_layer(layer1).set_fill(fill_2);
 
     // second batch of points
-    doc.get_page(page1).get_layer(layer1).add_shape(shape2, true, true, true).unwrap();
+    doc.get_page(page1).get_layer(layer1).add_shape(shape2, true, false, false).unwrap();
 
 /*
     // A special thing is transcoding SVG files directly into PDF (for mapping symbols)    

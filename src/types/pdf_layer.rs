@@ -120,28 +120,28 @@ impl PdfLayerReference {
     pub fn set_overprint_fill(&self, overprint: bool)
     -> ()
     {
-        let doc = self.document.upgrade().unwrap();
+        /* let doc = self.document.upgrade().unwrap();
         let mut doc = doc.lock().unwrap();
 
         use lopdf::content::Operation;
         let operation = Operation::new("OP", vec![lopdf::Object::Boolean(overprint)]);
         doc.pages.get_mut(self.page.0).unwrap()
             .layers.get_mut(self.layer.0).unwrap()
-                .layer_stream.add_operation(Box::new(operation));
+                .layer_stream.add_operation(Box::new(operation)); */
     }
 
     /// Set the overprint mode of the fill color to true (overprint) or false (no overprint)
     pub fn set_overprint_stroke(&self, overprint: bool)
     -> ()
     {
-        let doc = self.document.upgrade().unwrap();
+        /* let doc = self.document.upgrade().unwrap();
         let mut doc = doc.lock().unwrap();
 
         use lopdf::content::Operation;
         let operation = Operation::new("op", vec![lopdf::Object::Boolean(overprint)]);
         doc.pages.get_mut(self.page.0).unwrap()
             .layers.get_mut(self.layer.0).unwrap()
-                .layer_stream.add_operation(Box::new(operation));
+                .layer_stream.add_operation(Box::new(operation));*/
     }
 
     /// Set the current fill color for the layer
@@ -155,6 +155,46 @@ impl PdfLayerReference {
         doc.pages.get_mut(self.page.0).unwrap()
             .layers.get_mut(self.layer.0).unwrap()
                 .layer_stream.add_operation(Box::new(outline));
+    }
+
+    /// Set the current line join style for outlines
+    #[inline]
+    pub fn set_line_join_style(&mut self, line_join: LineJoinStyle) {
+        let doc = self.document.upgrade().unwrap();
+        let mut doc = doc.lock().unwrap();
+
+        doc.pages.get_mut(self.page.0).unwrap()
+            .layers.get_mut(self.layer.0).unwrap()
+                .layer_stream.add_operation(Box::new(line_join));
+    }
+
+    /// Set the current line join style for outlines
+    #[inline]
+    pub fn set_line_cap_style(&mut self, line_cap: LineCapStyle) {
+        let doc = self.document.upgrade().unwrap();
+        let mut doc = doc.lock().unwrap();
+
+        doc.pages.get_mut(self.page.0).unwrap()
+            .layers.get_mut(self.layer.0).unwrap()
+                .layer_stream.add_operation(Box::new(line_cap));
+    }
+
+    /// Set the current transformation matrix
+    #[inline]
+    pub fn set_ctm(&mut self, ctm: CurrentTransformationMatrix) {
+        // todo
+    }
+
+    /// Saves the current graphic state (q operator)
+    #[inline]
+    pub fn save_graphics_state(&mut self) {
+        // todo
+    }
+
+    /// Restores the previous graphic state (q operator)
+    #[inline]
+    pub fn restore_graphics_state(&mut self) {
+        // todo
     }
 
     /// Add text to the file
