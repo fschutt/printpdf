@@ -51,7 +51,6 @@ fn main() {
     // points, is the shape stroked, is the shape closed (lines only)?, is the shape filled (polygon)?
     doc.get_page(page1).get_layer(layer1).add_shape(shape1, true, true, true).unwrap();
 
-
     let outline_2 = Outline::new(Color::Cmyk(Cmyk::new(0.0, 1.0, 0.0, 0.0, None)), 10);
     let fill_2 = Fill::new(Color::Cmyk(Cmyk::new(1.0, 0.75, 0.0, 0.0, None)));
 

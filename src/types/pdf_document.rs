@@ -313,8 +313,10 @@ impl PdfDocumentReference {
 
             // this will collect the resources needed for rendering this page
             let (resources_page, layer_streams) = page.collect_resources(&doc.contents);
-            let resources_page_id = doc.inner_doc.add_object(lopdf::Object::Dictionary(resources_page));
-            p.set("Resources", Reference(resources_page_id));
+            if !(resources_page.len() == 0) {
+                let resources_page_id = doc.inner_doc.add_object(lopdf::Object::Dictionary(resources_page));
+                p.set("Resources", Reference(resources_page_id));
+            }
 
             // merge layer streams
             let mut layer_streams_merged_vec = Vec::<u8>::new();
@@ -330,6 +332,8 @@ impl PdfDocumentReference {
             }
 
             let merged_layer_stream = lopdf::Stream::new(lopdf::Dictionary::new(), layer_streams_merged_vec);
+            println!("{:?}", merged_layer_stream);
+
             let page_content_id = doc.inner_doc.add_object(merged_layer_stream);
             p.set("Contents", Reference(page_content_id));
 

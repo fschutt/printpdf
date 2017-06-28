@@ -46,7 +46,7 @@ impl PdfStream {
         let stream_content = lopdf::content::Content { operations: stream_operations };
 
         let mut stream = Stream::new(dict, stream_content.encode().unwrap());
-        stream.compress();
+        // stream.compress();
         return stream
     }
 }
