@@ -128,7 +128,7 @@ impl PdfDocumentReference {
     #[inline]
     pub fn add_page<S>(&self, x_mm: f64, y_mm: f64, inital_layer_name: S)
     -> (PdfPageIndex, PdfLayerIndex) where S: Into<String>
-    {
+    { 
         let mut doc = self.document.lock().unwrap();
         let (pdf_page, pdf_layer_index) = PdfPage::new(x_mm, y_mm, inital_layer_name, doc.pages.len());
         doc.pages.push(pdf_page);

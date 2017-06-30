@@ -72,19 +72,23 @@ impl PdfLayerReference {
                 .layer_stream.add_operation(Box::new(operation)); */
     }
 
-    /// Change the graphics state of the current page 
-
     /// Set the overprint mode of the fill color to true (overprint) or false (no overprint)
+    /// This changes the graphics state of the current page, don't do it too often or you'll bloat the file size
     pub fn set_overprint_stroke(&mut self, overprint: bool)
     {
         // this is technically an operation on the page level
         let mut new_overprint_state = ExtendedGraphicsState::default();
         new_overprint_state.overprint_stroke = overprint;
+        
         let doc = self.document.upgrade().unwrap();
         let mut doc = doc.lock().unwrap();
         let mut page_mut = doc.pages.get_mut(self.page.0).unwrap();
 
-        let (old_style, new_ref) = page_mut.add_graphics_state(new_overprint_state);
+        let (_, new_ref) = page_mut.add_graphics_state(new_overprint_state);
+        if let Some(new) = new_ref {
+            page_mut.layers.get_mut(self.layer.0).unwrap()
+                .layer_stream.add_operation(Box::new(lopdf::content::Operation::new("gs", vec![lopdf::Object::Name(new.gs_name.as_bytes().to_vec())])));
+        }
     }
 
     /// Set the current fill color for the layer

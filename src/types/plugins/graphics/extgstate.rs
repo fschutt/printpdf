@@ -243,8 +243,9 @@ impl IntoPdfObject for ExtendedGraphicsState {
 	{
 		use std::iter::FromIterator;
 		vec![lopdf::Object::Dictionary(lopdf::Dictionary::from_iter(vec![
-				("OP".to_string(), self.overprint_stroke.into()),
-				("op".to_string(), self.overprint_fill.into()),
+				/*("OP".to_string(), self.overprint_stroke.into()),
+				("op".to_string(), self.overprint_fill.into()), */ 
+				("CA".to_string(), 0.5.into()), /* test: transparency. take this out later */
 		]))]
 	}
 }
@@ -263,7 +264,7 @@ impl ExtendedGraphicsStateRef {
 	-> Self
 	{	
 		Self {
-			gs_name: format!("g{:?}", graphics_state_index)
+			gs_name: format!("gs{:?}", graphics_state_index + 1)
 		}
 	}
 }
