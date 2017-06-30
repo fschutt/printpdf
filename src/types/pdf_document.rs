@@ -132,7 +132,7 @@ impl PdfDocumentReference {
         let mut doc = self.document.lock().unwrap();
         let (pdf_page, pdf_layer_index) = PdfPage::new(x_mm, y_mm, inital_layer_name, doc.pages.len());
         doc.pages.push(pdf_page);
-        let page_index = PdfPageIndex(self.document.lock().unwrap().pages.len() - 1);
+        let page_index = PdfPageIndex(doc.pages.len() - 1);
         (page_index, pdf_layer_index)
     }
 
