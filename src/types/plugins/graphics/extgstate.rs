@@ -482,10 +482,195 @@ impl IntoPdfObject for HalftoneType {
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum BlendMode {
-	Normal,
-	Compatible,
+	Seperable(SeperableBlendMode),
+	NonSeperable(NonSeperableBlendMode),
 }
 
+/// PDF Reference 1.7, Page 520, Table 7.2
+/// Blending modes for objects
+/// In the following reference, each function gets one new color (the thing to paint on top)
+/// and an old color (the color that was already present before the object gets painted)
+/// 
+/// The function simply notes the formula that has to be applied to (color_new, color_old) in order
+/// to get the desired effect. You have to run each formula once for each color channel.
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum SeperableBlendMode {
+	/// Selects the source color, ignoring the old color. Default mode
+	/// `color_new`
+	Normal,
+	/// Multiplies the old color and source color values
+	/// Note that these values have to be in the range [0.0 to 1.0] to work.
+	///	The result color is always at least as dark as either of the two constituent 
+	///	colors. Multiplying any color with black produces black; multiplying with white 
+	///	leaves the original color unchanged.Painting successive overlapping objects with 
+	/// a color other than black or white produces progressively darker colors.
+	/// `color_old * color_new`
+	Multiply,
+	/// Multiplies the complements of the old color and new color values, then 
+	/// complements the result
+	///	The result color is always at least as light as either of the two constituent colors. 
+	///	Screening any color with white produces white; screening with black leaves the original 
+	///	color unchanged. The effect is similar to projecting multiple photographic slides 
+	///	simultaneously onto a single screen.
+	/// `color_old + color_new - (color_old * color_new)`
+	Screen,
+	///	Multiplies or screens the colors, depending on the old color value. Source colors 
+	///	overlay the old color while preserving its highlights and shadows. The old color is 
+	///	not replaced but is mixed with the source color to reflect the lightness or darkness 
+	///	of the old color.
+	/// TLDR: It's the inverse of HardLight
+	/// ```rust,ignore
+	/// if color_old <= 0.5 {
+	/// 	Multiply(color_new, 2 x color_old)
+	/// } else {
+	/// 	Screen(color_new, 2 * color_old - 1)
+	/// }
+	/// ```
+	Overlay,
+	/// Selects the darker one of two colors. The old color is replaced where the 
+	/// `min(color_old, color_new)`
+	Darken,
+	/// Selects the lighter one of two colors. The old color is replaced where the 
+	/// `max(color_old, color_new)`
+	Lighten,
+	/// Brightens the backdrop color to reflect the source color. Painting with 
+	/// black produces no changes.
+	/// ```rust,ignore
+	/// if color_new < 1 {
+	/// 	min(1, color_old / (1 - color_new))
+	/// } else {
+	///		1
+	/// }
+	/// ```
+	ColorDodge,
+	/// Darkens the backdrop color to reflect the source color. Painting with 
+	/// white produces no change.
+	/// ```rust,ignore
+	/// if color_new > 0 {
+	/// 	1 - min(1, (1 - color_old) / color_new))
+	/// } else {
+	///		0
+	/// }
+	/// ```
+	ColorBurn,
+	/// Multiplies or screens the colors, depending on the source color value. The effect is 
+	/// similar to shining a harsh spotlight on the old color.
+	/// It's the inverse of Screen.
+	/// ```rust,ignore
+	/// if color_new <= 0.5 {
+	/// 	Multiply(color_old, 2 x color_new)
+	/// } else {
+	/// 	Screen(color_old, 2 * color_new - 1)
+	/// }
+	/// ```
+	HardLight,
+	/// Darkens or lightens the colors, depending on the source color value. 
+	/// The effect is similar to shining a diffused spotlight on the backdrop.
+	/// ```rust,ignore
+	/// if color_new <= 0.5 {
+	/// 	color_old - ((1 - (2 * color_new)) * color_old * (1 - color_old))
+	/// } else {
+	///
+	/// 	let dx_factor = { 
+	/// 		if color_old <= 0.25 {
+	/// 			(((16 * color_old - 12) * color_old) + 4) * color_old
+	/// 		} else {
+	/// 			sqrt(color_old)
+	/// 		}
+	/// 	};
+	///
+	/// 	color_old + ((2 * color_new) - 1) * (dx_factor - color_old)
+	/// }
+	/// ```
+	SoftLight,
+	/// Subtracts the darker of the two constituent colors from the lighter color
+	/// Painting with white inverts the backdrop color; painting with black produces no change.
+	/// `abs(color_old - color_new)`
+	Difference,
+	/// Produces an effect similar to that of the Difference mode but lower in contrast. 
+	/// Painting with white inverts the backdrop color; painting with black produces no change.
+	/// `color_old + color_new - (2 * color_old * color_new)`
+	Exclusion,
+}
+
+/// Since the nonseparable blend modes consider all color components in combination, their 
+/// computation depends on the blending color space in which the components are interpreted. 
+/// They may be applied to all multiple-component color spaces that are allowed as blending 
+/// color spaces (see Section 7.2.3, “Blending Color Space”).
+/// 
+/// All of these blend modes conceptually entail the following steps:
+/// 
+/// 1. Convert the backdrop and source colors from the blending color space to an intermediate 
+///    HSL (hue-saturation-luminosity) representation.
+/// 2. Create a new color from some combination of hue, saturation, and luminosity components 
+///    selected from the backdrop and source colors.
+/// 3. Convert the result back to the original (blending) color space.
+/// 
+/// However, the formulas given below do not actually perform these conversions. Instead, 
+/// they start with whichever color (backdrop or source) is providing the hue for the result; 
+/// then they adjust this color to have the proper saturation and luminosity.
+/// 
+/// ### For RGB color spaces
+/// 
+/// The nonseparable blend mode formulas make use of several auxiliary functions. These 
+/// functions operate on colors that are assumed to have red, green, and blue components. 
+/// 
+/// ```rust,ignore
+/// fn luminosity(input: Rgb) -> f64 {
+/// 	0.3 * input.r + 0.59 * input.g + 0.11 * input.b
+/// }
+/// 
+/// fn set_luminosity(input: Rgb, target_luminosity: f64) -> Rgb {
+/// 	let d = target_luminosity - luminosity(input);
+/// 	Rgb {
+/// 		r: input.r + d,
+/// 		g: input.g + d,
+/// 		b: input.b + d,
+/// 		icc_profile: input.icc_profile,
+/// 	}
+/// }
+/// 
+/// fn clip_color(mut input: Rgb) -> Rgb {
+/// 
+/// 	let lum = luminosity(input);
+/// 
+/// 	/// min! and max! is defined in printpdf/src/glob_macros.rs
+/// 	let min = min!(input.r, input.g, input.b);
+/// 	let max = max!(input.r, input.g, input.b);
+/// 
+/// 	if min < 0.0 { 
+/// 		input.r = lum + (((input.r - lum) * lum) / (lum - min));
+/// 		input.g = lum + (((input.g - lum) * lum) / (lum - min));
+/// 		input.b = lum + (((input.b - lum) * lum) / (lum - min));
+/// 	} else if max > 1.0 {
+/// 		input.r = lum + ((input.r - lum) * (1.0 - lum) / (max - lum));
+/// 		input.g = lum + ((input.g - lum) * (1.0 - lum) / (max - lum));
+/// 		input.b = lum + ((input.b - lum) * (1.0 - lum) / (max - lum));
+/// 	}
+/// 
+/// 	return input;
+/// }
+/// 
+/// fn saturation(input: Rgb) -> f64 {
+/// 	max!(input.r, input.g, input.b) - min!(input.r - input.g - input.b)
+/// }
+/// ```
+/// 
+/// ### For CMYK color spaces
+/// 
+/// The C, M, and Y components are converted to their complementary R, G, and B components 
+/// in the usual way. The formulas above are applied to the RGB color values. The results 
+/// are converted back to C, M, and Y.
+/// 
+/// For the K component, the result is the K component of Cb for the Hue, Saturation, and 
+/// Color blend modes; it is the K component of Cs for the Luminosity blend mode.
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum NonSeperableBlendMode {
+	Hue,
+	Saturation,
+	Color,
+	Luminosity,
+}
 
 /* RI name (or ri inside a stream)*/
 /// Although CIE-based color specifications are theoretically device-independent,
@@ -586,7 +771,7 @@ pub struct SoftMask {
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum SoftMaskFunction {
 	// (Color, Shape, Alpha) = Composite(Color0, Alpha0, Group)
-	/// In this function, the backdrop color does not contribute to the result.
+	/// In this function, the old (backdrop) color does not contribute to the result.
 	/// This is the easies function, but may look bad at edges.
 	GroupAlpha,
 	// 

@@ -23,3 +23,25 @@ macro_rules! add_operation {
 		               .layers.get_mut($d.layer.0).unwrap()
 		                   .layer_stream.add_operation($e);)
 }
+
+#[macro_export]
+macro_rules! max {
+    ($x:expr) => ( $x );
+    ($x:expr, $($xs:expr),+) => {
+        {
+            use std::cmp::max;
+            max($x, max!( $($xs),+ ))
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! min {
+    ($x:expr) => ( $x );
+    ($x:expr, $($xs:expr),+) => {
+        {
+            use std::cmp::min;
+            min($x, min!( $($xs),+ ))
+        }
+    };
+}

@@ -48,3 +48,10 @@ pub enum PdfResource {
     ActualResource(Box<IntoPdfObject>),
 }
 
+/// Index to an Icc Profile, so that we can copy the reference to an
+/// ICC profile around, without worrying about lifetimes.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct IccProfileIndex {
+    /// The reference to the ICC profile in the documents content list
+    icc_profile: PdfContentIndex,
+}
