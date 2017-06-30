@@ -43,7 +43,7 @@ fn main() {
                     (Point::new(350.0, 250.0), false)];
     let line2 = Line::new(points2, true, false, false);
 
-    let outline = Outline::new(Color::Cmyk(Cmyk::new(1.0, 0.75, 0.75, 0.0, None)), 10);
+    let outline = Outline::new(Color::Rgb(Rgb::new(0.75, 1.0, 0.23, None)), 10);
     let fill = Fill::new(Color::Cmyk(Cmyk::new(0.0, 1.0, 0.0, 0.0, None)));
     
     let mut dash_pattern = LineDashPattern::default();
@@ -60,8 +60,8 @@ fn main() {
     let fill_2 = Fill::new(Color::Cmyk(Cmyk::new(1.0, 0.75, 0.0, 0.0, None)));
     doc.get_page(page1).get_layer(layer1).set_line_dash_pattern(dash_pattern);
 
-    // doc.get_page(page1).get_layer(layer1).set_overprint_fill(true);
-    // doc.get_page(page1).get_layer(layer1).set_overprint_stroke(false);
+    doc.get_page(page1).get_layer(layer1).set_overprint_fill(true);
+    doc.get_page(page1).get_layer(layer1).set_overprint_stroke(false);
     doc.get_page(page1).get_layer(layer1).set_line_cap_style(LineCapStyle::Round);
 
     doc.get_page(page1).get_layer(layer1).set_outline(outline_2);

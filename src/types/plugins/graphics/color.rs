@@ -63,6 +63,7 @@ pub struct Cmyk {
 }
 
 impl Cmyk {
+    /// Creates a new CMYK color
     pub fn new(c: f64, m: f64, y: f64, k: f64, icc_profile: Option<IccProfile>)
     -> Self
     {
@@ -76,8 +77,17 @@ pub struct Grayscale {
     pub icc_profile: Option<IccProfile>,
 }
 
+impl Grayscale {
+    pub fn new(percent: f64, icc_profile: Option<IccProfile>)
+    -> Self
+    {
+        Self { percent, icc_profile }
+    }
+}
 
 /// Spot colors are like Cmyk, but without color space
+/// They are essentially "named" colors from specific vendors
+/// currently they are the same as a CMYK color.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpotColor {
     pub c: f64,

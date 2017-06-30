@@ -5,7 +5,7 @@
 macro_rules! mm_to_pt {
     ($mm: expr) => ($mm * 2.834646_f64);
 }
-
+/*
 /// Simple macro to cut down on typing when making a simple operation
 macro_rules! operation {
     ($e: expr) => (vec![lopdf::content::Operation {
@@ -13,6 +13,7 @@ macro_rules! operation {
                       operands: vec![],
                   }])
 }
+*/
 
 macro_rules! add_operation {
     ($d: expr, $e: expr) => (let doc = $d.document.upgrade().unwrap();

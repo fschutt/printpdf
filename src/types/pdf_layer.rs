@@ -5,16 +5,13 @@ use *;
 use indices::*;
 use indices::PdfResource::*;
 use std::sync::{Arc, Mutex, Weak};
+use std::collections::HashMap;
 
 /// One layer of PDF data
 #[derive(Debug)]
 pub struct PdfLayer {
-    /// Name of the layer. Must be present for the OCG
+    /// Name of the layer. Must be present for the optional content group
     name: String,
-    /// Resources used in this layer. They can either be real objects (`ActualResource`)
-    /// or references to other objects defined at the document level. If you are unsure,
-    /// add the content to the document and use `ReferencedResource`.
-    resources: Vec<(std::string::String, PdfResource)>,
     /// Stream objects in this layer. Usually, one layer == one stream
     layer_stream: PdfStream,
 }
@@ -27,63 +24,26 @@ pub struct PdfLayerReference {
 
 impl PdfLayer {
     
-    /// Create a new layer
+    /// Create a new layer, with a name and what index the layer has in the page
     #[inline]
     pub fn new<S>(name: S)
     -> Self where S: Into<String>
     {
         Self {
             name: name.into(),
-            resources: Vec::new(),
             layer_stream: PdfStream::new(),
         }
     }
 
-    /// Builds a dictionary-like thing from the resources needed by this page
-    /// First tuple item: (string, dictionary) pair that should be added to the pages resources dictionary
-    /// Second tuple struct: Stream object
-    pub(crate) fn collect_resources_and_streams(self, contents: &Vec<lopdf::Object>)
-    -> (Vec<(std::string::String, lopdf::Object)>, lopdf::Stream)
+    /// Returns the layer stream
+    pub fn into_obj(self)
+    -> lopdf::Stream
     {
-        let mut layer_resources = Vec::<(std::string::String, lopdf::Object)>::new();
-
-        for resource in self.resources.into_iter() {
-            match resource.1 {
-                ActualResource(a)     => {
-                    let current_resources =  a.into_obj();
-                    // if the resource has more than one thing in it (shouldn't happen), push an array
-                    if current_resources.len() > 1 {
-                        layer_resources.push((resource.0.clone(), lopdf::Object::Array(current_resources)));
-                    } else {
-                       layer_resources.push((resource.0.clone(), current_resources[0].clone()));
-                    }
-                },
-                ReferencedResource(r) => { let content_ref = contents.get(r.0).unwrap();
-                                           layer_resources.push((resource.0.clone(), content_ref.clone())); }
-            }
-        }
-
-        let layer_streams = self.layer_stream.into_obj();
-        return (layer_resources, layer_streams);
+        self.layer_stream.into_obj()
     }
 }
 
 impl PdfLayerReference {
-
-    /// Add a resource to the pages resource dictionary. The resources of the seperate layers
-    /// will be colleted when the page is saved.
-    #[inline]
-    pub fn add_arbitrary_resource<S>(&mut self, key: S, resource: Box<IntoPdfObject>)
-    -> () where S: Into<String>
-    {
-        let doc = self.document.upgrade().unwrap();
-        let mut doc = doc.lock().unwrap();
-
-        doc.pages.get_mut(self.page.0).unwrap()
-            .layers.get_mut(self.layer.0).unwrap()
-                .resources.push((key.into(), PdfResource::ActualResource(resource)));
-
-    }
 
     /// Add a shape to the layer. Use `closed` to indicate whether the line is a closed line
     /// Use has_fill to determine if the line should be filled. 
@@ -114,17 +74,19 @@ impl PdfLayerReference {
                 .layer_stream.add_operation(Box::new(operation)); */
     }
 
-    /// Set the overprint mode of the fill color to true (overprint) or false (no overprint)
-    pub fn set_overprint_stroke(&self, overprint: bool)
-    {
-        /* let doc = self.document.upgrade().unwrap();
-        let mut doc = doc.lock().unwrap();
+    /// Change the graphics state of the current page 
 
-        use lopdf::content::Operation;
-        let operation = Operation::new("op", vec![lopdf::Object::Boolean(overprint)]);
-        doc.pages.get_mut(self.page.0).unwrap()
-            .layers.get_mut(self.layer.0).unwrap()
-                .layer_stream.add_operation(Box::new(operation));*/
+    /// Set the overprint mode of the fill color to true (overprint) or false (no overprint)
+    pub fn set_overprint_stroke(&mut self, overprint: bool)
+    {
+        // this is technically an operation on the page level
+        let mut new_overprint_state = ExtendedGraphicsState::default();
+        new_overprint_state.overprint_stroke = true;
+        let doc = self.document.upgrade().unwrap();
+        let mut doc = doc.lock().unwrap();
+        let mut page_mut = doc.pages.get_mut(self.page.0).unwrap();
+
+        page_mut.add_graphics_state(new_overprint_state);
     }
 
     /// Set the current fill color for the layer

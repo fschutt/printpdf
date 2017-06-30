@@ -35,6 +35,13 @@ impl Font {
     }
 }
 
+impl PartialEq for Font {
+    /// Two fonts are equal if their names are equal, the contents aren't checked
+    fn eq(&self, other: &Font) -> bool {
+        self.face_name == other.face_name
+    }
+}
+
 impl IntoPdfObject for Font {
     fn into_obj(self: Box<Self>)
     -> Vec<lopdf::Object>

@@ -8,6 +8,16 @@ pub trait IntoPdfObject: ::std::fmt::Debug {
     -> Vec<lopdf::Object>;
 }
 
+
+// implement this trait for simple operations
+impl IntoPdfObject for lopdf::Object {
+    fn into_obj(self: Box<Self>)
+    -> Vec<lopdf::Object>
+    {
+        vec![*self]
+    }
+}
+
 /// Object can be used within a stream, such as a drawing operation, etc.
 pub trait IntoPdfStreamOperation: ::std::fmt::Debug {
     /// Consumes the object and converts it to an PDF stream operation

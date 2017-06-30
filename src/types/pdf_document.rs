@@ -53,7 +53,8 @@ impl PdfDocument {
         let (initial_page, layer_index) = PdfPage::new(
             initial_page_width_mm, 
             initial_page_height_mm, 
-            initial_layer_name);
+            initial_layer_name,
+            0);
 
         { doc_ref.lock().unwrap().pages.push(initial_page); }
 
@@ -128,8 +129,9 @@ impl PdfDocumentReference {
     pub fn add_page<S>(&self, x_mm: f64, y_mm: f64, inital_layer_name: S)
     -> (PdfPageIndex, PdfLayerIndex) where S: Into<String>
     {
-        let (pdf_page, pdf_layer_index) = PdfPage::new(x_mm, y_mm, inital_layer_name);
-        self.document.lock().unwrap().pages.push(pdf_page);
+        let mut doc = self.document.lock().unwrap();
+        let (pdf_page, pdf_layer_index) = PdfPage::new(x_mm, y_mm, inital_layer_name, doc.pages.len());
+        doc.pages.push(pdf_page);
         let page_index = PdfPageIndex(self.document.lock().unwrap().pages.len() - 1);
         (page_index, pdf_layer_index)
     }
@@ -312,10 +314,9 @@ impl PdfDocumentReference {
                       ("Parent", Reference(pages_id)) ]);
 
             // this will collect the resources needed for rendering this page
-            let (resources_page, layer_streams) = page.collect_resources(&doc.contents);
+            let (resources_page, layer_streams) = page.collect_resources_and_streams(&doc.contents);
 
             if !(resources_page.len() == 0) {
-                println!("resources dictionary is not empty: {:?}", resources_page);
                 let resources_page_id = doc.inner_doc.add_object(lopdf::Object::Dictionary(resources_page));
                 p.set("Resources", Reference(resources_page_id));
             }
