@@ -12,8 +12,10 @@
 //! This is done using the `layer.use_graphics_state()`.
 //! 
 //! A full graphics state change is done like this:
+//!
 //! ```rust,ignore
-//! let mut new_state = ExtendedGraphicsState::default(); // the graphics state has lots
+//! let mut new_state = ExtendedGraphicsState::default();
+//! new_state.
 //! ```
 
 use lopdf;
@@ -104,7 +106,7 @@ pub struct ExtendedGraphicsState {
 	pub under_color_removal: Option<UnderColorRemovalFunction>,
 
 	/* UCR2 function */
-	///	::(Optional; PDF 1.3)__ Same as UCR except that the value may also be the name
+	///	__(Optional; PDF 1.3)__ Same as UCR except that the value may also be the name
 	///	Default , denoting the undercolor-removal function that was in effect at the
 	///	start of the page. If both UCR and UCR2 are present in the same graphics state
 	///	parameter dictionary, UCR2 takes precedence.
@@ -137,7 +139,7 @@ pub struct ExtendedGraphicsState {
 	pub flatness_tolerance: f64,
 
 	/* SM integer */
-	///	(Optional; PDF 1.3) The smoothness tolerance (see Section 6.5.2, “Smooth-
+	///	__(Optional; PDF 1.3)__ The smoothness tolerance (see Section 6.5.2, “Smooth-
 	///	ness Tolerance”).
 	pub smoothness_tolerance: f64,
 
@@ -184,7 +186,7 @@ pub struct ExtendedGraphicsState {
 	pub alpha_is_shape: bool,
 
 	/* TK boolean */
-	///	(Optional; PDF 1.4) The text knockout flag, which determines the behavior of
+	///	__(Optional; PDF 1.4)__ The text knockout flag, which determines the behavior of
 	///	overlapping glyphs within a text object in the transparent imaging model (see
 	///	Section 5.2.7, “Text Knockout”).
 	pub text_knockout: bool,
@@ -360,7 +362,7 @@ pub enum TransferExtraFunction {
 #[derive(Debug, PartialEq, Clone)]
 pub enum HalftoneType {
 	/// 1: Defines a single halftone screen by a frequency, angle, and spot function 
-	Type1(Type1Halftone),
+	Type1(f64, f64, SpotFunction),
 	/// 5: Defines an arbitrary number of halftone screens, one for each colorant or 
 	/// color component (including both primary and spot colorants). 
 	/// The keys in this dictionary are names of colorants; the values are halftone 
@@ -370,8 +372,7 @@ pub enum HalftoneType {
 	Type6(Vec<u8>),
 	/// 10: Defines a single halftone screen by a threshold array containing 8-bit sample values, 
 	/// representing a halftone cell that may have a nonzero screen angle.
-	/// 
-	Type10(Vec<u8>, ),
+	Type10(Vec<u8>),
 	/// 16: __(PDF 1.3)__ Defines a single halftone screen by a threshold array containing 16-bit 
 	/// sample values, representing a halftone cell that may have a nonzero screen angle.
 	Type16(Vec<u16>),
@@ -384,7 +385,7 @@ impl HalftoneType {
 	{
 		use HalftoneType::*;
 		match *self {
-			Type1(_) => 1,
+			Type1(_, _, _) => 1,
 			Type5(_) => 5, /* this type does not actually exist, todo */
 			Type6(_) => 6,
 			Type10(_) => 10,
@@ -397,9 +398,9 @@ impl HalftoneType {
 /// The code is pseudo code, returning the grey component at (x, y).
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum SpotFunction {
-	/// `1 - (x² + y²)`
+	/// `1 - (pow(x, 2) + pow(y, 2))`
 	SimpleDot,
-	/// `x² + y² - 1`
+	/// `pow(x, 2) + pow(y, 2) - 1`
 	InvertedSimpleDot,
 	/// `(sin(360 * x) / 2) + (sin(360 * y) / 2)`
 	DoubleDot,
@@ -419,9 +420,9 @@ pub enum SpotFunction {
 	LineY,
 	/// ```rust,ignore
 	/// if (abs(x) + abs(y) <= 1 { 
-	/// 	1 - (x² + y²) 
+	/// 	1 - (pow(x, 2) + pow(y, 2)) 
 	/// } else { 
-	/// 	(abs(x) - 1)² + (abs(y) - 1)² - 1 
+	/// 	pow((abs(x) - 1), 2) + pow((abs(y) - 1), 2) - 1 
 	/// }
 	/// ```
 	Round,
@@ -429,23 +430,23 @@ pub enum SpotFunction {
 	/// let w = (3 * abs(x)) + (4 * abs(y)) - 3;
 	/// 
 	/// if w < 0 { 
-	/// 	1 - ((x² + (abs(y) / 0.75)² ) / 4)
+	/// 	1 - ((pow(x, 2) + pow((abs(y) / 0.75), 2)) / 4)
 	/// } else if w > 1 { 
-	/// 	(((1 - abs(x))² + (1 - abs(y)) / 0.75)² / 4) - 1
+	/// 	pow((pow((1 - abs(x), 2) + (1 - abs(y)) / 0.75), 2) / 4) - 1
 	/// } else {
 	/// 	0.5 - w	
 	/// }
 	/// ```
 	Ellipse,
-	/// `1 - (x² + 0.9 * y²)`
+	/// `1 - (pow(x, 2) + 0.9 * pow(y, 2))`
 	EllipseA,
-	/// `x² + 0.9 * y² - 1`
+	/// `pow(x, 2) + 0.9 * pow(y, 2) - 1`
 	InvertedEllipseA,
-	/// `1 - sqrt(x² + (5 / 8) * y²)`
+	/// `1 - sqrt(pow(x, 2) + (5 / 8) * pow(y, 2))`
 	EllipseB,
-	/// `1 - (0.9 * x² + y²)`
+	/// `1 - (0.9 * pow(x, 2) + pow(y, 2))`
 	EllipseC,
-	/// `0.9 * x² + y² - 1`
+	/// `0.9 * pow(x, 2) + pow(y, 2) - 1`
 	InvertedEllipseC,
 	/// `- max(abs(x), abs(y))`
 	Square,
@@ -456,32 +457,14 @@ pub enum SpotFunction {
 	/// ```rust,ignore
 	/// let t = abs(x) + abs(y);
 	/// if t <= 0.75 {
-	/// 	1 - (x² + y²)
+	/// 	1 - (pow(x, 2) + pow(y, 2))
 	/// } else if t < 1.23 {
 	/// 	1 - (0.85 * abs(x) + abs(y))
 	/// } else {
-	///		(abs(x) - 1)² + (abs(y) - 1)² - 1
+	///		pow((abs(x) - 1), 2) + pow((abs(y) - 1), 2) - 1
 	/// }
 	/// ```
 	Diamond,
-
-}
-
-#[derive(Debug, PartialEq, Copy, Clone)]
-pub struct Type1Halftone {
-	/* /Type Halftone
-	   /HalftoneType: 1
-	   /HalftoneName:  */
-}
-
-#[derive(Debug, PartialEq, Copy, Clone)]
-pub struct Type6Halftone {
-
-}
-
-#[derive(Debug, PartialEq, Copy, Clone)]
-pub struct Type10Halftone {
-
 }
 
 impl IntoPdfObject for HalftoneType {
