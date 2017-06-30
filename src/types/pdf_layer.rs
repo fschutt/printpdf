@@ -3,9 +3,7 @@ extern crate freetype as ft;
 
 use *;
 use indices::*;
-use indices::PdfResource::*;
-use std::sync::{Arc, Mutex, Weak};
-use std::collections::HashMap;
+use std::sync::{Mutex, Weak};
 
 /// One layer of PDF data
 #[derive(Debug)]
@@ -81,12 +79,12 @@ impl PdfLayerReference {
     {
         // this is technically an operation on the page level
         let mut new_overprint_state = ExtendedGraphicsState::default();
-        new_overprint_state.overprint_stroke = true;
+        new_overprint_state.overprint_stroke = overprint;
         let doc = self.document.upgrade().unwrap();
         let mut doc = doc.lock().unwrap();
         let mut page_mut = doc.pages.get_mut(self.page.0).unwrap();
 
-        page_mut.add_graphics_state(new_overprint_state);
+        let (old_style, new_ref) = page_mut.add_graphics_state(new_overprint_state);
     }
 
     /// Set the current fill color for the layer

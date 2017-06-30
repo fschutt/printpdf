@@ -78,41 +78,34 @@ impl PdfPage {
     pub(crate) fn collect_resources_and_streams(self, contents: &Vec<lopdf::Object>)
     -> (lopdf::Dictionary, Vec<lopdf::Stream>)
     {
-        use std::iter::FromIterator;
-
         let mut resource_dictionary = lopdf::Dictionary::new();
 
         // insert graphical states, todo: move this out of here
-        let mut ext_g_state_resources = Vec::<lopdf::Object>::new();
-        // (name.to_string(), Box::new(graphics_state).into_obj())
+        let mut ext_g_state_resources = lopdf::Dictionary::new();
 
         for (name, graphics_state) in self.all_graphics_states.into_iter() {
-            // 0th element will be a dictionary
-            let current_dict = Box::new(graphics_state).into_obj().pop().unwrap();
-            let current_dictionary = lopdf::Dictionary::from_iter(vec![
-                (name.to_string(), current_dict)
-                ]);
-            ext_g_state_resources.push(lopdf::Object::Dictionary(current_dictionary));
+            ext_g_state_resources.set(name.to_string(), Box::new(graphics_state).into_obj().pop().unwrap());
         }
 
-        resource_dictionary.set("ExtGState".to_string(), ext_g_state_resources);
+        if ext_g_state_resources.len() > 0 {
+            resource_dictionary.set("ExtGState".to_string(), lopdf::Object::Dictionary(ext_g_state_resources));
+        }
 
-        for resource in self.resources{
+        for resource in self.resources {
             match resource.1 {
                 ActualResource(a)     => {
-                    let current_resources =  a.into_obj();
+                    let mut current_resources =  a.into_obj();
                     // if the resource has more than one thing in it (shouldn't happen), push an array
                     if current_resources.len() > 1 {
                         resource_dictionary.set(resource.0.clone(), lopdf::Object::Array(current_resources));
                     } else {
-                       resource_dictionary.set(resource.0.clone(), current_resources[0].clone());
+                       resource_dictionary.set(resource.0.clone(), current_resources.pop().unwrap());
                     }
                 },                         // r is here actually a reference to a PDF reference
                 ReferencedResource(r) => { let content_ref = contents.get(r.0).unwrap();
                                            resource_dictionary.set(resource.0.clone(), content_ref.clone()); }
             }
         }
-
 
         let mut layer_streams = Vec::<lopdf::Stream>::new();
         for layer in self.layers {
@@ -122,7 +115,6 @@ impl PdfPage {
             let layer_stream = layer.into_obj();
             layer_streams.push(layer_stream);
         }
-
 
         return (resource_dictionary, layer_streams);
     }
@@ -134,8 +126,8 @@ impl PdfPage {
     /// Returns the old graphics state, in case it was overwritten, as well as a reference 
     /// to the currently active graphics state
     pub fn add_graphics_state(&mut self, new_state: ExtendedGraphicsState)
-    -> (Option<ExtendedGraphicsState>, ExtendedGraphicsStateRef)
-    {        
+    -> (Option<ExtendedGraphicsState>, Option<ExtendedGraphicsStateRef>)
+    {
         let mut old_state = None;
 
         let new_state_ref = {
@@ -146,10 +138,14 @@ impl PdfPage {
                 self.all_graphics_states.insert(gs_ref.gs_name.clone(), new_state.clone());
                 self.latest_graphics_state = new_state;
                 old_state = Some(save_state);
-                gs_ref
+                Some(gs_ref)
             } else {
                 warn!("On page \"{}\", the added graphics state is equal to the old one, no need to set it again!", self.index);
-                ExtendedGraphicsStateRef::new(self.all_graphics_states.len() - 1)
+                if self.all_graphics_states.len() > 0 {
+                    Some(ExtendedGraphicsStateRef::new(self.all_graphics_states.len() - 1))
+                } else {
+                    None
+                }
             }
         };
 

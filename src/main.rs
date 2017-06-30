@@ -61,7 +61,7 @@ fn main() {
     doc.get_page(page1).get_layer(layer1).set_line_dash_pattern(dash_pattern);
 
     doc.get_page(page1).get_layer(layer1).set_overprint_fill(true);
-    doc.get_page(page1).get_layer(layer1).set_overprint_stroke(false);
+    doc.get_page(page1).get_layer(layer1).set_overprint_stroke(true);
     doc.get_page(page1).get_layer(layer1).set_line_cap_style(LineCapStyle::Round);
 
     doc.get_page(page1).get_layer(layer1).set_outline(outline_2);
