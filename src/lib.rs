@@ -115,7 +115,7 @@
 #[macro_use] extern crate error_chain;
 #[macro_use] extern crate log;
 #[macro_use] extern crate lazy_static;
-#[macro_use] mod glob_macros;
+#[macro_use] pub mod glob_macros;
 
 extern crate lopdf;
 extern crate freetype;

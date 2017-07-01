@@ -1,12 +1,22 @@
+//! Current transformation matrix, for transforming shapes (rotate, translate, scale)
+
 use lopdf;
 use traits::IntoPdfStreamOperation;
 
+/// PDF transformation matrix. Once set, will operate on all following shapes,
+/// until the `layer.restore_graphics_state()` is called. It is important to 
+/// call `layer.save_graphics_state()` earlier.
 #[derive(Debug)]
 pub struct CurrentTransformationMatrix {
+	/// Translate the shape in x (mm)
 	pub translate_x: f64,
+	/// Translate the shape in y (mm)
 	pub translate_y: f64,
+	/// Scale the shape in x (mm)
 	pub scale_x: f64,
+	/// Scale the shape in y (mm)
 	pub scale_y: f64,
+	/// Rotate the shape counter-clockwise by an angle (degree)
 	pub rotation_ccw_angle: f64,
 }
 
@@ -39,6 +49,7 @@ impl CurrentTransformationMatrix {
 }
 
 impl IntoPdfStreamOperation for CurrentTransformationMatrix {
+	
 	/// Consumes the object and converts it to an PDF stream operation
 	fn into_stream_op(self: Box<Self>)
 	-> Vec<lopdf::content::Operation>
@@ -49,7 +60,17 @@ impl IntoPdfStreamOperation for CurrentTransformationMatrix {
 		let cos_x = rotation_rad.cos();
 		let sin_x = rotation_rad.sin();
 
+		let cur_translate_x = mm_to_pt!(self.translate_x);
+		let cur_translate_y = mm_to_pt!(self.translate_y);
+		let cur_scale_x = mm_to_pt!(self.scale_x);
+		let cur_scale_y = mm_to_pt!(self.scale_y);
+
 		vec![lopdf::content::Operation::new("cm", vec![
-			Real(self.scale_x + cos_x), Real(sin_x), Real(-sin_x), Real(self.scale_y + cos_x), Real(self.translate_x), Real(self.translate_y)])]
+			Real(cur_scale_x + cos_x), 
+			Real(sin_x), 
+			Real(-sin_x), 
+			Real(cur_scale_y + cos_x), 
+			Real(cur_translate_x), 
+			Real(cur_translate_y)])]
 	}
 }

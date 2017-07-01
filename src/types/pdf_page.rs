@@ -84,7 +84,8 @@ impl PdfPage {
         let mut ext_g_state_resources = lopdf::Dictionary::new();
 
         for (name, graphics_state) in self.all_graphics_states.into_iter() {
-            ext_g_state_resources.set(name.to_string(), Box::new(graphics_state).into_obj().pop().unwrap());
+            let gs: lopdf::Object = graphics_state.into();
+            ext_g_state_resources.set(name.to_string(), gs);
         }
 
         if ext_g_state_resources.len() > 0 {

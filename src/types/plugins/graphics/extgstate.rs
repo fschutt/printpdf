@@ -15,7 +15,21 @@
 //!
 //! ```rust,ignore
 //! let mut new_state = ExtendedGraphicsState::default();
-//! new_state.
+//! new_state.overprint_stroke = true;
+//! 
+//! // it is best to put the next lines in a seperate function
+//! // A PdfLayerReferences contains the indices of the page and the layer 
+//! // as well as a `std::sync::Weak` reference to the document.
+//! // This is why you need the braces, otherwise, you'll trigger a deadlock
+//! {
+//! 	// supposing mylayer is a PdfLayerReference
+//!     let doc = mylayer.document.upgrade().unwrap();
+//! 	let mut doc = doc.lock().unwrap();
+//! 	let mut page = doc.pages.get_mut(self.page.0).unwrap();
+//!
+//! 	// see the documentation for add_graphics_state
+//! 	page.add_graphics_state(new_state);
+//! }
 //! ```
 
 use lopdf;
@@ -152,7 +166,7 @@ pub struct ExtendedGraphicsState {
 	///	__(Optional; PDF 1.4)__ The current blend mode to be used in the transparent
 	///	imaging model (see Sections 7.2.4, “Blend Mode,” and 7.5.2, “Specifying
 	///	Blending Color Space and Blend Mode”).
-	pub blend_mode: Vec<BlendMode>,
+	pub blend_mode: BlendMode,
 
 	/* SM dictionary or name */
 	///	__(Optional; PDF 1.4)__ The current soft mask, specifying the mask shape or
@@ -226,27 +240,84 @@ impl Default for ExtendedGraphicsState {
 			flatness_tolerance: 0.0,
 			smoothness_tolerance: 0.0,
 			stroke_adjustment: true,
-			blend_mode: Vec::new(),
+			blend_mode: BlendMode::Seperable(SeperableBlendMode::Normal),
 			soft_mask: None,
-			current_stroke_alpha: 0.0,
-			current_fill_alpha: 0.0,
+			current_stroke_alpha: 1.0, /* 1.0 = opaque, not transparent*/
+			current_fill_alpha: 1.0,
 			alpha_is_shape: false,
 			text_knockout: false,
 		}
 	}
 }
 
-impl IntoPdfObject for ExtendedGraphicsState {
+impl Into<lopdf::Object> for ExtendedGraphicsState {
 	// in this case the function will return the graphics state dictionary
-	fn into_obj(self: Box<Self>)
-	-> Vec<lopdf::Object>
+	fn into(self)
+	-> lopdf::Object
 	{
 		use std::iter::FromIterator;
-		vec![lopdf::Object::Dictionary(lopdf::Dictionary::from_iter(vec![
-				/*("OP".to_string(), self.overprint_stroke.into()),
-				("op".to_string(), self.overprint_fill.into()), */ 
-				("CA".to_string(), 0.5.into()), /* test: transparency. take this out later */
-		]))]
+		let mut graphics_state = lopdf::Dictionary::from_iter(vec![
+				("Type".to_string(), "ExtGState".into()),
+				("LW".to_string(), self.line_width.into()), 
+				("LC".to_string(), self.line_cap.into()),
+				("LJ".to_string(), self.line_join.into()),
+				("ML".to_string(), self.miter_limit.into()), 
+				("FL".to_string(), self.flatness_tolerance.into()),
+				("RI".to_string(), self.rendering_intent.into()),
+				("SA".to_string(), self.stroke_adjustment.into()),
+				("OP".to_string(), self.overprint_fill.into()),
+				("OPM".to_string(), self.overprint_mode.into()),
+				("op".to_string(), self.overprint_stroke.into()),
+				("CA".to_string(), self.current_fill_alpha.into()), 
+				("ca".to_string(), self.current_stroke_alpha.into()), 
+				("BM".to_string(), self.blend_mode.into()),
+				("AIS".to_string(), self.alpha_is_shape.into()), 
+				("TK".to_string(), self.text_knockout.into()),
+		]);
+
+		// set optional parameters
+		if let &Some(line_dash_pattern) = &self.line_dash_pattern {
+		}
+
+		if let &Some(ref font) = &self.font {
+			
+		}
+
+		if let &Some(ref black_generation) = &self.black_generation {
+			
+		}
+
+		if let &Some(ref black_generation_extra) = &self.black_generation_extra {
+			
+		}
+
+		if let &Some(ref under_color_removal) = &self.under_color_removal {
+			
+		}
+
+		if let &Some(ref under_color_removal_extra) = &self.under_color_removal_extra {
+			
+		}
+
+		if let &Some(ref transfer_function) = &self.transfer_function {
+			
+		}
+
+		if let &Some(ref transfer_extra_function) = &self.transfer_extra_function {
+			
+		}
+
+		if let &Some(ref halftone_dictionary) = &self.halftone_dictionary {
+			
+		}
+
+		if let &Some(ref soft_mask) = &self.soft_mask {
+			
+		} else {
+			graphics_state.set("SM".to_string(), lopdf::Object::Name("None".as_bytes().to_vec()));
+		}
+
+		return lopdf::Object::Dictionary(graphics_state);
 	}
 }
 
@@ -264,7 +335,7 @@ impl ExtendedGraphicsStateRef {
 	-> Self
 	{	
 		Self {
-			gs_name: format!("gs{:?}", graphics_state_index + 1)
+			gs_name: format!("GS{:?}", graphics_state_index)
 		}
 	}
 }
@@ -276,9 +347,21 @@ impl ExtendedGraphicsStateRef {
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum OverprintMode {
 	/// Erase underlying color when overprinting
-	EraseUnderlying,
+	EraseUnderlying, /* 0, default */
 	/// Keep underlying color when overprinting
-	KeepUnderlying,
+	KeepUnderlying,  /* 1 */
+}
+
+impl Into<lopdf::Object> for OverprintMode {
+	fn into(self)
+	-> lopdf::Object
+	{
+		use OverprintMode::*;
+		match self {
+			EraseUnderlying		=> lopdf::Object::Integer(0),
+			KeepUnderlying 		=> lopdf::Object::Integer(1),
+		}
+	}
 }
 
 /// Black generation calculates the amount of black to be used when trying to 
@@ -286,6 +369,7 @@ pub enum OverprintMode {
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum BlackGenerationFunction {
 	/// Regular black generation function
+	///
 	/// ```rust,ignore
 	/// let cyan = 1.0 - red;
 	/// let magenta = 1.0 - green;
@@ -295,6 +379,7 @@ pub enum BlackGenerationFunction {
 	Default,
 	/// Expects an UnderColorRemoval to be set. This will compensate
 	/// the color for the added black
+	///
 	/// ```rust,ignore
 	/// let cyan = 1.0 - red;
 	/// let magenta = 1.0 - green;
@@ -486,6 +571,44 @@ pub enum BlendMode {
 	NonSeperable(NonSeperableBlendMode),
 }
 
+impl Into<lopdf::Object> for BlendMode {
+	fn into(self)
+	-> lopdf::Object {
+		use BlendMode::*;
+		use SeperableBlendMode::*;
+		use NonSeperableBlendMode::*;
+
+		let blend_mode_str = match self {
+			Seperable(s) => {
+				match s {
+					Normal => "Normal",
+					Multiply => "Multiply",
+					Screen => "Screen",
+					Overlay => "Overlay",
+					Darken => "Darken",
+					Lighten => "Lighten",
+					ColorDodge => "ColorDodge",
+					ColorBurn => "ColorBurn",
+					HardLight => "HardLight",
+					SoftLight => "SoftLight",
+					Difference => "Difference",
+					Exclusion => "Exclusion",
+				}
+			},
+			NonSeperable(n) => {
+				match n {
+					Hue => "Hue",
+					Saturation => "Saturation",
+					Color => "Color",
+					Luminosity => "Luminosity",
+				}
+			}
+		};
+
+		lopdf::Object::Name(blend_mode_str.as_bytes().to_vec())
+	}
+}
+
 /// PDF Reference 1.7, Page 520, Table 7.2
 /// Blending modes for objects
 /// In the following reference, each function gets one new color (the thing to paint on top)
@@ -495,7 +618,8 @@ pub enum BlendMode {
 /// to get the desired effect. You have to run each formula once for each color channel.
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum SeperableBlendMode {
-	/// Selects the source color, ignoring the old color. Default mode
+	/// Selects the source color, ignoring the old color. Default mode.
+	///
 	/// `color_new`
 	Normal,
 	/// Multiplies the old color and source color values
@@ -504,6 +628,7 @@ pub enum SeperableBlendMode {
 	///	colors. Multiplying any color with black produces black; multiplying with white 
 	///	leaves the original color unchanged.Painting successive overlapping objects with 
 	/// a color other than black or white produces progressively darker colors.
+	///
 	/// `color_old * color_new`
 	Multiply,
 	/// Multiplies the complements of the old color and new color values, then 
@@ -512,13 +637,16 @@ pub enum SeperableBlendMode {
 	///	Screening any color with white produces white; screening with black leaves the original 
 	///	color unchanged. The effect is similar to projecting multiple photographic slides 
 	///	simultaneously onto a single screen.
+	///
 	/// `color_old + color_new - (color_old * color_new)`
 	Screen,
 	///	Multiplies or screens the colors, depending on the old color value. Source colors 
 	///	overlay the old color while preserving its highlights and shadows. The old color is 
 	///	not replaced but is mixed with the source color to reflect the lightness or darkness 
 	///	of the old color.
+	///
 	/// TLDR: It's the inverse of HardLight
+	///
 	/// ```rust,ignore
 	/// if color_old <= 0.5 {
 	/// 	Multiply(color_new, 2 x color_old)
@@ -527,14 +655,19 @@ pub enum SeperableBlendMode {
 	/// }
 	/// ```
 	Overlay,
-	/// Selects the darker one of two colors. The old color is replaced where the 
+	/// Selects the darker one of two colors.The old color is replaced with the
+	/// new color where the new color is darker; otherwise, it is left unchanged.
+	///
 	/// `min(color_old, color_new)`
 	Darken,
-	/// Selects the lighter one of two colors. The old color is replaced where the 
+	/// Selects the lighter one of two colors. The old color is replaced with the
+	/// new color where the new color is lighter; otherwise, it is left unchanged.
+	/// 
 	/// `max(color_old, color_new)`
 	Lighten,
 	/// Brightens the backdrop color to reflect the source color. Painting with 
 	/// black produces no changes.
+	///
 	/// ```rust,ignore
 	/// if color_new < 1 {
 	/// 	min(1, color_old / (1 - color_new))
@@ -545,6 +678,7 @@ pub enum SeperableBlendMode {
 	ColorDodge,
 	/// Darkens the backdrop color to reflect the source color. Painting with 
 	/// white produces no change.
+	///
 	/// ```rust,ignore
 	/// if color_new > 0 {
 	/// 	1 - min(1, (1 - color_old) / color_new))
@@ -554,8 +688,8 @@ pub enum SeperableBlendMode {
 	/// ```
 	ColorBurn,
 	/// Multiplies or screens the colors, depending on the source color value. The effect is 
-	/// similar to shining a harsh spotlight on the old color.
-	/// It's the inverse of Screen.
+	/// similar to shining a harsh spotlight on the old color. It's the inverse of Screen.
+	///
 	/// ```rust,ignore
 	/// if color_new <= 0.5 {
 	/// 	Multiply(color_old, 2 x color_new)
@@ -566,29 +700,27 @@ pub enum SeperableBlendMode {
 	HardLight,
 	/// Darkens or lightens the colors, depending on the source color value. 
 	/// The effect is similar to shining a diffused spotlight on the backdrop.
+	///
 	/// ```rust,ignore
 	/// if color_new <= 0.5 {
 	/// 	color_old - ((1 - (2 * color_new)) * color_old * (1 - color_old))
 	/// } else {
-	///
-	/// 	let dx_factor = { 
-	/// 		if color_old <= 0.25 {
-	/// 			(((16 * color_old - 12) * color_old) + 4) * color_old
-	/// 		} else {
-	/// 			sqrt(color_old)
-	/// 		}
-	/// 	};
-	///
-	/// 	color_old + ((2 * color_new) - 1) * (dx_factor - color_old)
+	/// 	let mut dx_factor = color_old.sqrt();
+	///		if color_old <= 0.25 {
+	///			dx_factor = (((16 * color_old - 12) * color_old) + 4) * color_old;
+	///		}
+	///		color_old + ((2 * color_new) - 1) * (dx_factor - color_old)
 	/// }
 	/// ```
 	SoftLight,
 	/// Subtracts the darker of the two constituent colors from the lighter color
 	/// Painting with white inverts the backdrop color; painting with black produces no change.
+	///
 	/// `abs(color_old - color_new)`
 	Difference,
 	/// Produces an effect similar to that of the Difference mode but lower in contrast. 
 	/// Painting with white inverts the backdrop color; painting with black produces no change.
+	///
 	/// `color_old + color_new - (2 * color_old * color_new)`
 	Exclusion,
 }
@@ -615,7 +747,11 @@ pub enum SeperableBlendMode {
 /// The nonseparable blend mode formulas make use of several auxiliary functions. These 
 /// functions operate on colors that are assumed to have red, green, and blue components. 
 /// 
-/// ```rust,ignore
+/// ```rust
+/// # #[macro_use] extern crate printpdf;
+/// # use printpdf::Rgb;
+/// # use printpdf::glob_macros::*;
+/// # fn main() { /* needed for testing*/ }
 /// fn luminosity(input: Rgb) -> f64 {
 /// 	0.3 * input.r + 0.59 * input.g + 0.11 * input.b
 /// }
@@ -634,25 +770,42 @@ pub enum SeperableBlendMode {
 /// 
 /// 	let lum = luminosity(input);
 /// 
+/// 	let mut cur_r = (input.r * 1000.0) as i64;
+/// 	let mut cur_g = (input.g * 1000.0) as i64;
+/// 	let mut cur_b = (input.b * 1000.0) as i64;
+///
 /// 	/// min! and max! is defined in printpdf/src/glob_macros.rs
-/// 	let min = min!(input.r, input.g, input.b);
-/// 	let max = max!(input.r, input.g, input.b);
-/// 
-/// 	if min < 0.0 { 
-/// 		input.r = lum + (((input.r - lum) * lum) / (lum - min));
-/// 		input.g = lum + (((input.g - lum) * lum) / (lum - min));
-/// 		input.b = lum + (((input.b - lum) * lum) / (lum - min));
-/// 	} else if max > 1.0 {
-/// 		input.r = lum + ((input.r - lum) * (1.0 - lum) / (max - lum));
-/// 		input.g = lum + ((input.g - lum) * (1.0 - lum) / (max - lum));
-/// 		input.b = lum + ((input.b - lum) * (1.0 - lum) / (max - lum));
+/// 	let mut min = min!(cur_r, cur_g, cur_b);
+/// 	let mut max = max!(cur_r, cur_g, cur_b);
+///  
+///		let new_min = (min as f64) / 1000.0; 
+///		let new_max = (max as f64) / 1000.0;
+///	
+/// 	if new_min < 0.0 { 
+/// 		input.r = lum + (((input.r - lum) * lum) / (lum - new_min));
+/// 		input.g = lum + (((input.g - lum) * lum) / (lum - new_min));
+/// 		input.b = lum + (((input.b - lum) * lum) / (lum - new_min));
+/// 	} else if new_max > 1.0 {
+/// 		input.r = lum + ((input.r - lum) * (1.0 - lum) / (new_max - lum));
+/// 		input.g = lum + ((input.g - lum) * (1.0 - lum) / (new_max - lum));
+/// 		input.b = lum + ((input.b - lum) * (1.0 - lum) / (new_max - lum));
 /// 	}
 /// 
 /// 	return input;
 /// }
 /// 
 /// fn saturation(input: Rgb) -> f64 {
-/// 	max!(input.r, input.g, input.b) - min!(input.r - input.g - input.b)
+/// 	let mut cur_r = (input.r * 1000.0) as i64;
+/// 	let mut cur_g = (input.g * 1000.0) as i64;
+/// 	let mut cur_b = (input.b * 1000.0) as i64;
+///
+/// 	/// min! and max! is defined in printpdf/src/glob_macros.rs
+/// 	let mut min = min!(cur_r, cur_g, cur_b);
+/// 	let mut max = max!(cur_r, cur_g, cur_b);
+///  
+///		let new_min = (min as f64) / 1000.0;
+///		let new_max = (max as f64) / 1000.0;
+/// 	new_max - new_min
 /// }
 /// ```
 /// 
@@ -737,20 +890,20 @@ impl IntoPdfStreamOperation for RenderingIntent {
 }
 
 /* RI name , only to be used in graphics state dictionary */
-impl IntoPdfObject for RenderingIntent {
+impl Into<lopdf::Object> for RenderingIntent {
     /// Consumes the object and converts it to an PDF object
-    fn into_obj(self: Box<Self>)
-    -> Vec<lopdf::Object>
+    fn into(self)
+    -> lopdf::Object
     {
     	use RenderingIntent::*;
-    	let rendering_intent_string = match *self {
+    	let rendering_intent_string = match self {
     		AbsoluteColorimetric => "AbsoluteColorimetric",
     		RelativeColorimetric => "RelativeColorimetric",
     		Saturation => "Saturation",
     		Perceptual => "Perceptual",
     	};
 
-    	vec![Name(b"RI".to_vec()), Name(rendering_intent_string.as_bytes().to_vec())]
+    	lopdf::Object::Name(rendering_intent_string.as_bytes().to_vec())
     }
 }
 
@@ -797,19 +950,35 @@ pub enum LineJoinStyle {
 	Limit,
 }
 
+impl Into<i64> for LineJoinStyle {
+	fn into(self)
+	-> i64
+	{
+		use LineJoinStyle::*;
+		match self {
+			Miter => 0,
+			Round => 1,
+			Limit => 2,
+		}
+	}
+}
+
 impl IntoPdfStreamOperation for LineJoinStyle {
     fn into_stream_op(self: Box<Self>)
     -> Vec<Operation>
     {
-    	use LineJoinStyle::*;
-    	let line_join_num = match *self {
-    		Miter => 0,
-    		Round => 1,
-    		Limit => 2,
-    	};
-
+    	let data = *self;
+    	let line_join_num: i64 = data.into();
     	vec![Operation::new("j", vec![Integer(line_join_num)])]
     }
+}
+
+impl Into<lopdf::Object> for LineJoinStyle {
+	fn into(self)
+	-> lopdf::Object 
+	{
+		lopdf::Object::Integer(self.into())
+	}
 }
 
 /// __See PDF Reference (Page 216)__ - Line cap (ending) style
@@ -826,19 +995,34 @@ pub enum LineCapStyle {
 	ProjectingSquare,
 }
 
+impl Into<i64> for LineCapStyle {
+	fn into(self)
+	-> i64
+	{
+		use LineCapStyle::*;
+		match self {
+			Butt => 0,
+			Round => 1,
+			ProjectingSquare => 2,
+		}
+	}
+}
+
 impl IntoPdfStreamOperation for LineCapStyle {
     fn into_stream_op(self: Box<Self>)
     -> Vec<Operation>
     {
-    	use LineCapStyle::*;
-    	let line_cap_num = match *self {
-    		Butt => 0,
-    		Round => 1,
-    		ProjectingSquare => 2,
-    	};
-
-    	vec![Operation::new("J", vec![Integer(line_cap_num)])]
+    	let data = *self;
+    	vec![Operation::new("J", vec![Integer(data.into())])]
     }
+}
+
+impl Into<lopdf::Object> for LineCapStyle {
+	fn into(self)
+	-> lopdf::Object 
+	{
+		lopdf::Object::Integer(self.into())
+	}
 }
 
 /// Line dash pattern is made up of a total width
