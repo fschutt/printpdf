@@ -273,7 +273,7 @@ impl PdfDocumentReference {
                           ("OutputConditionIdentifier", String(icc_profile_short.into(), Literal)),
                           ("RegistryName", String("http://www.color.org".into(), Literal)),
                           ("Info", String(icc_profile_str.into(), Literal)), 
-                          ]);
+                        ]);
 
         if let Some(profile) = icc_profile { 
             use traits::IntoPdfObject;
@@ -338,8 +338,8 @@ impl PdfDocumentReference {
 
             let merged_layer_stream = lopdf::Stream::new(lopdf::Dictionary::new(), layer_streams_merged_vec);
             let page_content_id = doc.inner_doc.add_object(merged_layer_stream);
+            
             p.set("Contents", Reference(page_content_id));
-
             page_ids.push(Reference(doc.inner_doc.add_object(p)))
         }
 

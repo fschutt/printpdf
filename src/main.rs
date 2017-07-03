@@ -58,6 +58,7 @@ fn main() {
     let fill_2 = Fill::new(Color::Cmyk(Cmyk::new(0.0, 0.0, 0.0, 0.0, None)));
 
     doc.get_page(page1).get_layer(layer1).set_overprint_stroke(true);
+    // doc.get_page(page1).get_layer(layer1).set_blend_mode(BlendMode::Seperable(SeperableBlendMode::Multiply));
     doc.get_page(page1).get_layer(layer1).set_line_dash_pattern(dash_pattern);
     doc.get_page(page1).get_layer(layer1).set_line_cap_style(LineCapStyle::Round);
     doc.get_page(page1).get_layer(layer1).set_outline(outline_2);
@@ -75,5 +76,5 @@ fn main() {
 
     // There is no support for comments, images, annotations, 3D objects, signatures, gradients, etc. yet.
     // Save the PDF file
-    doc.save(&mut File::create("test_4.pdf").unwrap()).unwrap();
+    doc.save(&mut File::create("test_5.pdf").unwrap()).unwrap();
 }

@@ -180,7 +180,6 @@ pub struct ExtendedGraphicsState {
 	///	parameter (see Section 4.4.3, “Clipping Path Operators”).
 	pub soft_mask: Option<SoftMask>,
 
-
 	/* CA integer */
 	///	__(Optional; PDF 1.4)__ The current stroking alpha constant, specifying the con-
 	///	stant shape or constant opacity value to be used for stroking operations in the
@@ -276,7 +275,9 @@ impl Into<lopdf::Object> for ExtendedGraphicsState {
 		]);
 
 		// set optional parameters
-		if let &Some(line_dash_pattern) = &self.line_dash_pattern {
+		if let &Some(ldp) = &self.line_dash_pattern {
+			let pattern: lopdf::Object = ldp.into();
+			graphics_state.set("D".to_string(), pattern);
 		}
 
 		if let &Some(ref font) = &self.font {
@@ -1062,47 +1063,69 @@ impl LineDashPattern {
 	}
 }
 
-impl IntoPdfStreamOperation for LineDashPattern {
-    fn into_stream_op(self: Box<Self>)
-    -> Vec<Operation>
+// conversion into a dash array for reuse in operation / gs dictionary
+impl Into<(Vec<i64>, i64)> for LineDashPattern {
+	fn into(self)
+	-> (Vec<i64>, i64)
+	{
+		let mut dash_array = Vec::<i64>::new();
+
+		// note: it may be that PDF allows more than 6 operators. 
+		// I've not seen it in practise, though
+
+		// break as soon as we encounter a None
+		loop {
+
+			if let Some(d1) = self.dash_1 {
+				dash_array.push(d1);
+			} else { break; }
+
+			if let Some(g1) = self.gap_1 {
+				dash_array.push(g1);
+			} else { break; }
+
+			if let Some(d2) = self.dash_2 {
+				dash_array.push(d2);
+			} else { break; }
+
+			if let Some(g2) = self.gap_2 {
+				dash_array.push(g2);
+			} else { break; }
+
+			if let Some(d3) = self.dash_3 {
+				dash_array.push(d3);
+			} else { break; }
+
+			if let Some(g3) = self.gap_3 {
+				dash_array.push(g3);
+			} else { break; }
+
+			break;
+		}
+
+		return (dash_array, self.offset);
+	}
+	
+}
+
+impl Into<Operation> for LineDashPattern {
+    fn into(self)
+    -> Operation
     {
-    	let mut dash_array = Vec::<i64>::new();
-    	
-    	// note: it may be that PDF allows more than 6 operators. 
-    	// I've not seen it in practise, though
-
-    	// break as soon as we encounter a None
-    	loop {
-
-	    	if let Some(d1) = self.dash_1 {
-	    		dash_array.push(d1);
-	    	} else { break; }
-
-	    	if let Some(g1) = self.gap_1 {
-	    		dash_array.push(g1);
-	    	} else { break; }
-
-	    	if let Some(d2) = self.dash_2 {
-	    		dash_array.push(d2);
-	    	} else { break; }
-
-	    	if let Some(g2) = self.gap_2 {
-	    		dash_array.push(g2);
-	    	} else { break; }
-
-	    	if let Some(d3) = self.dash_3 {
-	    		dash_array.push(d3);
-	    	} else { break; }
-
-	    	if let Some(g3) = self.gap_3 {
-	    		dash_array.push(g3);
-	    	} else { break; }
-
-	    	break;
-    	}
-
+    	let (dash_array, offset) = self.into();
     	let dash_array_ints = dash_array.into_iter().map(|int| Integer(int)).collect();
-
-    	vec![Operation::new("d", vec![Array(dash_array_ints), Integer(self.offset)])]
+    	Operation::new("d", vec![Array(dash_array_ints), Integer(offset)])
     }
+}
+
+impl Into<lopdf::Object> for LineDashPattern {
+	fn into(self)
+	-> lopdf::Object
+	{
+		use lopdf::Object::*;
+		let (dash_array, offset) = self.into();
+		let mut dash_array_ints: Vec<lopdf::Object> = dash_array.into_iter().map(|int| Integer(int)).collect();
+		dash_array_ints.push(Integer(offset));
+		Array(dash_array_ints)
+	}
 }

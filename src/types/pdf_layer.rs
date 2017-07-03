@@ -62,14 +62,18 @@ impl PdfLayerReference {
     /// Set the overprint mode of the stroke color to true (overprint) or false (no overprint)
     pub fn set_overprint_fill(&self, overprint: bool)
     {
-        /* let doc = self.document.upgrade().unwrap();
+        let mut new_overprint_state = ExtendedGraphicsState::default();
+        new_overprint_state.overprint_fill = overprint;
+        
+        let doc = self.document.upgrade().unwrap();
         let mut doc = doc.lock().unwrap();
+        let mut page_mut = doc.pages.get_mut(self.page.0).unwrap();
 
-        use lopdf::content::Operation;
-        let operation = Operation::new("OP", vec![lopdf::Object::Boolean(overprint)]);
-        doc.pages.get_mut(self.page.0).unwrap()
-            .layers.get_mut(self.layer.0).unwrap()
-                .layer_stream.add_operation(Box::new(operation)); */
+        let (_, new_ref) = page_mut.add_graphics_state(new_overprint_state);
+        if let Some(new) = new_ref {
+            page_mut.layers.get_mut(self.layer.0).unwrap()
+                .layer_stream.add_operations(Box::new(lopdf::content::Operation::new("gs", vec![lopdf::Object::Name(new.gs_name.as_bytes().to_vec())])));
+        }
     }
 
     /// Set the overprint mode of the fill color to true (overprint) or false (no overprint)
@@ -87,7 +91,26 @@ impl PdfLayerReference {
         let (_, new_ref) = page_mut.add_graphics_state(new_overprint_state);
         if let Some(new) = new_ref {
             page_mut.layers.get_mut(self.layer.0).unwrap()
-                .layer_stream.add_operation(Box::new(lopdf::content::Operation::new("gs", vec![lopdf::Object::Name(new.gs_name.as_bytes().to_vec())])));
+                .layer_stream.add_operations(Box::new(lopdf::content::Operation::new("gs", vec![lopdf::Object::Name(new.gs_name.as_bytes().to_vec())])));
+        }
+    }
+
+    /// Set the overprint mode of the fill color to true (overprint) or false (no overprint)
+    /// This changes the graphics state of the current page, don't do it too often or you'll bloat the file size
+    pub fn set_blend_mode(&mut self, blend_mode: BlendMode)
+    {
+        // this is technically an operation on the page level
+        let mut new_overprint_state = ExtendedGraphicsState::default();
+        new_overprint_state.blend_mode = blend_mode;
+        
+        let doc = self.document.upgrade().unwrap();
+        let mut doc = doc.lock().unwrap();
+        let mut page_mut = doc.pages.get_mut(self.page.0).unwrap();
+
+        let (_, new_ref) = page_mut.add_graphics_state(new_overprint_state);
+        if let Some(new) = new_ref {
+            page_mut.layers.get_mut(self.layer.0).unwrap()
+                .layer_stream.add_operations(Box::new(lopdf::content::Operation::new("gs", vec![lopdf::Object::Name(new.gs_name.as_bytes().to_vec())])));
         }
     }
 
@@ -113,7 +136,7 @@ impl PdfLayerReference {
     /// Set the current line join style for outlines
     #[inline]
     pub fn set_line_dash_pattern(&mut self, dash_pattern: LineDashPattern) {
-        add_operation!(self, Box::new(dash_pattern));
+        add_operation_once!(self, dash_pattern);
     }
 
     /// Set the current transformation matrix (TODO)
@@ -196,24 +219,24 @@ impl PdfLayerReference {
             let ref_mut_layer = doc.pages.get_mut(self.page.0).unwrap()
                                     .layers.get_mut(self.layer.0).unwrap();
 
-            ref_mut_layer.layer_stream.add_operation(Box::new(Operation::new("BT", 
+            ref_mut_layer.layer_stream.add_operation(Operation::new("BT", 
                 vec![]
-            )));
+            ));
 
-            ref_mut_layer.layer_stream.add_operation(Box::new(Operation::new("Tf", 
+            ref_mut_layer.layer_stream.add_operation(Operation::new("Tf", 
                 vec![face_name.into(), (font_size as i64).into()]
-            )));
-            ref_mut_layer.layer_stream.add_operation(Box::new(Operation::new("Td", 
+            ));
+            ref_mut_layer.layer_stream.add_operation(Operation::new("Td", 
                 vec![x_mm.into(), y_mm.into()]
-            )));
+            ));
 
-            ref_mut_layer.layer_stream.add_operation(Box::new(Operation::new("Tj", 
+            ref_mut_layer.layer_stream.add_operation(Operation::new("Tj", 
                 vec![String(bytes, Hexadecimal)]
-            )));
+            ));
 
-            ref_mut_layer.layer_stream.add_operation(Box::new(Operation::new("ET", 
+            ref_mut_layer.layer_stream.add_operation(Operation::new("ET", 
                 vec![]
-            )));
+            ));
     }
 
     /// Instantiate SVG data
