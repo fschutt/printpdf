@@ -52,7 +52,7 @@ impl Svg {
         let mut initial_width = None;
         let mut initial_height = None;
 
-        let parser = svg::open_from(svg_data)?;
+        let parser = svg::read(svg_data)?;
 
         // get width and height
         for event in parser {

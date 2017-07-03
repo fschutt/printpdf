@@ -649,40 +649,56 @@ impl Into<lopdf::Object> for ExtendedGraphicsState {
            these types cannot yet be converted into lopdf::Objects
         */
 
-        if let &Some(ref black_generation) = &self.black_generation {
-            
+        if self.changed_fields.contains(BLACK_GENERATION) { 
+            if let &Some(ref black_generation) = &self.black_generation {
+
+            }
         }
 
-        if let &Some(ref black_generation_extra) = &self.black_generation_extra {
-            
+        if self.changed_fields.contains(BLACK_GENERATION_EXTRA) { 
+            if let &Some(ref black_generation_extra) = &self.black_generation_extra {
+
+            }
         }
 
-        if let &Some(ref under_color_removal) = &self.under_color_removal {
-            
+        if self.changed_fields.contains(UNDERCOLOR_REMOVAL) { 
+            if let &Some(ref under_color_removal) = &self.under_color_removal {
+
+            }
         }
 
-        if let &Some(ref under_color_removal_extra) = &self.under_color_removal_extra {
-            
+        if self.changed_fields.contains(UNDERCOLOR_REMOVAL_EXTRA) { 
+            if let &Some(ref under_color_removal_extra) = &self.under_color_removal_extra {
+
+           } 
         }
 
-        if let &Some(ref transfer_function) = &self.transfer_function {
-            
+        if self.changed_fields.contains(TRANSFER_FUNCTION) { 
+            if let &Some(ref transfer_function) = &self.transfer_function {
+
+            }
         }
 
-        if let &Some(ref transfer_extra_function) = &self.transfer_extra_function {
-            
+        if self.changed_fields.contains(TRANSFER_FUNCTION_EXTRA) { 
+            if let &Some(ref transfer_extra_function) = &self.transfer_extra_function {
+
+            }
         }
 
-        if let &Some(ref halftone_dictionary) = &self.halftone_dictionary {
-            
+        if self.changed_fields.contains(HALFTONE_DICTIONARY) { 
+            if let &Some(ref halftone_dictionary) = &self.halftone_dictionary {
+
+            }
         }
 
-        if let &Some(ref soft_mask) = &self.soft_mask {
-            
-        } else {
-            gs_operations.push(("SM".to_string(), lopdf::Object::Name("None".as_bytes().to_vec())));
+        if self.changed_fields.contains(SOFT_MASK) {
+            if let &Some(ref soft_mask) = &self.soft_mask {
+                
+            } else {
+                gs_operations.push(("SM".to_string(), lopdf::Object::Name("None".as_bytes().to_vec())));
+            }
         }
-
+        
         // if there are operations, push the "Type > ExtGState"
         // otherwise, just return an empty dictionary
         if gs_operations.len() > 0 {
