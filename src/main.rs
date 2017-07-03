@@ -33,12 +33,14 @@ fn main() {
                        (Point::new(100.0, 200.0), false),
                        (Point::new(300.0, 200.0), false),
                        (Point::new(300.0, 100.0), false)];
+    
     let line1 = Line::new(points1, true, true, true);
 
     // triangle
     let points2 = vec![(Point::new(150.0, 150.0), false),
                        (Point::new(150.0, 250.0), false),
                        (Point::new(350.0, 250.0), false)];
+
     let line2 = Line::new(points2, true, false, false);
 
     let outline = Outline::new(Color::Rgb(Rgb::new(0.75, 1.0, 0.64, None)), 10);

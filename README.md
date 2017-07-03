@@ -28,6 +28,36 @@ let (page2, layer1) = doc.add_page(10.0, 250.0,"Page 2, Layer 1");
 doc.save(&mut File::create("test_working.pdf").unwrap()).unwrap();
 ```
 
+#### Adding graphical shapes
+
+```rust
+use printpdf::*;
+use std::fs::File;
+
+let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 247.0, 210.0, "Layer 1");
+
+let mut current_layer = doc.get_page(page1).get_layer(layer1);
+
+// Quadratic shape. The "false" determines if the next (following) point is a bezier handle (for curves)
+let points1 = vec![(Point::new(100.0, 100.0), false),
+                   (Point::new(100.0, 200.0), false),
+                   (Point::new(300.0, 200.0), false),
+                   (Point::new(300.0, 100.0), false)];
+
+// is shape stroked? is shape closed? is shape filled?
+let line1 = Line::new(points1, true, true, true);
+
+// set outline and fill
+let outline = Outline::new(Color::Rgb(Rgb::new(0.75, 1.0, 0.64, None)), 10);
+current_layer.set_outline(outline);
+
+let fill = Fill::new(Color::Cmyk(Cmyk::new(0.0, 0.23, 0.0, 0.0, None)));
+current_layer.set_fill(fill);
+
+// add shape to the layer
+current_layer.add_shape(line1);
+```
+
 #### Adding fonts
 
 ```rust
@@ -43,7 +73,7 @@ let roboto_font = doc.add_font(roboto_font_file).unwrap();
 doc.get_page(page1).get_layer(layer1).use_text(text, 48, 0.0, 200.0, 200.0, roboto_font);
 ```
 
-#### Adding graphical shapes
+#### Adding SVG elements
 
 ## Goals and Roadmap
 
@@ -74,8 +104,6 @@ are supported. See this list:
 Over time, there will be more standards supported. Checking a PDF for errors is currently only a stub.
 
 ## Testing
-
-Note: this project needs `libfreetype6-dev` to be installed first.
 
 Testing should be done in two stages. First, test the individual PDF objects, if the conversion into
 a PDF object is done correctly. The second stage is manual inspection of PDF objects via Adobe Preflight.
