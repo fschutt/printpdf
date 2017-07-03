@@ -62,14 +62,15 @@ impl PdfLayerReference {
     /// Set the overprint mode of the stroke color to true (overprint) or false (no overprint)
     pub fn set_overprint_fill(&self, overprint: bool)
     {
-        let mut new_overprint_state = ExtendedGraphicsState::default();
-        new_overprint_state.overprint_fill = overprint;
+        let mut new_overprint_state = ExtendedGraphicsStateBuilder::new()
+                                      .with_overprint_fill(true)
+                                      .build();
         
         let doc = self.document.upgrade().unwrap();
         let mut doc = doc.lock().unwrap();
         let mut page_mut = doc.pages.get_mut(self.page.0).unwrap();
 
-        let (_, new_ref) = page_mut.add_graphics_state(new_overprint_state);
+        let new_ref = page_mut.add_graphics_state(new_overprint_state);
         if let Some(new) = new_ref {
             page_mut.layers.get_mut(self.layer.0).unwrap()
                 .layer_stream.add_operations(Box::new(lopdf::content::Operation::new("gs", vec![lopdf::Object::Name(new.gs_name.as_bytes().to_vec())])));
@@ -81,14 +82,15 @@ impl PdfLayerReference {
     pub fn set_overprint_stroke(&mut self, overprint: bool)
     {
         // this is technically an operation on the page level
-        let mut new_overprint_state = ExtendedGraphicsState::default();
-        new_overprint_state.overprint_stroke = overprint;
+        let mut new_overprint_state = ExtendedGraphicsStateBuilder::new()
+                                      .with_overprint_stroke(true)
+                                      .build();
         
         let doc = self.document.upgrade().unwrap();
         let mut doc = doc.lock().unwrap();
         let mut page_mut = doc.pages.get_mut(self.page.0).unwrap();
 
-        let (_, new_ref) = page_mut.add_graphics_state(new_overprint_state);
+        let new_ref = page_mut.add_graphics_state(new_overprint_state);
         if let Some(new) = new_ref {
             page_mut.layers.get_mut(self.layer.0).unwrap()
                 .layer_stream.add_operations(Box::new(lopdf::content::Operation::new("gs", vec![lopdf::Object::Name(new.gs_name.as_bytes().to_vec())])));
@@ -100,25 +102,35 @@ impl PdfLayerReference {
     pub fn set_blend_mode(&mut self, blend_mode: BlendMode)
     {
         // this is technically an operation on the page level
-        let mut new_overprint_state = ExtendedGraphicsState::default();
-        new_overprint_state.blend_mode = blend_mode;
+        let mut new_overprint_state = ExtendedGraphicsStateBuilder::new()
+                                      .with_blend_mode(blend_mode)
+                                      .build();
         
         let doc = self.document.upgrade().unwrap();
         let mut doc = doc.lock().unwrap();
         let mut page_mut = doc.pages.get_mut(self.page.0).unwrap();
 
-        let (_, new_ref) = page_mut.add_graphics_state(new_overprint_state);
+        let new_ref = page_mut.add_graphics_state(new_overprint_state);
         if let Some(new) = new_ref {
             page_mut.layers.get_mut(self.layer.0).unwrap()
                 .layer_stream.add_operations(Box::new(lopdf::content::Operation::new("gs", vec![lopdf::Object::Name(new.gs_name.as_bytes().to_vec())])));
         }
     }
 
-    /// Set the current fill color for the layer
+    /// Set the current outline for the layer
     #[inline]
-    pub fn set_outline(&mut self, outline: Outline)
+    pub fn set_outline_color(&mut self, outline: Outline)
     {
         add_operation!(self, Box::new(outline));
+    }
+
+    /// Set the current line thickness
+    #[inline]
+    pub fn set_outline_thickness(&mut self, outline_thickness: i64)
+    {
+        use lopdf::Object::*;
+        use lopdf::content::Operation;
+        add_operation!(self, Box::new(Operation::new(OP_PATH_STATE_SET_LINE_WIDTH, vec![Integer(outline_thickness)])));
     }
 
     /// Set the current line join style for outlines

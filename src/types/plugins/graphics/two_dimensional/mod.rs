@@ -17,7 +17,6 @@ lazy_static! {
     static ref CURRENT_OUTLINE: Arc<Mutex<Outline>> = 
     Arc::new(Mutex::new(Outline { 
         color: Color::Rgb(super::color::Rgb { r: 0.0, g: 0.0, b: 0.0, icc_profile: None }), 
-        thickness: 5 
     }));
 }
 

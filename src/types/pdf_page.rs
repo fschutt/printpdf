@@ -21,16 +21,11 @@ pub struct PdfPage {
     /// or references to other objects defined at the document level. If you are unsure,
     /// add the content to the document and use `ReferencedResource`.
     pub(crate) resources: HashMap<std::string::String, PdfResource>,
-    /// Current graphics state, for identifying if we have to create new graphics states
-    /// This is supposed to make things easier: If you change the graphics state of the stream,
-    /// the state gets checked for equality. If nothing has changed, we don't have to 
-    /// make another graphics state, just use the one already defined.
-    /// When the layer is consumed, simply return all the graphics state that were defined in
-    /// this page and add them to the pages resource dictionary.
-    pub(crate) latest_graphics_state: ExtendedGraphicsState,
+    /// Current indent level + current graphics state
+    pub(crate) latest_graphics_state: (usize, ExtendedGraphicsState),
     /// All graphics states needed for this layer, collected together with a name for each one
-    /// The name should be: "gs[index of this layer]_[index of the graphics state]"
-    pub(crate) all_graphics_states: HashMap<std::string::String, ExtendedGraphicsState>,
+    /// The name should be: "GS[index of the graphics state]", so `/GS0` for the first graphics state.
+    pub(crate) all_graphics_states: HashMap<std::string::String, (usize, ExtendedGraphicsState)>,
 }
 
 /// This struct is only a marker struct to indicate the function
@@ -59,7 +54,7 @@ impl PdfPage {
             heigth_pt: mm_to_pt!(height_mm),
             layers: Vec::new(),
             resources: HashMap::new(),
-            latest_graphics_state: ExtendedGraphicsState::default(),
+            latest_graphics_state: (0, ExtendedGraphicsState::default()),
             all_graphics_states: HashMap::new(),
         };
 
@@ -83,7 +78,7 @@ impl PdfPage {
         // insert graphical states, todo: move this out of here
         let mut ext_g_state_resources = lopdf::Dictionary::new();
 
-        for (name, graphics_state) in self.all_graphics_states.into_iter() {
+        for (name, (_, graphics_state)) in self.all_graphics_states.into_iter() {
             let gs: lopdf::Object = graphics_state.into();
             ext_g_state_resources.set(name.to_string(), gs);
         }
@@ -126,31 +121,15 @@ impl PdfPage {
     /// previous state.
     /// Returns the old graphics state, in case it was overwritten, as well as a reference 
     /// to the currently active graphics state
-    pub fn add_graphics_state(&mut self, new_state: ExtendedGraphicsState)
-    -> (Option<ExtendedGraphicsState>, Option<ExtendedGraphicsStateRef>)
+    pub fn add_graphics_state(&mut self, added_state: ExtendedGraphicsState)
+    -> Option<ExtendedGraphicsStateRef>
     {
-        let mut old_state = None;
-
-        let new_state_ref = {
-            if new_state != self.latest_graphics_state {
-                let save_state = self.latest_graphics_state.clone();
-                // note: will be the index of the newly inserted graphics state
-                let gs_ref = ExtendedGraphicsStateRef::new(self.all_graphics_states.len()); 
-                self.all_graphics_states.insert(gs_ref.gs_name.clone(), new_state.clone());
-                self.latest_graphics_state = new_state;
-                old_state = Some(save_state);
-                Some(gs_ref)
-            } else {
-                warn!("On page \"{}\", the added graphics state is equal to the old one, no need to set it again!", self.index);
-                if self.all_graphics_states.len() > 0 {
-                    Some(ExtendedGraphicsStateRef::new(self.all_graphics_states.len() - 1))
-                } else {
-                    None
-                }
-            }
-        };
-
-        return (old_state, new_state_ref);
+        if self.latest_graphics_state.1 != added_state {
+            let gs_ref = ExtendedGraphicsStateRef::new(self.all_graphics_states.len());
+            self.all_graphics_states.insert(gs_ref.gs_name.clone(), (self.latest_graphics_state.0, added_state.clone()));
+            self.latest_graphics_state = (self.latest_graphics_state.0, added_state);
+            Some(gs_ref)
+        } else { None }
     }
 }
 
