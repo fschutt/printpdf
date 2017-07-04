@@ -10,8 +10,10 @@ pub mod color;
 pub mod icc_profile;
 pub mod ctm;
 pub mod extgstate;
+pub mod xobject;
 
 pub use self::ctm::CurrentTransformationMatrix;
 pub use self::color::{Color, Rgb, Cmyk, Grayscale, PdfColor};
 pub use self::icc_profile::{IccProfile, IccProfileType};
 pub use self::extgstate::*;
+pub use self::xobject::*;
