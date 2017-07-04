@@ -34,16 +34,20 @@
 //!
 //! let mut current_layer = doc.get_page(page1).get_layer(layer1);
 //! 
-//! // Quadratic shape. The "false" determines if the next (following) point is a bezier handle (for curves)
+//! // Quadratic shape. The "false" determines if the next (following) 
+//! // point is a bezier handle (for curves)
+//! // If you want holes, simply reorder the winding of the points to be 
+//! // counterclockwise instead of clockwise.
 //! let points1 = vec![(Point::new(100.0, 100.0), false),
 //!                    (Point::new(100.0, 200.0), false),
 //!                    (Point::new(300.0, 200.0), false),
 //!                    (Point::new(300.0, 100.0), false)];
 //! 
-//! // is shape stroked? is shape closed? is shape filled?
+//! // Is the shape stroked? Is the shape closed? Is the shape filled?
 //! let line1 = Line::new(points1, true, true, true);
 //! 
-//! // set outline and fill
+//! // Set outline and fill
+//! // Note: Outline only regards the outline color, maybe a bad name
 //! let outline = Outline::new(Color::Rgb(Rgb::new(0.75, 1.0, 0.64, None)));
 //! current_layer.set_outline_color(outline);
 //! current_layer.set_outline_thickness(10); // points

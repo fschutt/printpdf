@@ -11,19 +11,19 @@ pub use self::font::Font;
 pub use self::svg::Svg;
 
 use std::sync::{Arc, Mutex};
-use super::{Outline, Fill, Color};
+use super::Color;
 
 lazy_static! {
-    static ref CURRENT_OUTLINE: Arc<Mutex<Outline>> = 
-    Arc::new(Mutex::new(Outline { 
-        color: Color::Rgb(super::color::Rgb { r: 0.0, g: 0.0, b: 0.0, icc_profile: None }), 
-    }));
+    static ref CURRENT_OUTLINE_COLOR: Arc<Mutex<Color>> = 
+    Arc::new(Mutex::new(
+        Color::Rgb(super::color::Rgb { r: 0.0, g: 0.0, b: 0.0, icc_profile: None })
+    ));
 }
 
 
 lazy_static! {
-    static ref CURRENT_FILL: Arc<Mutex<Fill>> = 
-    Arc::new(Mutex::new(Fill {
-        color: Color::Rgb(super::color::Rgb { r: 0.0, g: 0.0, b: 0.0, icc_profile: None }),
-    }));
+    static ref CURRENT_FILL_COLOR: Arc<Mutex<Color>> = 
+    Arc::new(Mutex::new(
+        Color::Rgb(super::color::Rgb { r: 0.0, g: 0.0, b: 0.0, icc_profile: None })
+    ));
 }

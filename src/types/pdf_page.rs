@@ -122,14 +122,12 @@ impl PdfPage {
     /// Returns the old graphics state, in case it was overwritten, as well as a reference 
     /// to the currently active graphics state
     pub fn add_graphics_state(&mut self, added_state: ExtendedGraphicsState)
-    -> Option<ExtendedGraphicsStateRef>
+    -> ExtendedGraphicsStateRef
     {
-        if self.latest_graphics_state.1 != added_state {
-            let gs_ref = ExtendedGraphicsStateRef::new(self.all_graphics_states.len());
-            self.all_graphics_states.insert(gs_ref.gs_name.clone(), (self.latest_graphics_state.0, added_state.clone()));
-            self.latest_graphics_state = (self.latest_graphics_state.0, added_state);
-            Some(gs_ref)
-        } else { None }
+        let gs_ref = ExtendedGraphicsStateRef::new(self.all_graphics_states.len());
+        self.all_graphics_states.insert(gs_ref.gs_name.clone(), (self.latest_graphics_state.0, added_state.clone()));
+        self.latest_graphics_state = (self.latest_graphics_state.0, added_state);
+        gs_ref
     }
 }
 

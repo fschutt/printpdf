@@ -1,6 +1,9 @@
 //! Color module (CMYK or RGB). Shared between 2D and 3D module.
 
+use lopdf;
+use glob_defines::*;
 use indices::IccProfileIndex;
+use traits::IntoPdfStreamOperation;
 
 /// Wrapper for Rgb, Cmyk and other color types
 #[derive(Debug, Clone, PartialEq)]
@@ -38,6 +41,30 @@ impl Color {
     }
 }
 
+impl IntoPdfStreamOperation for Color {
+
+    fn into_stream_op(self: Box<Self>)
+    -> Vec<lopdf::content::Operation>
+    {
+        use lopdf::Object::*;
+        use lopdf::content::Operation;
+
+        // same as outline
+        // a bit weird, I expected OP_COLOR_SET_FILL_COLOR to work, ...
+
+        // todo: incorporate ICC profile instead of just setting the default device cmyk color space
+        let color_identifier = match *self {
+            Color::Rgb(_) => { OP_COLOR_SET_FILL_CS_DEVICERGB }
+            Color::Cmyk(_) => { OP_COLOR_SET_FILL_CS_DEVICECMYK }
+            Color::Grayscale(_) => { OP_COLOR_SET_FILL_CS_DEVICEGRAY }
+            Color::SpotColor(_) => { OP_COLOR_SET_FILL_CS_DEVICECMYK }
+        };
+
+        let color_vec = self.into_vec().into_iter().map(move |float| Real(float)).collect();
+
+        vec![Operation::new(color_identifier, color_vec)]
+    }
+}
 
 /// RGB color
 #[derive(Debug, Copy, Clone, PartialEq)]

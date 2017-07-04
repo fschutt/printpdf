@@ -12,6 +12,8 @@ fn main() {
     // You also have to specify the title of the PDF and the document creator
     let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 500.0, 500.0, "Layer 1");
 
+    let mut current_layer = doc.get_page(page1).get_layer(layer1);
+
     // You can add more pages and layers to the PDF. 
     // Just make sure you don't lose the references, otherwise, you can't add things to the layer anymore
     // let (page2, layer1) = doc.add_page(500.0, 500.0,"Page 2, Layer 1");
@@ -22,12 +24,14 @@ fn main() {
     // Write the text with font + font size
     // printpdf is made for PDF-X/1A conform documents. 
     // As such, using the default fonts is not permitted. You have to use your own fonts here
+
 /*
     let text = "Hello World! Unicode test: стуфхfцчшщъыьэюя";
     let roboto_font_file = File::open("./assets/fonts/RobotoMedium.ttf").unwrap();
     let roboto_font = doc.add_font(roboto_font_file).unwrap();
     doc.get_page(page1).get_layer(layer1).use_text(text, 48, 0.0, 200.0, 200.0, roboto_font);
 */
+
     // quad
     let points1 = vec![(Point::new(100.0, 100.0), false),
                        (Point::new(100.0, 200.0), false),
@@ -43,33 +47,34 @@ fn main() {
 
     let line2 = Line::new(points2, true, false, false);
 
-    let outline = Outline::new(Color::Rgb(Rgb::new(0.75, 1.0, 0.64, None)));
-    let fill = Fill::new(Color::Cmyk(Cmyk::new(0.0, 0.23, 0.0, 0.0, None)));
+    let fill_color = Color::Cmyk(Cmyk::new(0.0, 0.23, 0.0, 0.0, None));
+    let outline_color = Color::Rgb(Rgb::new(0.75, 1.0, 0.64, None));
     
     let mut dash_pattern = LineDashPattern::default();
     dash_pattern.dash_1 = Some(20);
 
-    doc.get_page(page1).get_layer(layer1).set_outline_color(outline);
-    doc.get_page(page1).get_layer(layer1).set_outline_thickness(10);
-    doc.get_page(page1).get_layer(layer1).set_fill(fill);
+    current_layer.set_fill_color(fill_color);
+    current_layer.set_outline_color(outline_color);
+    current_layer.set_outline_thickness(10);
 
     // first batch of points
     // points, is the shape stroked, is the shape closed (lines only)?, is the shape filled (polygon)?
-    doc.get_page(page1).get_layer(layer1).add_shape(line1);
+    current_layer.add_shape(line1);
 
-    let outline_2 = Outline::new(Color::Grayscale(Grayscale::new(0.45, None)));
-    let fill_2 = Fill::new(Color::Cmyk(Cmyk::new(0.0, 0.0, 0.0, 0.0, None)));
+    let fill_color_2 = Color::Cmyk(Cmyk::new(0.0, 0.0, 0.0, 0.0, None));
+    let outline_color_2 = Color::Grayscale(Grayscale::new(0.45, None));
 
-    doc.get_page(page1).get_layer(layer1).set_overprint_stroke(true);
-    doc.get_page(page1).get_layer(layer1).set_blend_mode(BlendMode::Seperable(SeperableBlendMode::Multiply));
-    doc.get_page(page1).get_layer(layer1).set_line_dash_pattern(dash_pattern);
-    doc.get_page(page1).get_layer(layer1).set_line_cap_style(LineCapStyle::Round);
-    doc.get_page(page1).get_layer(layer1).set_outline_color(outline_2);
-    doc.get_page(page1).get_layer(layer1).set_outline_thickness(20);
-    doc.get_page(page1).get_layer(layer1).set_fill(fill_2);
+    current_layer.set_overprint_stroke(true);
+    current_layer.set_blend_mode(BlendMode::Seperable(SeperableBlendMode::Multiply));
+    current_layer.set_line_dash_pattern(dash_pattern);
+    current_layer.set_line_cap_style(LineCapStyle::Round);
+    
+    current_layer.set_fill_color(fill_color_2);
+    current_layer.set_outline_color(outline_color_2);
+    current_layer.set_outline_thickness(15);
 
-    // second batch of points
-    doc.get_page(page1).get_layer(layer1).add_shape(line2);
+    // draw second line
+    current_layer.add_shape(line2);
 
 /*
     // A special thing is transcoding SVG files directly into PDF (for mapping symbols)    

@@ -48,8 +48,9 @@ let points1 = vec![(Point::new(100.0, 100.0), false),
 let line1 = Line::new(points1, true, true, true);
 
 // set outline and fill
-let outline = Outline::new(Color::Rgb(Rgb::new(0.75, 1.0, 0.64, None)), 10);
-current_layer.set_outline(outline);
+let outline = Outline::new(Color::Rgb(Rgb::new(0.75, 1.0, 0.64, None)));
+current_layer.set_outline_color(outline);
+current_layer.set_outline_thickness(10); // points
 
 let fill = Fill::new(Color::Cmyk(Cmyk::new(0.0, 0.23, 0.0, 0.0, None)));
 current_layer.set_fill(fill);

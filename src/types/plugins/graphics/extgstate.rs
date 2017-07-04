@@ -719,6 +719,7 @@ pub struct ExtendedGraphicsStateRef {
 }
 
 impl ExtendedGraphicsStateRef {
+    
     /// Creates a new graphics state reference (in order to be unique inside a page)
     #[inline]
     pub fn new(graphics_state_index: usize)

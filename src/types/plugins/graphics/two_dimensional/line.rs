@@ -32,20 +32,6 @@ impl Line {
             has_stroke,
         }
     }
-
-    /// Changes the fill color for following lines
-    #[inline]
-    pub fn set_fill(fill: Fill) 
-    { 
-        *super::CURRENT_FILL.lock().unwrap() = fill;
-    }
-
-    /// Changes the outline for following lines
-    #[inline]
-    pub fn set_outline(outline: Outline) 
-    { 
-        *super::CURRENT_OUTLINE.lock().unwrap() = outline;
-    }
 }
 
 impl IntoPdfStreamOperation for Line {

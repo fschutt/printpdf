@@ -1,23 +1,19 @@
-/* Parent: Resources dictionary of the page */
-pub struct XObject {
-    /* /Type /XObject */
-    xobj_type: XObjectType,
-}
 
-pub enum XObjectType {
+XObject
+/* Parent: Resources dictionary of the page */
+/// External object that gets reference outside the PDF content stream
+/// Gets constructed similar to the `ExtGState`, then 
+pub enum XObject {
     /* /Subtype /Image */
+    /// Image XObject, for images
     Image(ImageXObject),
     /* /Subtype /Form */
+    /// Form XObject, for PDF forms
     Form(FormXObject),
     /* /Subtype /PS */
+    /// Embedded PostScript XObject, for legacy applications
+    /// You can embed PostScript in a PDF, it is not recommended
     PostScript(PostScriptXObject),
-}
-
-pub struct PostScriptXObject {
-    /// (Optional) A stream whose contents are to be used in 
-    /// place of the PostScript XObject’s stream when the target 
-    /// PostScript interpreter is known to support only LanguageLevel 1
-    level1: Option<Vec<u8>>,
 }
 
 /* todo: inline images? (icons, logos, etc.) */
@@ -158,6 +154,7 @@ pub enum FormType {
     /* Integer(1) */
     Type1,
 }
+
 /*
     see page 341 
 
@@ -168,7 +165,7 @@ pub enum FormType {
     /ColorSpace /DeviceRGB                      % required, except for JPXDecode, not allowed for image masks
     /BitsPerComponent 8                         % if ImageMask is true, optional or 1.
 
-%optional
+                                                % Optional stuff below
 
     /Intent /RelativeColormetric
     /ImageMask false                            % Mask and ColorSpace should not be specified
@@ -192,14 +189,11 @@ pub enum FormType {
     /Matte                                      % if present, the SMask must have the same w / h as the picture.
 */
 
-/*
-
-*/
-
 /* Parent: XObject with /Subtype /Image */
-/// SMask dictionary
+/// SMask dictionary. A soft mask (or SMask) is a greyscale image 
+/// that is used to mask another image
 pub struct SMask {
-    // SMask is an image itself
+
     /* /Type /XObject */
     /* /Subtype /Image */
     /* /ColorSpace /DeviceGray */
@@ -209,7 +203,12 @@ pub struct SMask {
     /* /Mask (must be absent) */
     /* /SMask (must be absent) */
     /* /Decode (must be [0 1]) */
-    
+    /* /Alternates (ignored, don't set) */
+    /* /Name (ignored, don't set) */
+    /* /StructParent (ignored, don't set) */
+    /* /ID (ignored, don't set) */
+    /* /OPI (ignored, don't set) */
+
     /// If `self.matte` is set to true, this entry must be the same
     /// width as the parent image. If not, the `SMask` is resampled to the parent unit square
     pub width: i64,
@@ -221,15 +220,10 @@ pub struct SMask {
     pub bits_per_component: i64,
     /// Vec of component values 
     pub matte: Vec<i64>,
-
-    /* /Alternates (ignored, don't set) */
-    /* /Name (ignored, don't set) */
-    /* /StructParent (ignored, don't set) */
-    /* /ID (ignored, don't set) */
-    /* /OPI (ignored, don't set) */
 }
 
-// in the PDF content stream: 
+// in the PDF content stream, reference an XObject like this
+
 /*
     q                                           % Save graphics state
     1 0 0 1 100 200 cm                          % Translate
@@ -244,6 +238,12 @@ pub struct GroupXObject {
     /* /S /Transparency */ /* currently the only valid GroupXObject */
 }
 
+
+pub enum GroupXObjectType {
+    /// Transparency group XObject
+    TransparencyGroup,
+}
+
 /// PDF 1.4 and higher
 /// Contains a PDF file to be embedded in the current PDF
 pub struct ReferenceXObject {
@@ -256,6 +256,9 @@ pub struct ReferenceXObject {
 }
 
 /* parent: Catalog dictionary, I think, not sure */
+/// Optional content group, for PDF layers. Only available in PDF 1.4 
+/// but (I think) lower versions of PDF allow this, too. Used to create 
+/// Adobe Illustrator-like layers in PDF
 pub struct OptionalContentGroup {
     /* /Type /OCG */
     /* /Name (Layer 1) */
@@ -278,7 +281,16 @@ pub struct OptionalContentGroup {
     pub usage: Option<lopdf::Dictionary>,
 }
 
+/// Intent to use for the optional content groups
 pub enum OCGIntent {
     View,
     Design,
+}
+
+/// TODO, very low priority
+pub struct PostScriptXObject {
+    /// __(Optional)__ A stream whose contents are to be used in 
+    /// place of the PostScript XObject’s stream when the target 
+    /// PostScript interpreter is known to support only LanguageLevel 1
+    level1: Option<Vec<u8>>,
 }
