@@ -56,14 +56,14 @@ impl PdfLayerReference {
     pub fn set_fill_color(&self, fill_color: Color)
     -> ()
     {
-        add_operation!(self, Box::new(fill_color));
+        add_operation!(self, Box::new(PdfColor::FillColor(fill_color)));
     }
 
     /// Set the current line / outline color for the layer
     #[inline]
     pub fn set_outline_color(&mut self, color: Color)
     {
-        add_operation!(self, Box::new(color));
+        add_operation!(self, Box::new(PdfColor::OutlineColor(color)));
     }
 
     /// Set the overprint mode of the stroke color to true (overprint) or false (no overprint)

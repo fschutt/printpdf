@@ -12,6 +12,6 @@ pub mod ctm;
 pub mod extgstate;
 
 pub use self::ctm::CurrentTransformationMatrix;
-pub use self::color::{Color, Rgb, Cmyk, Grayscale};
+pub use self::color::{Color, Rgb, Cmyk, Grayscale, PdfColor};
 pub use self::icc_profile::{IccProfile, IccProfileType};
 pub use self::extgstate::*;

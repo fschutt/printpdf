@@ -5,6 +5,53 @@ use glob_defines::*;
 use indices::IccProfileIndex;
 use traits::IntoPdfStreamOperation;
 
+/// Tuple for differentiating outline and fill colors
+#[derive(Debug, Clone, PartialEq)]
+pub enum PdfColor {
+    FillColor(Color),
+    OutlineColor(Color),
+}
+
+impl IntoPdfStreamOperation for PdfColor {
+
+    fn into_stream_op(self: Box<Self>)
+    -> Vec<lopdf::content::Operation>
+    {
+        use lopdf::Object::*;
+        use lopdf::content::Operation;
+
+        // todo: incorporate ICC profile instead of just setting the default device cmyk color space
+        let (color_identifier, color_vec) = {
+            use self::PdfColor::*;
+            match *self {
+                FillColor(fill) => {
+                    let ci = match fill {
+                        Color::Rgb(_) => { OP_COLOR_SET_FILL_CS_DEVICERGB }
+                        Color::Cmyk(_) => { OP_COLOR_SET_FILL_CS_DEVICECMYK }
+                        Color::Grayscale(_) => { OP_COLOR_SET_FILL_CS_DEVICEGRAY }
+                        Color::SpotColor(_) => { OP_COLOR_SET_FILL_CS_DEVICECMYK }
+                    };
+                    let cvec = fill.into_vec().into_iter().map(move |float| Real(float)).collect();
+                    (ci, cvec)
+                },
+                OutlineColor(outline) => {
+                    let ci = match outline {
+                        Color::Rgb(_) => { OP_COLOR_SET_STROKE_CS_DEVICERGB }
+                        Color::Cmyk(_) => { OP_COLOR_SET_STROKE_CS_DEVICECMYK }
+                        Color::Grayscale(_) => { OP_COLOR_SET_STROKE_CS_DEVICEGRAY }
+                        Color::SpotColor(_) => { OP_COLOR_SET_STROKE_CS_DEVICECMYK }
+                    };
+
+                    let cvec = outline.into_vec().into_iter().map(move |float| Real(float)).collect();
+                    (ci, cvec)
+                }
+            }
+        };
+
+        vec![Operation::new(color_identifier, color_vec)]
+    }
+}
+
 /// Wrapper for Rgb, Cmyk and other color types
 #[derive(Debug, Clone, PartialEq)]
 pub enum Color {
@@ -38,31 +85,6 @@ impl Color {
             Color::Grayscale(ref gs) => Some(&gs.icc_profile),
             Color::SpotColor(_) => None,
         }
-    }
-}
-
-impl IntoPdfStreamOperation for Color {
-
-    fn into_stream_op(self: Box<Self>)
-    -> Vec<lopdf::content::Operation>
-    {
-        use lopdf::Object::*;
-        use lopdf::content::Operation;
-
-        // same as outline
-        // a bit weird, I expected OP_COLOR_SET_FILL_COLOR to work, ...
-
-        // todo: incorporate ICC profile instead of just setting the default device cmyk color space
-        let color_identifier = match *self {
-            Color::Rgb(_) => { OP_COLOR_SET_FILL_CS_DEVICERGB }
-            Color::Cmyk(_) => { OP_COLOR_SET_FILL_CS_DEVICECMYK }
-            Color::Grayscale(_) => { OP_COLOR_SET_FILL_CS_DEVICEGRAY }
-            Color::SpotColor(_) => { OP_COLOR_SET_FILL_CS_DEVICECMYK }
-        };
-
-        let color_vec = self.into_vec().into_iter().map(move |float| Real(float)).collect();
-
-        vec![Operation::new(color_identifier, color_vec)]
     }
 }
 
