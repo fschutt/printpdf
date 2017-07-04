@@ -48,6 +48,26 @@ impl CurrentTransformationMatrix {
 	}
 }
 
+impl Into<[f64; 6]> for CurrentTransformationMatrix {
+    fn into(self)
+    -> [f64; 6]
+    {
+        let rotation_rad = self.rotation_ccw_angle.to_radians();
+
+        let cos_x = rotation_rad.cos();
+        let sin_x = rotation_rad.sin();
+
+        let cur_translate_x = mm_to_pt!(self.translate_x);
+        let cur_translate_y = mm_to_pt!(self.translate_y);
+        let cur_scale_x = mm_to_pt!(self.scale_x);
+        let cur_scale_y = mm_to_pt!(self.scale_y);
+
+        [cur_scale_x + cos_x, sin_x, -sin_x, 
+         cur_scale_y + cos_x, cur_translate_x, cur_translate_y]
+    }
+}
+
+
 impl IntoPdfStreamOperation for CurrentTransformationMatrix {
 	
 	/// Consumes the object and converts it to an PDF stream operation
@@ -55,22 +75,20 @@ impl IntoPdfStreamOperation for CurrentTransformationMatrix {
 	-> Vec<lopdf::content::Operation>
 	{
 		use lopdf::Object::*;
-		let rotation_rad = self.rotation_ccw_angle.to_radians();
+        let s = *self;
+        let matrix_nums: [f64; 6] = s.into();
+        let matrix: Vec<lopdf::Object> = matrix_nums.to_vec().into_iter().map(|float| Real(float)).collect();
 
-		let cos_x = rotation_rad.cos();
-		let sin_x = rotation_rad.sin();
-
-		let cur_translate_x = mm_to_pt!(self.translate_x);
-		let cur_translate_y = mm_to_pt!(self.translate_y);
-		let cur_scale_x = mm_to_pt!(self.scale_x);
-		let cur_scale_y = mm_to_pt!(self.scale_y);
-
-		vec![lopdf::content::Operation::new("cm", vec![
-			Real(cur_scale_x + cos_x), 
-			Real(sin_x), 
-			Real(-sin_x), 
-			Real(cur_scale_y + cos_x), 
-			Real(cur_translate_x), 
-			Real(cur_translate_y)])]
+		vec![lopdf::content::Operation::new("cm", matrix)]
 	}
+}
+
+impl Into<lopdf::Object> for CurrentTransformationMatrix {
+    fn into(self)
+    -> lopdf::Object
+    {
+        use lopdf::Object::*;
+        let matrix_nums: [f64; 6] = self.into();
+        Array(matrix_nums.to_vec().into_iter().map(|float| Real(float)).collect())
+    }
 }

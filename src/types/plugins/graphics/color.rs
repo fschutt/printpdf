@@ -52,6 +52,44 @@ impl IntoPdfStreamOperation for PdfColor {
     }
 }
 
+/// Color space (enum for marking the number of bits a color has)
+pub enum ColorSpace {
+    Rgb,
+    Cmyk,
+    Grayscale,
+}
+
+impl Into<&'static str> for ColorSpace {
+    fn into(self)
+    -> &'static str
+    {
+        match self {
+            ColorSpace::Rgb => "DeviceRGB",
+            ColorSpace::Cmyk => "DeviceCMYK",
+            ColorSpace::Grayscale => "DeviceGray",
+        }
+    }
+}
+
+/// How many bits does a color have?
+pub enum ColorBits {
+    Bit1,
+    Bit8,
+    Bit16,
+}
+
+impl Into<i64> for ColorBits {
+    fn into(self)
+    -> i64
+    {
+        match self {
+            ColorBits::Bit1 => 1,
+            ColorBits::Bit8 => 8,
+            ColorBits::Bit16 => 16,
+        }
+    }
+}
+
 /// Wrapper for Rgb, Cmyk and other color types
 #[derive(Debug, Clone, PartialEq)]
 pub enum Color {

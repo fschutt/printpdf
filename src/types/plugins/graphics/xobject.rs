@@ -16,22 +16,93 @@ pub enum XObject {
     PostScript(PostScriptXObject),
 }
 
+impl Into<lopdf::Object> for XObject {
+    fn into(self)
+    -> lopdf::Object
+    {
+        match self {
+            XObject::Image(image) => { lopdf::Object::Stream(image.into()) }
+            XObject::Form(form) => { lopdf::Object::Stream(form.into()) }
+            XObject::PostScript(ps) => { lopdf::Object::Stream(ps.into()) }
+        }
+    }
+}
+
 /* todo: inline images? (icons, logos, etc.) */
 /* todo: JPXDecode filter */
 
 pub struct ImageXObject {
-    /// Length of the stream in bytes, to be filled by lopdf
-    pub length: i64,
     /// Width of the image (original width, not scaled width)
-    pub width: f64,
+    pub width: i64,
     /// Height of the image (original height, not scaled height)
-    pub height: f64,
-    /// Color components per sample (1 = Greyscale, 3 = RGB, 4 = CMYK)
-    pub color_components: i64,
+    pub height: i64,
+    /// Color space (Greyscale, RGB, CMYK)
+    pub color_space: ColorSpace,
     /// Bits per color component (1, 2, 4, 8, 16) - 1 for black/white, 8 Greyscale / RGB, etc.
     /// If using a JPXDecode filter (for JPEG images), this can be inferred from the image data 
-    pub bits_per_component: Option<i64>,
+    pub bits_per_component: ColorBits,
+    /// Should the image be interpolated when scaled?
+    pub interpolate: bool,
+    /// The actual data from the image
+    pub image_data: Vec<u8>,
+    /// Compression filter used for this image
+    pub image_filter: Option<ImageFilter>,
+    /* /BBox << dictionary >> */
+    /* todo: find out if this is really required */
+    /// Required bounds to clip the image, in unit space
+    /// Default value: Identity matrix (`[1 0 0 1 0 0]`) - used when value is `None`
+    pub clipping_bbox: Option<CurrentTransformationMatrix>,
+}
 
+impl ImageXObject {
+
+    pub fn new(width: i64, height: i64, color_space: ColorSpace,
+               bits: ColorBits, interpolate: bool, image_filter: Option<ImageFilter>, 
+               bbox: Option<CurrentTransformationMatrix>, data: Vec<u8>)
+    -> Self
+    {
+        Self {
+            width: width,
+            height: height,
+            color_space: color_space,
+            bits_per_component: bits,
+            interpolate: interpolate,
+            image_data: data,
+            image_filter: image_filter,
+            clipping_bbox: bbox,
+        }
+    }
+}
+
+impl Into<lopdf::Stream> for ImageXObject {
+    fn into(self)
+    -> lopdf::Stream
+    {
+        use lopdf::Object::*;
+        use std::iter::FromIterator;
+
+        let cs: &'static str = self.color_space.into();
+        let bbox: lopdf::Object = self.clipping_bbox
+            .unwrap_or(CurrentTransformationMatrix::default())
+            .into();
+
+        let dict = lopdf::Dictionary::from_iter(vec![
+            ("Type", Name("XObject".as_bytes().to_vec())),
+            ("Subtype", Name("Image".as_bytes().to_vec())),
+            ("Width", Integer(self.width)),
+            ("Height", Integer(self.height)),
+            ("Interpolate", self.interpolate.into()),
+            ("BitsPerComponent", Integer(self.bits_per_component.into())),
+            ("ColorSpace", Name(cs.as_bytes().to_vec())),
+            ("BBox", bbox),
+        ]);
+
+        if let Some(_) = self.image_filter {
+            /* todo: add filter*/
+        }
+
+        lopdf::Stream::new(dict, self.image_data)
+    }
 }
 
 /// Named reference to an image
@@ -39,6 +110,18 @@ pub struct ImageXObjectRef {
     name: String,
 }
 
+/// todo: they don't work yet
+pub enum ImageFilter {
+    Ascii85Decode,
+    LzwDecode,
+    JPXDecode,
+}
+
+/// __THIS IS NOT A PDF FORM!__ A form XObject can be nearly everything. 
+/// PDF allows you to reuse content for the graphics stream in a FormXObject.
+/// A FormXObject is basically a layer-like content stream and can contain anything
+/// as long as it's a valid strem. A `FormXObject` is intended to be used for reapeated
+/// content on one page.
 pub struct FormXObject {
     /* /Type /XObject */
     /* /Subtype /Form */
@@ -46,13 +129,11 @@ pub struct FormXObject {
     /* /FormType Integer */
     /// Form type (currently only Type1)
     pub form_type: FormType,
-    /* /BBox << dictionary >> */
-    /// Required bounds to clip the image, in unit space
-    /// Default value: Identity matrix (`[1 0 0 1 0 0]`).
-    pub clipping_bbox: CurrentTransformationMatrix,
+    /// The actual content of this FormXObject
+    pub bytes: Vec<u8>,
     /* /Matrix [Integer , 6] */
     /// Optional matrix, maps the form into user space
-    pub matrix: CurrentTransformationMatrix,
+    pub matrix: Option<CurrentTransformationMatrix>,
     /* /Resources << dictionary >> */
     /// (Optional but strongly recommended; PDF 1.2) A dictionary specifying 
     /// any resources (such as fonts and images) required by the form XObject 
@@ -133,6 +214,23 @@ pub struct FormXObject {
     pub name: Option<String>,
 }
 
+impl Into<lopdf::Stream> for FormXObject {
+    fn into(self)
+    -> lopdf::Stream
+    {
+        use std::iter::FromIterator;
+        use lopdf::Object::*;
+
+        let dict = lopdf::Dictionary::from_iter(vec![
+            ("Type", Name("XObject".as_bytes().to_vec())),
+            ("Subtype", Name("Form".as_bytes().to_vec())),
+            ("FormType", Integer(self.form_type.into())),
+        ]);
+
+        lopdf::Stream::new(dict, self.bytes)
+    }
+}
+
 /*
     <<  
         /Type /XObject
@@ -153,6 +251,16 @@ pub enum FormType {
     /// The only form type ever declared by Adobe
     /* Integer(1) */
     Type1,
+}
+
+impl Into<i64> for FormType {
+    fn into(self)
+    -> i64
+    {
+        match self {
+            FormType::Type1 => 1,
+        }
+    }
 }
 
 /*
@@ -293,4 +401,13 @@ pub struct PostScriptXObject {
     /// place of the PostScript XObject’s stream when the target 
     /// PostScript interpreter is known to support only LanguageLevel 1
     level1: Option<Vec<u8>>,
+}
+
+impl Into<lopdf::Stream> for PostScriptXObject {
+    fn into(self)
+    -> lopdf::Stream
+    {
+        // todo! 
+        lopdf::Stream::new(lopdf::Dictionary::new(), Vec::new())
+    }
 }
