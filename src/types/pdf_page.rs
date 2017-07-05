@@ -130,29 +130,4 @@ impl PdfPageReference {
             layer: layer,
         }
     }
-/*
-    // commented out because the original model of having a trait that resources can set, simply doesn't work
-
-    /// Add a resource to the pages resource dictionary. The resources of the seperate layers
-    /// will be colleted when the page is saved.
-    /// The following keys are reserved, do not use them: `ExtGState`, `Font`
-    #[inline]
-    pub fn add_arbitrary_resource<S>(&mut self, key: S, resource: Box<IntoPdfObject>)
-    -> () where S: Into<String>
-    {
-        let key = key.into();
-
-        let doc = self.document.upgrade().unwrap();
-        let mut doc = doc.lock().unwrap();
-
-        let page_resources_mut = &mut doc.pages.get_mut(self.page.0).unwrap().resources;
-
-        let res = page_resources_mut.insert(key.clone(), ActualResource(resource));
-        
-        if res.is_some() {
-            warn!("On page {}, the resource \"{}\" was overwritten!", self.page.0, key);
-        }
-    }
-*/
-
 }

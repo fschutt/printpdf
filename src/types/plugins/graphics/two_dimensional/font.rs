@@ -184,7 +184,18 @@ impl IntoPdfObject for Font {
 /// Indexed reference to a font that was added to the document
 #[derive(Debug)]
 pub struct FontRef {
-    name: String
+    pub(super) name: String
+}
+
+impl FontRef {
+    /// Creates a new FontRef from an index
+    pub fn new(index: usize)
+    -> Self 
+    {
+        Self {
+            name: format!("F{}", index),
+        }
+    }
 }
 
 /// Font list for tracking fonts within the PDF
@@ -201,6 +212,16 @@ impl FontList {
         Self {
             fonts: HashMap::new(),
         }
+    }
+
+    /// Adds a font to the FontList
+    pub fn add_font(&mut self, font: Font)
+    -> FontRef
+    {
+        let len = self.fonts.len();
+        let font_ref = FontRef::new(len);
+        self.fonts.insert(font_ref.name.clone(), font);
+        font_ref
     }
 }
 

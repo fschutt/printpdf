@@ -24,6 +24,16 @@ pub struct PatternRef {
     name: String,
 }
 
+impl PatternRef {
+    pub fn new(index: usize)
+    -> Self
+    {
+        Self {
+            name: format!("PT{}", index),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct PatternList {
     patterns: HashMap<String, Pattern>,
@@ -37,6 +47,16 @@ impl PatternList {
         Self {
             patterns: HashMap::new(),
         }
+    }
+
+    /// Adds a new pattern to the pattern list
+    pub fn add_pattern(&mut self, pattern: Pattern)
+    -> PatternRef
+    {
+        let len = self.patterns.len();
+        let pattern_ref = PatternRef::new(len);
+        self.patterns.insert(pattern_ref.name.clone(), pattern);
+        pattern_ref
     }
 }
 

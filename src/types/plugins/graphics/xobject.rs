@@ -47,6 +47,16 @@ impl XObjectList {
             objects: HashMap::new(),
         }
     }
+
+    /// Adds a new XObject to the list
+    pub fn add_xobject(&mut self, xobj: XObject)
+    -> XObjectRef
+    {
+        let len = self.objects.len();
+        let xobj_ref = XObjectRef::new(len);
+        self.objects.insert(xobj_ref.name.clone(), xobj);
+        xobj_ref
+    }
 }
 
 impl Into<lopdf::Dictionary> for XObjectList {
@@ -60,6 +70,24 @@ impl Into<lopdf::Dictionary> for XObjectList {
         }
 
         return dict_xobjects;
+    }
+}
+
+/// Named reference to an XObject
+#[derive(Debug)]
+pub struct XObjectRef {
+    pub(super) name: String,
+}
+
+impl XObjectRef {
+
+    /// Creates a new reference from a number
+    pub fn new(index: usize)
+    -> Self 
+    {
+        Self {
+            name: format!("XO{}", index),
+        }
     }
 }
 

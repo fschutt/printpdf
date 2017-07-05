@@ -36,15 +36,24 @@ impl PdfResources {
 
     /// Adds a font to the resources
     #[inline]
-    pub fn add_font(&mut self, font_ref: Font)
+    pub fn add_font(&mut self, font: Font)
+    -> FontRef
     {
-
+        self.fonts.add_font(font)
     }
 
     #[inline]
     pub fn add_xobject(&mut self, xobj: XObject)
+    -> XObjectRef
     {
+        self.xobjects.add_xobject(xobj)
+    }
 
+    #[inline]
+    pub fn add_pattern(&mut self, pattern: Pattern)
+    -> PatternRef
+    {
+        self.patterns.add_pattern(pattern)
     }
 }
 
