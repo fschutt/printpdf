@@ -32,50 +32,8 @@ fn main() {
     doc.get_page(page1).get_layer(layer1).use_text(text, 48, 0.0, 200.0, 200.0, roboto_font);
 */
 
-    // quad
-    let points1 = vec![(Point::new(100.0, 100.0), false),
-                       (Point::new(100.0, 200.0), false),
-                       (Point::new(300.0, 200.0), false),
-                       (Point::new(300.0, 100.0), false)];
-
-    let line1 = Line::new(points1, true, true, true);
-
-    // triangle
-    let points2 = vec![(Point::new(150.0, 150.0), false),
-                       (Point::new(150.0, 250.0), false),
-                       (Point::new(350.0, 250.0), false)];
-
-    let line2 = Line::new(points2, true, false, false);
-
-    let fill_color = Color::Cmyk(Cmyk::new(0.0, 0.23, 0.0, 0.0, None));
-    let outline_color = Color::Rgb(Rgb::new(0.75, 1.0, 0.64, None));
+    /// Adding images
     
-    let mut dash_pattern = LineDashPattern::default();
-    dash_pattern.dash_1 = Some(20);
-
-    current_layer.set_fill_color(fill_color);
-    current_layer.set_outline_color(outline_color);
-    current_layer.set_outline_thickness(10);
-
-    // first batch of points
-    // points, is the shape stroked, is the shape closed (lines only)?, is the shape filled (polygon)?
-    current_layer.add_shape(line1);
-
-    let fill_color_2 = Color::Cmyk(Cmyk::new(0.0, 0.0, 0.0, 0.0, None));
-    let outline_color_2 = Color::Grayscale(Grayscale::new(0.45, None));
-
-    current_layer.set_overprint_stroke(true);
-    current_layer.set_blend_mode(BlendMode::Seperable(SeperableBlendMode::Multiply));
-    current_layer.set_line_dash_pattern(dash_pattern);
-    current_layer.set_line_cap_style(LineCapStyle::Round);
-    
-    current_layer.set_fill_color(fill_color_2);
-    current_layer.set_outline_color(outline_color_2);
-    current_layer.set_outline_thickness(15);
-
-    // draw second line
-    current_layer.add_shape(line2);
-
 /*
     // A special thing is transcoding SVG files directly into PDF (for mapping symbols)    
     // Specify the lower left corner of the SVG

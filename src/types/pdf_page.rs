@@ -58,8 +58,12 @@ impl PdfPage {
     /// Iterates through the layers attached to this page and gathers all resources,
     /// which the layers need. Then returns a dictonary with all the resources 
     /// (fonts, image XObjects, etc.)
+    ///
+    /// While originally I had planned to build a system where you can reference contents
+    /// from all over the document, this turned out to be a problem, because each type had
+    /// to be handled differently (PDF weirdness)
     #[inline]
-    pub(crate) fn collect_resources_and_streams(self, contents: &Vec<lopdf::Object>)
+    pub(crate) fn collect_resources_and_streams(self, /* contents: &Vec<lopdf::Object> */)
     -> (lopdf::Dictionary, Vec<lopdf::Stream>)
     {
         let mut resource_dictionary: lopdf::Dictionary = self.resources.into();
@@ -89,6 +93,28 @@ impl PdfPage {
     {
         self.resources.add_graphics_state(added_state)
     }
+
+    #[inline]
+    pub fn add_pattern(&mut self, pattern: Pattern)
+    -> PatternRef
+    {
+        self.resources.add_pattern(pattern)
+    }
+
+    #[inline]
+    pub fn add_xobject(&mut self, xobj: XObject)
+    -> XObjectRef
+    {
+        self.resources.add_xobject(xobj)
+    }
+
+    #[inline]
+    pub fn add_font(&mut self, font: Font)
+    -> FontRef
+    {
+        self.resources.add_font(font)
+    }
+
 }
 
 impl PdfPageReference {

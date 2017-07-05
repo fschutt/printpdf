@@ -314,7 +314,7 @@ impl PdfDocumentReference {
                       ("Parent", Reference(pages_id)) ]);
 
             // this will collect the resources needed for rendering this page
-            let (resources_page, layer_streams) = page.collect_resources_and_streams(&doc.contents);
+            let (resources_page, layer_streams) = page.collect_resources_and_streams();
 
             if !(resources_page.len() == 0) {
                 let resources_page_id = doc.inner_doc.add_object(lopdf::Object::Dictionary(resources_page));

@@ -51,6 +51,47 @@ impl PdfLayerReference {
         add_operation!(self, Box::new(line));
     }
 
+    /// Add an image to the layer
+    /*
+        /// Width of the image (original width, not scaled width)
+        pub width: i64,
+        /// Height of the image (original height, not scaled height)
+        pub height: i64,
+        /// Color space (Greyscale, RGB, CMYK)
+        pub color_space: ColorSpace,
+        /// Bits per color component (1, 2, 4, 8, 16) - 1 for black/white, 8 Greyscale / RGB, etc.
+        /// If using a JPXDecode filter (for JPEG images), this can be inferred from the image data 
+        pub bits_per_component: ColorBits,
+        /// Should the image be interpolated when scaled?
+        pub interpolate: bool,
+        /// The actual data from the image
+        pub image_data: Vec<u8>,
+        /// Compression filter used for this image
+        pub image_filter: Option<ImageFilter>,
+        /* /BBox << dictionary >> */
+        /* todo: find out if this is really required */
+        /// Required bounds to clip the image, in unit space
+        /// Default value: Identity matrix (`[1 0 0 1 0 0]`) - used when value is `None`
+        pub clipping_bbox: Option<CurrentTransformationMatrix>,
+    */
+
+    #[inline]
+    pub fn add_image<T>(&self, image: T)
+    -> () where T: Into<ImageXObject>
+    {
+        let doc = self.document.upgrade().unwrap();
+        let mut doc = doc.lock().unwrap();
+        let mut page_mut = doc.pages.get_mut(self.page.0).unwrap();
+
+        let image_ref = page_mut.add_xobject(XObject::Image(image.into()));
+
+        // add Do operator to stream
+        page_mut.layers.get_mut(self.layer.0).unwrap()
+            .layer_stream.add_operations(Box::new(lopdf::content::Operation::new(
+                "Do", vec![lopdf::Object::Name(image_ref.name.as_bytes().to_vec())]
+        )));
+    }
+
     /// Set the current fill color for the layer
     #[inline]
     pub fn set_fill_color(&self, fill_color: Color)

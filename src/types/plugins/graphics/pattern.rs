@@ -19,9 +19,10 @@ impl Pattern {
     }
 }
 
+/// Named reference to a pattern
 #[derive(Debug)]
 pub struct PatternRef {
-    name: String,
+    pub(crate) name: String,
 }
 
 impl PatternRef {

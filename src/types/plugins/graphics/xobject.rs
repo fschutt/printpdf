@@ -39,6 +39,7 @@ pub struct XObjectList {
 }
 
 impl XObjectList {
+
     /// Creates a new XObjectList
     pub fn new()
     -> Self
@@ -76,7 +77,7 @@ impl Into<lopdf::Dictionary> for XObjectList {
 /// Named reference to an XObject
 #[derive(Debug)]
 pub struct XObjectRef {
-    pub(super) name: String,
+    pub(crate) name: String,
 }
 
 impl XObjectRef {
