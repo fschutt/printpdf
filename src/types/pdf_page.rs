@@ -2,9 +2,7 @@
 
 use *;
 use indices::*;
-use indices::PdfResource::*;
 use std::sync::{Mutex, Weak};
-use std::collections::HashMap;
 
 /// PDF page
 #[derive(Debug)]
@@ -17,15 +15,8 @@ pub struct PdfPage {
     pub heigth_pt: f64,
     /// Page layers
     pub layers: Vec<PdfLayer>,
-    /// Resources used in this page. They can either be real objects (`ActualResource`)
-    /// or references to other objects defined at the document level. If you are unsure,
-    /// add the content to the document and use `ReferencedResource`.
-    pub(crate) resources: HashMap<std::string::String, PdfResource>,
-    /// Current indent level + current graphics state
-    pub(crate) latest_graphics_state: (usize, ExtendedGraphicsState),
-    /// All graphics states needed for this layer, collected together with a name for each one
-    /// The name should be: "GS[index of the graphics state]", so `/GS0` for the first graphics state.
-    pub(crate) all_graphics_states: HashMap<std::string::String, (usize, ExtendedGraphicsState)>,
+    /// Resources used in this page
+    pub(crate) resources: PdfResources,
 }
 
 /// This struct is only a marker struct to indicate the function
@@ -53,9 +44,7 @@ impl PdfPage {
             width_pt: mm_to_pt!(width_mm),
             heigth_pt: mm_to_pt!(height_mm),
             layers: Vec::new(),
-            resources: HashMap::new(),
-            latest_graphics_state: (0, ExtendedGraphicsState::default()),
-            all_graphics_states: HashMap::new(),
+            resources: PdfResources::new(),
         };
 
         let initial_layer = PdfLayer::new(layer_name);
@@ -73,36 +62,9 @@ impl PdfPage {
     pub(crate) fn collect_resources_and_streams(self, contents: &Vec<lopdf::Object>)
     -> (lopdf::Dictionary, Vec<lopdf::Stream>)
     {
-        let mut resource_dictionary = lopdf::Dictionary::new();
+        let mut resource_dictionary: lopdf::Dictionary = self.resources.into();
 
-        // insert graphical states, todo: move this out of here
-        let mut ext_g_state_resources = lopdf::Dictionary::new();
-
-        for (name, (_, graphics_state)) in self.all_graphics_states.into_iter() {
-            let gs: lopdf::Object = graphics_state.into();
-            ext_g_state_resources.set(name.to_string(), gs);
-        }
-
-        if ext_g_state_resources.len() > 0 {
-            resource_dictionary.set("ExtGState".to_string(), lopdf::Object::Dictionary(ext_g_state_resources));
-        }
-
-        for resource in self.resources {
-            match resource.1 {
-                ActualResource(a)     => {
-                    let mut current_resources =  a.into_obj();
-                    // if the resource has more than one thing in it (shouldn't happen), push an array
-                    if current_resources.len() > 1 {
-                        resource_dictionary.set(resource.0.clone(), lopdf::Object::Array(current_resources));
-                    } else {
-                       resource_dictionary.set(resource.0.clone(), current_resources.pop().unwrap());
-                    }
-                },                         // r is here actually a reference to a PDF reference
-                ReferencedResource(r) => { let content_ref = contents.get(r.0).unwrap();
-                                           resource_dictionary.set(resource.0.clone(), content_ref.clone()); }
-            }
-        }
-
+        // set contents
         let mut layer_streams = Vec::<lopdf::Stream>::new();
         for layer in self.layers {
             // everything returned by layer.collect_resources() is expected to be an entry in the 
@@ -121,13 +83,11 @@ impl PdfPage {
     /// previous state.
     /// Returns the old graphics state, in case it was overwritten, as well as a reference 
     /// to the currently active graphics state
+    #[inline]
     pub fn add_graphics_state(&mut self, added_state: ExtendedGraphicsState)
     -> ExtendedGraphicsStateRef
     {
-        let gs_ref = ExtendedGraphicsStateRef::new(self.all_graphics_states.len());
-        self.all_graphics_states.insert(gs_ref.gs_name.clone(), (self.latest_graphics_state.0, added_state.clone()));
-        self.latest_graphics_state = (self.latest_graphics_state.0, added_state);
-        gs_ref
+        self.resources.add_graphics_state(added_state)
     }
 }
 
@@ -170,6 +130,8 @@ impl PdfPageReference {
             layer: layer,
         }
     }
+/*
+    // commented out because the original model of having a trait that resources can set, simply doesn't work
 
     /// Add a resource to the pages resource dictionary. The resources of the seperate layers
     /// will be colleted when the page is saved.
@@ -191,4 +153,6 @@ impl PdfPageReference {
             warn!("On page {}, the resource \"{}\" was overwritten!", self.page.0, key);
         }
     }
+*/
+
 }

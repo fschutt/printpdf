@@ -7,7 +7,7 @@ pub mod svg;
 
 pub use self::point::Point;
 pub use self::line::Line;
-pub use self::font::Font;
+pub use self::font::{Font, FontList};
 pub use self::svg::Svg;
 
 use std::sync::{Arc, Mutex};

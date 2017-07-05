@@ -53,6 +53,7 @@ impl IntoPdfStreamOperation for PdfColor {
 }
 
 /// Color space (enum for marking the number of bits a color has)
+#[derive(Debug)]
 pub enum ColorSpace {
     Rgb,
     Cmyk,
@@ -72,6 +73,7 @@ impl Into<&'static str> for ColorSpace {
 }
 
 /// How many bits does a color have?
+#[derive(Debug)]
 pub enum ColorBits {
     Bit1,
     Bit8,

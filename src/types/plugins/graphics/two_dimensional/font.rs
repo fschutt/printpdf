@@ -3,6 +3,7 @@ extern crate lopdf;
 extern crate freetype as ft;
 
 use *;
+use std::collections::HashMap;
 
 /// The font
 #[derive(Debug, Clone)]
@@ -177,5 +178,37 @@ impl IntoPdfObject for Font {
                                Dictionary(LoDictionary::from_iter(font_vec))];
                                
         pdf_obj_vec
+    }
+}
+
+/// Indexed reference to a font that was added to the document
+#[derive(Debug)]
+pub struct FontRef {
+    name: String
+}
+
+/// Font list for tracking fonts within the PDF
+#[derive(Debug)]
+pub struct FontList {
+    fonts: HashMap<String, Font>,
+}
+
+impl FontList {
+    /// Creates a new FontList
+    pub fn new()
+    -> Self
+    {
+        Self {
+            fonts: HashMap::new(),
+        }
+    }
+}
+
+impl Into<lopdf::Dictionary> for FontList {
+    fn into(self)
+    -> lopdf::Dictionary
+    {
+        // todo
+        lopdf::Dictionary::new()
     }
 }

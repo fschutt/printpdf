@@ -1,8 +1,12 @@
 use *;
+use std::collections::HashMap;
 
 /* Parent: Resources dictionary of the page */
 /// External object that gets reference outside the PDF content stream
-/// Gets constructed similar to the `ExtGState`, then 
+/// Gets constructed similar to the `ExtGState`, then inserted into the `/XObject` dictionary 
+/// on the page. You can instantiate XObjects with the `/Do` operator. The `layer.add_xobject()`
+/// (or better yet, the `layer.add_image()`, `layer.add_form()`) methods will do this for you.
+#[derive(Debug)]
 pub enum XObject {
     /* /Subtype /Image */
     /// Image XObject, for images
@@ -28,9 +32,41 @@ impl Into<lopdf::Object> for XObject {
     }
 }
 
+/// List of XObjects
+#[derive(Debug)]
+pub struct XObjectList {
+    objects: HashMap<std::string::String, XObject>,
+}
+
+impl XObjectList {
+    /// Creates a new XObjectList
+    pub fn new()
+    -> Self
+    {
+        Self {
+            objects: HashMap::new(),
+        }
+    }
+}
+
+impl Into<lopdf::Dictionary> for XObjectList {
+    fn into(self)
+    -> lopdf::Dictionary
+    {
+        let mut dict_xobjects = lopdf::Dictionary::new();
+        for (name, object) in self.objects.into_iter() {
+            let obj: lopdf::Object = object.into();
+            dict_xobjects.set(name.to_string(), obj);
+        }
+
+        return dict_xobjects;
+    }
+}
+
 /* todo: inline images? (icons, logos, etc.) */
 /* todo: JPXDecode filter */
 
+#[derive(Debug)]
 pub struct ImageXObject {
     /// Width of the image (original width, not scaled width)
     pub width: i64,
@@ -106,11 +142,13 @@ impl Into<lopdf::Stream> for ImageXObject {
 }
 
 /// Named reference to an image
+#[derive(Debug)]
 pub struct ImageXObjectRef {
     name: String,
 }
 
 /// todo: they don't work yet
+#[derive(Debug)]
 pub enum ImageFilter {
     Ascii85Decode,
     LzwDecode,
@@ -122,6 +160,7 @@ pub enum ImageFilter {
 /// A FormXObject is basically a layer-like content stream and can contain anything
 /// as long as it's a valid strem. A `FormXObject` is intended to be used for reapeated
 /// content on one page.
+#[derive(Debug)]
 pub struct FormXObject {
     /* /Type /XObject */
     /* /Subtype /Form */
@@ -243,10 +282,12 @@ impl Into<lopdf::Stream> for FormXObject {
     >>
 */
 
+#[derive(Debug)]
 pub struct FormXObjectRef {
     name: String,
 }
 
+#[derive(Debug)]
 pub enum FormType {
     /// The only form type ever declared by Adobe
     /* Integer(1) */
@@ -300,6 +341,7 @@ impl Into<i64> for FormType {
 /* Parent: XObject with /Subtype /Image */
 /// SMask dictionary. A soft mask (or SMask) is a greyscale image 
 /// that is used to mask another image
+#[derive(Debug)]
 pub struct SMask {
 
     /* /Type /XObject */
@@ -341,12 +383,13 @@ pub struct SMask {
     Q                                           % Restore graphics state
 */
 
+#[derive(Debug)]
 pub struct GroupXObject {
     /* /Type /Group */
     /* /S /Transparency */ /* currently the only valid GroupXObject */
 }
 
-
+#[derive(Debug)]
 pub enum GroupXObjectType {
     /// Transparency group XObject
     TransparencyGroup,
@@ -354,6 +397,7 @@ pub enum GroupXObjectType {
 
 /// PDF 1.4 and higher
 /// Contains a PDF file to be embedded in the current PDF
+#[derive(Debug)]
 pub struct ReferenceXObject {
     /// (Required) The file containing the target document. (?)
     pub file: Vec<u8>,
@@ -367,6 +411,7 @@ pub struct ReferenceXObject {
 /// Optional content group, for PDF layers. Only available in PDF 1.4 
 /// but (I think) lower versions of PDF allow this, too. Used to create 
 /// Adobe Illustrator-like layers in PDF
+#[derive(Debug)]
 pub struct OptionalContentGroup {
     /* /Type /OCG */
     /* /Name (Layer 1) */
@@ -390,12 +435,14 @@ pub struct OptionalContentGroup {
 }
 
 /// Intent to use for the optional content groups
+#[derive(Debug)]
 pub enum OCGIntent {
     View,
     Design,
 }
 
 /// TODO, very low priority
+#[derive(Debug)]
 pub struct PostScriptXObject {
     /// __(Optional)__ A stream whose contents are to be used in 
     /// place of the PostScript XObject’s stream when the target 

@@ -40,6 +40,8 @@ use std::string::String;
 use *;
 use indices::FontIndex;
 use std::collections::HashSet;
+use std::collections::HashMap;
+use indices::PdfResource;
 
 // identifiers for tracking the changed fields
 pub (crate) const LINE_WIDTH: &'static str = "line_width";
@@ -68,6 +70,53 @@ pub (crate) const CURRENT_STROKE_ALPHA: &'static str = "current_stroke_alpha";
 pub (crate) const CURRENT_FILL_ALPHA: &'static str = "current_fill_alpha";
 pub (crate) const ALPHA_IS_SHAPE: &'static str = "alpha_is_shape";
 pub (crate) const TEXT_KNOCKOUT: &'static str = "text_knockout";
+
+/// List of many ExtendedGraphicsState 
+#[derive(Debug)]
+pub struct ExtendedGraphicsStateList {
+    /// Current indent level + current graphics state
+    pub(crate) latest_graphics_state: (usize, ExtendedGraphicsState),
+    /// All graphics states needed for this layer, collected together with a name for each one
+    /// The name should be: "GS[index of the graphics state]", so `/GS0` for the first graphics state.
+    pub(crate) all_graphics_states: HashMap<std::string::String, (usize, ExtendedGraphicsState)>,
+}
+
+impl ExtendedGraphicsStateList {
+    /// Creates a new ExtendedGraphicsStateList
+    pub fn new()
+    -> Self
+    {
+        Self {
+            latest_graphics_state: (0, ExtendedGraphicsState::default()),
+            all_graphics_states: HashMap::new(),
+        }
+    }
+
+    /// Adds a graphics state
+    pub fn add_graphics_state(&mut self, added_state: ExtendedGraphicsState)
+    -> ExtendedGraphicsStateRef
+    {
+        let gs_ref = ExtendedGraphicsStateRef::new(self.all_graphics_states.len()); 
+        self.all_graphics_states.insert(gs_ref.gs_name.clone(), (self.latest_graphics_state.0, added_state.clone()));
+        self.latest_graphics_state = (self.latest_graphics_state.0, added_state);
+        gs_ref
+    }
+}
+
+impl Into<lopdf::Dictionary> for ExtendedGraphicsStateList {
+    fn into(self)
+    -> lopdf::Dictionary
+    {
+        let mut ext_g_state_resources = lopdf::Dictionary::new();
+
+        for (name, (_, graphics_state)) in self.all_graphics_states.into_iter() {
+            let gs: lopdf::Object = graphics_state.into();
+            ext_g_state_resources.set(name.to_string(), gs);
+        }
+
+        return ext_g_state_resources;
+    }
+}
 
 /// ExtGState dictionary
 #[derive(Debug, PartialEq, Clone)]
