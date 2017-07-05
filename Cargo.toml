@@ -23,3 +23,8 @@ log = "0.3.8"
 doc = false
 name = "printpdf"
 path = "src/main.rs"
+
+[profile.release]
+lto = true
+debug = false
+panic = 'abort'

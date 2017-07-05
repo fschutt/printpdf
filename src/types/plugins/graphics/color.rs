@@ -28,7 +28,7 @@ impl IntoPdfStreamOperation for PdfColor {
                     let ci = match fill {
                         Color::Rgb(_) => { OP_COLOR_SET_FILL_CS_DEVICERGB }
                         Color::Cmyk(_) => { OP_COLOR_SET_FILL_CS_DEVICECMYK }
-                        Color::Grayscale(_) => { OP_COLOR_SET_FILL_CS_DEVICEGRAY }
+                        Color::Greyscale(_) => { OP_COLOR_SET_FILL_CS_DEVICEGRAY }
                         Color::SpotColor(_) => { OP_COLOR_SET_FILL_CS_DEVICECMYK }
                     };
                     let cvec = fill.into_vec().into_iter().map(move |float| Real(float)).collect();
@@ -38,7 +38,7 @@ impl IntoPdfStreamOperation for PdfColor {
                     let ci = match outline {
                         Color::Rgb(_) => { OP_COLOR_SET_STROKE_CS_DEVICERGB }
                         Color::Cmyk(_) => { OP_COLOR_SET_STROKE_CS_DEVICECMYK }
-                        Color::Grayscale(_) => { OP_COLOR_SET_STROKE_CS_DEVICEGRAY }
+                        Color::Greyscale(_) => { OP_COLOR_SET_STROKE_CS_DEVICEGRAY }
                         Color::SpotColor(_) => { OP_COLOR_SET_STROKE_CS_DEVICECMYK }
                     };
 
@@ -57,7 +57,7 @@ impl IntoPdfStreamOperation for PdfColor {
 pub enum ColorSpace {
     Rgb,
     Cmyk,
-    Grayscale,
+    Greyscale,
 }
 
 impl Into<&'static str> for ColorSpace {
@@ -67,7 +67,7 @@ impl Into<&'static str> for ColorSpace {
         match self {
             ColorSpace::Rgb => "DeviceRGB",
             ColorSpace::Cmyk => "DeviceCMYK",
-            ColorSpace::Grayscale => "DeviceGray",
+            ColorSpace::Greyscale => "DeviceGray",
         }
     }
 }
@@ -97,7 +97,7 @@ impl Into<i64> for ColorBits {
 pub enum Color {
     Rgb(Rgb),
     Cmyk(Cmyk),
-    Grayscale(Grayscale),
+    Greyscale(Greyscale),
     SpotColor(SpotColor)
 }
 
@@ -110,7 +110,7 @@ impl Color {
         match self {
             Color::Rgb(rgb) => { vec![rgb.r, rgb.g, rgb.b ]},
             Color::Cmyk(cmyk) => { vec![cmyk.c, cmyk.m, cmyk.y, cmyk.k ]},
-            Color::Grayscale(gs) => { vec![gs.percent]},
+            Color::Greyscale(gs) => { vec![gs.percent]},
             Color::SpotColor(spot) => { vec![spot.c, spot.m, spot.y, spot.k ]},
         }
     }
@@ -122,7 +122,7 @@ impl Color {
         match *self {
             Color::Rgb(ref rgb) => Some(&rgb.icc_profile),
             Color::Cmyk(ref cmyk) => Some(&cmyk.icc_profile),
-            Color::Grayscale(ref gs) => Some(&gs.icc_profile),
+            Color::Greyscale(ref gs) => Some(&gs.icc_profile),
             Color::SpotColor(_) => None,
         }
     }
@@ -167,14 +167,14 @@ impl Cmyk {
 }
 
 
-/// Grayscale color
+/// Greyscale color
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub struct Grayscale {
+pub struct Greyscale {
     pub percent: f64,
     pub icc_profile: Option<IccProfileIndex>,
 }
 
-impl Grayscale {
+impl Greyscale {
     pub fn new(percent: f64, icc_profile: Option<IccProfileIndex>)
     -> Self
     {

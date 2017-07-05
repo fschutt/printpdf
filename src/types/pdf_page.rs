@@ -63,10 +63,10 @@ impl PdfPage {
     /// from all over the document, this turned out to be a problem, because each type had
     /// to be handled differently (PDF weirdness)
     #[inline]
-    pub(crate) fn collect_resources_and_streams(self, /* contents: &Vec<lopdf::Object> */)
+    pub(crate) fn collect_resources_and_streams(self, doc: &mut lopdf::Document /* contents: &Vec<lopdf::Object> */)
     -> (lopdf::Dictionary, Vec<lopdf::Stream>)
     {
-        let mut resource_dictionary: lopdf::Dictionary = self.resources.into();
+        let mut resource_dictionary: lopdf::Dictionary = self.resources.into_with_document(doc);
 
         // set contents
         let mut layer_streams = Vec::<lopdf::Stream>::new();

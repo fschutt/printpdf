@@ -52,7 +52,7 @@ pub enum PdfConformance {
     /// content in conjunction with a reference to an external ICC Profile for the output intent.
     X5PG_2010_PDF_1_6,
     /// `PDF/X-5n` An extension of PDF/X-4p that allows the externally supplied ICC 
-    /// Profile for the output intent to use a color space other than Grayscale, RGB and CMYK.
+    /// Profile for the output intent to use a color space other than Greyscale, RGB and CMYK.
     X5N_2010_PDF_1_6,
     /// `PDF/E-1:2008` 3D Objects, geospatial, etc.
     E1_2008_PDF_1_6,

@@ -66,7 +66,7 @@
 //! current_layer.add_shape(line1);
 //!
 //! let fill_color_2 = Color::Cmyk(Cmyk::new(0.0, 0.0, 0.0, 0.0, None));
-//! let outline_color_2 = Color::Grayscale(Grayscale::new(0.45, None));
+//! let outline_color_2 = Color::Greyscale(Greyscale::new(0.45, None));
 //!
 //! // More advanced graphical options
 //! current_layer.set_overprint_stroke(true);

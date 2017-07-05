@@ -58,16 +58,20 @@ impl XObjectList {
         self.objects.insert(xobj_ref.name.clone(), xobj);
         xobj_ref
     }
-}
 
-impl Into<lopdf::Dictionary> for XObjectList {
-    fn into(self)
+    /// Same as `Into<lopdf::Dictionary>`, but since the dictionary
+    /// items in an XObject dictionary are streams and must be added to 
+    /// the document as __references__, this function needs an additional
+    /// access to the PDF document so that we can add the streams first and
+    /// then track the references to them.
+    pub fn into_with_document(self, doc: &mut lopdf::Document)
     -> lopdf::Dictionary
     {
         let mut dict_xobjects = lopdf::Dictionary::new();
         for (name, object) in self.objects.into_iter() {
-            let obj: lopdf::Object = object.into();
-            dict_xobjects.set(name.to_string(), obj);
+            let obj: lopdf::Object =object.into();
+            let obj_ref =  doc.add_object(obj);
+            dict_xobjects.set(name.to_string(), lopdf::Object::Reference(obj_ref));
         }
 
         return dict_xobjects;
@@ -87,7 +91,7 @@ impl XObjectRef {
     -> Self 
     {
         Self {
-            name: format!("XO{}", index),
+            name: format!("X{}", index),
         }
     }
 }

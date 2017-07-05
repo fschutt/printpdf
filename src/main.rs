@@ -1,3 +1,6 @@
+#![feature(alloc_system)]
+extern crate alloc_system;
+
 extern crate printpdf;
 
 use printpdf::*;
@@ -12,7 +15,7 @@ fn main() {
     // You also have to specify the title of the PDF and the document creator
     let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 500.0, 500.0, "Layer 1");
 
-    let mut current_layer = doc.get_page(page1).get_layer(layer1);
+    let current_layer = doc.get_page(page1).get_layer(layer1);
 
     // You can add more pages and layers to the PDF. 
     // Just make sure you don't lose the references, otherwise, you can't add things to the layer anymore
@@ -24,6 +27,17 @@ fn main() {
     // Write the text with font + font size
     // printpdf is made for PDF-X/1A conform documents. 
     // As such, using the default fonts is not permitted. You have to use your own fonts here
+
+    current_layer.add_image(ImageXObject { 
+        bits_per_component: ColorBits::Bit1,
+        clipping_bbox: None,
+        color_space: ColorSpace::Greyscale,
+        height: 8,
+        image_filter: None,
+        width: 8,
+        interpolate: false,
+        image_data: [0x40, 0x60, 0x70, 0x78, 0x78, 0x70, 0x60, 0x40].to_vec(),
+    });
 
 /*
     let text = "Hello World! Unicode test: стуфхfцчшщъыьэюя";

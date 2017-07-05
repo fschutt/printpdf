@@ -9,7 +9,7 @@ use *;
 pub enum IccProfileType {
     Cmyk,
     Rgb,
-    Grayscale,
+    Greyscale,
 }
 
 /// Icc profile
@@ -71,7 +71,7 @@ impl IntoPdfObject for IccProfile {
         let (num_icc_fields, alternate) = match self.icc_type {
             IccProfileType::Cmyk => (4, "DeviceCMYK"),
             IccProfileType::Rgb => (3, "DeviceRGB"),
-            IccProfileType::Grayscale => (1, "DeviceGray"),
+            IccProfileType::Greyscale => (1, "DeviceGray"),
         };
 
         let mut stream_dict = LoDictionary::from_iter(vec![

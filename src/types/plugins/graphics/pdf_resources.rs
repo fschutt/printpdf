@@ -55,15 +55,13 @@ impl PdfResources {
     {
         self.patterns.add_pattern(pattern)
     }
-}
-
-impl Into<lopdf::Dictionary> for PdfResources {
     
-    fn into(self)
+    /// See `XObject::Into_with_document`.
+    pub fn into_with_document(self, doc: &mut lopdf::Document)
     -> lopdf::Dictionary
     {
             let mut dict = lopdf::Dictionary::new();
-            let xobjects_dict: lopdf::Dictionary = self.xobjects.into();
+            let xobjects_dict: lopdf::Dictionary = self.xobjects.into_with_document(doc);
             let fonts_dict: lopdf::Dictionary = self.fonts.into();
             let patterns_dict: lopdf::Dictionary = self.patterns.into();
             let graphics_state_dict: lopdf::Dictionary = self.graphics_states.into();
