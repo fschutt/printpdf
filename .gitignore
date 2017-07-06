@@ -1,5 +1,6 @@
 target/*
 ./*.pdf
+./test_
 *.lock
 .vscode/*
 .cargo/*
