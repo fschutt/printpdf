@@ -15,23 +15,6 @@ macro_rules! operation {
 }
 */
 
-macro_rules! add_operation {
-    ($d: expr, $e: expr) => (let doc = $d.document.upgrade().unwrap();
-		           let mut doc = doc.lock().unwrap();
-
-		           doc.pages.get_mut($d.page.0).unwrap()
-		               .layers.get_mut($d.layer.0).unwrap()
-		                   .layer_stream.add_operations($e);)
-}
-
-macro_rules! add_operation_once {
-    ($d: expr, $e: expr) => (let doc = $d.document.upgrade().unwrap();
-                   let mut doc = doc.lock().unwrap();
-
-                   doc.pages.get_mut($d.page.0).unwrap()
-                       .layers.get_mut($d.layer.0).unwrap()
-                           .layer_stream.add_operation($e);)
-}
 #[macro_export]
 macro_rules! max {
     ($x:expr) => ( $x );

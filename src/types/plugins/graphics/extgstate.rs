@@ -1556,6 +1556,16 @@ impl Into<Operation> for LineDashPattern {
     }
 }
 
+impl IntoPdfStreamOperation for LineDashPattern {
+    fn into_stream_op(self: Box<Self>)
+    -> Vec<Operation>
+    {
+        let s = *self;
+        let op: Operation = s.into();
+        vec![op]
+    }
+}
+
 impl Into<lopdf::Object> for LineDashPattern {
     fn into(self)
     -> lopdf::Object

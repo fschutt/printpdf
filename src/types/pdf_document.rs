@@ -357,12 +357,24 @@ impl PdfDocumentReference {
                                             String(instance_id.as_bytes().to_vec(), Literal)
                                         ]));
 
-        // doc.inner_doc.prune_objects();
-        // doc.inner_doc.delete_zero_length_streams();
-        // doc.inner_doc.compress();
+        // does nothing in debug mode, optimized in release mode
+        Self::optimize(&mut doc.inner_doc);
         doc.inner_doc.save_to(target).unwrap();
 
         Ok(())
+    }
+
+    #[cfg(debug_assertions)]
+    #[inline]
+    fn optimize(_: &mut lopdf::Document) { }
+
+    #[cfg(not(debug_assertions))]
+    #[inline]
+    fn optimize(doc: &mut lopdf::Document)
+    {
+        doc.prune_objects();
+        doc.delete_zero_length_streams();
+        doc.compress();
     }
 }
 

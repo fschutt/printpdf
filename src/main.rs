@@ -28,7 +28,7 @@ fn main() {
     // printpdf is made for PDF-X/1A conform documents. 
     // As such, using the default fonts is not permitted. You have to use your own fonts here
 
-    current_layer.add_image(ImageXObject { 
+    let image = current_layer.add_image(ImageXObject { 
         bits_per_component: ColorBits::Bit1,
         clipping_bbox: None,
         color_space: ColorSpace::Greyscale,
@@ -38,6 +38,8 @@ fn main() {
         interpolate: false,
         image_data: [0x40, 0x60, 0x70, 0x78, 0x78, 0x70, 0x60, 0x40].to_vec(),
     });
+
+    current_layer.use_xobject(image, CurrentTransformationMatrix::new(100.0, 100.0, 400.0, 400.0, 30.0));
 
 /*
     let text = "Hello World! Unicode test: стуфхfцчшщъыьэюя";

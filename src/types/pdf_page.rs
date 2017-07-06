@@ -74,7 +74,7 @@ impl PdfPage {
             // everything returned by layer.collect_resources() is expected to be an entry in the 
             // pages resource dictionary. For example the layer.collect_resources will return ("Font", Stream("MyFont", etc.))
             // If the resources is shared with in the document, it will be ("Font", Reference(4, 0))
-            let layer_stream = layer.into_obj();
+            let layer_stream = layer.into();
             layer_streams.push(layer_stream);
         }
 

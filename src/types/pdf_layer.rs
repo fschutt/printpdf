@@ -11,7 +11,7 @@ pub struct PdfLayer {
     /// Name of the layer. Must be present for the optional content group
     name: String,
     /// Stream objects in this layer. Usually, one layer == one stream
-    layer_stream: PdfStream,
+    operations: Vec<lopdf::content::Operation>,
 }
 
 pub struct PdfLayerReference {
@@ -29,15 +29,20 @@ impl PdfLayer {
     {
         Self {
             name: name.into(),
-            layer_stream: PdfStream::new(),
+            operations: Vec::new(),
         }
     }
+}
 
-    /// Returns the layer stream
-    pub fn into_obj(self)
+impl Into<lopdf::Stream> for PdfLayer {
+    fn into(self)
     -> lopdf::Stream
     {
-        self.layer_stream.into_obj()
+        use lopdf::{Stream, Dictionary};
+        let stream_content = lopdf::content::Content { operations: self.operations };
+        let stream = Stream::new(lopdf::Dictionary::new(), stream_content.encode().unwrap());
+        /* contents may not be compressed! */
+        return stream;
     }
 }
 
@@ -45,28 +50,62 @@ impl PdfLayerReference {
 
     /// Add a shape to the layer. Use `closed` to indicate whether the line is a closed line
     /// Use has_fill to determine if the line should be filled. 
-    #[inline]
     pub fn add_shape(&self, line: Line)
     {
-        add_operation!(self, Box::new(line));
+        self.__internal_add_operation(Box::new(line));
     }
 
     /// Add an image to the layer
-    #[inline]
     pub fn add_image<T>(&self, image: T)
-    -> () where T: Into<ImageXObject>
+    -> XObjectRef where T: Into<ImageXObject>
     {
         let doc = self.document.upgrade().unwrap();
         let mut doc = doc.lock().unwrap();
         let mut page_mut = doc.pages.get_mut(self.page.0).unwrap();
 
-        let image_ref = page_mut.add_xobject(XObject::Image(image.into()));
+        page_mut.add_xobject(XObject::Image(image.into()))
+    }
 
-        // add Do operator to stream
+    /// Instantiate layers, forms and postscript items on the page
+    pub fn use_xobject(&self, xobj: XObjectRef, ctm: CurrentTransformationMatrix)
+    {
+
+        // save graphics state
+        self.save_graphics_state();
+        // apply ctm
+        self.__internal_add_operation(Box::new(ctm));
+        // invoke object
+        self.__internal_invoke_xobject(xobj.name);
+        // restore graphics state
+        self.restore_graphics_state();
+    }
+
+    // internal function to invoke an xobject
+    fn __internal_invoke_xobject(&self, name: String)
+    {
+        let doc = self.document.upgrade().unwrap();
+        let mut doc = doc.lock().unwrap();
+        let mut page_mut = doc.pages.get_mut(self.page.0).unwrap();
+
         page_mut.layers.get_mut(self.layer.0).unwrap()
-            .layer_stream.add_operations(Box::new(lopdf::content::Operation::new(
-                "Do", vec![lopdf::Object::Name(image_ref.name.as_bytes().to_vec())]
-        )));
+          .operations.push(lopdf::content::Operation::new(
+              "Do", vec![lopdf::Object::Name(name.as_bytes().to_vec())]
+        ));  
+    }
+
+    // internal function to add an operation (prevents locking)
+    fn __internal_add_operation(&self, op: Box<IntoPdfStreamOperation>)
+    {
+        let doc = self.document.upgrade().unwrap();
+        let mut doc = doc.lock().unwrap();
+        let op = op.into_stream_op();
+        let layer = doc.pages.get_mut(self.page.0).unwrap()
+            .layers.get_mut(self.layer.0).unwrap();
+
+        for o in op {
+            layer.operations.push(o);
+        }
+                
     }
 
     /// Set the current fill color for the layer
@@ -74,14 +113,14 @@ impl PdfLayerReference {
     pub fn set_fill_color(&self, fill_color: Color)
     -> ()
     {
-        add_operation!(self, Box::new(PdfColor::FillColor(fill_color)));
+        self.__internal_add_operation(Box::new(PdfColor::FillColor(fill_color)));
     }
 
     /// Set the current line / outline color for the layer
     #[inline]
-    pub fn set_outline_color(&mut self, color: Color)
+    pub fn set_outline_color(&self, color: Color)
     {
-        add_operation!(self, Box::new(PdfColor::OutlineColor(color)));
+        self.__internal_add_operation(Box::new(PdfColor::OutlineColor(color)));
     }
 
     /// Set the overprint mode of the stroke color to true (overprint) or false (no overprint)
@@ -98,14 +137,14 @@ impl PdfLayerReference {
         let new_ref = page_mut.add_graphics_state(new_overprint_state);
         // add gs operator to stream
         page_mut.layers.get_mut(self.layer.0).unwrap()
-            .layer_stream.add_operations(Box::new(lopdf::content::Operation::new(
+            .operations.push(lopdf::content::Operation::new(
                 "gs", vec![lopdf::Object::Name(new_ref.gs_name.as_bytes().to_vec())]
-        )));
+        ));
     }
 
     /// Set the overprint mode of the fill color to true (overprint) or false (no overprint)
     /// This changes the graphics state of the current page, don't do it too often or you'll bloat the file size
-    pub fn set_overprint_stroke(&mut self, overprint: bool)
+    pub fn set_overprint_stroke(&self, overprint: bool)
     {
         // this is technically an operation on the page level
         let new_overprint_state = ExtendedGraphicsStateBuilder::new()
@@ -118,14 +157,14 @@ impl PdfLayerReference {
 
         let new_ref = page_mut.add_graphics_state(new_overprint_state);
         page_mut.layers.get_mut(self.layer.0).unwrap()
-            .layer_stream.add_operations(Box::new(lopdf::content::Operation::new(
+            .operations.push(lopdf::content::Operation::new(
                 "gs", vec![lopdf::Object::Name(new_ref.gs_name.as_bytes().to_vec())]
-        )));
+        ));
     }
 
     /// Set the overprint mode of the fill color to true (overprint) or false (no overprint)
     /// This changes the graphics state of the current page, don't do it too often or you'll bloat the file size
-    pub fn set_blend_mode(&mut self, blend_mode: BlendMode)
+    pub fn set_blend_mode(&self, blend_mode: BlendMode)
     {
         // this is technically an operation on the page level
         let new_blend_mode_state = ExtendedGraphicsStateBuilder::new()
@@ -137,55 +176,56 @@ impl PdfLayerReference {
         let mut page_mut = doc.pages.get_mut(self.page.0).unwrap();
 
         let new_ref = page_mut.add_graphics_state(new_blend_mode_state);
+
         page_mut.layers.get_mut(self.layer.0).unwrap()
-            .layer_stream.add_operations(Box::new(lopdf::content::Operation::new(
+            .operations.push(lopdf::content::Operation::new(
                 "gs", vec![lopdf::Object::Name(new_ref.gs_name.as_bytes().to_vec())]
-        )));
+        ));
     }
 
     /// Set the current line thickness
     #[inline]
-    pub fn set_outline_thickness(&mut self, outline_thickness: i64)
+    pub fn set_outline_thickness(&self, outline_thickness: i64)
     {
         use lopdf::Object::*;
         use lopdf::content::Operation;
-        add_operation!(self, Box::new(Operation::new(OP_PATH_STATE_SET_LINE_WIDTH, vec![Integer(outline_thickness)])));
+        self.__internal_add_operation(Box::new(Operation::new(OP_PATH_STATE_SET_LINE_WIDTH, vec![Integer(outline_thickness)])));
     }
 
     /// Set the current line join style for outlines
     #[inline]
-    pub fn set_line_join_style(&mut self, line_join: LineJoinStyle) {
-        add_operation!(self, Box::new(line_join));
+    pub fn set_line_join_style(&self, line_join: LineJoinStyle) {
+        self.__internal_add_operation(Box::new(line_join));
     }
 
     /// Set the current line join style for outlines
     #[inline]
-    pub fn set_line_cap_style(&mut self, line_cap: LineCapStyle) {
-        add_operation!(self, Box::new(line_cap));
+    pub fn set_line_cap_style(&self, line_cap: LineCapStyle) {
+        self.__internal_add_operation(Box::new(line_cap));
     }
 
     /// Set the current line join style for outlines
     #[inline]
-    pub fn set_line_dash_pattern(&mut self, dash_pattern: LineDashPattern) {
-        add_operation_once!(self, dash_pattern);
+    pub fn set_line_dash_pattern(&self, dash_pattern: LineDashPattern) {
+        self.__internal_add_operation(Box::new(dash_pattern));
     }
 
     /// Set the current transformation matrix (TODO)
     #[inline]
-    pub fn set_ctm(&mut self, ctm: CurrentTransformationMatrix) {
-        add_operation!(self, Box::new(ctm));
+    pub fn set_ctm(&self, ctm: CurrentTransformationMatrix) {
+        self.__internal_add_operation(Box::new(ctm));
     }
 
     /// Saves the current graphic state (q operator) (TODO)
     #[inline]
-    pub fn save_graphics_state(&mut self) {
-        add_operation!(self, Box::new(lopdf::content::Operation::new("q", Vec::new())));
+    pub fn save_graphics_state(&self) {
+        self.__internal_add_operation(Box::new(lopdf::content::Operation::new("q", Vec::new())));
     }
 
     /// Restores the previous graphic state (Q operator) (TODO)
     #[inline]
-    pub fn restore_graphics_state(&mut self) {
-        add_operation!(self, Box::new(lopdf::content::Operation::new("Q", Vec::new())));
+    pub fn restore_graphics_state(&self) {
+        self.__internal_add_operation(Box::new(lopdf::content::Operation::new("Q", Vec::new())));
     }
 
     /// Add text to the file
@@ -250,22 +290,22 @@ impl PdfLayerReference {
             let ref_mut_layer = doc.pages.get_mut(self.page.0).unwrap()
                                     .layers.get_mut(self.layer.0).unwrap();
 
-            ref_mut_layer.layer_stream.add_operation(Operation::new("BT", 
+            ref_mut_layer.operations.push(Operation::new("BT", 
                 vec![]
             ));
 
-            ref_mut_layer.layer_stream.add_operation(Operation::new("Tf", 
+            ref_mut_layer.operations.push(Operation::new("Tf", 
                 vec![face_name.into(), (font_size as i64).into()]
             ));
-            ref_mut_layer.layer_stream.add_operation(Operation::new("Td", 
+            ref_mut_layer.operations.push(Operation::new("Td", 
                 vec![x_mm.into(), y_mm.into()]
             ));
 
-            ref_mut_layer.layer_stream.add_operation(Operation::new("Tj", 
+            ref_mut_layer.operations.push(Operation::new("Tj", 
                 vec![String(bytes, Hexadecimal)]
             ));
 
-            ref_mut_layer.layer_stream.add_operation(Operation::new("ET", 
+            ref_mut_layer.operations.push(Operation::new("ET", 
                 vec![]
             ));
     }
