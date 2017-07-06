@@ -66,7 +66,7 @@ impl PdfPage {
     pub(crate) fn collect_resources_and_streams(self, doc: &mut lopdf::Document /* contents: &Vec<lopdf::Object> */)
     -> (lopdf::Dictionary, Vec<lopdf::Stream>)
     {
-        let mut resource_dictionary: lopdf::Dictionary = self.resources.into_with_document(doc);
+        let resource_dictionary: lopdf::Dictionary = self.resources.into_with_document(doc);
 
         // set contents
         let mut layer_streams = Vec::<lopdf::Stream>::new();

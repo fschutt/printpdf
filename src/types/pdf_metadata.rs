@@ -23,7 +23,6 @@ pub struct PdfMetadata {
 	pub document_version: u32,
 	/// PDF Standard
 	pub conformance: PdfConformance,
-
 	/// XMP Metadata. Is ignored on save if the PDF conformance does not allow XMP
 	pub xmp_metadata: XmpMetadata,
 	/// PDF Info dictionary. Contains metadata for this document

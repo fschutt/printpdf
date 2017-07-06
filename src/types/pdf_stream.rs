@@ -47,7 +47,19 @@ impl PdfStream {
     -> lopdf::Stream {
         let stream_content = lopdf::content::Content { operations: self.operations };
         let mut stream = Stream::new(self.dictionary, stream_content.encode().unwrap());
-        // stream.compress();
+        Self::compress_document(&mut stream);
         return stream
     }
+
+    #[cfg(debug_assertions)]
+    #[inline]
+    fn compress_document(_: &mut lopdf::Stream) {
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[inline]
+    fn compress_document(stream: &mut lopdf::Stream) {
+        stream.compress();
+    }
 }
+

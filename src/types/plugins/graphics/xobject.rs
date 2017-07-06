@@ -20,14 +20,34 @@ pub enum XObject {
     PostScript(PostScriptXObject),
 }
 
+impl XObject {
+
+    #[cfg(debug_assertions)]
+    #[inline]
+    fn compress_stream(stream: lopdf::Stream)
+    -> lopdf::Stream 
+    {
+        return stream;
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[inline]
+    fn compress_stream(mut stream: lopdf::Stream)
+    -> lopdf::Stream
+    {
+        stream.compress();
+        return stream
+    }
+}
+
 impl Into<lopdf::Object> for XObject {
     fn into(self)
     -> lopdf::Object
     {
         match self {
-            XObject::Image(image) => { lopdf::Object::Stream(image.into()) }
-            XObject::Form(form) => { lopdf::Object::Stream(form.into()) }
-            XObject::PostScript(ps) => { lopdf::Object::Stream(ps.into()) }
+            XObject::Image(image) => { lopdf::Object::Stream(Self::compress_stream(image.into())) }
+            XObject::Form(form) => { lopdf::Object::Stream(Self::compress_stream(form.into())) }
+            XObject::PostScript(ps) => { lopdf::Object::Stream(Self::compress_stream(ps.into())) }
         }
     }
 }
@@ -69,7 +89,7 @@ impl XObjectList {
     {
         let mut dict_xobjects = lopdf::Dictionary::new();
         for (name, object) in self.objects.into_iter() {
-            let obj: lopdf::Object =object.into();
+            let obj: lopdf::Object = object.into();
             let obj_ref =  doc.add_object(obj);
             dict_xobjects.set(name.to_string(), lopdf::Object::Reference(obj_ref));
         }
