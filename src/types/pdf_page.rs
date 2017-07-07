@@ -2,7 +2,8 @@
 
 use *;
 use indices::*;
-use std::sync::{Mutex, Weak};
+use std::rc::Weak;
+use std::cell::RefCell;
 
 /// PDF page
 #[derive(Debug)]
@@ -24,7 +25,7 @@ pub struct PdfPage {
 /// We can't pass a reference to the page, because doing so would borrow the document
 /// and make it non-mutable
 pub struct PdfPageReference {
-    pub document: Weak<Mutex<PdfDocument>>,
+    pub document: Weak<RefCell<PdfDocument>>,
     pub page: PdfPageIndex,
 }
 
@@ -125,7 +126,7 @@ impl PdfPageReference {
     -> PdfLayerReference where S: Into<String>
     {
         let doc = self.document.upgrade().unwrap();
-        let mut doc = doc.lock().unwrap();
+        let mut doc = doc.borrow_mut();
         let mut page = doc.pages.get_mut(self.page.0).unwrap();
 
         let current_page_index = page.layers.len(); /* order is important */
@@ -146,7 +147,7 @@ impl PdfPageReference {
     -> PdfLayerReference
     {
         let doc = self.document.upgrade().unwrap();
-        let doc = doc.lock().unwrap();
+        let doc = doc.borrow();
 
         doc.pages.get(self.page.0).unwrap().layers.get(layer.0).unwrap();
 

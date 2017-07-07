@@ -3,72 +3,73 @@
 use lopdf;
 use traits::IntoPdfStreamOperation;
 
-/// PDF transformation matrix. Once set, will operate on all following shapes,
+/// PDF "current transformation matrix". Once set, will operate on all following shapes,
 /// until the `layer.restore_graphics_state()` is called. It is important to 
 /// call `layer.save_graphics_state()` earlier.
 #[derive(Debug)]
-pub struct CurrentTransformationMatrix {
-	/// Translate the shape in x (mm)
-	pub translate_x: f64,
-	/// Translate the shape in y (mm)
-	pub translate_y: f64,
-	/// Scale the shape in x (mm)
-	pub scale_x: f64,
-	/// Scale the shape in y (mm)
-	pub scale_y: f64,
-	/// Rotate the shape counter-clockwise by an angle (degree)
-	pub rotation_ccw_angle: f64,
+pub enum CurTransMat {
+    /// Translation matrix (in millimeter from bottom left corner)
+    /// X and Y can have different values
+    Translate(f64, f64),
+    /// Rotation matrix (clockwise, in degrees)
+    Rotate(f64),
+    /// Scale matrix (1.0 = 100% scale, no change)
+    /// X and Y can have different values
+    Scale(f64, f64),
+    /// Identity matrix
+    Identity
 }
 
-impl CurrentTransformationMatrix {
-	/// Creates a new transformation matrix
-	pub fn new(translate_x: f64, translate_y: f64, scale_x: f64, scale_y: f64, rotation_ccw_angle: f64)
-	-> Self
-	{
-		Self {
-			translate_x,
-			translate_y,
-			scale_x,
-			scale_y,
-			rotation_ccw_angle,
-		}
-	}
+impl CurTransMat {
+
+    /// Creates a translation matrix
+    #[inline]
+    pub fn translate(x: f64, y: f64)
+    -> Self {
+        CurTransMat::Translate(x, y)
+    }
+
+    /// Returns a rotation matrix 
+    /// Input: rotation (clockwise) in degrees
+    #[inline]
+    pub fn rotate(rot: f64)
+    -> Self {
+        CurTransMat::Rotate(rot)
+    }
+
+    /// Returns a scaling matrix
+    #[inline]
+    pub fn scale(x: f64, y: f64)
+    -> Self {
+        CurTransMat::Scale(x, y)
+    }
 
 	/// Returns a default CTM that does nothing.
-	pub fn default()
+    /// Also called "identity" matrix
+    #[inline]
+	pub fn identity()
 	-> Self
 	{
-		Self {
-			translate_x: 0.0,
-			translate_y: 0.0,
-			scale_x: 1.0,
-			scale_y: 1.0,
-			rotation_ccw_angle: 0.0,
-		}
+		CurTransMat::Identity
 	}
 }
 
-impl Into<[f64; 6]> for CurrentTransformationMatrix {
+impl Into<[f64; 6]> for CurTransMat {
     fn into(self)
     -> [f64; 6]
     {
-        let rotation_rad = self.rotation_ccw_angle.to_radians();
-
-        let cos_x = rotation_rad.cos();
-        let sin_x = rotation_rad.sin();
-
-        let cur_translate_x = mm_to_pt!(self.translate_x);
-        let cur_translate_y = mm_to_pt!(self.translate_y);
-        let cur_scale_x = mm_to_pt!(self.scale_x);
-        let cur_scale_y = mm_to_pt!(self.scale_y);
-
-        [cur_scale_x + cos_x, sin_x, -sin_x, 
-         cur_scale_y + cos_x, cur_translate_x, cur_translate_y]
+        use CurTransMat::*;
+        match self {
+            Translate(x, y) => { [ 1.0, 0.0, 0.0, 1.0, mm_to_pt!(x), mm_to_pt!(y) ]  /* 1 0 0 1 x y cm */ }
+            Rotate(rot) => { let rad = (360.0 - rot).to_radians(); [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), 0.0, 0.0 ] /* cos sin -sin cos 0 0 cm */ }
+            Scale(x, y) => { [ mm_to_pt!(x), 0.0, 0.0, mm_to_pt!(y), 0.0, 0.0 ] /* x 0 0 y 0 0 cm */ }
+            Identity => { [ 1.0, 0.0, 0.0, 1.0, 0.0, 0.0 ] }
+        }
     }
 }
 
 
-impl IntoPdfStreamOperation for CurrentTransformationMatrix {
+impl IntoPdfStreamOperation for CurTransMat {
 	
 	/// Consumes the object and converts it to an PDF stream operation
 	fn into_stream_op(self: Box<Self>)
@@ -83,7 +84,7 @@ impl IntoPdfStreamOperation for CurrentTransformationMatrix {
 	}
 }
 
-impl Into<lopdf::Object> for CurrentTransformationMatrix {
+impl Into<lopdf::Object> for CurTransMat {
     fn into(self)
     -> lopdf::Object
     {
@@ -91,4 +92,23 @@ impl Into<lopdf::Object> for CurrentTransformationMatrix {
         let matrix_nums: [f64; 6] = self.into();
         Array(matrix_nums.to_vec().into_iter().map(|float| Real(float)).collect())
     }
+}
+
+#[test]
+fn test_ctm_translate()
+{
+    use self::*;
+
+    // test that the translation matrix look like what PDF expects
+    let ctm_trans = CurTransMat::translate(150.0, 50.0);
+    let ctm_trans_arr: [f64; 6] = ctm_trans.into();
+    assert_eq!([1.0_f64, 0.0, 0.0, 1.0, 425.1969, 141.7323], ctm_trans_arr);
+
+    let ctm_scale = CurTransMat::scale(150.0, 50.0);
+    let ctm_scale_arr: [f64; 6] = ctm_scale.into();
+    assert_eq!([425.1969_f64, 0.0, 0.0, 141.7323, 0.0, 0.0], ctm_scale_arr);
+
+    let ctm_rot = CurTransMat::rotate(30.0);
+    let ctm_rot_arr: [f64; 6] = ctm_rot.into();
+    assert_eq!([0.8660254037844384, 0.5000000000000004, -0.5000000000000004, 0.8660254037844384, 0.0, 0.0], ctm_rot_arr);
 }

@@ -3,7 +3,8 @@ extern crate freetype as ft;
 
 use *;
 use indices::*;
-use std::sync::{Mutex, Weak};
+use std::rc::{Rc, Weak};
+use std::cell::RefCell;
 
 /// One layer of PDF data
 #[derive(Debug)]
@@ -15,7 +16,7 @@ pub struct PdfLayer {
 }
 
 pub struct PdfLayerReference {
-    pub document: Weak<Mutex<PdfDocument>>,
+    pub document: Weak<RefCell<PdfDocument>>,
     pub page: PdfPageIndex,
     pub layer: PdfLayerIndex,
 }
@@ -52,39 +53,76 @@ impl PdfLayerReference {
     /// Use has_fill to determine if the line should be filled. 
     pub fn add_shape(&self, line: Line)
     {
-        self.__internal_add_operation(Box::new(line));
+        self.internal_add_operation(Box::new(line));
     }
 
     /// Add an image to the layer
-    pub fn add_image<T>(&self, image: T)
+    /// To be called from the `image.add_to_layer()` class (see `use_xobject` documentation)
+    pub(crate) fn add_image<T>(&self, image: T)
     -> XObjectRef where T: Into<ImageXObject>
     {
         let doc = self.document.upgrade().unwrap();
-        let mut doc = doc.lock().unwrap();
+        let mut doc = doc.borrow_mut();
         let mut page_mut = doc.pages.get_mut(self.page.0).unwrap();
 
         page_mut.add_xobject(XObject::Image(image.into()))
     }
 
     /// Instantiate layers, forms and postscript items on the page
-    pub fn use_xobject(&self, xobj: XObjectRef, ctm: CurrentTransformationMatrix)
+    /// __WARNING__: Object must be added to the same page, since the XObjectRef is just a
+    /// String, essentially, it can't be checked that this is the case. The caller is 
+    /// responsible for ensuring this. However, you can use the `Image` struct 
+    /// and use `image.add_to(layer)`, which will essentially do the same thing, but ensures
+    /// that the image is referenced correctly
+    ///
+    /// Function is limited to this library to ensure that outside code cannot call it
+    pub(crate) fn use_xobject(&self, xobj: XObjectRef, 
+                        translate_x: Option<f64>, translate_y: Option<f64>,
+                        rotate_cw: Option<f64>,
+                        scale_x: Option<f64>, scale_y: Option<f64>)
     {
 
         // save graphics state
         self.save_graphics_state();
-        // apply ctm
-        self.__internal_add_operation(Box::new(ctm));
+
+        // apply ctm if any
+        let (mut s_x, mut s_y) = (0.0, 0.0);
+        let (mut t_x, mut t_y) = (0.0, 0.0);
+
+        if let Some(sc_x) = scale_x { s_x = sc_x; }
+        if let Some(sc_y) = scale_y { s_y = sc_y; }
+        if let Some(tr_x) = translate_x { t_x = tr_x; }
+        if let Some(tr_y) = translate_y { t_y = tr_y; }
+
+        // translate, rotate, scale - order does not matter
+
+        if t_x != 0.0 || t_y != 0.0 { 
+            let translate_ctm = CurTransMat::translate(t_x, t_y); 
+            self.internal_add_operation(Box::new(translate_ctm)); 
+        }
+
+        if let Some(rot) = rotate_cw {
+            let rotate_ctm = CurTransMat::rotate(rot); 
+            self.internal_add_operation(Box::new(rotate_ctm));
+        }
+
+        if s_x != 0.0 || s_y != 0.0 {
+            let scale_ctm = CurTransMat::scale(s_x, s_y); 
+            self.internal_add_operation(Box::new(scale_ctm)); 
+        }
+
         // invoke object
-        self.__internal_invoke_xobject(xobj.name);
+        self.internal_invoke_xobject(xobj.name);
+
         // restore graphics state
         self.restore_graphics_state();
     }
 
     // internal function to invoke an xobject
-    fn __internal_invoke_xobject(&self, name: String)
+    fn internal_invoke_xobject(&self, name: String)
     {
         let doc = self.document.upgrade().unwrap();
-        let mut doc = doc.lock().unwrap();
+        let mut doc = doc.borrow_mut();
         let mut page_mut = doc.pages.get_mut(self.page.0).unwrap();
 
         page_mut.layers.get_mut(self.layer.0).unwrap()
@@ -94,10 +132,10 @@ impl PdfLayerReference {
     }
 
     // internal function to add an operation (prevents locking)
-    fn __internal_add_operation(&self, op: Box<IntoPdfStreamOperation>)
+    fn internal_add_operation(&self, op: Box<IntoPdfStreamOperation>)
     {
         let doc = self.document.upgrade().unwrap();
-        let mut doc = doc.lock().unwrap();
+        let mut doc = doc.borrow_mut();
         let op = op.into_stream_op();
         let layer = doc.pages.get_mut(self.page.0).unwrap()
             .layers.get_mut(self.layer.0).unwrap();
@@ -113,14 +151,14 @@ impl PdfLayerReference {
     pub fn set_fill_color(&self, fill_color: Color)
     -> ()
     {
-        self.__internal_add_operation(Box::new(PdfColor::FillColor(fill_color)));
+        self.internal_add_operation(Box::new(PdfColor::FillColor(fill_color)));
     }
 
     /// Set the current line / outline color for the layer
     #[inline]
     pub fn set_outline_color(&self, color: Color)
     {
-        self.__internal_add_operation(Box::new(PdfColor::OutlineColor(color)));
+        self.internal_add_operation(Box::new(PdfColor::OutlineColor(color)));
     }
 
     /// Set the overprint mode of the stroke color to true (overprint) or false (no overprint)
@@ -131,7 +169,7 @@ impl PdfLayerReference {
                                       .build();
         
         let doc = self.document.upgrade().unwrap();
-        let mut doc = doc.lock().unwrap();
+        let mut doc = doc.borrow_mut();
         let mut page_mut = doc.pages.get_mut(self.page.0).unwrap();
 
         let new_ref = page_mut.add_graphics_state(new_overprint_state);
@@ -152,7 +190,7 @@ impl PdfLayerReference {
                                       .build();
         
         let doc = self.document.upgrade().unwrap();
-        let mut doc = doc.lock().unwrap();
+        let mut doc = doc.borrow_mut();
         let mut page_mut = doc.pages.get_mut(self.page.0).unwrap();
 
         let new_ref = page_mut.add_graphics_state(new_overprint_state);
@@ -172,7 +210,7 @@ impl PdfLayerReference {
                                       .build();
         
         let doc = self.document.upgrade().unwrap();
-        let mut doc = doc.lock().unwrap();
+        let mut doc = doc.borrow_mut();
         let mut page_mut = doc.pages.get_mut(self.page.0).unwrap();
 
         let new_ref = page_mut.add_graphics_state(new_blend_mode_state);
@@ -189,43 +227,43 @@ impl PdfLayerReference {
     {
         use lopdf::Object::*;
         use lopdf::content::Operation;
-        self.__internal_add_operation(Box::new(Operation::new(OP_PATH_STATE_SET_LINE_WIDTH, vec![Integer(outline_thickness)])));
+        self.internal_add_operation(Box::new(Operation::new(OP_PATH_STATE_SET_LINE_WIDTH, vec![Integer(outline_thickness)])));
     }
 
     /// Set the current line join style for outlines
     #[inline]
     pub fn set_line_join_style(&self, line_join: LineJoinStyle) {
-        self.__internal_add_operation(Box::new(line_join));
+        self.internal_add_operation(Box::new(line_join));
     }
 
     /// Set the current line join style for outlines
     #[inline]
     pub fn set_line_cap_style(&self, line_cap: LineCapStyle) {
-        self.__internal_add_operation(Box::new(line_cap));
+        self.internal_add_operation(Box::new(line_cap));
     }
 
     /// Set the current line join style for outlines
     #[inline]
     pub fn set_line_dash_pattern(&self, dash_pattern: LineDashPattern) {
-        self.__internal_add_operation(Box::new(dash_pattern));
+        self.internal_add_operation(Box::new(dash_pattern));
     }
 
     /// Set the current transformation matrix (TODO)
     #[inline]
-    pub fn set_ctm(&self, ctm: CurrentTransformationMatrix) {
-        self.__internal_add_operation(Box::new(ctm));
+    pub fn set_ctm(&self, ctm: CurTransMat) {
+        self.internal_add_operation(Box::new(ctm));
     }
 
     /// Saves the current graphic state (q operator) (TODO)
     #[inline]
     pub fn save_graphics_state(&self) {
-        self.__internal_add_operation(Box::new(lopdf::content::Operation::new("q", Vec::new())));
+        self.internal_add_operation(Box::new(lopdf::content::Operation::new("q", Vec::new())));
     }
 
     /// Restores the previous graphic state (Q operator) (TODO)
     #[inline]
     pub fn restore_graphics_state(&self) {
-        self.__internal_add_operation(Box::new(lopdf::content::Operation::new("Q", Vec::new())));
+        self.internal_add_operation(Box::new(lopdf::content::Operation::new("Q", Vec::new())));
     }
 
     /// Add text to the file
@@ -243,7 +281,7 @@ impl PdfLayerReference {
 
             // we need to transform the characters into glyph ids and then add them to the layer
             let doc = self.document.upgrade().unwrap();
-            let mut doc = doc.lock().unwrap();
+            let mut doc = doc.borrow_mut();
 
             // load font from in-memory buffer
             // temporarily clone the font stream. This way we can still mutably borrow the document
@@ -319,13 +357,13 @@ impl PdfLayerReference {
         
         let svg_element_ref = {
             use std::clone::Clone;
-            let doc = doc.lock().unwrap();
+            let doc = doc.borrow_mut();
             let element = doc.contents.get((svg_data_index.0).0).expect("invalid svg reference");
             (*element).clone()
         }; 
         
         let doc = self.document.upgrade().unwrap();
-        let mut doc = doc.lock().unwrap();
+        let mut doc = doc.borrow_mut();
 
         // todo: what about width / height?
         doc.pages.get_mut(self.page.0).unwrap()

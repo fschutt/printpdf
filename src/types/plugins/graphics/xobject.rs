@@ -140,14 +140,14 @@ pub struct ImageXObject {
     /* todo: find out if this is really required */
     /// Required bounds to clip the image, in unit space
     /// Default value: Identity matrix (`[1 0 0 1 0 0]`) - used when value is `None`
-    pub clipping_bbox: Option<CurrentTransformationMatrix>,
+    pub clipping_bbox: Option<CurTransMat>,
 }
 
 impl ImageXObject {
 
     pub fn new(width: i64, height: i64, color_space: ColorSpace,
                bits: ColorBits, interpolate: bool, image_filter: Option<ImageFilter>, 
-               bbox: Option<CurrentTransformationMatrix>, data: Vec<u8>)
+               bbox: Option<CurTransMat>, data: Vec<u8>)
     -> Self
     {
         Self {
@@ -172,7 +172,7 @@ impl Into<lopdf::Stream> for ImageXObject {
 
         let cs: &'static str = self.color_space.into();
         let bbox: lopdf::Object = self.clipping_bbox
-            .unwrap_or(CurrentTransformationMatrix::default())
+            .unwrap_or(CurTransMat::identity())
             .into();
 
         let dict = lopdf::Dictionary::from_iter(vec![
@@ -225,7 +225,7 @@ pub struct FormXObject {
     pub bytes: Vec<u8>,
     /* /Matrix [Integer , 6] */
     /// Optional matrix, maps the form into user space
-    pub matrix: Option<CurrentTransformationMatrix>,
+    pub matrix: Option<CurTransMat>,
     /* /Resources << dictionary >> */
     /// (Optional but strongly recommended; PDF 1.2) A dictionary specifying 
     /// any resources (such as fonts and images) required by the form XObject 

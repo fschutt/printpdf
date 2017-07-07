@@ -8,7 +8,8 @@ use *;
 use indices::*;
 use std::io::{Write, Seek};
 use rand::Rng;
-use std::sync::{Arc, Mutex};
+use std::rc::Rc;
+use std::cell::RefCell;
 
 /// PDF document
 #[derive(Debug)]
@@ -29,7 +30,7 @@ pub struct PdfDocument {
 /// Marker struct for a document. Used to make the API a bit nicer.
 /// It simply calls PdfDocument:: ... functions.
 pub struct PdfDocumentReference {
-    pub document: Arc<Mutex<PdfDocument>>,
+    pub document: Rc<RefCell<PdfDocument>>,
 }
 
 impl PdfDocument {
@@ -48,7 +49,7 @@ impl PdfDocument {
             metadata: PdfMetadata::new(document_title, 1, false, PdfConformance::X3_2002_PDF_1_3)
         };
 
-        let doc_ref = Arc::new(Mutex::new(doc));
+        let doc_ref = Rc::new(RefCell::new(doc));
 
         let (initial_page, layer_index) = PdfPage::new(
             initial_page_width_mm, 
@@ -56,7 +57,7 @@ impl PdfDocument {
             initial_layer_name,
             0);
 
-        { doc_ref.lock().unwrap().pages.push(initial_page); }
+        { doc_ref.borrow_mut().pages.push(initial_page); }
 
         (PdfDocumentReference { document: doc_ref }, PdfPageIndex(0), layer_index)
     }
@@ -72,7 +73,7 @@ impl PdfDocumentReference {
     pub fn with_title<S>(self, new_title: S)
     -> () where S: Into<String>
     {
-        self.document.lock().unwrap().metadata.document_title = new_title.into();
+        self.document.borrow_mut().metadata.document_title = new_title.into();
     }
 
     /// Set the trapping of the document
@@ -80,7 +81,7 @@ impl PdfDocumentReference {
     pub fn with_trapping(self, trapping: bool)
     -> Self 
     {
-        self.document.lock().unwrap().metadata.trapping = trapping;
+        self.document.borrow_mut().metadata.trapping = trapping;
         self
     }
 
@@ -89,7 +90,7 @@ impl PdfDocumentReference {
     pub fn with_document_id(self, id: String)
     -> Self
     {
-        self.document.lock().unwrap().metadata.xmp_metadata.document_id = id;
+        self.document.borrow_mut().metadata.xmp_metadata.document_id = id;
         self
     }
 
@@ -98,7 +99,7 @@ impl PdfDocumentReference {
     pub fn with_document_version(self, version: u32)
     -> Self 
     {
-        self.document.lock().unwrap().metadata.document_version = version;
+        self.document.borrow_mut().metadata.document_version = version;
         self
     }
 
@@ -108,7 +109,7 @@ impl PdfDocumentReference {
     pub fn with_conformance(self, conformance: PdfConformance)
     -> Self
     {
-        self.document.lock().unwrap().metadata.conformance = conformance;
+        self.document.borrow_mut().metadata.conformance = conformance;
         self
     }
 
@@ -118,7 +119,7 @@ impl PdfDocumentReference {
     pub fn with_mod_date(self, mod_date: chrono::DateTime<chrono::Local>)
     -> Self
     {
-        self.document.lock().unwrap().metadata.modification_date = mod_date;
+        self.document.borrow_mut().metadata.modification_date = mod_date;
         self
     }
 
@@ -129,7 +130,7 @@ impl PdfDocumentReference {
     pub fn add_page<S>(&self, x_mm: f64, y_mm: f64, inital_layer_name: S)
     -> (PdfPageIndex, PdfLayerIndex) where S: Into<String>
     { 
-        let mut doc = self.document.lock().unwrap();
+        let mut doc = self.document.borrow_mut();
         let (pdf_page, pdf_layer_index) = PdfPage::new(x_mm, y_mm, inital_layer_name, doc.pages.len());
         doc.pages.push(pdf_page);
         let page_index = PdfPageIndex(doc.pages.len() - 1);
@@ -142,7 +143,7 @@ impl PdfDocumentReference {
     pub fn add_arbitrary_content<C>(&self, content: Box<C>, only_use_first_item: bool)
     -> PdfContentIndex where C: 'static + IntoPdfObject
     {
-        let mut doc = self.document.lock().unwrap();
+        let mut doc = self.document.borrow_mut();
         let obj_id = if only_use_first_item {
             doc.inner_doc.add_object(content.into_obj()[0].to_owned())
         } else {
@@ -161,7 +162,7 @@ impl PdfDocumentReference {
         let font = Font::new(font_stream)?;
         let index = self.add_arbitrary_content(Box::new(font), true);
 
-        // let doc = self.document.lock().unwrap();
+        // let doc = self.document.borrow_mut();
         // let font_ref = doc.contents.get(index.0).unwrap();
         // let font = doc.inner_doc.get_object(font_ref);
 
@@ -205,8 +206,8 @@ impl PdfDocumentReference {
     pub fn get_page(&self, page: PdfPageIndex)
     -> PdfPageReference
     {
-        self.document.lock().unwrap().pages.get(page.0).unwrap();
-        PdfPageReference { document: Arc::downgrade(&self.document).clone(), page }
+        self.document.borrow_mut().pages.get(page.0).unwrap();
+        PdfPageReference { document: Rc::downgrade(&self.document).clone(), page }
     }
 
     /// Drops the PDFDocument, returning the inner `lopdf::Document`. 
@@ -215,7 +216,7 @@ impl PdfDocumentReference {
     pub unsafe fn get_inner(self)
     -> (lopdf::Document, Vec<lopdf::Object>)
     {
-        let doc = Arc::try_unwrap(self.document).unwrap().into_inner().unwrap();
+        let doc = Rc::try_unwrap(self.document).unwrap().into_inner();
         (doc.inner_doc, doc.contents)
     }
 
@@ -250,7 +251,7 @@ impl PdfDocumentReference {
         use std::iter::FromIterator;
 
         // todo: remove unwrap, handle error
-        let mut doc = Arc::try_unwrap(self.document).unwrap().into_inner().unwrap();
+        let mut doc = Rc::try_unwrap(self.document).unwrap().into_inner();
         let pages_id = doc.inner_doc.new_object_id();
 
         // extra pdf infos
