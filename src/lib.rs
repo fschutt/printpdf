@@ -164,6 +164,7 @@
 
 #![allow(dead_code)]
 #![feature(placement_in_syntax)]
+#![feature(try_from)]
 #![feature(collection_placement)]
 #![feature(custom_attribute)]
 #![feature(drop_types_in_const)]
@@ -178,6 +179,7 @@ extern crate freetype;
 extern crate chrono;
 extern crate rand;
 extern crate svg;
+extern crate image;
 
 pub mod traits;
 pub mod types;

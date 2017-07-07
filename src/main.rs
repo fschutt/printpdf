@@ -1,4 +1,7 @@
+#![feature(try_from)]
+
 extern crate printpdf;
+extern crate image;
 
 use printpdf::*;
 use std::fs::File;
@@ -24,8 +27,7 @@ fn main() {
     // Write the text with font + font size
     // printpdf is made for PDF-X/1A conform documents. 
     // As such, using the default fonts is not permitted. You have to use your own fonts here
-
-
+/*
     let image = Image { image: ImageXObject { 
         bits_per_component: ColorBits::Bit1,
         clipping_bbox: None,
@@ -39,6 +41,11 @@ fn main() {
 
     // translate(x, y), rotate, scale(x, y)
     image.add_to_layer(current_layer, None, None, Some(30.0), Some(10.0), Some(10.0));
+*/
+
+    use std::convert::TryFrom;
+    let image2 = Image::try_from(image::jpeg::JPEGDecoder::new(&mut File::open("assets/img/JPG_TEST.jpg").unwrap())).unwrap();
+    image2.add_to_layer(current_layer, None, None, Some(30.0), Some(100.0), Some(100.0));
 
 /*
     let text = "Hello World! Unicode test: стуфхfцчшщъыьэюя";

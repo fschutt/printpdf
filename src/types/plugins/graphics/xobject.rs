@@ -1,5 +1,6 @@
 use *;
 use std::collections::HashMap;
+use std::convert::TryFrom;
 
 /* Parent: Resources dictionary of the page */
 /// External object that gets reference outside the PDF content stream
@@ -161,6 +162,66 @@ impl ImageXObject {
             clipping_bbox: bbox,
         }
     }
+}
+
+impl<T: image::ImageDecoder> TryFrom<T> for ImageXObject {
+    type Error = image::ImageError;
+    fn try_from(mut image: T)
+    -> std::result::Result<Self, Self::Error>
+    {
+        use image::DecodingResult;
+
+        let dim = image.dimensions()?;
+        let color_type = image.colortype()?;
+        let data = image.read_image()?;
+        let cur_data;
+        let color_bits = ColorBits::from(color_type);
+        let color_space = ColorSpace::from(color_type);
+
+        println!("dim: {:?}", dim);
+        println!("color_type: {:?}", color_type);
+        println!("color bits: {:?}", color_bits);
+        println!("color space: {:?}", color_space);
+
+        match data {
+            DecodingResult::U8(d) => { cur_data = d; },
+            DecodingResult::U16(d) => { cur_data = u16_to_u8(d); },
+        }
+
+        Ok(Self {
+            width: dim.0 as i64,
+            height: dim.1 as i64,
+            color_space: color_space,
+            bits_per_component: color_bits,
+            image_data: cur_data,
+            interpolate: true,
+            image_filter: None,
+            clipping_bbox: None,
+        })
+    }
+}
+
+#[inline]
+fn u16_to_u8(u16_vec: Vec<u16>)
+-> Vec<u8>
+{
+    let u16_len = u16_vec.len();
+    let mut new_vec = Vec::with_capacity(u16_len * 2);
+
+    let mut bytes = 0;
+
+    for long_byte in u16_vec.into_iter() {
+        bytes += 1;
+        let byte1: u8 = (long_byte >> 8) as u8;
+        let byte2: u8 = long_byte as u8;
+        new_vec.place_back() <- byte1;
+        new_vec.place_back() <- byte2;
+    }
+ 
+    println!("wrote bytes: {:?}", bytes);
+    println!("u16_vec_len: {:?}", u16_len);
+
+    return new_vec;
 }
 
 impl Into<lopdf::Stream> for ImageXObject {

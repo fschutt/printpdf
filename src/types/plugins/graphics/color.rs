@@ -1,5 +1,7 @@
 //! Color module (CMYK or RGB). Shared between 2D and 3D module.
 
+use image;
+
 use lopdf;
 use glob_defines::*;
 use indices::IccProfileIndex;
@@ -60,6 +62,21 @@ pub enum ColorSpace {
     Greyscale,
 }
 
+impl From<image::ColorType> for ColorSpace {
+    fn from(color_type: image::ColorType)
+    -> Self
+    {
+        use image::ColorType::*;
+        match color_type {
+            Gray(_) => ColorSpace::Greyscale,
+            RGB(_) => ColorSpace::Rgb,
+            Palette(_) => ColorSpace::Rgb, /* todo: support indexed colors*/
+            GrayA(_) => ColorSpace::Greyscale,
+            RGBA(_) => ColorSpace::Rgb,
+        }
+    }
+}
+
 impl Into<&'static str> for ColorSpace {
     fn into(self)
     -> &'static str
@@ -78,6 +95,54 @@ pub enum ColorBits {
     Bit1,
     Bit8,
     Bit16,
+}
+
+impl From<image::ColorType> for ColorBits {
+    fn from(color_type: image::ColorType)
+    -> ColorBits
+    {
+        use image::ColorType::*;
+        use ColorBits::*;
+
+        // not sure why the compile does not see this
+        #[allow(unused_assignments)]
+        let mut num_bytes_color_type = ColorBits::Bit1;
+
+        match color_type {
+            Gray(num_bytes) => num_bytes_color_type = match num_bytes {
+                1 =>  Bit1,
+                8 =>  Bit8,
+                16 => Bit16,
+                _ => Bit1,
+            },
+            RGB(num_bytes) => num_bytes_color_type = match num_bytes {
+                1 =>  Bit1,
+                8 =>  Bit8,
+                16 => Bit16,
+                _ => Bit1,
+            },
+            Palette(num_bytes) => num_bytes_color_type = match num_bytes {
+                1 =>  Bit1,
+                8 =>  Bit8,
+                16 => Bit16,
+                _ => Bit1,
+            },
+            GrayA(num_bytes) => num_bytes_color_type = match num_bytes {
+                1 =>  Bit1,
+                8 =>  Bit8,
+                16 => Bit16,
+                _ => Bit1,
+            },
+            RGBA(num_bytes) => num_bytes_color_type = match num_bytes {
+                1 =>  Bit1,
+                8 =>  Bit8,
+                16 => Bit16,
+                _ => Bit1,
+            },
+        }
+
+        return num_bytes_color_type;
+    }
 }
 
 impl Into<i64> for ColorBits {
@@ -165,7 +230,6 @@ impl Cmyk {
         Self { c, m, y, k, icc_profile }
     }
 }
-
 
 /// Greyscale color
 #[derive(Debug, Copy, Clone, PartialEq)]

@@ -374,7 +374,7 @@ impl PdfDocumentReference {
     fn optimize(doc: &mut lopdf::Document)
     {
         doc.prune_objects();
-        doc.delete_zero_length_streams();
+        doc.delete_zero_length_streams(); 
         doc.compress();
     }
 }

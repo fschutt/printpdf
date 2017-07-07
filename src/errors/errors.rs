@@ -1,5 +1,6 @@
 extern crate error_chain;
 extern crate freetype;
+extern crate image;
 
 use super::*;
 
@@ -20,7 +21,7 @@ error_chain! {
     }
 
     errors {
-       /*PdfFileError {
+       /*Image {
            description("Selected local file is not a PDF file!")
            display("Could not load file")
        }*/

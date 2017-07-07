@@ -18,6 +18,7 @@ num = "0.1.37"
 lazy_static = "0.2.8"
 svg = { git = "https://github.com/bodoni/svg" }
 log = "0.3.8"
+image = "0.14.0"
 
 [[bin]]
 doc = false
