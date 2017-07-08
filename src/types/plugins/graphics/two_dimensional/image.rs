@@ -3,9 +3,8 @@
 
 extern crate image;
 
-use image::jpeg::JPEGDecoder;
-use std::io::Read;
 use std::convert::TryFrom;
+use image::ImageDecoder;
 use *;
 
 /// Image - wrapper around an ImageXObject to allow for more control
@@ -27,9 +26,9 @@ impl From<ImageXObject> for Image {
 
 }
 
-impl<R: Read> TryFrom<JPEGDecoder<R>> for Image {
+impl<T: ImageDecoder> TryFrom<T> for Image {
     type Error = image::ImageError;
-    fn try_from(image: JPEGDecoder<R>) 
+    fn try_from(image: T) 
     -> std::result::Result<Self, Self::Error>
     {
         let image = ImageXObject::try_from(image)?;
@@ -50,7 +49,22 @@ impl Image {
                         rotate_cw: Option<f64>,
                         scale_x: Option<f64>, scale_y: Option<f64>)
     {
+        // PDF maps an image to a 1x1 square, we have to adjust the transform matrix
+        // to fix the di1080stortion
+        let aspect_ratio_w = self.image.width as f64 / self.image.height as f64;
+
+        // Adjust scaling
+        const px_at_300_dpi: f64 = 2.54_f64 / 300.0_f64;
+
+        println!("px_at_300_dpi: {:?}", px_at_300_dpi);
+        println!("total scaling factor: {:?} x {:?}", px_at_300_dpi * self.image.width as f64, px_at_300_dpi * self.image.height as f64);
+
         let image = layer.add_image(self.image);
-        layer.use_xobject(image, translate_x, translate_y, rotate_cw, scale_x, scale_y);
+
+        if let Some(scale_x) = scale_x {
+            layer.use_xobject(image, translate_x, translate_y, rotate_cw, Some(scale_x * aspect_ratio_w), scale_y);
+        } else {
+           layer.use_xobject(image, translate_x, translate_y, rotate_cw, Some(aspect_ratio_w), scale_y); 
+        }
     }
 }

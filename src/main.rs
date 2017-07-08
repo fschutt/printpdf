@@ -1,7 +1,7 @@
 #![feature(try_from)]
 
-extern crate printpdf;
 extern crate image;
+extern crate printpdf;
 
 use printpdf::*;
 use std::fs::File;
@@ -40,21 +40,26 @@ fn main() {
     }};
 
     // translate(x, y), rotate, scale(x, y)
-    image.add_to_layer(current_layer, None, None, Some(30.0), Some(10.0), Some(10.0));
+    image.add_to_layer(current_layer.clone(), None, None, Some(30.0), Some(10.0), Some(10.0));
 */
+    use std::convert::TryFrom;   // requires #![feature(try_from)]
 
-    use std::convert::TryFrom;
-    let image2 = Image::try_from(image::jpeg::JPEGDecoder::new(&mut File::open("assets/img/JPG_TEST.jpg").unwrap())).unwrap();
-    image2.add_to_layer(current_layer, None, None, Some(30.0), Some(100.0), Some(100.0));
+    // currently, the only reliable file format is bmp (jpeg works, but not in release mode)
+    // this is an issue of the image library, not a fault of printpdf
+    let mut image_file_2 = File::open("assets/img/BMP_test.bmp").unwrap();
+    let image2 = Image::try_from(image::bmp::BMPDecoder::new(&mut image_file_2)).unwrap();
+
+    // translate x, translate y, rotate, scale x, scale y
+    // by default, an image is optimized to 300 DPI (if scale is None)
+    // rotations and translations are always in relation to the lower left corner
+    image2.add_to_layer(current_layer.clone(), None, None, None, Some(100.0), Some(100.0));
 
 /*
     let text = "Hello World! Unicode test: стуфхfцчшщъыьэюя";
-    let roboto_font_file = File::open("./assets/fonts/RobotoMedium.ttf").unwrap();
+    let roboto_font_file = File::open("assets/fonts/RobotoMedium.ttf").unwrap();
     let roboto_font = doc.add_font(roboto_font_file).unwrap();
-    doc.get_page(page1).get_layer(layer1).use_text(text, 48, 0.0, 200.0, 200.0, roboto_font);
+    current_layer.use_text(text, 48, 0.0, 200.0, 200.0, roboto_font);
 */
-
-    /// Adding images
     
 /*
     // A special thing is transcoding SVG files directly into PDF (for mapping symbols)    

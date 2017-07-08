@@ -70,7 +70,7 @@ current_layer.set_outline_thickness(10);
 current_layer.add_shape(line1);
 
 let fill_color_2 = Color::Cmyk(Cmyk::new(0.0, 0.0, 0.0, 0.0, None));
-let outline_color_2 = Color::Grayscale(Grayscale::new(0.45, None));
+let outline_color_2 = Color::Greyscale(Greyscale::new(0.45, None));
 
 // More advanced graphical options
 current_layer.set_overprint_stroke(true);
@@ -86,7 +86,66 @@ current_layer.set_outline_thickness(15);
 current_layer.add_shape(line2);
 ```
 
-#### Adding fonts
+#### Adding images
+
+Note: Images only get compressed in release mode. You might get huge PDFs (6 or more MB) in
+debug mode. In release mode, the compression makes these files much smaller (~ 100 - 200 KB).
+
+To make this process faster, use `BufReader` instead of directly reading from the file.
+Images are currently not a top priority. 
+
+Scaling of images is implicitly done to fit one pixel = one dot at 300 dpi. A scaling factor of 
+0.5 would half the image size, so this would 
+
+```rust
+#![feature(try_from)]
+extern crate printpdf;
+extern crate image; /* currently: version 0.14.0 */
+
+use printpdf::*;
+use std::fs::File;
+use std::convert::TryFrom;
+use std::convert::From; 
+
+fn main() {
+    let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 247.0, 210.0, "Layer 1");
+    let current_layer = doc.get_page(page1).get_layer(layer1);
+
+    // currently, the only reliable file format is bmp (jpeg works, but not in release mode)
+    // this is an issue of the image library, not a fault of printpdf
+    let mut image_file = File::open("assets/img/BMP_test.bmp").unwrap();
+    let image = Image::try_from(image::bmp::BMPDecoder::new(&mut image_file)).unwrap();
+
+    // translate x, translate y, rotate, scale x, scale y
+    // by default, an image is optimized to 300 DPI (if scale is None)
+    // rotations and translations are always in relation to the lower left corner
+    image.add_to_layer(current_layer.clone(), None, None, None, Some(100.0), Some(100.0));
+
+    // you can also construct images manually from your data:
+    let mut image_file_2 = ImageXObject { 
+        width: 200,
+        height: 200,
+        color_space: ColorSpace::Greyscale,
+        bits_per_component: ColorBits::Bit8,
+        interpolate: true,
+        /* put your bytes here. Make sure the total number of bytes =
+           width * height * (bytes per component * number of components) 
+           (e.g. 2 (bytes) x 3 (colors) for RGB 16bit) */
+        image_data: Vec::new(),
+        image_filter: None, /* does not work yet */
+        clipping_bbox: None, /* doesn't work either, untested */
+    };
+
+    let image2 = Image::from(image_file_2);
+}
+``` 
+
+### Adding fonts
+
+Note: Fonts are shared between pages. This means that they are added to the document first
+and then a reference to this one object can be passed to multiple pages. This is different to 
+images, for example, which can only be used once on the page they are created on (since that's
+the most common use-case).
 
 ```rust
 use printpdf::*;

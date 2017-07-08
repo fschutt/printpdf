@@ -3,7 +3,7 @@ extern crate freetype as ft;
 
 use *;
 use indices::*;
-use std::rc::{Rc, Weak};
+use std::rc::Weak;
 use std::cell::RefCell;
 
 /// One layer of PDF data
@@ -15,6 +15,7 @@ pub struct PdfLayer {
     operations: Vec<lopdf::content::Operation>,
 }
 
+#[derive(Debug, Clone)]
 pub struct PdfLayerReference {
     pub document: Weak<RefCell<PdfDocument>>,
     pub page: PdfPageIndex,
@@ -81,7 +82,6 @@ impl PdfLayerReference {
                         rotate_cw: Option<f64>,
                         scale_x: Option<f64>, scale_y: Option<f64>)
     {
-
         // save graphics state
         self.save_graphics_state();
 
