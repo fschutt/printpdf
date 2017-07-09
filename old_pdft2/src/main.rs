@@ -1,7 +1,6 @@
 //! Crate for exporting a map to a PDF
 extern crate lopdf;
 extern crate unicode_normalization as unic;
-extern crate lcms2;
 extern crate freetype as ft;
 
 use lopdf::{Document, Object, ObjectId, Dictionary, Stream, StringFormat};
@@ -14,7 +13,7 @@ use std::io::prelude::*;
 use std::fs::File;
 use std::string::String;
 
-const FONT_PATH: &'static str =  "FreeSans.ttf";
+const FONT_PATH: &'static str =  "Asimov.otf";
 const ICC_PATH: &'static str = "ISOcoated_v2_300_eci.icc";
 
 
@@ -100,9 +99,9 @@ impl MapDocument {
 		let mut content = Vec::<Content>::new();
 		content.push( Content{ operations: Vec::<Operation>::new()} );
 
-		content[0].operations.push(Operation::new("cs", vec![Name("ISOcoated_v2_300_eci".into())] ));
-		content[0].operations.push(Operation::new("CS", vec![Name("ISOcoated_v2_300_eci".into())] ));
-
+		content[0].operations.push(Operation::new("cs", vec![Name(ICC_PATH.into())] ));
+		content[0].operations.push(Operation::new("CS", vec![Name(ICC_PATH.into())] ));
+/*
 		// Start embedding color profile in resources
 		let mut icc_ref: std::option::Option<Object> = None;
 
@@ -118,9 +117,9 @@ impl MapDocument {
 				icc_ref = Some(Reference(doc.add_object(Stream(icc))));
 			}
 		}
-
-		let mut resources = Dictionary::new();
-
+*/
+		let resources = Dictionary::new();
+/*
 		if let Some(icc_reference) = icc_ref {
 			resources = Dictionary::from_iter(vec![
 					("ColorSpace", Dictionary(Dictionary::from_iter(vec![
@@ -133,7 +132,7 @@ impl MapDocument {
 			println!("WARNING: Could not embed color profile");
 		}
 		// End embedding color profile into resources
-
+*/
 		Ok(MapDocument {
 			doc: doc,
 			pages: pages,
@@ -197,7 +196,7 @@ impl MapDocument {
 
 		// Load font
 		let mut font_buf = Vec::<u8>::new();
-		let mut font_file = File::open(path).expect("L218");
+		let mut font_file = File::open(path).expect("L199");
 		let _ = font_file.read_to_end(&mut font_buf);
 		let font_buf_ref: Box<[u8]> = font_buf.into_boxed_slice();
 		let library = ft::Library::init().unwrap();
@@ -429,6 +428,7 @@ impl MapDocument {
 }
 
 fn main() {
+    ::std::env::set_current_dir(::std::env::current_exe().unwrap().parent().unwrap().parent().unwrap().parent().unwrap()).unwrap();
 
    	let mut doc = MapDocument::new(1000, 1000, ICC_PATH).unwrap();
 
@@ -449,7 +449,7 @@ fn main() {
 
 	// text drawing
 	let text_pos = Point { x: 10.0, y: 40.0, };
-	doc.add_text("стуфхfцчшщъыьэюя", 48, &text_pos, roboto_font_ref);
+	doc.add_text("hallo", 48, &text_pos, roboto_font_ref);
 
 	doc.save_map("example_6.pdf");
 }
