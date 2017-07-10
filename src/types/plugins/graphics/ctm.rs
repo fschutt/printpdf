@@ -62,7 +62,7 @@ impl Into<[f64; 6]> for CurTransMat {
         match self {
             Translate(x, y) => { [ 1.0, 0.0, 0.0, 1.0, mm_to_pt!(x), mm_to_pt!(y) ]  /* 1 0 0 1 x y cm */ }
             Rotate(rot) => { let rad = (360.0 - rot).to_radians(); [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), 0.0, 0.0 ] /* cos sin -sin cos 0 0 cm */ }
-            Scale(x, y) => { [ mm_to_pt!(x), 0.0, 0.0, mm_to_pt!(y), 0.0, 0.0 ] /* x 0 0 y 0 0 cm */ }
+            Scale(x, y) => { [ x, 0.0, 0.0, y, 0.0, 0.0 ] /* x 0 0 y 0 0 cm */ }
             Identity => { [ 1.0, 0.0, 0.0, 1.0, 0.0, 0.0 ] }
         }
     }
@@ -104,9 +104,9 @@ fn test_ctm_translate()
     let ctm_trans_arr: [f64; 6] = ctm_trans.into();
     assert_eq!([1.0_f64, 0.0, 0.0, 1.0, 425.1969, 141.7323], ctm_trans_arr);
 
-    let ctm_scale = CurTransMat::scale(150.0, 50.0);
+    let ctm_scale = CurTransMat::scale(2.0, 4.0);
     let ctm_scale_arr: [f64; 6] = ctm_scale.into();
-    assert_eq!([425.1969_f64, 0.0, 0.0, 141.7323, 0.0, 0.0], ctm_scale_arr);
+    assert_eq!([2.0_f64, 0.0, 0.0, 4.0, 0.0, 0.0], ctm_scale_arr);
 
     let ctm_rot = CurTransMat::rotate(30.0);
     let ctm_rot_arr: [f64; 6] = ctm_rot.into();

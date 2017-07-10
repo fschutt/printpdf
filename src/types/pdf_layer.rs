@@ -108,6 +108,7 @@ impl PdfLayerReference {
 
         if s_x != 0.0 || s_y != 0.0 {
             let scale_ctm = CurTransMat::scale(s_x, s_y); 
+            println!("adding scaling: {:?}", scale_ctm);
             self.internal_add_operation(Box::new(scale_ctm)); 
         }
 

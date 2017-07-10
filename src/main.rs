@@ -17,11 +17,6 @@ fn main() {
 
     let current_layer = doc.get_page(page1).get_layer(layer1);
 
-    // You can add more pages and layers to the PDF. 
-    // Just make sure you don't lose the references, otherwise, you can't add things to the layer anymore
-    // let (page2, layer1) = doc.add_page(500.0, 500.0,"Page 2, Layer 1");
-    // let layer3 = doc.get_page(page2).add_layer("Layer 3");
-
     // printpdf support 2d graphics only (currently) - Lines, Points, Polygons and SVG Symbols
 
     // Write the text with font + font size
@@ -42,18 +37,20 @@ fn main() {
     // translate(x, y), rotate, scale(x, y)
     image.add_to_layer(current_layer.clone(), None, None, Some(30.0), Some(10.0), Some(10.0));
 */
-    use std::convert::TryFrom;   // requires #![feature(try_from)]
 
-    // currently, the only reliable file format is bmp (jpeg works, but not in release mode)
-    // this is an issue of the image library, not a fault of printpdf
-    let mut image_file_2 = File::open("assets/img/BMP_test.bmp").unwrap();
-    let image2 = Image::try_from(image::bmp::BMPDecoder::new(&mut image_file_2)).unwrap();
+    use std::io::Cursor;
+    use std::convert::TryFrom; 
+    use image::bmp::BMPDecoder;
+    use std::fs::File;
+    
+    let image_bytes = include_bytes!("../assets/img/BMP_test.bmp");
+    let mut reader = Cursor::new(image_bytes.as_ref());
 
-    // translate x, translate y, rotate, scale x, scale y
-    // by default, an image is optimized to 300 DPI (if scale is None)
-    // rotations and translations are always in relation to the lower left corner
-    image2.add_to_layer(current_layer.clone(), None, None, None, Some(100.0), Some(100.0));
+    let decoder = BMPDecoder::new(&mut reader);
+    let image2 = Image::try_from(decoder).unwrap();
 
+    // In debug mode
+    image2.add_to_layer(current_layer.clone(), None, None, None, None, None);
 /*
     let text = "Hello World! Unicode test: стуфхfцчшщъыьэюя";
     let roboto_font_file = File::open("assets/fonts/RobotoMedium.ttf").unwrap();

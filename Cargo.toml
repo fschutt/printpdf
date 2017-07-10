@@ -6,17 +6,17 @@ repository = "https://github.com/sharazam/printpdf"
 homepage = "https://github.com/sharazam/printpdf"
 license = "MIT"
 readme = "README.md"
-description = "Library for writing PDF files"
+description = "Rust library for writing PDF files"
 
 [dependencies]
-lopdf = { git = "https://github.com/J-F-Liu/lopdf" }
-freetype-rs = "0.11.*"
+lopdf = "0.9.0"
+freetype-rs = "0.13.0"
 error-chain = "0.10.*"
 chrono = "0.3.0"
 rand = "0.3.15"
 num = "0.1.37"
 lazy_static = "0.2.8"
-svg = { git = "https://github.com/bodoni/svg" }
+svg = "0.5.6"
 log = "0.3.8"
 image = "0.14.0"
 
@@ -24,8 +24,3 @@ image = "0.14.0"
 doc = false
 name = "printpdf"
 path = "src/main.rs"
-
-[profile.release]
-lto = true
-debug = false
-panic = 'abort'

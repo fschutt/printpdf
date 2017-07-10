@@ -28,7 +28,6 @@ impl Font {
             face.postscript_name().expect("Could not read font name!")
         };
 
-
         Ok(Self {
             font_bytes: buf,
             face_name: face_name,
