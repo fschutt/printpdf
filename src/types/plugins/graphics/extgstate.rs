@@ -41,7 +41,6 @@ use *;
 use indices::FontIndex;
 use std::collections::HashSet;
 use std::collections::HashMap;
-use indices::PdfResource;
 
 // identifiers for tracking the changed fields
 pub (crate) const LINE_WIDTH: &'static str = "line_width";

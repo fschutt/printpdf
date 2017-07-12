@@ -198,6 +198,7 @@ impl PdfDocumentReference {
                     Object as LoObject};
         use lopdf::Object::*;
         use std::iter::FromIterator;
+        use lopdf::StringFormat::Literal as Literal;
 
         // todo: remove unwrap, handle error
         let mut doc = Rc::try_unwrap(self.document).unwrap().into_inner();
@@ -212,10 +213,9 @@ impl PdfDocumentReference {
         let icc_profile_descr = "Commercial and special offset print acccording to ISO \
                                  12647-2:2004 / Amd 1, paper type 1 or 2 (matte or gloss-coated \
                                  offset paper, 115 g/m2), screen ruling 60/cm";
-        let icc_profile_str = "Coated FOGRA39 (ISO 12647-2:2004)";
+        let icc_profile_str   = "Coated FOGRA39 (ISO 12647-2:2004)";
         let icc_profile_short = "FOGRA39";
 
-        use lopdf::StringFormat::Literal as Literal;
         let mut output_intents = LoDictionary::from_iter(vec![
                           ("S", Name("GTS_PDFX".into())),
                           ("OutputCondition", String(icc_profile_descr.into(), Literal)),

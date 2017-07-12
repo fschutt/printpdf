@@ -41,13 +41,6 @@ impl Into<PdfContentIndex> for SvgIndex {
     }
 }
 
-/// Wrapper for storing either a type or a reference to the type
-#[derive(Debug)]
-pub enum PdfResource {
-    ReferencedResource(PdfContentIndex),
-    ActualResource(Box<IntoPdfObject>),
-}
-
 /// Index to an Icc Profile, so that we can copy the reference to an
 /// ICC profile around, without worrying about lifetimes.
 #[derive(Debug, Copy, Clone, PartialEq)]
