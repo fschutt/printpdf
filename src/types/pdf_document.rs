@@ -10,6 +10,7 @@ use std::io::{Write, Seek};
 use rand::Rng;
 use std::rc::Rc;
 use std::cell::RefCell;
+use std::collections::HashMap;
 
 /// PDF document
 #[derive(Debug)]
@@ -17,7 +18,11 @@ pub struct PdfDocument {
     /// Pages of the document
     pub(super) pages: Vec<PdfPage>,
     /// Fonts that are shared inside the document
-    pub(super) fonts: FontList,
+    /// Note: these are the actual fonts, indexed by their postscript name
+    /// The value is a lopdf::Object::Reference (to the font dictionary / stream)
+    pub(super) fonts: HashMap<String, DirectFontRef>,
+    /// ICC profiles used in the document
+    pub(super) icc_profiles: IccProfileList,
     /// Inner PDF document
     pub(super) inner_doc: lopdf::Document,
     /// Document ID. Must be changed if the document is loaded / parsed from a file
@@ -29,7 +34,10 @@ pub struct PdfDocument {
 /// Marker struct for a document. Used to make the API a bit nicer.
 /// It simply calls PdfDocument:: ... functions.
 pub struct PdfDocumentReference {
-    pub document: Rc<RefCell<PdfDocument>>,
+    /// A wrapper for a document, so actions from outside this library
+    /// are restricted to functions inside this crate (only functions in `lopdf`
+    /// can directly manipulate the document)
+    pub(crate) document: Rc<RefCell<PdfDocument>>,
 }
 
 impl PdfDocument {
@@ -43,7 +51,8 @@ impl PdfDocument {
         let doc = Self {
             pages: Vec::new(),
             document_id: rand::thread_rng().gen_ascii_chars().take(32).collect(),
-            fonts: FontList::new(),
+            fonts: HashMap::new(),
+            icc_profiles: IccProfileList::new(),
             inner_doc: lopdf::Document::with_version("1.3"),
             metadata: PdfMetadata::new(document_title, 1, false, PdfConformance::X3_2002_PDF_1_3)
         };
@@ -139,13 +148,22 @@ impl PdfDocumentReference {
     /// Add a font from a font stream
     #[inline]
     pub fn add_font<R>(&self, font_stream: R)
-    -> ::std::result::Result<FontRef, Error> where R: ::std::io::Read
+    -> ::std::result::Result<DirectFontRef, Error> where R: ::std::io::Read
     {
         let font = Font::new(font_stream)?; 
-        let mut doc = self.document.borrow_mut();
-        let font_ref = doc.fonts.add_font(font);
+        let name = font.face_name.clone();
 
-        Ok(font_ref)
+        if let Some(direct_font_ref) = self.document.borrow_mut().fonts.get(&name) {
+            return Ok((*direct_font_ref).clone());
+        } else {
+            let direct_ref = DirectFontRef { 
+                inner_obj: self.document.borrow_mut().inner_doc.new_object_id(), 
+                data: font 
+            };
+            self.document.borrow_mut().fonts.insert(name.clone(), direct_ref);
+            let font_ref = self.document.borrow_mut().fonts.get(&name).unwrap().clone();
+            return Ok(font_ref);
+        }
     }
 
     // ----- GET FUNCTIONS
@@ -226,9 +244,8 @@ impl PdfDocumentReference {
                         ]);
 
         if let Some(profile) = icc_profile { 
-            use traits::IntoPdfObject;
-            let vec_icc_profiles = Box::new(profile).into_obj();
-            let icc_profile_id = doc.inner_doc.add_object(vec_icc_profiles[0].to_owned());
+            let icc_profile: lopdf::Stream = profile.into();
+            let icc_profile_id = doc.inner_doc.add_object(lopdf::Object::Stream(icc_profile));
             output_intents.set("DestinationOutputProfile", Reference(icc_profile_id));
         }
 

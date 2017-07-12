@@ -1,4 +1,4 @@
-#![feature(try_from)]
+
 
 extern crate image;
 extern crate printpdf;
@@ -19,8 +19,9 @@ fn main() {
     
     let text = "Hello World! Unicode test: стуфхfцчшщъыьэюя";
     let roboto_font_file = File::open("assets/fonts/RobotoMedium.ttf").unwrap();
-    let roboto_font = doc.add_font(roboto_font_file).unwrap();
-    current_layer.use_text(text, 48, 0.0, 200.0, 200.0, roboto_font);
+    let direct_font = doc.add_font(roboto_font_file).unwrap();
+    // let indirect_font = current_layer.add_font(direct_font);
+    // current_layer.use_text(text, 48, 0.0, 200.0, 200.0, indirect_font);
     
 /*
     // A special thing is transcoding SVG files directly into PDF (for mapping symbols)    

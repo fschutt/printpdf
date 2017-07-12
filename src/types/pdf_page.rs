@@ -20,12 +20,12 @@ pub struct PdfPage {
     pub(crate) resources: PdfResources,
 }
 
-/// This struct is only a marker struct to indicate the function
-/// "Hey, don't use the document directly, but use the page"
-/// We can't pass a reference to the page, because doing so would borrow the document
-/// and make it non-mutable
+/// A "reference" to the current page, allows for inner mutability
+/// but only inside this library
 pub struct PdfPageReference {
+    /// A weak reference to the document, for inner mutability
     pub document: Weak<RefCell<PdfDocument>>,
+    /// The index of the page this layer is on
     pub page: PdfPageIndex,
 }
 
@@ -95,6 +95,7 @@ impl PdfPage {
         self.resources.add_graphics_state(added_state)
     }
 
+    /// __STUB__: Adds a pattern to the pages resources
     #[inline]
     pub fn add_pattern(&mut self, pattern: Pattern)
     -> PatternRef
@@ -102,6 +103,8 @@ impl PdfPage {
         self.resources.add_pattern(pattern)
     }
 
+    /// __STUB__: Adds an XObject to the pages resources.
+    /// __NOTE__: Watch out for scaling. Your XObject might be invisible or only 1pt x 1pt big
     #[inline]
     pub fn add_xobject(&mut self, xobj: XObject)
     -> XObjectRef
@@ -109,9 +112,13 @@ impl PdfPage {
         self.resources.add_xobject(xobj)
     }
 
+    /// Adds a font to the current page. This is done by giving a reference to the font
+    /// For compatibility reasons, the font entry should be defined on every page.
+    /// Meaning, in every pages resources object, you should have a named PDF reference
+    /// to the actual font dictionary. This is done inside the Font object
     #[inline]
-    pub fn add_font(&mut self, font: Font)
-    -> FontRef
+    pub fn add_font(&mut self, font: DirectFontRef)
+    -> IndirectFontRef
     {
         self.resources.add_font(font)
     }

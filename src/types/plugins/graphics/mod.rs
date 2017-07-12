@@ -16,7 +16,7 @@ pub mod pdf_resources;
 
 pub use self::ctm::CurTransMat;
 pub use self::color::*;
-pub use self::icc_profile::{IccProfile, IccProfileType};
+pub use self::icc_profile::*;
 pub use self::extgstate::*;
 pub use self::xobject::*;
 pub use self::pattern::*;

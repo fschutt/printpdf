@@ -59,9 +59,9 @@ impl IccProfile {
 
 }
 
-impl IntoPdfObject for IccProfile {
-    fn into_obj(self: Box<Self>)
-    -> Vec<lopdf::Object>
+impl Into<lopdf::Stream> for IccProfile {
+    fn into(self)
+    -> lopdf::Stream
     {
         use lopdf::{Dictionary as LoDictionary, 
                     Stream as LoStream};
@@ -94,8 +94,48 @@ impl IntoPdfObject for IccProfile {
                                         Real(1.0)]));
         }
 
-        let stream = LoStream::new(stream_dict, self.icc);
+        LoStream::new(stream_dict, self.icc)
+    }
+}
 
-        vec![Stream(stream)]
+/// Named reference for an ICC profile
+#[derive(Debug, Clone, PartialEq)]
+pub struct IccProfileRef {
+    pub(crate) name: String,
+}
+
+impl IccProfileRef {
+    /// Creates a new IccProfileRef
+    pub fn new(index: usize)
+    -> Self
+    {
+        Self {
+            name: format!("/ICC{}", index)
+        }
+    }   
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct IccProfileList {
+    profiles: Vec<IccProfile>,
+}
+
+impl IccProfileList {
+    /// Creates a new IccProfileList
+    pub fn new()
+    -> Self
+    {
+        Self {
+            profiles: Vec::new(),
+        }
+    }
+
+    /// Adds an ICC profile
+    pub fn add_profile(&mut self, profile: IccProfile)
+    -> IccProfileRef
+    {
+        let cur_len = self.profiles.len();
+        self.profiles.push(profile);
+        IccProfileRef::new(cur_len)
     }
 }

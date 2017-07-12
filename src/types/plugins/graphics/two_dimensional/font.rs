@@ -4,6 +4,8 @@ extern crate freetype as ft;
 
 use *;
 use std::collections::HashMap;
+use std::rc::Weak;
+use std::cell::RefCell;
 
 /// The font
 #[derive(Debug, Clone)]
@@ -180,34 +182,42 @@ impl PartialEq for Font {
 }
 
 /// Indexed reference to a font that was added to the document
-#[derive(Debug)]
-pub struct FontRef {
+/// This is a "reference by postscript name"
+#[derive(Debug, Hash, Eq, Clone, PartialEq)]
+pub struct IndirectFontRef {
     /// Name of the font
     pub(crate) name: String,
-    /// Kerning widths (for actually writing the text)
-    /// font_data: The data of the font, to get the kerning later on
-    pub font_data: Vec<u8>,
 }
 
-impl FontRef {
-    /// Creates a new FontRef from an index
-    pub fn new(index: usize, data: Vec<u8>)
+/// Direct reference (wrapper for lopdf::Object::Reference) 
+/// for increased type safety
+#[derive(Debug, Clone)]
+pub struct DirectFontRef {
+    /// Reference to the content in the document stream
+    pub(crate) inner_obj: lopdf::ObjectId,
+    /// Actual font data 
+    pub(crate) data: Font,
+}
+
+impl IndirectFontRef {
+    /// Creates a new IndirectFontRef from an index
+    pub fn new(index: usize)
     -> Self 
     {
         Self {
             name: format!("F{}", index),
-            font_data: data,
         }
     }
 }
 
-/// Font list for tracking fonts within the PDF
+/// Font list for tracking fonts within a single PDF page
 #[derive(Debug)]
 pub struct FontList {
-    fonts: HashMap<String, Font>,
+    fonts: HashMap<IndirectFontRef, DirectFontRef>,
 }
 
 impl FontList {
+    
     /// Creates a new FontList
     pub fn new()
     -> Self
@@ -218,12 +228,12 @@ impl FontList {
     }
 
     /// Adds a font to the FontList
-    pub fn add_font(&mut self, font: Font)
-    -> FontRef
+    pub fn add_font(&mut self, font: DirectFontRef)
+    -> IndirectFontRef
     {
         let len = self.fonts.len();
-        let font_ref = FontRef::new(len, font.font_bytes.clone());
-        self.fonts.insert(font_ref.name.clone(), font);
+        let font_ref = IndirectFontRef::new(len);
+        self.fonts.insert(font_ref.clone(), font);
         font_ref
     }
 }

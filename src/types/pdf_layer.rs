@@ -15,10 +15,15 @@ pub struct PdfLayer {
     operations: Vec<lopdf::content::Operation>,
 }
 
+/// A "reference" to the current layer, allows for inner mutability
+/// but only inside this library
 #[derive(Debug, Clone)]
 pub struct PdfLayerReference {
+    /// A weak reference to the document, for inner mutability
     pub document: Weak<RefCell<PdfDocument>>,
+    /// The index of the page this layer is on
     pub page: PdfPageIndex,
+    /// The index of the layer this layer has (inside the page)
     pub layer: PdfLayerIndex,
 }
 
@@ -42,7 +47,7 @@ impl Into<lopdf::Stream> for PdfLayer {
     {
         use lopdf::{Stream, Dictionary};
         let stream_content = lopdf::content::Content { operations: self.operations };
-        let stream = Stream::new(lopdf::Dictionary::new(), stream_content.encode().unwrap());
+        let stream = Stream::new(Dictionary::new(), stream_content.encode().unwrap());
         /* contents may not be compressed! */
         return stream;
     }
@@ -55,6 +60,23 @@ impl PdfLayerReference {
     pub fn add_shape(&self, line: Line)
     {
         self.internal_add_operation(Box::new(line));
+    }
+
+    /// Adds a font to the page. This does not increase the filesize, since the font is 
+    /// just a reference to the document-level font dictionary, in which the font actually resides.
+    /// This indirect step is neccesary because of compatibility with certain viewers.
+    /// 
+    /// A direct font reference points directly to the encoded object in the stream, while
+    /// an indirect font reference is only the postscript name of the font. These values are wrapped
+    /// for increased type safetyl
+    pub fn add_font(&self, font: DirectFontRef)
+    -> IndirectFontRef
+    {
+        let doc = self.document.upgrade().unwrap();
+        let mut doc = doc.borrow_mut();
+        let mut page_mut = doc.pages.get_mut(self.page.0).unwrap();
+
+        page_mut.add_font(font)
     }
 
     /// Add an image to the layer
@@ -282,7 +304,7 @@ impl PdfLayerReference {
     /// Add text to the file
     #[inline]
     pub fn use_text<S>(&self, text: S, font_size: usize, rotation: f64,
-                       x_mm: f64, y_mm: f64, font: FontRef)
+                       x_mm: f64, y_mm: f64, font: IndirectFontRef)
     -> () where S: Into<std::string::String>
     {
             use lopdf::Object::*;
@@ -296,17 +318,25 @@ impl PdfLayerReference {
             let doc = self.document.upgrade().unwrap();
             let mut doc = doc.borrow_mut();
 
-            let library = ft::Library::init().unwrap();
-            let face = library.new_memory_face(&*font.font_data, 0)
-                              .expect("invalid memory font in use_text()");
+            // glyph IDs that make up this string
+            let mut list_gid = Vec::<u16>::new();
+            // kerning for each glyoh id. If no kerning is present, will be 0
+            // must be the same length as list_gid
+            let mut kerning_data = Vec::<u8>::new();
 
-            let text_to_embed = text.into();
+            {
+                let font_data = doc.fonts.get(&font.name).expect("Invalid font reference on layer");
+                let library = ft::Library::init().unwrap();
+                let face = library.new_memory_face(&*font_data.data.font_bytes, 0)
+                                  .expect("invalid memory font in use_text()");
 
-            // convert into list of glyph ids - unicode magic
-            let list_gid: Vec<u16> = text_to_embed
-                       .chars()
-                       .map(|x| face.get_char_index(x as usize) as u16)
-                       .collect();
+                // convert into list of glyph ids - unicode magic
+                list_gid = text.into().chars()
+                           .map(|x| face.get_char_index(x as usize) as u16)
+                           .collect();
+
+                // todo: kerning here
+            }
 
             let bytes: Vec<u8> = list_gid.iter()
                 .flat_map(|x| vec!((x >> 8) as u8, (x & 255) as u8))

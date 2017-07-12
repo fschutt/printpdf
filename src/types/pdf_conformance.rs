@@ -93,6 +93,8 @@ impl PdfConformance {
         identifier.to_string()
     }
 
+    /// __STUB__: Detects if the PDF has 3D content, but the 
+    /// conformance to the given PDF standard does not allow it.
     pub fn is_3d_content_allowed(&self)
     -> bool
     {
@@ -110,7 +112,8 @@ impl PdfConformance {
         false
     }
 
-    /// Does this conformance level allow video
+    /// __STUB__: Detects if the PDF has audio content, but the 
+    /// conformance to the given PDF standard does not allow it.
     pub fn is_audio_content_allowed(&self)
     -> bool
     {
@@ -118,6 +121,8 @@ impl PdfConformance {
         false
     }
 
+    /// __STUB__: Detects if the PDF has 3D content, but the 
+    /// conformance to the given PDF standard does not allow it.
     pub fn is_javascript_content_allowed(&self)
     -> bool
     {
@@ -125,6 +130,8 @@ impl PdfConformance {
         false
     }
 
+    /// __STUB__: Detects if the PDF has JPEG images, but the 
+    /// conformance to the given PDF standard does not allow it
     pub fn is_jpeg_content_allowed(&self)
     -> bool
     {
@@ -132,6 +139,8 @@ impl PdfConformance {
         false
     }
 
+    /// Detects if the PDF must have XMP metadata 
+    /// if it has to conform to the given PDF Standard
     pub fn must_have_xmp_metadata(&self)
     -> bool
     {
@@ -159,6 +168,8 @@ impl PdfConformance {
         }
     }
 
+    /// __STUB__: Detects if the PDF has layering (optional content groups), 
+    /// but the conformance to the given PDF standard does not allow it.
     pub fn is_layering_allowed(&self)
     -> bool
     {

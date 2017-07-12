@@ -36,8 +36,8 @@ impl PdfResources {
 
     /// Adds a font to the resources
     #[inline]
-    pub fn add_font(&mut self, font: Font)
-    -> FontRef
+    pub fn add_font(&mut self, font: DirectFontRef)
+    -> IndirectFontRef
     {
         self.fonts.add_font(font)
     }
