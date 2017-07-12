@@ -207,6 +207,7 @@ impl MapDocument {
 		let face_name = face.postscript_name().unwrap();
 		let face_metrics = face.size_metrics().unwrap();
 
+        // the actual font information
 		let font_stream = Stream::new(
 			Dictionary::from_iter(vec![
 				/*("Length1", Integer(font_buf_ref.len() as i64)),*/

@@ -9,9 +9,9 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub struct Font {
     /// Font data
-    font_bytes: Vec<u8>,
+    pub(crate) font_bytes: Vec<u8>,
     /// Font name, for adding as a resource on the document
-    face_name: String,
+    pub(crate) face_name: String,
 }
 
 impl Font {
@@ -33,17 +33,9 @@ impl Font {
             face_name: face_name,
         })
     }
-}
 
-impl PartialEq for Font {
-    /// Two fonts are equal if their names are equal, the contents aren't checked
-    fn eq(&self, other: &Font) -> bool {
-        self.face_name == other.face_name
-    }
-}
-
-impl IntoPdfObject for Font {
-    fn into_obj(self: Box<Self>)
+    /// Takes the font and adds it to the document and consumes the font
+    fn into_obj_with_document(self, doc: &mut lopdf::Document)
     -> Vec<lopdf::Object>
     {
         use lopdf::Object::*;
@@ -180,19 +172,31 @@ impl IntoPdfObject for Font {
     }
 }
 
+impl PartialEq for Font {
+    /// Two fonts are equal if their names are equal, the contents aren't checked
+    fn eq(&self, other: &Font) -> bool {
+        self.face_name == other.face_name
+    }
+}
+
 /// Indexed reference to a font that was added to the document
 #[derive(Debug)]
 pub struct FontRef {
-    pub(super) name: String
+    /// Name of the font
+    pub(crate) name: String,
+    /// Kerning widths (for actually writing the text)
+    /// font_data: The data of the font, to get the kerning later on
+    pub font_data: Vec<u8>,
 }
 
 impl FontRef {
     /// Creates a new FontRef from an index
-    pub fn new(index: usize)
+    pub fn new(index: usize, data: Vec<u8>)
     -> Self 
     {
         Self {
             name: format!("F{}", index),
+            font_data: data,
         }
     }
 }
@@ -218,7 +222,7 @@ impl FontList {
     -> FontRef
     {
         let len = self.fonts.len();
-        let font_ref = FontRef::new(len);
+        let font_ref = FontRef::new(len, font.font_bytes.clone());
         self.fonts.insert(font_ref.name.clone(), font);
         font_ref
     }

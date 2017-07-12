@@ -69,6 +69,19 @@ impl PdfLayerReference {
         page_mut.add_xobject(XObject::Image(image.into()))
     }
 
+    /// Add an svg element to the layer
+    /// To be called from the `svg.add_to_layer()` class (see `use_xobject` documentation)
+    pub(crate) fn add_svg<T>(&self, form: T)
+    -> std::result::Result<XObjectRef, T::Error> 
+    where T: std::convert::TryInto<FormXObject>
+    {
+        let doc = self.document.upgrade().unwrap();
+        let mut doc = doc.borrow_mut();
+        let mut page_mut = doc.pages.get_mut(self.page.0).unwrap();
+        let form_data = form.try_into()?;
+        Ok(page_mut.add_xobject(XObject::Form(form_data)))
+    }
+
     /// Instantiate layers, forms and postscript items on the page
     /// __WARNING__: Object must be added to the same page, since the XObjectRef is just a
     /// String, essentially, it can't be checked that this is the case. The caller is 
@@ -108,7 +121,6 @@ impl PdfLayerReference {
 
         if s_x != 0.0 || s_y != 0.0 {
             let scale_ctm = CurTransMat::scale(s_x, s_y); 
-            println!("adding scaling: {:?}", scale_ctm);
             self.internal_add_operation(Box::new(scale_ctm)); 
         }
 
@@ -270,7 +282,7 @@ impl PdfLayerReference {
     /// Add text to the file
     #[inline]
     pub fn use_text<S>(&self, text: S, font_size: usize, rotation: f64,
-                       x_mm: f64, y_mm: f64, font: FontIndex)
+                       x_mm: f64, y_mm: f64, font: FontRef)
     -> () where S: Into<std::string::String>
     {
             use lopdf::Object::*;
@@ -284,41 +296,17 @@ impl PdfLayerReference {
             let doc = self.document.upgrade().unwrap();
             let mut doc = doc.borrow_mut();
 
-            // load font from in-memory buffer
-            // temporarily clone the font stream. This way we can still mutably borrow the document
-            let font_idx = {
-                let idx = doc.contents[(font.0).0].clone();
-                match idx {
-                    lopdf::Object::Reference(r) => r,
-                    _ => panic!(),
-                }
-            };
+            let library = ft::Library::init().unwrap();
+            let face = library.new_memory_face(&*font.font_data, 0)
+                              .expect("invalid memory font in use_text()");
 
+            let text_to_embed = text.into();
 
-            let list_gid: Vec<u16>;
-            let face_name;
-
-            {
-                let font =  doc.inner_doc.get_object(font_idx).unwrap();
-                                
-                let font_data = match *font {
-                    lopdf::Object::Stream(ref s) => s,
-                    _ => { panic!("use_text() called with a corrupt font index!") }
-                };
-
-                let library = ft::Library::init().unwrap();
-                let face = library.new_memory_face(&*font_data.content, 0)
-                                  .expect("invalid memory font in use_text()");
-
-                face_name = face.postscript_name().unwrap();
-                let text_to_embed = text.into();
-
-                // convert into list of glyph ids - unicode magic
-                list_gid = text_to_embed
-                           .chars()
-                           .map(|x| face.get_char_index(x as usize) as u16)
-                           .collect();
-            }
+            // convert into list of glyph ids - unicode magic
+            let list_gid: Vec<u16> = text_to_embed
+                       .chars()
+                       .map(|x| face.get_char_index(x as usize) as u16)
+                       .collect();
 
             let bytes: Vec<u8> = list_gid.iter()
                 .flat_map(|x| vec!((x >> 8) as u8, (x & 255) as u8))
@@ -334,7 +322,7 @@ impl PdfLayerReference {
             ));
 
             ref_mut_layer.operations.push(Operation::new("Tf", 
-                vec![face_name.into(), (font_size as i64).into()]
+                vec![font.name.into(), (font_size as i64).into()]
             ));
             ref_mut_layer.operations.push(Operation::new("Td", 
                 vec![x_mm.into(), y_mm.into()]

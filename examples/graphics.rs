@@ -4,7 +4,8 @@ use printpdf::*;
 use std::fs::File;
 
 fn main() {
-    let (doc, page1, layer1) = PdfDocument::new("printpdf graphics test", 210.0, 297.0, "Layer 1");
+
+    let (doc, page1, layer1) = PdfDocument::new("printpdf graphics test",297.0, 210.0, "Layer 1");
     let current_layer = doc.get_page(page1).get_layer(layer1);
 
     // Quadratic shape. The "false" determines if the next (following) 

@@ -77,7 +77,5 @@ impl Image {
                 layer.use_xobject(image, translate_x, translate_y, rotate_cw, Some(image_w), Some(image_h)); 
             }
         }
-
-
     }
 }

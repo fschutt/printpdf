@@ -16,9 +16,8 @@ use std::cell::RefCell;
 pub struct PdfDocument {
     /// Pages of the document
     pub(super) pages: Vec<PdfPage>,
-    /// PDF contents as references.
-    /// As soon as data gets added to the inner_doc, a reference gets pushed into here
-    pub(super) contents: Vec<lopdf::Object>,
+    /// Fonts that are shared inside the document
+    pub(super) fonts: FontList,
     /// Inner PDF document
     pub(super) inner_doc: lopdf::Document,
     /// Document ID. Must be changed if the document is loaded / parsed from a file
@@ -44,7 +43,7 @@ impl PdfDocument {
         let doc = Self {
             pages: Vec::new(),
             document_id: rand::thread_rng().gen_ascii_chars().take(32).collect(),
-            contents: Vec::new(),
+            fonts: FontList::new(),
             inner_doc: lopdf::Document::with_version("1.3"),
             metadata: PdfMetadata::new(document_title, 1, false, PdfConformance::X3_2002_PDF_1_3)
         };
@@ -137,66 +136,16 @@ impl PdfDocumentReference {
         (page_index, pdf_layer_index)
     }
 
-    /// Add arbitrary Pdf Objects. These are tracked by reference and get 
-    /// instantiated / referenced when the document is saved.
-    #[inline]
-    pub fn add_arbitrary_content<C>(&self, content: Box<C>, only_use_first_item: bool)
-    -> PdfContentIndex where C: 'static + IntoPdfObject
-    {
-        let mut doc = self.document.borrow_mut();
-        let obj_id = if only_use_first_item {
-            doc.inner_doc.add_object(content.into_obj()[0].to_owned())
-        } else {
-            doc.inner_doc.add_object(content.into_obj())
-        };
-
-        doc.contents.push(lopdf::Object::Reference(obj_id));
-        PdfContentIndex(doc.contents.len() - 1)
-    }
-
     /// Add a font from a font stream
     #[inline]
     pub fn add_font<R>(&self, font_stream: R)
-    -> ::std::result::Result<FontIndex, Error> where R: ::std::io::Read
+    -> ::std::result::Result<FontRef, Error> where R: ::std::io::Read
     {
-        let font = Font::new(font_stream)?;
-        let index = self.add_arbitrary_content(Box::new(font), true);
+        let font = Font::new(font_stream)?; 
+        let mut doc = self.document.borrow_mut();
+        let font_ref = doc.fonts.add_font(font);
 
-        // let doc = self.document.borrow_mut();
-        // let font_ref = doc.contents.get(index.0).unwrap();
-        // let font = doc.inner_doc.get_object(font_ref);
-
-        // let font_stream_id = &self.doc.add_object(font_stream);
-        // font_descriptor_vec.push(("FontFile3".into(), Reference(*font_stream_id)));
-
-        // Create dictionaries and add to DOM
-        // let font_descriptor_id = &self.doc.add_object(LoDictionary::from_iter(font_descriptor_vec));
-        // desc_fonts.set("FontDescriptor".to_string(), Reference(*font_descriptor_id));
-
-        // Embed character ids
-        // let cid_to_unicode_map_stream_id = &self.doc.add_object(Stream(cid_to_unicode_map_stream));
-        // font_vec.push(("ToUnicode".into(), Reference(*cid_to_unicode_map_stream_id)));
-        // let char_to_cid_map_stream_id = &self.doc.add_object(Stream(char_to_cid_map_stream));
-        // font_vec.push(("Encoding".into(), Name("Identity-H".into())));
-
-        // let desc_fonts_id = &self.doc.add_object(Array(vec![Dictionary(desc_fonts)]));
-        // font_vec.push(("DescendantFonts".into(), Reference(*desc_fonts_id)));
-
-        // let font = LoDictionary::from_iter(font_vec);
-        // &self.fonts.insert(face_name.clone(), font);
-
-        Ok(FontIndex(index))
-    }
-
-    /// Add SVG content to the document
-    #[inline]
-    pub fn add_svg<R>(&self, svg_data: R)
-    -> ::std::result::Result<SvgIndex, Error>
-    where R: ::std::io::Read
-    {
-        let svg_obj = Svg::new(svg_data)?;
-        let index = self.add_arbitrary_content(Box::new(svg_obj), false);
-        Ok(SvgIndex(index))
+        Ok(font_ref)
     }
 
     // ----- GET FUNCTIONS
@@ -211,13 +160,13 @@ impl PdfDocumentReference {
     }
 
     /// Drops the PDFDocument, returning the inner `lopdf::Document`. 
-    /// Document may be only half-written
+    /// Document may be only half-written, use only in extreme cases
     #[inline]
     pub unsafe fn get_inner(self)
-    -> (lopdf::Document, Vec<lopdf::Object>)
+    -> lopdf::Document
     {
         let doc = Rc::try_unwrap(self.document).unwrap().into_inner();
-        (doc.inner_doc, doc.contents)
+        doc.inner_doc
     }
 
     // --- MISC FUNCTIONS
