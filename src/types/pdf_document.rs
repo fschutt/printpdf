@@ -152,16 +152,22 @@ impl PdfDocumentReference {
     {
         let font = Font::new(font_stream)?; 
         let name = font.face_name.clone();
+        
+        let possible_ref = {
+            let doc = self.document.borrow();
+            match doc.fonts.get(&name) { Some(f) => Some(f.clone()), None => None }
+        };
 
-        if let Some(direct_font_ref) = self.document.borrow_mut().fonts.get(&name) {
-            return Ok((*direct_font_ref).clone());
+        if let Some(direct_font_ref) = possible_ref {
+            return Ok((direct_font_ref));
         } else {
+            let mut doc = self.document.borrow_mut();
             let direct_ref = DirectFontRef { 
-                inner_obj: self.document.borrow_mut().inner_doc.new_object_id(), 
+                inner_obj: doc.inner_doc.new_object_id(), 
                 data: font 
             };
-            self.document.borrow_mut().fonts.insert(name.clone(), direct_ref);
-            let font_ref = self.document.borrow_mut().fonts.get(&name).unwrap().clone();
+            doc.fonts.insert(name.clone(), direct_ref);
+            let font_ref = doc.fonts.get(&name).unwrap().clone();
             return Ok(font_ref);
         }
     }
