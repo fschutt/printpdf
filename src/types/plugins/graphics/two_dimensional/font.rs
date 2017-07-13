@@ -57,7 +57,7 @@ impl Font {
 
         let font_stream = LoStream::new(
             LoDictionary::from_iter(vec![
-                /*("Length1", Integer(font_buf_ref.len() as i64)),*/
+                ("Length1", Integer(font_buf_ref.len() as i64)),
                 ("Subtype", Name("CIDFontType0C".into())),
                 ]),
             font_buf_ref.to_vec());
@@ -157,7 +157,7 @@ impl Font {
                     ("Ordering", String("Identity".into(), StringFormat::Literal)),
                     ("Supplement", Integer(0)),
             ]))),
-            /* ("CIDToGIDMap", Reference(cid_to_unicode_map_stream_id)), */
+            /* CIDToGIDMap ??? */
         ]);
 
         // todo: fontbbox get calculated incorrectly
@@ -174,7 +174,7 @@ impl Font {
                                Dictionary(LoDictionary::from_iter(font_vec))];
 */
         font_vec.push(("DescendantFonts".into(), Array(vec![Dictionary(desc_fonts)])));
-        // font_vec.push("ToUnicode", );
+        font_vec.push(("ToUnicode".into(), Reference(cid_to_unicode_map_stream_id)));
         
         lopdf::Dictionary::from_iter(font_vec)
     }
