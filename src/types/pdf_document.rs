@@ -289,7 +289,7 @@ impl PdfDocumentReference {
             // this will collect the resources needed for rendering this page
             let (resources_page, layer_streams) = page.collect_resources_and_streams(&mut doc.inner_doc);
 
-            if !(resources_page.len() == 0) {
+            if resources_page.len() > 0 {
                 let resources_page_id = doc.inner_doc.add_object(lopdf::Object::Dictionary(resources_page));
                 p.set("Resources", Reference(resources_page_id));
             }
@@ -317,6 +317,23 @@ impl PdfDocumentReference {
         }
 
         pages.set::<_, LoObject>("Kids".to_string(), page_ids.into());
+
+        // add all fonts / other resources
+        let mut all_fonts_dict = lopdf::Dictionary::new();
+
+        for (face_name, direct_font_ref) in doc.fonts.into_iter() {
+
+            let font_dict_collected = direct_font_ref.data.into_obj_with_document(&mut doc.inner_doc);
+            let font_dict_ref = doc.inner_doc.objects.insert(direct_font_ref.inner_obj,
+                lopdf::Object::Dictionary(font_dict_collected));
+
+            if let Some(font_dict) = font_dict_ref {
+                all_fonts_dict.set(face_name, font_dict);
+            }
+        }
+
+        pages.set::<_, LoObject>("Resources".to_string(), all_fonts_dict.into());
+
         doc.inner_doc.objects.insert(pages_id, Dictionary(pages));
 
         // save inner document

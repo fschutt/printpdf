@@ -228,7 +228,6 @@
 #![feature(custom_attribute)]
 #![feature(drop_types_in_const)]
 #![allow(unused_variables)]
-#![warn(missing_docs)]
 
 #[macro_use] extern crate error_chain;
 #[macro_use] extern crate log;

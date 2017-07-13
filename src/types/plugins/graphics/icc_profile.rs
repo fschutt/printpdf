@@ -2,8 +2,6 @@
 
 extern crate lopdf;
 
-use *;
-
 /// Type of the icc profile
 #[derive(Debug, Clone, PartialEq)]
 pub enum IccProfileType {

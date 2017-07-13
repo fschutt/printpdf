@@ -94,7 +94,7 @@ impl PdfResources {
             if graphics_state_dict.len() > 0 {
                 dict.set("ExtGState", lopdf::Object::Dictionary(graphics_state_dict));
             }
-
+            
             return dict;
     }
 }

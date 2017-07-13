@@ -4,8 +4,6 @@ extern crate freetype as ft;
 
 use *;
 use std::collections::HashMap;
-use std::rc::Weak;
-use std::cell::RefCell;
 
 /// The font
 #[derive(Debug, Clone)]
@@ -37,8 +35,8 @@ impl Font {
     }
 
     /// Takes the font and adds it to the document and consumes the font
-    fn into_obj_with_document(self, doc: &mut lopdf::Document)
-    -> Vec<lopdf::Object>
+    pub(crate) fn into_obj_with_document(self, doc: &mut lopdf::Document)
+    ->lopdf::Dictionary
     {
         use lopdf::Object::*;
         use lopdf::Object;
@@ -163,14 +161,14 @@ impl Font {
         // todo: fontbbox get calculated incorrectly
         let font_bbox = vec![ Integer(0), Integer(max_height), Integer(total_width), Integer(max_height) ];
         font_descriptor_vec.push(("FontBBox".into(), Array(font_bbox)));
-
+/*
         let pdf_obj_vec = vec![Stream(font_stream),
                                Dictionary(LoDictionary::from_iter(font_descriptor_vec)),
                                Stream(cid_to_unicode_map_stream),
                                Array(vec![Dictionary(desc_fonts)]),
                                Dictionary(LoDictionary::from_iter(font_vec))];
-                               
-        pdf_obj_vec
+*/
+        desc_fonts
     }
 }
 
@@ -253,6 +251,7 @@ impl Into<lopdf::Dictionary> for FontList {
     {
         let mut font_dict = lopdf::Dictionary::new();
 
+        
         for (indirect_ref, direct_ref) in self.fonts.into_iter() {
             font_dict.set(indirect_ref.name, lopdf::Object::Reference(direct_ref.inner_obj));
         }

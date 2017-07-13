@@ -1,7 +1,6 @@
 extern crate lopdf;
 extern crate svg;
 
-use traits::*;
 use *;
 
 /// Unit for SVG elements. Uses uom crate for normalization

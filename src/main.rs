@@ -22,7 +22,6 @@ fn main() {
     let direct_font = doc.add_font(roboto_font_file).unwrap();
     let indirect_font = current_layer.add_font(direct_font);
     current_layer.use_text(text, 48, 0.0, 200.0, 200.0, indirect_font);
-    
 /*
     // A special thing is transcoding SVG files directly into PDF (for mapping symbols)    
     // Specify the lower left corner of the SVG
