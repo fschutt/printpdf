@@ -63,11 +63,12 @@ impl Font {
             font_buf_ref.to_vec());
 
         // Begin setting required font attributes
-        let font_vec: Vec<(std::string::String, Object)> = vec![
+        let mut font_vec: Vec<(std::string::String, Object)> = vec![
             ("Type".into(), Name("Font".into())),
             ("Subtype".into(), Name("Type0".into())),
             ("BaseFont".into(), Name(face_name.clone().into_bytes())),
             ("Encoding".into(), Name("Identity-H".into())),
+            /* Missing DescendantFonts and ToUnicode */
         ];
 
         let mut font_descriptor_vec: Vec<(std::string::String, Object)> = vec![
@@ -144,8 +145,9 @@ impl Font {
 
         cid_to_unicode_map.push_str(include_str!("../../../../templates/gid_to_unicode_end.txt"));
         let cid_to_unicode_map_stream = LoStream::new(LoDictionary::new(), cid_to_unicode_map.as_bytes().to_vec());
+        let cid_to_unicode_map_stream_id = doc.add_object(cid_to_unicode_map_stream);
 
-        let desc_fonts = LoDictionary::from_iter(vec![
+        let mut desc_fonts = LoDictionary::from_iter(vec![
             ("Type", Name("Font".into())),
             ("Subtype", Name("CIDFontType0".into())),
             ("BaseFont", Name(face_name.clone().into())),
@@ -155,12 +157,15 @@ impl Font {
                     ("Ordering", String("Identity".into(), StringFormat::Literal)),
                     ("Supplement", Integer(0)),
             ]))),
-            /*("CIDToGIDMap", Reference(*cid_system_info_id)),*/
+            /* ("CIDToGIDMap", Reference(cid_to_unicode_map_stream_id)), */
         ]);
 
         // todo: fontbbox get calculated incorrectly
         let font_bbox = vec![ Integer(0), Integer(max_height), Integer(total_width), Integer(max_height) ];
         font_descriptor_vec.push(("FontBBox".into(), Array(font_bbox)));
+        font_descriptor_vec.push(("FontFile3".into(), Reference(doc.add_object(font_stream))));
+        let font_descriptor_vec_id = doc.add_object(LoDictionary::from_iter(font_descriptor_vec));
+        desc_fonts.set("FontDescriptor", Reference(font_descriptor_vec_id));
 /*
         let pdf_obj_vec = vec![Stream(font_stream),
                                Dictionary(LoDictionary::from_iter(font_descriptor_vec)),
@@ -168,7 +173,10 @@ impl Font {
                                Array(vec![Dictionary(desc_fonts)]),
                                Dictionary(LoDictionary::from_iter(font_vec))];
 */
-        desc_fonts
+        font_vec.push(("DescendantFonts".into(), Array(vec![Dictionary(desc_fonts)])));
+        // font_vec.push("ToUnicode", );
+        
+        lopdf::Dictionary::from_iter(font_vec)
     }
 }
 

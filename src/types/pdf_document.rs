@@ -331,9 +331,9 @@ impl PdfDocumentReference {
                 all_fonts_dict.set(face_name, font_dict);
             }
         }
-
+/*
         pages.set::<_, LoObject>("Resources".to_string(), all_fonts_dict.into());
-
+*/
         doc.inner_doc.objects.insert(pages_id, Dictionary(pages));
 
         // save inner document
