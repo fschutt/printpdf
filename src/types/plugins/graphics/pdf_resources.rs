@@ -15,6 +15,8 @@ pub struct PdfResources {
 }
 
 impl PdfResources {
+
+    /// Creates a new PdfResources struct (resources for exactly one PDF page)
     pub fn new()
     -> Self
     {
@@ -42,6 +44,16 @@ impl PdfResources {
         self.fonts.add_font(font)
     }
 
+    /// Returns a direct reference (object ID) to the font from an 
+    /// indirect reference (postscript name)
+    #[inline]
+    pub fn get_font(&self, font: &IndirectFontRef)
+    -> Option<&DirectFontRef>
+    {
+        self.fonts.get_font(font)
+    }
+
+    /// Adds an XObject to the page
     #[inline]
     pub fn add_xobject(&mut self, xobj: XObject)
     -> XObjectRef
@@ -49,6 +61,7 @@ impl PdfResources {
         self.xobjects.add_xobject(xobj)
     }
 
+    /// __STUB__: Adds a pattern to the resources, to be used like a color
     #[inline]
     pub fn add_pattern(&mut self, pattern: Pattern)
     -> PatternRef

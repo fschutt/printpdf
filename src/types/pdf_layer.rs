@@ -325,9 +325,9 @@ impl PdfLayerReference {
             let mut kerning_data = Vec::<u8>::new();
 
             {
-                let font_data = doc.fonts.get(&font.name).expect("Invalid font reference on layer");
+                let face_direct_ref = doc.pages.get(self.page.0).unwrap().resources.get_font(&font).unwrap();
                 let library = ft::Library::init().unwrap();
-                let face = library.new_memory_face(&*font_data.data.font_bytes, 0)
+                let face = library.new_memory_face(&*face_direct_ref.data.font_bytes, 0)
                                   .expect("invalid memory font in use_text()");
 
                 // convert into list of glyph ids - unicode magic

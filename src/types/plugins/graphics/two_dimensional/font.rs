@@ -236,13 +236,27 @@ impl FontList {
         self.fonts.insert(font_ref.clone(), font);
         font_ref
     }
+
+    /// Turns an indirect font reference into a direct one 
+    /// (warning): clones the direct font reference
+    #[inline]
+    pub fn get_font(&self, font: &IndirectFontRef)
+    -> Option<&DirectFontRef>
+    {
+        self.fonts.get(font)
+    }
 }
 
 impl Into<lopdf::Dictionary> for FontList {
     fn into(self)
     -> lopdf::Dictionary
     {
-        // todo
-        lopdf::Dictionary::new()
+        let mut font_dict = lopdf::Dictionary::new();
+
+        for (indirect_ref, direct_ref) in self.fonts.into_iter() {
+            font_dict.set(indirect_ref.name, lopdf::Object::Reference(direct_ref.inner_obj));
+        }
+
+        return font_dict;
     }
 }
