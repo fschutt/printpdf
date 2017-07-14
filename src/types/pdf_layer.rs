@@ -311,9 +311,8 @@ impl PdfLayerReference {
             use lopdf::StringFormat::Hexadecimal;
             use lopdf::content::Operation;
 
-            // TODO !!! 
-            // self.add_arbitrary_resource("Font", font.clone());
-
+            let text = text.into();
+            
             // we need to transform the characters into glyph ids and then add them to the layer
             let doc = self.document.upgrade().unwrap();
             let mut doc = doc.borrow_mut();
@@ -322,7 +321,7 @@ impl PdfLayerReference {
             let mut list_gid = Vec::<u16>::new();
             // kerning for each glyoh id. If no kerning is present, will be 0
             // must be the same length as list_gid
-            let mut kerning_data = Vec::<u8>::new();
+            let mut kerning_data = Vec::<freetype::Vector>::new();
 
             {
                 let face_direct_ref = doc.pages.get(self.page.0).unwrap().resources.get_font(&font).unwrap();
@@ -331,11 +330,22 @@ impl PdfLayerReference {
                                   .expect("invalid memory font in use_text()");
 
                 // convert into list of glyph ids - unicode magic
-                list_gid = text.into().chars()
-                           .map(|x| face.get_char_index(x as usize) as u16)
-                           .collect();
+                let char_iter = text.chars();
+                let char_iter_2 = text.chars();
+                let mut peekable = char_iter_2.peekable();
+                peekable.next(); /* offset by 1 character */
 
-                // todo: kerning here
+                for ch in char_iter {
+                    use freetype::face::KerningMode;
+                    list_gid.push(face.get_char_index(ch as usize) as u16);
+                    if let Some(next) = peekable.peek() {
+                        let char_next = next.clone();
+                        let possible_kerning = face.get_kerning(ch as u32, char_next as u32, KerningMode::KerningDefault);
+                        kerning_data.push(possible_kerning.unwrap_or(freetype::ffi::FT_Vector { x: 1000, y: 1000 }));
+                    }
+
+                    peekable.next();
+                }
             }
 
             let bytes: Vec<u8> = list_gid.iter()

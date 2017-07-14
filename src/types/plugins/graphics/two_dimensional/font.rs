@@ -95,15 +95,22 @@ impl Font {
             if glyph_id != 0 {
                 // this should not fail - if we can get the glyph id, we can get the glyph itself
                 if face.load_glyph(glyph_id, ft::face::NO_SCALE).is_ok() {
+                    
                     let glyph_slot = face.glyph();
-                    let glyph_metrics = glyph_slot.metrics();
-
-                    if glyph_metrics.height > max_height{
-                        max_height = glyph_metrics.height;
+                    let glyph_raw = glyph_slot.raw();
+                    let glyph_c = glyph_slot.get_glyph().unwrap();
+                    // this only works for the roboto font
+                    // let w = (glyph_metrics.width + glyph_metrics.horiBearingX) / 2;
+                    // let h = (glyph_metrics.height + glyph_metrics.horiBearingY) / 2;
+                    let w = glyph_raw.advance.x;
+                    let h = glyph_raw.advance.y;
+                    
+                    if h > max_height{
+                        max_height = h;
                     };
 
-                    total_width += glyph_metrics.width;
-                    cmap.insert(glyph_id, (unicode as u32, glyph_metrics.width as u32));
+                    total_width += w;
+                    cmap.insert(glyph_id, (unicode as u32, w as u32));
                 }
             }
         }
