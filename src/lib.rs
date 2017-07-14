@@ -221,13 +221,13 @@
 //! [PDF X/3 technical notes](http://www.pdfxreport.com/lib/exe/fetch.php?media=en:technote_pdfx_checks.pdf)
 //!
 
-#![allow(dead_code)]
+// #![allow(dead_code)]
 #![feature(placement_in_syntax)]
 #![feature(try_from)]
 #![feature(collection_placement)]
 #![feature(custom_attribute)]
 #![feature(drop_types_in_const)]
-#![allow(unused_variables)]
+// #![allow(unused_variables)]
 
 #[macro_use] extern crate error_chain;
 #[macro_use] extern crate log;

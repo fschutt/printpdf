@@ -172,7 +172,7 @@ impl MapDocument {
 		let catalog_id = self.doc.add_object(self.catalog);
 
 		self.doc.trailer.set("Root", Reference(catalog_id));
-		self.doc.compress();
+		// self.doc.compress();
 		self.doc.save(path).unwrap();
 	}
 

@@ -60,7 +60,8 @@ impl Font {
                 ("Length1", Integer(font_buf_ref.len() as i64)),
                 ("Subtype", Name("CIDFontType0C".into())),
                 ]),
-            font_buf_ref.to_vec());
+            font_buf_ref.to_vec())
+        .with_compression(false); /* important! font stream must not be compressed! */
 
         // Begin setting required font attributes
         let mut font_vec: Vec<(std::string::String, Object)> = vec![
