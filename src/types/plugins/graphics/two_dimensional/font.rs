@@ -90,6 +90,8 @@ impl Font {
         let mut cmap = BTreeMap::<u32, (u32, u32)>::new(); // Glyph IDs - (Unicode IDs - character width)
         cmap.insert(0, (0, 1000));
 
+        // face.set_pixel_sizes(1000, 0).unwrap(); // simulate points
+
         for unicode in 0x0000..0xffff {
             let glyph_id = face.get_char_index(unicode);
             if glyph_id != 0 {
@@ -97,14 +99,11 @@ impl Font {
                 if face.load_glyph(glyph_id, ft::face::NO_SCALE).is_ok() {
                     
                     let glyph_slot = face.glyph();
-                    let glyph_raw = glyph_slot.raw();
-                    let glyph_c = glyph_slot.get_glyph().unwrap();
-                    // this only works for the roboto font
-                    // let w = (glyph_metrics.width + glyph_metrics.horiBearingX) / 2;
-                    // let h = (glyph_metrics.height + glyph_metrics.horiBearingY) / 2;
-                    let w = glyph_raw.advance.x;
-                    let h = glyph_raw.advance.y;
-                    
+                    let glyph_metrics = glyph_slot.metrics();
+
+                    let w = glyph_metrics.width;
+                    let h = glyph_metrics.height;
+
                     if h > max_height{
                         max_height = h;
                     };
@@ -169,7 +168,7 @@ impl Font {
             /* CIDToGIDMap ??? */
         ]);
 
-        let font_bbox = vec![ Integer(0), Integer(max_height), Integer(total_width), Integer(max_height) ];
+        let font_bbox = vec![ Integer(0), Integer(max_height as i64), Integer(total_width as i64), Integer(max_height as i64) ];
         font_descriptor_vec.push(("FontBBox".into(), Array(font_bbox)));
         font_descriptor_vec.push(("FontFile3".into(), Reference(doc.add_object(font_stream))));
         let font_descriptor_vec_id = doc.add_object(LoDictionary::from_iter(font_descriptor_vec));
