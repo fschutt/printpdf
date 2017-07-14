@@ -152,7 +152,8 @@ impl Font {
             ("Type", Name("Font".into())),
             ("Subtype", Name("CIDFontType0".into())),
             ("BaseFont", Name(face_name.clone().into())),
-            ("W",  Array(vec![Integer(1), Array(widths)])),
+            ("W",  Array(vec![Integer(0), Array(widths)])),
+            /* W2 for vertical writing? */
             ("CIDSystemInfo", Dictionary(LoDictionary::from_iter(vec![
                     ("Registry", String("Adobe".into(), StringFormat::Literal)),
                     ("Ordering", String("Identity".into(), StringFormat::Literal)),
@@ -161,22 +162,16 @@ impl Font {
             /* CIDToGIDMap ??? */
         ]);
 
-        // todo: fontbbox get calculated incorrectly
         let font_bbox = vec![ Integer(0), Integer(max_height), Integer(total_width), Integer(max_height) ];
         font_descriptor_vec.push(("FontBBox".into(), Array(font_bbox)));
         font_descriptor_vec.push(("FontFile3".into(), Reference(doc.add_object(font_stream))));
         let font_descriptor_vec_id = doc.add_object(LoDictionary::from_iter(font_descriptor_vec));
+        
         desc_fonts.set("FontDescriptor", Reference(font_descriptor_vec_id));
-/*
-        let pdf_obj_vec = vec![Stream(font_stream),
-                               Dictionary(LoDictionary::from_iter(font_descriptor_vec)),
-                               Stream(cid_to_unicode_map_stream),
-                               Array(vec![Dictionary(desc_fonts)]),
-                               Dictionary(LoDictionary::from_iter(font_vec))];
-*/
+
         font_vec.push(("DescendantFonts".into(), Array(vec![Dictionary(desc_fonts)])));
         font_vec.push(("ToUnicode".into(), Reference(cid_to_unicode_map_stream_id)));
-        
+               
         lopdf::Dictionary::from_iter(font_vec)
     }
 }

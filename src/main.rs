@@ -17,7 +17,7 @@ fn main() {
 
     let current_layer = doc.get_page(page1).get_layer(layer1);
     
-    let text = "стуфхfцчшщъыьэюя";
+    let text = "hallo";
     let roboto_font_file = File::open("assets/fonts/RobotoMedium.ttf").unwrap();
     let direct_font = doc.add_font(roboto_font_file).unwrap();
     let indirect_font = current_layer.add_font(direct_font);
