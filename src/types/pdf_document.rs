@@ -149,18 +149,17 @@ impl PdfDocumentReference {
     -> ::std::result::Result<IndirectFontRef, Error> where R: ::std::io::Read
     {
         let font = Font::new(font_stream)?; 
-        let name = font.face_name.clone();
+        // let name = font.face_name.clone();
         
-        let mut font_ref;
+        let font_ref;
 
         let possible_ref = {
             let doc = self.document.borrow();
-            let len = doc.fonts.len();
-            font_ref = IndirectFontRef::new(len);
+            font_ref = IndirectFontRef::new(font.face_name.clone());
             match doc.fonts.get_font(&font_ref) { Some(f) => Some(f.clone()), None => None }
         };
 
-        if let Some(direct_font_ref) = possible_ref {
+        if let Some(_) = possible_ref {
             return Ok(font_ref);
         } else {
             let mut doc = self.document.borrow_mut();
@@ -331,21 +330,8 @@ impl PdfDocumentReference {
         pages.set::<_, LoObject>("Kids".to_string(), page_ids.into());
 
         // add all fonts / other resources shared in the whole document
-        let fonts_dict: lopdf::Dictionary =  doc.fonts.into();
+        let fonts_dict: lopdf::Dictionary =  doc.fonts.into_with_document(&mut doc.inner_doc);
         let mut resources_dict: lopdf::Dictionary = lopdf::Dictionary::new();
-
-/*
-        for (indirect_ref, direct_font_ref) in doc.fonts.fonts.into_iter() {
-
-            let font_dict_collected = direct_font_ref.data.into_obj_with_document(&mut doc.inner_doc);
-            let font_dict_ref = doc.inner_doc.objects.insert(direct_font_ref.inner_obj,
-                lopdf::Object::Dictionary(font_dict_collected));
-
-            if let Some(font_dict) = font_dict_ref {
-                all_fonts_dict.set(indirect_ref.name, font_dict);
-            }
-        }
-*/
 
         if fonts_dict.len() > 0 {
             resources_dict.set("Font", lopdf::Object::Dictionary(fonts_dict));

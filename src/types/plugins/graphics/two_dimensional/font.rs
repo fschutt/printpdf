@@ -35,7 +35,7 @@ impl Font {
     }
 
     /// Takes the font and adds it to the document and consumes the font
-    pub(crate) fn into_obj_with_document(self, doc: &mut lopdf::Document)
+    pub(crate) fn into_with_document(self, doc: &mut lopdf::Document)
     ->lopdf::Dictionary
     {
         use lopdf::Object::*;
@@ -193,7 +193,7 @@ impl PartialEq for Font {
 /// This is a "reference by postscript name"
 #[derive(Debug, Hash, Eq, Clone, PartialEq)]
 pub struct IndirectFontRef {
-    /// Name of the font
+    /// Name of the font (postscript name)
     pub(crate) name: String,
 }
 
@@ -209,11 +209,11 @@ pub struct DirectFontRef {
 
 impl IndirectFontRef {
     /// Creates a new IndirectFontRef from an index
-    pub fn new(index: usize)
-    -> Self 
+    pub fn new<S>(name: S)
+    -> Self where S: Into<String>
     {
         Self {
-            name: format!("F{}", index),
+            name: name.into(),
         }
     }
 }
@@ -264,16 +264,17 @@ impl FontList {
     {
         self.fonts.len()
     }
-}
 
-impl Into<lopdf::Dictionary> for FontList {
-    fn into(self)
-    -> lopdf::Dictionary
+    pub(crate) fn into_with_document(self, doc: &mut lopdf::Document)
+    ->lopdf::Dictionary
     {
         let mut font_dict = lopdf::Dictionary::new();
-        
-        for (indirect_ref, direct_ref) in self.fonts.into_iter() {
-            font_dict.set(indirect_ref.name, lopdf::Object::Reference(direct_ref.inner_obj));
+
+        for (indirect_ref, direct_font_ref) in self.fonts.into_iter() {
+
+            let font_dict_collected = direct_font_ref.data.into_with_document(doc);
+            doc.objects.insert(direct_font_ref.inner_obj.clone(), lopdf::Object::Dictionary(font_dict_collected));
+            font_dict.set(indirect_ref.name,lopdf::Object::Reference(direct_font_ref.inner_obj));
         }
 
         return font_dict;
