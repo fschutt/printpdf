@@ -115,7 +115,7 @@
 //!     // translate x, translate y, rotate, scale x, scale y
 //!     // by default, an image is optimized to 300 DPI (if scale is None)
 //!     // rotations and translations are always in relation to the lower left corner
-//!     image.add_to_layer(current_layer.clone(), None, None, None, Some(100.0), Some(100.0));
+//!     image.add_to_layer(current_layer.clone(), None, None, None, None, None, None);
 //!
 //!     // you can also construct images manually from your data:
 //!     let mut image_file_2 = ImageXObject { 

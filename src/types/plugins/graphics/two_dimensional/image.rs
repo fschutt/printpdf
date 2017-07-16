@@ -58,8 +58,8 @@ impl Image {
         let dpi = dpi.unwrap_or(300.0);
 
         //Image at the given dpi should 1px = 1pt
-        let image_w = self.image.width as f64 * (mm_to_pt!(self.image.width as f64  / dpi * 25.4) / self.image.width as f64);
-        let image_h = self.image.height as f64 * (mm_to_pt!(self.image.height as f64 / dpi * 25.4) / self.image.height as f64);
+        let image_w = mm_to_pt!(self.image.width as f64 * (25.4 / dpi));
+        let image_h = mm_to_pt!(self.image.height as f64 * (25.4 / dpi));
 
         let image = layer.add_image(self.image);
 
@@ -68,7 +68,6 @@ impl Image {
                 layer.use_xobject(image, translate_x, translate_y, rotate_cw, Some(scale_x * image_w), Some(image_h * scale_y));
             } else {
                 layer.use_xobject(image, translate_x, translate_y, rotate_cw, Some(scale_x * image_w), Some(image_h));
-
             }
         } else {
             if let Some(scale_y) = scale_y {
