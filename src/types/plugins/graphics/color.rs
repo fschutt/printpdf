@@ -1,11 +1,11 @@
 //! Color module (CMYK or RGB). Shared between 2D and 3D module.
 
 use image;
-
 use lopdf;
-use glob_defines::*;
-use traits::IntoPdfStreamOperation;
+
 use *;
+use glob_defines::*;
+use lopdf::content::Operation;
 
 /// Tuple for differentiating outline and fill colors
 #[derive(Debug, Clone, PartialEq)]
@@ -14,10 +14,10 @@ pub enum PdfColor {
     OutlineColor(Color),
 }
 
-impl IntoPdfStreamOperation for PdfColor {
+impl Into<Operation> for PdfColor {
 
-    fn into_stream_op(self: Box<Self>)
-    -> Vec<lopdf::content::Operation>
+    fn into(self)
+    -> Operation
     {
         use lopdf::Object::*;
         use lopdf::content::Operation;
@@ -25,7 +25,7 @@ impl IntoPdfStreamOperation for PdfColor {
         // todo: incorporate ICC profile instead of just setting the default device cmyk color space
         let (color_identifier, color_vec) = {
             use self::PdfColor::*;
-            match *self {
+            match self {
                 FillColor(fill) => {
                     let ci = match fill {
                         Color::Rgb(_) => { OP_COLOR_SET_FILL_CS_DEVICERGB }
@@ -50,7 +50,7 @@ impl IntoPdfStreamOperation for PdfColor {
             }
         };
 
-        vec![Operation::new(color_identifier, color_vec)]
+        Operation::new(color_identifier, color_vec)
     }
 }
 

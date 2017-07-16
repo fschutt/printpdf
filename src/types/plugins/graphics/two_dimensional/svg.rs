@@ -114,8 +114,7 @@ impl Svg {
     pub fn add_to_layer(self, layer: PdfLayerReference,
                         translate_x: Option<f64>, translate_y: Option<f64>,
                         rotate_cw: Option<f64>,
-                        scale_x: Option<f64>, scale_y: Option<f64>,
-                        dpi: Option<f64>)
+                        scale_x: Option<f64>, scale_y: Option<f64>)
     -> std::result::Result<(), std::io::Error>
     {
         let svg_w: f64 = self.width.clone().unwrap_or(SvgUnit::Pt(10.0)).into();
@@ -130,7 +129,6 @@ impl Svg {
                 layer.use_xobject(svg_ref, translate_x, translate_y, rotate_cw, Some(scale_x * svg_w), Some(svg_h * scale_y));
             } else {
                 layer.use_xobject(svg_ref, translate_x, translate_y, rotate_cw, Some(scale_x * svg_w), Some(svg_h));
-
             }
         } else {
             if let Some(scale_y) = scale_y {
@@ -156,7 +154,7 @@ impl std::convert::TryInto<FormXObject> for Svg {
         Ok(FormXObject {
             form_type: FormType::Type1,
             bytes: vec_u8,
-            matrix: Some(CurTransMat::identity()),
+            matrix: Some(CurTransMat::Identity),
             resources: None,
             group: None,
             ref_dict: None,

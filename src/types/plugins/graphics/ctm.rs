@@ -1,13 +1,14 @@
 //! Current transformation matrix, for transforming shapes (rotate, translate, scale)
 
 use lopdf;
-use traits::IntoPdfStreamOperation;
+use lopdf::content::Operation;
 
 /// PDF "current transformation matrix". Once set, will operate on all following shapes,
 /// until the `layer.restore_graphics_state()` is called. It is important to 
 /// call `layer.save_graphics_state()` earlier.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum CurTransMat {
+
     /// Translation matrix (in millimeter from bottom left corner)
     /// X and Y can have different values
     Translate(f64, f64),
@@ -17,41 +18,18 @@ pub enum CurTransMat {
     /// X and Y can have different values
     Scale(f64, f64),
     /// Identity matrix
-    Identity
-}
+    Identity,
 
-impl CurTransMat {
-
-    /// Creates a translation matrix
-    #[inline]
-    pub fn translate(x: f64, y: f64)
-    -> Self {
-        CurTransMat::Translate(x, y)
-    }
-
-    /// Returns a rotation matrix 
-    /// Input: rotation (clockwise) in degrees
-    #[inline]
-    pub fn rotate(rot: f64)
-    -> Self {
-        CurTransMat::Rotate(rot)
-    }
-
-    /// Returns a scaling matrix
-    #[inline]
-    pub fn scale(x: f64, y: f64)
-    -> Self {
-        CurTransMat::Scale(x, y)
-    }
-
-	/// Returns a default CTM that does nothing.
-    /// Also called "identity" matrix
-    #[inline]
-	pub fn identity()
-	-> Self
-	{
-		CurTransMat::Identity
-	}
+    /// Text rotation matrix. Text placement is a bit different, but uses the same
+    /// basic concepts as a CTM that's why it's merged here
+    TextRotate(f64),
+    /// Text scaling matrix, used for spacing characters 
+    TextScale(f64, f64),
+    /// Text translate matrix, used for indenting (transforming) text 
+    /// (different to regular text placement)
+    TextTranslate(f64, f64),
+    /// Text identity matrix. For completeness, may be useful
+    TextIdentity,
 }
 
 impl Into<[f64; 6]> for CurTransMat {
@@ -60,27 +38,35 @@ impl Into<[f64; 6]> for CurTransMat {
     {
         use CurTransMat::*;
         match self {
-            Translate(x, y) => { [ 1.0, 0.0, 0.0, 1.0, mm_to_pt!(x), mm_to_pt!(y) ]  /* 1 0 0 1 x y cm */ }
-            Rotate(rot) => { let rad = (360.0 - rot).to_radians(); [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), 0.0, 0.0 ] /* cos sin -sin cos 0 0 cm */ }
-            Scale(x, y) => { [ x, 0.0, 0.0, y, 0.0, 0.0 ] /* x 0 0 y 0 0 cm */ }
-            Identity => { [ 1.0, 0.0, 0.0, 1.0, 0.0, 0.0 ] }
+            Translate(x, y) | TextTranslate(x, y) => { [ 1.0, 0.0, 0.0, 1.0, mm_to_pt!(x), mm_to_pt!(y) ]  /* 1 0 0 1 x y cm */ }
+            Rotate(rot) | TextRotate(rot) => { let rad = (360.0 - rot).to_radians(); [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), 0.0, 0.0 ] /* cos sin -sin cos 0 0 cm */ }
+            Scale(x, y) | TextScale(x, y) => { [ x, 0.0, 0.0, y, 0.0, 0.0 ] /* x 0 0 y 0 0 cm */ }
+            Identity | TextIdentity => { [ 1.0, 0.0, 0.0, 1.0, 0.0, 0.0 ] }
         }
     }
 }
 
-
-impl IntoPdfStreamOperation for CurTransMat {
+impl Into<Operation> for CurTransMat {
 	
 	/// Consumes the object and converts it to an PDF stream operation
-	fn into_stream_op(self: Box<Self>)
-	-> Vec<lopdf::content::Operation>
+	fn into(self)
+	-> Operation
 	{
 		use lopdf::Object::*;
-        let s = *self;
-        let matrix_nums: [f64; 6] = s.into();
+        let matrix_nums: [f64; 6] = self.clone().into();
         let matrix: Vec<lopdf::Object> = matrix_nums.to_vec().into_iter().map(|float| Real(float)).collect();
 
-		vec![lopdf::content::Operation::new("cm", matrix)]
+        use CurTransMat::*;
+
+        match self {
+            // text matrices have different operators
+            TextTranslate(_, _) | TextRotate(_) |
+            TextScale(_, _)     | TextIdentity   => Operation::new("Tm", matrix),
+            
+            // regular matrix
+            _ => Operation::new("cm", matrix),
+        }
+		
 	}
 }
 

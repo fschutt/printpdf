@@ -692,10 +692,10 @@ impl Into<lopdf::Object> for ExtendedGraphicsState {
             }
         }
 
-        /* 
-           todo: transfer functions, halftone functions, black generation, undercolor removal
-           these types cannot yet be converted into lopdf::Objects
-        */
+        // todo: transfer functions, halftone functions, 
+        // black generation, undercolor removal
+        // these types cannot yet be converted into lopdf::Objects, 
+        // need to implement Into<Object> for them
 
         if self.changed_fields.contains(BLACK_GENERATION) { 
             if let &Some(ref black_generation) = &self.black_generation {
@@ -1401,13 +1401,12 @@ impl Into<i64> for LineJoinStyle {
     }
 }
 
-impl IntoPdfStreamOperation for LineJoinStyle {
-    fn into_stream_op(self: Box<Self>)
-    -> Vec<Operation>
+impl Into<Operation> for LineJoinStyle {
+    fn into(self)
+    -> Operation
     {
-        let data = *self;
-        let line_join_num: i64 = data.into();
-        vec![Operation::new("j", vec![Integer(line_join_num)])]
+        let line_join_num: i64 = self.into();
+        Operation::new("j", vec![Integer(line_join_num)])
     }
 }
 
@@ -1446,12 +1445,11 @@ impl Into<i64> for LineCapStyle {
     }
 }
 
-impl IntoPdfStreamOperation for LineCapStyle {
-    fn into_stream_op(self: Box<Self>)
-    -> Vec<Operation>
+impl Into<Operation> for LineCapStyle {
+    fn into(self)
+    -> Operation
     {
-        let data = *self;
-        vec![Operation::new("J", vec![Integer(data.into())])]
+        Operation::new("J", vec![Integer(self.into())])
     }
 }
 
@@ -1552,16 +1550,6 @@ impl Into<Operation> for LineDashPattern {
         let (dash_array, offset) = self.into();
         let dash_array_ints = dash_array.into_iter().map(|int| Integer(int)).collect();
         Operation::new("d", vec![Array(dash_array_ints), Integer(offset)])
-    }
-}
-
-impl IntoPdfStreamOperation for LineDashPattern {
-    fn into_stream_op(self: Box<Self>)
-    -> Vec<Operation>
-    {
-        let s = *self;
-        let op: Operation = s.into();
-        vec![op]
     }
 }
 

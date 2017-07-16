@@ -5,6 +5,7 @@ use *;
 use indices::*;
 use std::rc::Weak;
 use std::cell::RefCell;
+use lopdf::content::Operation;
 
 /// One layer of PDF data
 #[derive(Debug)]
@@ -59,7 +60,10 @@ impl PdfLayerReference {
     /// Use has_fill to determine if the line should be filled. 
     pub fn add_shape(&self, line: Line)
     {
-        self.internal_add_operation(Box::new(line));
+        let line_ops = Box::new(line).into_stream_op();
+        for op in line_ops {
+            self.internal_add_operation(op);
+        }
     }
 
     /// Add an image to the layer
@@ -115,18 +119,18 @@ impl PdfLayerReference {
         // translate, rotate, scale - order does not matter
 
         if t_x != 0.0 || t_y != 0.0 { 
-            let translate_ctm = CurTransMat::translate(t_x, t_y); 
-            self.internal_add_operation(Box::new(translate_ctm)); 
+            let translate_ctm = CurTransMat::Translate(t_x, t_y); 
+            self.internal_add_operation(translate_ctm); 
         }
 
         if let Some(rot) = rotate_cw {
-            let rotate_ctm = CurTransMat::rotate(rot); 
-            self.internal_add_operation(Box::new(rotate_ctm));
+            let rotate_ctm = CurTransMat::Rotate(rot); 
+            self.internal_add_operation(rotate_ctm);
         }
 
         if s_x != 0.0 || s_y != 0.0 {
-            let scale_ctm = CurTransMat::scale(s_x, s_y); 
-            self.internal_add_operation(Box::new(scale_ctm)); 
+            let scale_ctm = CurTransMat::Scale(s_x, s_y); 
+            self.internal_add_operation(scale_ctm); 
         }
 
         // invoke object
@@ -148,20 +152,16 @@ impl PdfLayerReference {
               "Do", vec![lopdf::Object::Name(name.as_bytes().to_vec())]
         ));  
     }
-
     // internal function to add an operation (prevents locking)
-    fn internal_add_operation(&self, op: Box<IntoPdfStreamOperation>)
+    fn internal_add_operation<T>(&self, op: T)
+    -> () where T: Into<Operation>
     {
         let doc = self.document.upgrade().unwrap();
         let mut doc = doc.borrow_mut();
-        let op = op.into_stream_op();
         let layer = doc.pages.get_mut(self.page.0).unwrap()
             .layers.get_mut(self.layer.0).unwrap();
 
-        for o in op {
-            layer.operations.push(o);
-        }
-                
+        layer.operations.push(op.into());
     }
 
     /// Set the current fill color for the layer
@@ -169,14 +169,14 @@ impl PdfLayerReference {
     pub fn set_fill_color(&self, fill_color: Color)
     -> ()
     {
-        self.internal_add_operation(Box::new(PdfColor::FillColor(fill_color)));
+        self.internal_add_operation(PdfColor::FillColor(fill_color));
     }
 
     /// Set the current line / outline color for the layer
     #[inline]
     pub fn set_outline_color(&self, color: Color)
     {
-        self.internal_add_operation(Box::new(PdfColor::OutlineColor(color)));
+        self.internal_add_operation(PdfColor::OutlineColor(color));
     }
 
     /// Set the overprint mode of the stroke color to true (overprint) or false (no overprint)
@@ -245,48 +245,48 @@ impl PdfLayerReference {
     {
         use lopdf::Object::*;
         use lopdf::content::Operation;
-        self.internal_add_operation(Box::new(Operation::new(OP_PATH_STATE_SET_LINE_WIDTH, vec![Integer(outline_thickness)])));
+        self.internal_add_operation(Operation::new(OP_PATH_STATE_SET_LINE_WIDTH, vec![Integer(outline_thickness)]));
     }
 
     /// Set the current line join style for outlines
     #[inline]
     pub fn set_line_join_style(&self, line_join: LineJoinStyle) {
-        self.internal_add_operation(Box::new(line_join));
+        self.internal_add_operation(line_join);
     }
 
     /// Set the current line join style for outlines
     #[inline]
     pub fn set_line_cap_style(&self, line_cap: LineCapStyle) {
-        self.internal_add_operation(Box::new(line_cap));
+        self.internal_add_operation(line_cap);
     }
 
     /// Set the current line join style for outlines
     #[inline]
     pub fn set_line_dash_pattern(&self, dash_pattern: LineDashPattern) {
-        self.internal_add_operation(Box::new(dash_pattern));
+        self.internal_add_operation(dash_pattern);
     }
 
     /// Set the current transformation matrix (TODO)
     #[inline]
     pub fn set_ctm(&self, ctm: CurTransMat) {
-        self.internal_add_operation(Box::new(ctm));
+        self.internal_add_operation(ctm);
     }
 
     /// Saves the current graphic state (q operator) (TODO)
     #[inline]
     pub fn save_graphics_state(&self) {
-        self.internal_add_operation(Box::new(lopdf::content::Operation::new("q", Vec::new())));
+        self.internal_add_operation(Operation::new("q", Vec::new()));
     }
 
     /// Restores the previous graphic state (Q operator) (TODO)
     #[inline]
     pub fn restore_graphics_state(&self) {
-        self.internal_add_operation(Box::new(lopdf::content::Operation::new("Q", Vec::new())));
+        self.internal_add_operation(Operation::new("Q", Vec::new()));
     }
 
     /// Add text to the file
     #[inline]
-    pub fn use_text<S>(&self, text: S, font_size: usize, rotation: f64,
+    pub fn use_text<S>(&self, text: S, font_size: usize, rotation: Option<f64>,
                        x_mm: f64, y_mm: f64, font: IndirectFontRef)
     -> () where S: Into<std::string::String>
     {
@@ -335,10 +335,15 @@ impl PdfLayerReference {
                 .flat_map(|x| vec!((x >> 8) as u8, (x & 255) as u8))
                 .collect::<Vec<u8>>();
 
-            // rotation missing, kerning missing
-
             let ref_mut_layer = doc.pages.get_mut(self.page.0).unwrap()
                                     .layers.get_mut(self.layer.0).unwrap();
+
+
+            // todo: kerning_data unused
+            if let Some(rot) = rotation {
+                let rotation_matrix = CurTransMat::TextRotate(rot);
+                ref_mut_layer.operations.push(rotation_matrix.into());
+            }
 
             ref_mut_layer.operations.push(Operation::new("BT", 
                 vec![]
@@ -347,6 +352,7 @@ impl PdfLayerReference {
             ref_mut_layer.operations.push(Operation::new("Tf", 
                 vec![font.name.into(), (font_size as i64).into()]
             ));
+
             ref_mut_layer.operations.push(Operation::new("Td", 
                 vec![x_mm.into(), y_mm.into()]
             ));
@@ -360,15 +366,14 @@ impl PdfLayerReference {
             ));
     }
 
+/*
     /// Instantiate SVG data
     #[inline]
     pub fn use_svg(&self, width_mm: f64, height_mm: f64, 
                    x_mm: f64, y_mm: f64, svg_data_index: SvgIndex)
-    {
-        /* 
-        
+    {    
         let svg_element_ref = {
-            use std::clone::Clone;
+            let doc = self.document.upgrade().unwrap();
             let doc = doc.borrow_mut();
             let element = doc.contents.get((svg_data_index.0).0).expect("invalid svg reference");
             (*element).clone()
@@ -381,6 +386,7 @@ impl PdfLayerReference {
         doc.pages.get_mut(self.page.0).unwrap()
             .layers.get_mut(self.layer.0).unwrap()
                 .layer.place_back() <- PdfResource::ReferencedResource(svg_data_index.0.clone());
-        */
     }
+*/
+
 }

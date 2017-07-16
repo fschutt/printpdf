@@ -10,7 +10,6 @@ use std::io::{Write, Seek};
 use rand::Rng;
 use std::rc::Rc;
 use std::cell::RefCell;
-use std::collections::HashMap;
 
 /// PDF document
 #[derive(Debug)]

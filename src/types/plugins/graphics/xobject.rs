@@ -222,7 +222,7 @@ impl Into<lopdf::Stream> for ImageXObject {
 
         let cs: &'static str = self.color_space.into();
         let bbox: lopdf::Object = self.clipping_bbox
-            .unwrap_or(CurTransMat::identity())
+            .unwrap_or(CurTransMat::Identity)
             .into();
 
         let dict = lopdf::Dictionary::from_iter(vec![
