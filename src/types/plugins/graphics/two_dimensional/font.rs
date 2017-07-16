@@ -218,7 +218,7 @@ impl IndirectFontRef {
     }
 }
 
-/// Font list for tracking fonts within a single PDF page
+/// Font list for tracking fonts within a single PDF document
 #[derive(Debug)]
 pub struct FontList {
     fonts: HashMap<IndirectFontRef, DirectFontRef>,
@@ -236,22 +236,33 @@ impl FontList {
     }
 
     /// Adds a font to the FontList
-    pub fn add_font(&mut self, font: DirectFontRef)
+    pub fn add_font(&mut self, font_ref: IndirectFontRef, font: DirectFontRef)
     -> IndirectFontRef
     {
-        let len = self.fonts.len();
-        let font_ref = IndirectFontRef::new(len);
         self.fonts.insert(font_ref.clone(), font);
         font_ref
     }
 
     /// Turns an indirect font reference into a direct one 
-    /// (warning): clones the direct font reference
+    /// (Warning): clones the direct font reference
     #[inline]
     pub fn get_font(&self, font: &IndirectFontRef)
-    -> Option<&DirectFontRef>
+    -> Option<DirectFontRef>
     {
-        self.fonts.get(font)
+        let font_ref = self.fonts.get(font);
+        if let Some(r) = font_ref {
+            Some(r.clone())
+        } else {
+            None
+        }
+    }
+
+    /// Returns the number of fonts currenly in use
+    #[inline]
+    pub fn len(&self)
+    -> usize 
+    {
+        self.fonts.len()
     }
 }
 
@@ -260,7 +271,6 @@ impl Into<lopdf::Dictionary> for FontList {
     -> lopdf::Dictionary
     {
         let mut font_dict = lopdf::Dictionary::new();
-
         
         for (indirect_ref, direct_ref) in self.fonts.into_iter() {
             font_dict.set(indirect_ref.name, lopdf::Object::Reference(direct_ref.inner_obj));

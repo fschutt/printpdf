@@ -62,23 +62,6 @@ impl PdfLayerReference {
         self.internal_add_operation(Box::new(line));
     }
 
-    /// Adds a font to the page. This does not increase the filesize, since the font is 
-    /// just a reference to the document-level font dictionary, in which the font actually resides.
-    /// This indirect step is neccesary because of compatibility with certain viewers.
-    /// 
-    /// A direct font reference points directly to the encoded object in the stream, while
-    /// an indirect font reference is only the postscript name of the font. These values are wrapped
-    /// for increased type safetyl
-    pub fn add_font(&self, font: DirectFontRef)
-    -> IndirectFontRef
-    {
-        let doc = self.document.upgrade().unwrap();
-        let mut doc = doc.borrow_mut();
-        let mut page_mut = doc.pages.get_mut(self.page.0).unwrap();
-
-        page_mut.add_font(font)
-    }
-
     /// Add an image to the layer
     /// To be called from the `image.add_to_layer()` class (see `use_xobject` documentation)
     pub(crate) fn add_image<T>(&self, image: T)
@@ -324,7 +307,7 @@ impl PdfLayerReference {
             let mut kerning_data = Vec::<freetype::Vector>::new();
 
             {
-                let face_direct_ref = doc.pages.get(self.page.0).unwrap().resources.get_font(&font).unwrap();
+                let face_direct_ref = doc.fonts.get_font(&font).unwrap();
                 let library = ft::Library::init().unwrap();
                 let face = library.new_memory_face(&*face_direct_ref.data.font_bytes, 0)
                                   .expect("invalid memory font in use_text()");

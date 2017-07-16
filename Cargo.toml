@@ -9,7 +9,7 @@ readme = "README.md"
 description = "Rust library for writing PDF files"
 
 [dependencies]
-lopdf = { git = "https://github.com/sharazam/lopdf" }
+lopdf = { git = "https://github.com/J-F-Liu/lopdf" }
 freetype-rs = "0.13.0"
 error-chain = "0.10.*"
 chrono = "0.3.0"

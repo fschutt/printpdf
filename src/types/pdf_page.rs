@@ -111,18 +111,6 @@ impl PdfPage {
     {
         self.resources.add_xobject(xobj)
     }
-
-    /// Adds a font to the current page. This is done by giving a reference to the font
-    /// For compatibility reasons, the font entry should be defined on every page.
-    /// Meaning, in every pages resources object, you should have a named PDF reference
-    /// to the actual font dictionary. This is done inside the Font object
-    #[inline]
-    pub fn add_font(&mut self, font: DirectFontRef)
-    -> IndirectFontRef
-    {
-        self.resources.add_font(font)
-    }
-
 }
 
 impl PdfPageReference {
