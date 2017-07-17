@@ -244,7 +244,6 @@ impl PdfLayerReference {
     pub fn set_outline_thickness(&self, outline_thickness: i64)
     {
         use lopdf::Object::*;
-        use lopdf::content::Operation;
         self.internal_add_operation(Operation::new(OP_PATH_STATE_SET_LINE_WIDTH, vec![Integer(outline_thickness)]));
     }
 
@@ -266,19 +265,19 @@ impl PdfLayerReference {
         self.internal_add_operation(dash_pattern);
     }
 
-    /// Set the current transformation matrix (TODO)
+    /// Set the current transformation matrix
     #[inline]
     pub fn set_ctm(&self, ctm: CurTransMat) {
         self.internal_add_operation(ctm);
     }
 
-    /// Saves the current graphic state (q operator) (TODO)
+    /// Saves the current graphic state
     #[inline]
     pub fn save_graphics_state(&self) {
         self.internal_add_operation(Operation::new("q", Vec::new()));
     }
 
-    /// Restores the previous graphic state (Q operator) (TODO)
+    /// Restores the previous graphic state
     #[inline]
     pub fn restore_graphics_state(&self) {
         self.internal_add_operation(Operation::new("Q", Vec::new()));
@@ -287,7 +286,7 @@ impl PdfLayerReference {
     /// Add text to the file
     #[inline]
     pub fn use_text<S>(&self, text: S, font_size: usize, rotation: Option<f64>,
-                       x_mm: f64, y_mm: f64, font: IndirectFontRef)
+                       x_mm: f64, y_mm: f64, font: &IndirectFontRef)
     -> () where S: Into<std::string::String>
     {
             use lopdf::Object::*;
@@ -302,9 +301,10 @@ impl PdfLayerReference {
 
             // glyph IDs that make up this string
             let mut list_gid = Vec::<u16>::new();
-            // kerning for each glyoh id. If no kerning is present, will be 0
+
+            // kerning for each glyph id. If no kerning is present, will be 0
             // must be the same length as list_gid
-            let mut kerning_data = Vec::<freetype::Vector>::new();
+            // let mut kerning_data = Vec::<freetype::Vector>::new();
 
             {
                 let face_direct_ref = doc.fonts.get_font(&font).unwrap();
@@ -317,10 +317,13 @@ impl PdfLayerReference {
                 let char_iter_2 = text.chars();
                 let mut peekable = char_iter_2.peekable();
                 peekable.next(); /* offset by 1 character */
-
                 for ch in char_iter {
-                    use freetype::face::KerningMode;
                     list_gid.push(face.get_char_index(ch as usize) as u16);
+/*
+                    // todo - kerning !!
+
+                    use freetype::face::KerningMode;
+
                     if let Some(next) = peekable.peek() {
                         let char_next = next.clone();
                         let possible_kerning = face.get_kerning(ch as u32, char_next as u32, KerningMode::KerningDefault);
@@ -328,6 +331,7 @@ impl PdfLayerReference {
                     }
 
                     peekable.next();
+*/
                 }
             }
 
@@ -338,20 +342,21 @@ impl PdfLayerReference {
             let ref_mut_layer = doc.pages.get_mut(self.page.0).unwrap()
                                     .layers.get_mut(self.layer.0).unwrap();
 
-
             // todo: kerning_data unused
-            if let Some(rot) = rotation {
-                let rotation_matrix = CurTransMat::TextRotate(rot);
-                ref_mut_layer.operations.push(rotation_matrix.into());
-            }
 
             ref_mut_layer.operations.push(Operation::new("BT", 
                 vec![]
             ));
 
             ref_mut_layer.operations.push(Operation::new("Tf", 
-                vec![font.name.into(), (font_size as i64).into()]
+                vec![font.name.clone().into(), (font_size as i64).into()]
             ));
+
+            // text rotation matrix is scoped to text block
+            if let Some(rot) = rotation {
+                let rotation_matrix = CurTransMat::TextRotate(rot);
+                ref_mut_layer.operations.push(rotation_matrix.into());
+            }
 
             ref_mut_layer.operations.push(Operation::new("Td", 
                 vec![x_mm.into(), y_mm.into()]

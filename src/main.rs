@@ -15,10 +15,14 @@ fn main() {
     // You also have to specify the title of the PDF and the document creator
     let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 210.0, 297.0, "Layer 1");
     let current_layer = doc.get_page(page1).get_layer(layer1);
-    
-    let text = "abcdefghijklmnopqrstuvwxyz";
-    let font = doc.add_font(File::open("assets/fonts/FiraSans-Book.otf").unwrap()).unwrap();
-    current_layer.use_text(text, 48, None, 200.0, 200.0, font);
+    // 2nd char: 8764 / 0x223C
+    let text = "Ħ𝞧𝝩acemnorsuvw";
+    let text2 = "JACEMNORSUVW";
+    let font = doc.add_font(File::open("assets/fonts/FreeSerif.ttf").unwrap()).unwrap();
+    current_layer.use_text(text.clone(), 48, None, 0.0, 200.0, &font);
+    current_layer.use_text(text2.clone(), 48, None, 0.0, 100.0, &font);
+    // current_layer.use_text(text.clone(), 24, None, 200.0, 150.0, &font);
+    // current_layer.use_text(text.clone(), 12, None, 200.0, 100.0, &font);
 /*
     // currently, the only reliable file format is bmp (jpeg works, but not in release mode)
     // this is an issue of the image library, not a fault of printpdf
@@ -39,5 +43,5 @@ fn main() {
 
     // There is no support for comments, images, annotations, 3D objects, signatures, gradients, etc. yet.
     // Save the PDF file
-    doc.save(&mut File::create("test_image.pdf").unwrap()).unwrap();
+    doc.save(&mut File::create("test_working.pdf").unwrap()).unwrap();
 }

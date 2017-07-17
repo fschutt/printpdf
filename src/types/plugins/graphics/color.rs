@@ -1,7 +1,6 @@
 //! Color module (CMYK or RGB). Shared between 2D and 3D module.
 
 use image;
-use lopdf;
 
 use *;
 use glob_defines::*;

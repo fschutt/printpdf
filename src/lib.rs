@@ -225,8 +225,9 @@
 #![feature(collection_placement)]
 #![feature(placement_in_syntax)]
 
-// #![allow(unused_variables)]
+#![allow(unused_variables)]
 #![allow(dead_code)]
+#![deny(unused_imports)]
 
 #[macro_use] extern crate error_chain;
 #[macro_use] extern crate log;
