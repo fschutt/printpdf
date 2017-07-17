@@ -96,6 +96,8 @@ impl Font {
         // Widths (or heights, depends on self.vertical_writing) 
         // of the individual characters, indexed by glyph id
         let mut widths = HashMap::<u32, u32>::new();
+        // Height of the space (0x0020 character), to scale the font correctly
+        let mut space_height = 1000;
 
         // Glyph IDs - (Unicode IDs - character width, character height)
         let mut cmap = BTreeMap::<u32, (u32, u32, u32)>::new();
@@ -114,6 +116,10 @@ impl Font {
 
                     let w = glyph_metrics.horiAdvance;
                     let h = glyph_metrics.vertAdvance;
+
+                    if unicode == 0x0020 {
+                        space_height = glyph_metrics.vertAdvance;
+                    }
 
                     if h > max_height {
                         max_height = h;
@@ -168,20 +174,28 @@ impl Font {
         let cid_to_unicode_map_stream = LoStream::new(LoDictionary::new(), cid_to_unicode_map.as_bytes().to_vec());
         let cid_to_unicode_map_stream_id = doc.add_object(cid_to_unicode_map_stream);
 
-        // merge widths (or heights)
+        // encode widths / heights so that they fit into what PDF expects
+        // see page 439 in the PDF 1.7 reference
+        // basically widths_list will contain objects like this:
+        // 20 [21, 99, 34, 25]
+        // which means that the character with the GID 20 has a width of 21 units
+        // and the character with the GID 21 has a width of 99 units
         let mut widths_list = Vec::<Object>::new();
         let mut current_low_gid = 0;
         let mut current_high_gid = 0;
         let mut current_width_vec = Vec::<Object>::new();
 
+        // scale the font width so that it sort-of fits into an 1000 unit square
+        let percentage_font_scaling = 1000.0 / (space_height as f64);
+
         for (gid, width) in widths.into_iter() {
             if gid == current_high_gid {
-                current_width_vec.push(Integer(width as i64));
+                current_width_vec.push(Integer((width as f64 * percentage_font_scaling) as i64));
                 current_high_gid += 1;
             } else {
                 widths_list.push(Integer(current_low_gid as i64));
                 widths_list.push(Array(current_width_vec.drain(..).collect()));
-                current_width_vec.push(Integer(width as i64));
+                current_width_vec.push(Integer((width as f64 * percentage_font_scaling) as i64));
                 current_low_gid = gid;
                 current_high_gid = gid + 1;
             }

@@ -16,9 +16,9 @@ fn main() {
     let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 210.0, 297.0, "Layer 1");
     let current_layer = doc.get_page(page1).get_layer(layer1);
     // 2nd char: 8764 / 0x223C
-    let text = "Ħ𝞧𝝩acemnorsuvw";
-    let text2 = "JACEMNORSUVW";
-    let font = doc.add_font(File::open("assets/fonts/FreeSerif.ttf").unwrap()).unwrap();
+    let text = "abcdefghijklmopqrstuvwxyz";
+    let text2 = "ABCDEFGHIJKLMOPQRSTUVWXYZ";
+    let font = doc.add_font(File::open("assets/fonts/RobotoMedium.ttf").unwrap()).unwrap();
     current_layer.use_text(text.clone(), 48, None, 0.0, 200.0, &font);
     current_layer.use_text(text2.clone(), 48, None, 0.0, 100.0, &font);
     // current_layer.use_text(text.clone(), 24, None, 200.0, 150.0, &font);
