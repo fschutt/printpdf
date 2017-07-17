@@ -12,6 +12,8 @@ pub struct Font {
     pub(crate) font_bytes: Vec<u8>,
     /// Font name, for adding as a resource on the document
     pub(crate) face_name: String,
+    /// Is the font written vertically? Default: false
+    pub(crate) vertical_writing: bool,
 }
 
 impl Font {
@@ -31,6 +33,7 @@ impl Font {
         Ok(Self {
             font_bytes: buf,
             face_name: face_name,
+            vertical_writing: false,
         })
     }
 
@@ -83,19 +86,21 @@ impl Font {
             ("Flags".into(), Integer(32)),
             ("StemV".into(), Integer(80)),
         ];
+
         // End setting required font arguments
 
-        let mut max_height = 0;             // Maximum height of a single character in the font
-        let mut total_width = 0;            // Total width of all characters
-        let mut widths = Vec::<Object>::new();             // Widths of the individual characters
-        let mut heights = Vec::<Object>::new();            // Heights of the individual characters
-        let mut cmap = BTreeMap::<u32, (u32, u32, u32)>::new(); // Glyph IDs - (Unicode IDs - character width, character height)
+        // Maximum height of a single character in the font
+        let mut max_height = 0;
+        // Total width of all characters
+        let mut total_width = 0;
+        // Widths (or heights, depends on self.vertical_writing) 
+        // of the individual characters, indexed by glyph id
+        let mut widths = HashMap::<u32, u32>::new();
+
+        // Glyph IDs - (Unicode IDs - character width, character height)
+        let mut cmap = BTreeMap::<u32, (u32, u32, u32)>::new();
+        
         cmap.insert(0, (0, 1000, 1000));
-
-        let mut space_width = 0;              // Width of the space character
-        let mut space_height = 0;              // Height of the space character
-
-        // face.set_pixel_sizes(1000, 0).unwrap(); // simulate points
 
         for unicode in 0x0000..0xffff {
             let glyph_id = face.get_char_index(unicode);
@@ -105,35 +110,7 @@ impl Font {
                 if face.load_glyph(glyph_id, ft::face::NO_SCALE).is_ok() {
                     
                     let glyph_slot = face.glyph();
-                    let glyph = glyph_slot.get_glyph().unwrap();
                     let glyph_metrics = glyph_slot.metrics();
-
-                    let cbox = glyph.get_cbox(0);
-
-                    // test - E
-                    if unicode == 0x0045 {
-                        println!("-- glyph metrics for unicode: {}, glyph id: {}", unicode, glyph_id);
-                        println!("\twidth: {}", glyph_metrics.width);
-                        println!("\theight: {}", glyph_metrics.height);
-                        println!("\thoriBearingX: {}", glyph_metrics.horiBearingX);
-                        println!("\thoriBearingY: {}", glyph_metrics.horiBearingY);
-                        println!("\thoriAdvance: {}", glyph_metrics.horiAdvance);
-                        println!("\tvertBearingX: {}", glyph_metrics.vertBearingX);
-                        println!("\tvertBearingY: {}", glyph_metrics.vertBearingY);
-                        println!("\tvertAdvance: {}", glyph_metrics.vertAdvance);
-                        println!("-- end glyph metrics", );
-                        println!("-- glyph bbox for unicode: {}, glyph id: {}", unicode, glyph_id);
-                        println!("\txMin: {}", cbox.xMin);
-                        println!("\txMax: {}", cbox.xMax);
-                        println!("\tyMin: {}", cbox.yMin);
-                        println!("\tyMax: {}", cbox.yMax);
-                        println!("-- end glyph bbox", );
-                    }
-                    
-                    if glyph_id == 0x0020 {
-                        space_width = glyph_metrics.horiAdvance;
-                        space_height = glyph_metrics.vertAdvance;
-                    }
 
                     let w = glyph_metrics.horiAdvance;
                     let h = glyph_metrics.vertAdvance;
@@ -147,31 +124,6 @@ impl Font {
                 }
             }
         }
-
-        // normalize the widths so that the maximum width = 1000 units
-        // to map the (arbitrary) glyph space into text space. Text units
-        // This is achieved by making the largest value 1000 text units wide and
-        // adjusting the other characters accordingly.
-        // In a Type 1 font, this could be done with FontBBox and FontMatrix
-
-        // Here we take 1050 to provide a bit of space between the characters.
-        // This is not scientific in any way.
-        
-        println!("space_width: {:?}", space_width);
-        println!("space_height: {:?}", space_height);
-        
-        // 1 space width = 1000.0
-        /*if space_width > 0 {
-            // height <-> width on a 0x20 char: ~ 0.3
-            let aspect_ratio_space = space_width as f64 / space_height as f64;
-            println!("aspect ratio space: {:?}", aspect_ratio_space);
-            for c in cmap.iter_mut() {
-                // height <-> width aspect ratio on character: ~ 0.9 - 3.4
-                let aspect_ratio_char = (c.1).2 as f64 / (c.1).1 as f64; 
-                println!("aspect_ratio: {:?}", aspect_ratio_char);
-                (c.1).1 =  ((c.1).1 as f64 / (aspect_ratio_char / aspect_ratio_space)) as u32;
-            } 
-        }*/
 
         // Maps the character index to a unicode value
         // Add this to the "ToUnicode" dictionary
@@ -202,9 +154,9 @@ impl Font {
             let unicode = unicode_width_tuple.0;
             let width = unicode_width_tuple.1;
             let height = unicode_width_tuple.2;
+
             cid_to_unicode_map.push_str(format!("<{:04x}> <{:04x}>\n", glyph_id, unicode).as_str());
-            widths.push(Integer(width as i64));
-            heights.push(Integer(height as i64));
+            widths.insert(*glyph_id, width);
         };
 
         if cmap.len() % 256 != 0 || cmap.len() % 100 != 0 {
@@ -212,25 +164,50 @@ impl Font {
         }
 
         cid_to_unicode_map.push_str(include_str!("../../../../templates/gid_to_unicode_end.txt"));
+        
         let cid_to_unicode_map_stream = LoStream::new(LoDictionary::new(), cid_to_unicode_map.as_bytes().to_vec());
         let cid_to_unicode_map_stream_id = doc.add_object(cid_to_unicode_map_stream);
 
+        // merge widths (or heights)
+        let mut widths_list = Vec::<Object>::new();
+        let mut current_low_gid = 0;
+        let mut current_high_gid = 0;
+        let mut current_width_vec = Vec::<Object>::new();
+
+        for (gid, width) in widths.into_iter() {
+            if gid == current_high_gid {
+                current_width_vec.push(Integer(width as i64));
+                current_high_gid += 1;
+            } else {
+                widths_list.push(Integer(current_low_gid as i64));
+                widths_list.push(Array(current_width_vec.drain(..).collect()));
+                current_width_vec.push(Integer(width as i64));
+                current_low_gid = gid;
+                current_high_gid = gid + 1;
+            }
+        }
+
+        let w = { 
+            if self.vertical_writing { ("W2",  Array(widths_list)) }
+            else { ("W",  Array(widths_list)) }
+        };
+
+        // default width for characters
+        let dw = { 
+            if self.vertical_writing { ("DW2", Integer(1000)) }
+            else { ("DW", Integer(1000)) }
+        };
+        
         let mut desc_fonts = LoDictionary::from_iter(vec![
             ("Type", Name("Font".into())),
             ("Subtype", Name("CIDFontType0".into())),
             ("BaseFont", Name(face_name.clone().into())),
-            /*("DW", Integer(1000)), */
-            ("W",  Array(vec![Integer(0), Array(widths)])) ,
-            // ("DW2", Integer(1000)),
-            // ("W2",  Array(vec![Integer(0), Array(heights)])) ,
-            // the above values are commented out because PDF only allows 
-            // EITHER W or W2 to be set. If vertical writing is added to the printpdf
-            // use those instead
             ("CIDSystemInfo", Dictionary(LoDictionary::from_iter(vec![
                     ("Registry", String("Adobe".into(), StringFormat::Literal)),
                     ("Ordering", String("Identity".into(), StringFormat::Literal)),
                     ("Supplement", Integer(0)),
             ]))),
+            w, dw,
         ]);
 
         let font_bbox = vec![ Integer(0), Integer(max_height as i64), Integer(total_width as i64), Integer(max_height as i64) ];
