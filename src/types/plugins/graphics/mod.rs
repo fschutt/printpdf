@@ -14,7 +14,7 @@ pub mod xobject;
 pub mod pattern;
 pub mod pdf_resources;
 
-pub use self::ctm::CurTransMat;
+pub use self::ctm::*;
 pub use self::color::*;
 pub use self::icc_profile::*;
 pub use self::extgstate::*;

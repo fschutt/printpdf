@@ -6,7 +6,7 @@ use lopdf::content::Operation;
 /// PDF "current transformation matrix". Once set, will operate on all following shapes,
 /// until the `layer.restore_graphics_state()` is called. It is important to 
 /// call `layer.save_graphics_state()` earlier.
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum CurTransMat {
 
     /// Translation matrix (in millimeter from bottom left corner)
@@ -19,17 +19,33 @@ pub enum CurTransMat {
     Scale(f64, f64),
     /// Identity matrix
     Identity,
+}
 
-    /// Text rotation matrix. Text placement is a bit different, but uses the same
-    /// basic concepts as a CTM that's why it's merged here
-    TextRotate(f64),
-    /// Text scaling matrix, used for spacing characters 
-    TextScale(f64, f64),
+/// Text matrix. Text placement is a bit different, but uses the same
+/// concepts as a CTM that's why it's merged here
+///
+/// Note: "TextScale" does not exist. Use `layer.set_word_spacing()`
+/// and `layer.set_character_spacing()` to specify the scaling between words 
+/// and characters.
+#[derive(Debug, Copy, Clone)]
+pub enum TextMatrix {
+    /// Text rotation matrix, used for rotating text
+    Rotate(f64),
     /// Text translate matrix, used for indenting (transforming) text 
     /// (different to regular text placement)
-    TextTranslate(f64, f64),
-    /// Text identity matrix. For completeness, may be useful
-    TextIdentity,
+    Translate(f64, f64),
+}
+
+impl Into<[f64; 6]> for TextMatrix {
+    fn into(self)
+    -> [f64; 6]
+    {
+        use TextMatrix::*;
+        match self {
+            Translate(x, y) => { [ 1.0, 0.0, 0.0, 1.0, mm_to_pt!(x), mm_to_pt!(y) ]  /* 1 0 0 1 x y cm */ }
+            Rotate(rot) => { let rad = (360.0 - rot).to_radians(); [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), 0.0, 0.0 ] /* cos sin -sin cos 0 0 cm */ }
+        }
+    }
 }
 
 impl Into<[f64; 6]> for CurTransMat {
@@ -38,36 +54,34 @@ impl Into<[f64; 6]> for CurTransMat {
     {
         use CurTransMat::*;
         match self {
-            Translate(x, y) | TextTranslate(x, y) => { [ 1.0, 0.0, 0.0, 1.0, mm_to_pt!(x), mm_to_pt!(y) ]  /* 1 0 0 1 x y cm */ }
-            Rotate(rot) | TextRotate(rot) => { let rad = (360.0 - rot).to_radians(); [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), 0.0, 0.0 ] /* cos sin -sin cos 0 0 cm */ }
-            Scale(x, y) | TextScale(x, y) => { [ x, 0.0, 0.0, y, 0.0, 0.0 ] /* x 0 0 y 0 0 cm */ }
-            Identity | TextIdentity => { [ 1.0, 0.0, 0.0, 1.0, 0.0, 0.0 ] }
+            Translate(x, y) => { [ 1.0, 0.0, 0.0, 1.0, mm_to_pt!(x), mm_to_pt!(y) ]  /* 1 0 0 1 x y cm */ }
+            Rotate(rot) => { let rad = (360.0 - rot).to_radians(); [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), 0.0, 0.0 ] /* cos sin -sin cos 0 0 cm */ }
+            Scale(x, y) => { [ x, 0.0, 0.0, y, 0.0, 0.0 ] /* x 0 0 y 0 0 cm */ }
+            Identity => { [ 1.0, 0.0, 0.0, 1.0, 0.0, 0.0 ] }
         }
     }
 }
 
 impl Into<Operation> for CurTransMat {
-	
-	/// Consumes the object and converts it to an PDF stream operation
 	fn into(self)
 	-> Operation
 	{
 		use lopdf::Object::*;
-        let matrix_nums: [f64; 6] = self.clone().into();
+        let matrix_nums: [f64; 6] = self.into();
         let matrix: Vec<lopdf::Object> = matrix_nums.to_vec().into_iter().map(|float| Real(float)).collect();
-
-        use CurTransMat::*;
-
-        match self {
-            // text matrices have different operators
-            TextTranslate(_, _) | TextRotate(_) |
-            TextScale(_, _)     | TextIdentity   => Operation::new("Tm", matrix),
-            
-            // regular matrix
-            _ => Operation::new("cm", matrix),
-        }
-		
+        Operation::new("cm", matrix)
 	}
+}
+
+impl Into<Operation> for TextMatrix {
+    fn into(self)
+    -> Operation
+    {
+        use lopdf::Object::*;
+        let matrix_nums: [f64; 6] = self.into();
+        let matrix: Vec<lopdf::Object> = matrix_nums.to_vec().into_iter().map(|float| Real(float)).collect();
+        Operation::new("Tm", matrix)
+    }
 }
 
 impl Into<lopdf::Object> for CurTransMat {

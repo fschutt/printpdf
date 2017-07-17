@@ -15,12 +15,25 @@ fn main() {
     // You also have to specify the title of the PDF and the document creator
     let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 210.0, 297.0, "Layer 1");
     let current_layer = doc.get_page(page1).get_layer(layer1);
-    // 2nd char: 8764 / 0x223C
-    let text = "abcdefghijklmopqrstuvwxyz";
-    let text2 = "ABCDEFGHIJKLMOPQRSTUVWXYZ";
+
+    let text = "lksad";
+    let text2 = "AB CDEFG";
     let font = doc.add_font(File::open("assets/fonts/RobotoMedium.ttf").unwrap()).unwrap();
-    current_layer.use_text(text.clone(), 48, None, 0.0, 200.0, &font);
-    current_layer.use_text(text2.clone(), 48, None, 0.0, 100.0, &font);
+    current_layer.use_text(text.clone(), 48, 0.0, 200.0, &font);
+    
+    let font2 = doc.add_font(File::open("assets/fonts/leaguespartan-bold.ttf").unwrap()).unwrap();
+    
+    current_layer.begin_text_section();
+        current_layer.set_font(&font2, 33);
+        current_layer.set_text_cursor(10.0, 10.0);
+        current_layer.set_line_height(33);
+        current_layer.set_word_spacing(3000);
+        current_layer.set_text_rendering_mode(TextRenderingMode::Stroke);
+        current_layer.write_text(text2, &font2);
+        current_layer.set_line_offset(10);
+        current_layer.write_text(text, &font2);
+    current_layer.end_text_section();
+
     // current_layer.use_text(text.clone(), 24, None, 200.0, 150.0, &font);
     // current_layer.use_text(text.clone(), 12, None, 200.0, 100.0, &font);
 /*

@@ -16,6 +16,41 @@ pub struct Font {
     pub(crate) vertical_writing: bool,
 }
 
+/// The text rendering mode determines how a text is drawn
+/// The default rendering mode is `Fill`. The color of the 
+/// fill / stroke is determine by the current pages outline / 
+/// fill color.
+///
+/// See PDF Reference 1.7 Page 402
+pub enum TextRenderingMode {
+    Fill,
+    Stroke,
+    FillStroke,
+    Invisible,
+    FillClip,
+    StrokeClip,
+    FillStrokeClip,
+    Clip,
+}
+
+impl Into<i64> for TextRenderingMode {
+    fn into(self)
+    -> i64
+    {
+        use TextRenderingMode::*;
+        match self {
+            Fill => 0,
+            Stroke => 1,
+            FillStroke => 2,
+            Invisible => 3,
+            FillClip => 4,
+            StrokeClip => 5,
+            FillStrokeClip => 6,
+            Clip => 7,
+        }
+    }
+}
+
 impl Font {
     pub fn new<R>(mut font_stream: R)
     -> std::result::Result<Self, Error> where R: ::std::io::Read

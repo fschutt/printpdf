@@ -29,7 +29,7 @@ pub struct PdfLayerReference {
 }
 
 impl PdfLayer {
-    
+
     /// Create a new layer, with a name and what index the layer has in the page
     #[inline]
     pub fn new<S>(name: S)
@@ -48,9 +48,9 @@ impl Into<lopdf::Stream> for PdfLayer {
     {
         use lopdf::{Stream, Dictionary};
         let stream_content = lopdf::content::Content { operations: self.operations };
-        let stream = Stream::new(Dictionary::new(), stream_content.encode().unwrap());
-        /* contents may not be compressed! */
-        return stream;
+        /* page contents may not be compressed (todo: is this valid for XObjects?) */
+        Stream::new(Dictionary::new(), stream_content.encode().unwrap())
+                    .with_compression(false)
     }
 }
 
@@ -91,6 +91,49 @@ impl PdfLayerReference {
         Ok(page_mut.add_xobject(XObject::Form(form_data)))
     }
 
+    /// Begins a new text section
+    /// You have to make sure to call `end_text_section` afterwards
+    #[inline]
+    pub fn begin_text_section(&self)
+    -> ()
+    {
+        self.internal_add_operation(Operation::new("BT", vec![] ));
+    }
+
+    /// Ends a new text section
+    /// Only valid if `begin_text_section` has been called
+    #[inline]
+    pub fn end_text_section(&self)
+    -> ()
+    {
+        self.internal_add_operation(Operation::new("ET", vec![] ));
+    }
+
+    /// Set the current fill color for the layer
+    #[inline]
+    pub fn set_fill_color(&self, fill_color: Color)
+    -> ()
+    {
+        self.internal_add_operation(PdfColor::FillColor(fill_color));
+    }
+
+    /// Set the current font, only valid in a `begin_text_section` to
+    /// `end_text_section` block
+    #[inline]
+    pub fn set_font(&self, font: &IndirectFontRef, font_size: i64)
+    -> ()
+    {
+        self.internal_add_operation(Operation::new("Tf", 
+            vec![font.name.clone().into(), (font_size).into()]
+        ));
+    }
+
+    /// Set the current line / outline color for the layer
+    #[inline]
+    pub fn set_outline_color(&self, color: Color)
+    {
+        self.internal_add_operation(PdfColor::OutlineColor(color));
+    }
     /// Instantiate layers, forms and postscript items on the page
     /// __WARNING__: Object must be added to the same page, since the XObjectRef is just a
     /// String, essentially, it can't be checked that this is the case. The caller is 
@@ -138,45 +181,6 @@ impl PdfLayerReference {
 
         // restore graphics state
         self.restore_graphics_state();
-    }
-
-    // internal function to invoke an xobject
-    fn internal_invoke_xobject(&self, name: String)
-    {
-        let doc = self.document.upgrade().unwrap();
-        let mut doc = doc.borrow_mut();
-        let mut page_mut = doc.pages.get_mut(self.page.0).unwrap();
-
-        page_mut.layers.get_mut(self.layer.0).unwrap()
-          .operations.push(lopdf::content::Operation::new(
-              "Do", vec![lopdf::Object::Name(name.as_bytes().to_vec())]
-        ));  
-    }
-    // internal function to add an operation (prevents locking)
-    fn internal_add_operation<T>(&self, op: T)
-    -> () where T: Into<Operation>
-    {
-        let doc = self.document.upgrade().unwrap();
-        let mut doc = doc.borrow_mut();
-        let layer = doc.pages.get_mut(self.page.0).unwrap()
-            .layers.get_mut(self.layer.0).unwrap();
-
-        layer.operations.push(op.into());
-    }
-
-    /// Set the current fill color for the layer
-    #[inline]
-    pub fn set_fill_color(&self, fill_color: Color)
-    -> ()
-    {
-        self.internal_add_operation(PdfColor::FillColor(fill_color));
-    }
-
-    /// Set the current line / outline color for the layer
-    #[inline]
-    pub fn set_outline_color(&self, color: Color)
-    {
-        self.internal_add_operation(PdfColor::OutlineColor(color));
     }
 
     /// Set the overprint mode of the stroke color to true (overprint) or false (no overprint)
@@ -265,10 +269,163 @@ impl PdfLayerReference {
         self.internal_add_operation(dash_pattern);
     }
 
-    /// Set the current transformation matrix
+    /// Sets (adds to) the current transformation matrix
+    /// Use `save_graphics_state()` and `restore_graphics_state()`
+    /// to "scope" the transformation matrix to a specific function
     #[inline]
     pub fn set_ctm(&self, ctm: CurTransMat) {
         self.internal_add_operation(ctm);
+    }
+
+    /// Sets (replaces) the current text matrix
+    /// This does not have to be scoped, since the matrix is replaced
+    /// instead of concatenated to the current matrix. However,
+    /// you should only call this function with in a block scoped by 
+    /// `begin_text_section()` and `end_text_section()`
+    #[inline]
+    pub fn set_text_matrix(&self, tm: TextMatrix) {
+        self.internal_add_operation(tm);
+    }
+
+    /// Sets the position where the text should appear
+    #[inline]
+    pub fn set_text_cursor(&self, x: f64, y:f64) {
+        self.internal_add_operation(Operation::new("Td", 
+                vec![mm_to_pt!(x).into(), mm_to_pt!(y).into()]
+        ));
+    }
+
+    /// If called inside a text block scoped by `begin_text_section` and
+    /// `end_text_section`, moves the cursor to a new line. PDF does not have
+    /// any concept of "alignment" except left-aligned text
+    /// __Note:__ Use `set_line_height` earlier to set the line height first
+    #[inline]
+    pub fn add_line_break(&self) {
+        self.internal_add_operation(Operation::new("T*", Vec::new()));
+    }
+
+    /// Sets the text line height inside a text block 
+    /// (must be called within `begin_text_block` and `end_text_block`)
+    #[inline]
+    pub fn set_line_height(&self, height: i64) {
+        self.internal_add_operation(Operation::new("TL", 
+            vec![lopdf::Object::Integer(height)]
+        ));
+    }
+
+    /// Sets the character spacing inside a text block
+    /// Values are given in points. A value of 3 (pt) will increase 
+    /// the spacing inside a word by 3pt.
+    #[inline]
+    pub fn set_character_spacing(&self, spacing: i64) {
+        self.internal_add_operation(Operation::new("Tc", 
+            vec![lopdf::Object::Integer(spacing)]
+        ));
+    }
+
+    /// Sets the word spacing inside a text block. 
+    /// Same as `set_character_spacing`, just for words
+    /// __Note:__ This does currently not work, because PDF does not 
+    /// recognize unicode fonts, only builtin fonts done with 
+    /// PDFDoc encoding
+    /// However, the function itself is valid
+    #[inline]
+    pub fn set_word_spacing(&self, spacing: i64) {
+        self.internal_add_operation(Operation::new("Tw", 
+            vec![lopdf::Object::Integer(spacing)]
+        ));
+    }
+
+    /// Sets the horizontal scaling (like a "condensed" font)
+    /// Default value is 100 (regular scaling). Setting it to 
+    /// 50 will reduce the width of the written text by half,
+    /// but stretch the text
+    #[inline]
+    pub fn set_text_scaling(&self, scaling: i64) {
+        self.internal_add_operation(Operation::new("Tz", 
+            vec![lopdf::Object::Integer(scaling)]
+        ));
+    }
+
+    /// Offsets the current text positon (used for superscript 
+    /// and subscript). To reset the superscript / subscript, call this 
+    /// function with 0 as the offset. For superscript, use a positive
+    /// number, for subscript, use a negative number. This does not 
+    /// change the size of the font
+    #[inline]
+    pub fn set_line_offset(&self, offset: i64) {
+        self.internal_add_operation(Operation::new("Ts", 
+            vec![lopdf::Object::Integer(offset)]
+        ));
+    }
+
+    #[inline]
+    pub fn set_text_rendering_mode(&self, mode: TextRenderingMode) {
+        self.internal_add_operation(Operation::new("Tr", 
+            vec![lopdf::Object::Integer(mode.into())]
+        ));
+    }
+
+    /// Sets the position where the text should appear (in mm)
+    #[inline]
+    pub fn write_text<S>(&self, text: S, font: &IndirectFontRef)
+    -> () where S: Into<std::string::String>
+    {
+        use lopdf::Object::*;
+        use lopdf::StringFormat::Hexadecimal;
+        use lopdf::content::Operation;
+
+        let text = text.into();
+        
+        // we need to transform the characters into glyph ids and then add them to the layer
+        let doc = self.document.upgrade().unwrap();
+        let mut doc = doc.borrow_mut();
+
+        // glyph IDs that make up this string
+        let mut list_gid = Vec::<u16>::new();
+
+        // kerning for each glyph id. If no kerning is present, will be 0
+        // must be the same length as list_gid
+        // let mut kerning_data = Vec::<freetype::Vector>::new();
+
+        {
+            let face_direct_ref = doc.fonts.get_font(&font).unwrap();
+            let library = ft::Library::init().unwrap();
+            let face = library.new_memory_face(&*face_direct_ref.data.font_bytes, 0)
+                              .expect("invalid memory font in use_text()");
+
+            // convert into list of glyph ids - unicode magic
+            let char_iter = text.chars();
+            let char_iter_2 = text.chars();
+            let mut peekable = char_iter_2.peekable();
+            peekable.next(); /* offset by 1 character */
+            for ch in char_iter {
+                list_gid.push(face.get_char_index(ch as usize) as u16);
+/*
+                // todo - kerning !!
+
+                use freetype::face::KerningMode;
+
+                if let Some(next) = peekable.peek() {
+                    let char_next = next.clone();
+                    let possible_kerning = face.get_kerning(ch as u32, char_next as u32, KerningMode::KerningDefault);
+                    kerning_data.push(possible_kerning.unwrap_or(freetype::ffi::FT_Vector { x: 1000, y: 1000 }));
+                }
+
+                peekable.next();
+*/
+            }
+        }
+
+        let bytes: Vec<u8> = list_gid.iter()
+            .flat_map(|x| vec!((x >> 8) as u8, (x & 255) as u8))
+            .collect::<Vec<u8>>();
+
+        doc.pages.get_mut(self.page.0).unwrap()
+            .layers.get_mut(self.layer.0).unwrap()
+                .operations.push(Operation::new("Tj", 
+                    vec![String(bytes, Hexadecimal)]
+        ));
     }
 
     /// Saves the current graphic state
@@ -285,90 +442,15 @@ impl PdfLayerReference {
 
     /// Add text to the file
     #[inline]
-    pub fn use_text<S>(&self, text: S, font_size: usize, rotation: Option<f64>,
+    pub fn use_text<S>(&self, text: S, font_size: i64,
                        x_mm: f64, y_mm: f64, font: &IndirectFontRef)
     -> () where S: Into<std::string::String>
     {
-            use lopdf::Object::*;
-            use lopdf::StringFormat::Hexadecimal;
-            use lopdf::content::Operation;
-
-            let text = text.into();
-            
-            // we need to transform the characters into glyph ids and then add them to the layer
-            let doc = self.document.upgrade().unwrap();
-            let mut doc = doc.borrow_mut();
-
-            // glyph IDs that make up this string
-            let mut list_gid = Vec::<u16>::new();
-
-            // kerning for each glyph id. If no kerning is present, will be 0
-            // must be the same length as list_gid
-            // let mut kerning_data = Vec::<freetype::Vector>::new();
-
-            {
-                let face_direct_ref = doc.fonts.get_font(&font).unwrap();
-                let library = ft::Library::init().unwrap();
-                let face = library.new_memory_face(&*face_direct_ref.data.font_bytes, 0)
-                                  .expect("invalid memory font in use_text()");
-
-                // convert into list of glyph ids - unicode magic
-                let char_iter = text.chars();
-                let char_iter_2 = text.chars();
-                let mut peekable = char_iter_2.peekable();
-                peekable.next(); /* offset by 1 character */
-                for ch in char_iter {
-                    list_gid.push(face.get_char_index(ch as usize) as u16);
-/*
-                    // todo - kerning !!
-
-                    use freetype::face::KerningMode;
-
-                    if let Some(next) = peekable.peek() {
-                        let char_next = next.clone();
-                        let possible_kerning = face.get_kerning(ch as u32, char_next as u32, KerningMode::KerningDefault);
-                        kerning_data.push(possible_kerning.unwrap_or(freetype::ffi::FT_Vector { x: 1000, y: 1000 }));
-                    }
-
-                    peekable.next();
-*/
-                }
-            }
-
-            let bytes: Vec<u8> = list_gid.iter()
-                .flat_map(|x| vec!((x >> 8) as u8, (x & 255) as u8))
-                .collect::<Vec<u8>>();
-
-            let ref_mut_layer = doc.pages.get_mut(self.page.0).unwrap()
-                                    .layers.get_mut(self.layer.0).unwrap();
-
-            // todo: kerning_data unused
-
-            ref_mut_layer.operations.push(Operation::new("BT", 
-                vec![]
-            ));
-
-            ref_mut_layer.operations.push(Operation::new("Tf", 
-                vec![font.name.clone().into(), (font_size as i64).into()]
-            ));
-
-            // text rotation matrix is scoped to text block
-            if let Some(rot) = rotation {
-                let rotation_matrix = CurTransMat::TextRotate(rot);
-                ref_mut_layer.operations.push(rotation_matrix.into());
-            }
-
-            ref_mut_layer.operations.push(Operation::new("Td", 
-                vec![x_mm.into(), y_mm.into()]
-            ));
-
-            ref_mut_layer.operations.push(Operation::new("Tj", 
-                vec![String(bytes, Hexadecimal)]
-            ));
-
-            ref_mut_layer.operations.push(Operation::new("ET", 
-                vec![]
-            ));
+            self.begin_text_section();
+            self.set_font(font, font_size);
+            self.set_text_cursor(x_mm, y_mm);
+            self.write_text(text, font);
+            self.end_text_section();
     }
 
 /*
@@ -394,4 +476,28 @@ impl PdfLayerReference {
     }
 */
 
+    // internal function to invoke an xobject
+    fn internal_invoke_xobject(&self, name: String)
+    {
+        let doc = self.document.upgrade().unwrap();
+        let mut doc = doc.borrow_mut();
+        let mut page_mut = doc.pages.get_mut(self.page.0).unwrap();
+
+        page_mut.layers.get_mut(self.layer.0).unwrap()
+          .operations.push(lopdf::content::Operation::new(
+              "Do", vec![lopdf::Object::Name(name.as_bytes().to_vec())]
+        ));  
+    }
+
+    // internal function to add an operation (prevents locking)
+    fn internal_add_operation<T>(&self, op: T)
+    -> () where T: Into<Operation>
+    {
+        let doc = self.document.upgrade().unwrap();
+        let mut doc = doc.borrow_mut();
+        let layer = doc.pages.get_mut(self.page.0).unwrap()
+            .layers.get_mut(self.layer.0).unwrap();
+
+        layer.operations.push(op.into());
+    }
 }
