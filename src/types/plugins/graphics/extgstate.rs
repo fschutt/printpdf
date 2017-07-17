@@ -1185,7 +1185,7 @@ pub enum SeperableBlendMode {
 /// The nonseparable blend mode formulas make use of several auxiliary functions. These 
 /// functions operate on colors that are assumed to have red, green, and blue components. 
 /// 
-/// ```rust
+/// ```rust,ignore
 /// # #[macro_use] extern crate printpdf;
 /// # use printpdf::Rgb;
 /// # use printpdf::glob_macros::*;

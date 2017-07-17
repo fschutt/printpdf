@@ -153,7 +153,7 @@
 //! let roboto_font = doc.add_font(roboto_font_file).unwrap();
 //!
 //! // text, font size, rotation, x from left edge, y from top edge, font
-//! doc.get_page(page1).get_layer(layer1).use_text(text, 48, 0.0, 200.0, 200.0, roboto_font);
+//! doc.get_page(page1).get_layer(layer1).use_text(text, 48, None, 200.0, 200.0, &roboto_font);
 //! ```
 //! 
 //! ### Adding SVG elements
