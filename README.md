@@ -119,7 +119,7 @@ fn main() {
     // translate x, translate y, rotate, scale x, scale y
     // by default, an image is optimized to 300 DPI (if scale is None)
     // rotations and translations are always in relation to the lower left corner
-    image.add_to_layer(current_layer.clone(), None, None, None, Some(100.0), Some(100.0));
+    image.add_to_layer(current_layer.clone(), None, None, None, None, None, None);
 
     // you can also construct images manually from your data:
     let mut image_file_2 = ImageXObject { 
@@ -157,7 +157,7 @@ let roboto_font_file = File::open("assets/fonts/RobotoMedium.ttf").unwrap();
 let roboto_font = doc.add_font(roboto_font_file).unwrap();
 
 // text, font size, rotation, x from left edge, y from top edge, font
-doc.get_page(page1).get_layer(layer1).use_text(text, 48, 0.0, 200.0, 200.0, roboto_font);
+doc.get_page(page1).get_layer(layer1).use_text(text, 48, None, 200.0, 200.0, &roboto_font);
 ```
 
 #### Adding SVG elements
