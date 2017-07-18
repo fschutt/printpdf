@@ -310,7 +310,6 @@ impl PdfDocumentReference {
 
         let intent_arr_ref = doc.inner_doc.add_object(intent_arr);
 
-
         // page index, layer index, reference to OCG dictionary
         let ocg_list: Vec<(usize, Vec<(usize, lopdf::Object)>)> = 
         page_layer_names.into_iter().map(|(page_idx, layer_names)| 
@@ -328,22 +327,24 @@ impl PdfDocumentReference {
             ).collect()))
         .collect();
 
+        let flattened_ocg_list: Vec<lopdf::Object> = 
+            ocg_list.iter().flat_map(|&(_, ref layers)| 
+                layers.iter().map(|&(_, ref obj)| obj.clone())
+            ).collect();
+        
         catalog.set("OCProperties", Dictionary(LoDictionary::from_iter(vec![
-            ("OCGs", Array(vec![])),
+            ("OCGs", Array(flattened_ocg_list.clone())),
             // optional content configuration dictionary, page 376
             ("D", Dictionary(LoDictionary::from_iter(vec![
-                ("Order", Array(vec![])),
+                ("Order", Array(flattened_ocg_list.clone())),
                 // "radio button groups"
                 ("RBGroups", Array(vec![])),
                 // initially visible OCG
-                ("ON", Array(vec![])), 
-                // initially hidden OCG 
-                ("OFF", Array(vec![])), 
-                ]))
-            )
+                ("ON", Array(flattened_ocg_list)),
+            ])))
         ])));
 
-        // ----- END OCG CONTENT
+        // ----- END OCG CONTENT (on document level)
 
         // ----- PAGE CONTENT
 
