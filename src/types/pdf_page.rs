@@ -9,7 +9,7 @@ use std::cell::RefCell;
 #[derive(Debug)]
 pub struct PdfPage {
     /// The index of the page in the document
-    index: usize,
+    pub(crate) index: usize,
     /// page width in point
     pub width_pt: f64,
     /// page height in point

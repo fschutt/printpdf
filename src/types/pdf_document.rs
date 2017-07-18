@@ -265,7 +265,7 @@ impl PdfDocumentReference {
             output_intents.set("DestinationOutputProfile", Reference(icc_profile_id));
         }
 
-        let catalog = LoDictionary::from_iter(vec![
+        let mut catalog = LoDictionary::from_iter(vec![
                       ("Type", "Catalog".into()),
                       ("PageLayout", "OneColumn".into()),
                       ("PageMode", "Use0".into()),
@@ -282,6 +282,70 @@ impl PdfDocumentReference {
 
         // add all pages with contents
         let mut page_ids = Vec::<LoObject>::new();
+
+        // ----- OCG CONTENT
+
+        // page index + page names to add the OCG to the /Catalog
+        let page_layer_names: Vec<(usize, Vec<std::string::String>)> = 
+            doc.pages.iter().map(|page| 
+                (page.index, page.layers.iter().map(|layer| 
+                    layer.name.clone()).collect()
+            )).collect();
+
+        // add optional content groups (layers) to the /Catalog
+        let usage_ocg_dict = LoDictionary::from_iter(vec![
+            ("Type", Name("OCG".into())),
+            ("CreatorInfo", Dictionary(LoDictionary::from_iter(vec![
+                ("Creator", String("Adobe Illustrator 14.0".into(), Literal)),
+                ("Subtype", Name("Artwork".into()))
+            ]))),
+        ]);
+
+        let usage_ocg_dict_ref = doc.inner_doc.add_object(Dictionary(usage_ocg_dict));
+
+        let intent_arr = Array(vec![
+            Name("View".into()),
+            Name("Design".into()),
+        ]);
+
+        let intent_arr_ref = doc.inner_doc.add_object(intent_arr);
+
+
+        // page index, layer index, reference to OCG dictionary
+        let ocg_list: Vec<(usize, Vec<(usize, lopdf::Object)>)> = 
+        page_layer_names.into_iter().map(|(page_idx, layer_names)| 
+            (page_idx,
+            layer_names.into_iter().enumerate().map(|(layer_idx, layer_name)|
+                (layer_idx, 
+                Reference(doc.inner_doc.add_object(
+                    Dictionary(LoDictionary::from_iter(vec![
+                        ("Type", Name("OCG".into())),
+                        ("Name", String(layer_name.into(), Literal)),
+                        ("Intent", Reference(intent_arr_ref.clone())),
+                        ("Usage", Reference(usage_ocg_dict_ref.clone()))
+                    ]))
+                )))
+            ).collect()))
+        .collect();
+
+        catalog.set("OCProperties", Dictionary(LoDictionary::from_iter(vec![
+            ("OCGs", Array(vec![])),
+            // optional content configuration dictionary, page 376
+            ("D", Dictionary(LoDictionary::from_iter(vec![
+                ("Order", Array(vec![])),
+                // "radio button groups"
+                ("RBGroups", Array(vec![])),
+                // initially visible OCG
+                ("ON", Array(vec![])), 
+                // initially hidden OCG 
+                ("OFF", Array(vec![])), 
+                ]))
+            )
+        ])));
+
+        // ----- END OCG CONTENT
+
+        // ----- PAGE CONTENT
 
         for page in doc.pages.into_iter() {
             
@@ -327,6 +391,8 @@ impl PdfDocumentReference {
         }
 
         pages.set::<_, LoObject>("Kids".to_string(), page_ids.into());
+
+        // ----- END PAGE CONTENT
 
         // add all fonts / other resources shared in the whole document
         let fonts_dict: lopdf::Dictionary =  doc.fonts.into_with_document(&mut doc.inner_doc);
