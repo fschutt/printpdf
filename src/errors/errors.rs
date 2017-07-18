@@ -1,5 +1,6 @@
 extern crate error_chain;
 extern crate image;
+extern crate rusttype;
 
 use super::*;
 
@@ -19,9 +20,9 @@ error_chain! {
     }
 
     errors {
-       /*Image {
-           description("Selected local file is not a PDF file!")
-           display("Could not load file")
-       }*/
+       FontError {
+           description("Font could not be read")
+           display("Corrupt font file")
+       }
     }
 }

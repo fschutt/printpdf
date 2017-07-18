@@ -1,9 +1,14 @@
 //! Embedding fonts in 2D for Pdf
 extern crate lopdf;
-extern crate freetype as ft;
+extern crate rusttype;
 
 use *;
 use std::collections::HashMap;
+use rusttype::FontCollection;
+use rusttype::CodepointOrGlyphId::Codepoint as Cpg;
+use rusttype::CodepointOrGlyphId::GlyphId as Cgid;
+use rusttype::Codepoint as Cp;
+use rusttype::GlyphId as Gid;
 
 /// The font
 #[derive(Debug, Clone)]
@@ -52,7 +57,9 @@ impl Into<i64> for TextRenderingMode {
 }
 
 impl Font {
-    pub fn new<R>(mut font_stream: R)
+
+    /// Creates a new font. The `index` is used for naming / identifying the font
+    pub fn new<R>(mut font_stream: R, font_index: usize)
     -> std::result::Result<Self, Error> where R: ::std::io::Read
     {
         // read font from stream and parse font metrics
@@ -60,9 +67,16 @@ impl Font {
         font_stream.read_to_end(&mut buf)?;
 
         let face_name = {
-            let library = ft::Library::init().unwrap();
-            let face = library.new_memory_face(&buf, 0).unwrap();
-            face.postscript_name().expect("Could not read font name!")
+            let collection = FontCollection::from_bytes(buf.clone());
+            let font = collection.clone().into_font();
+
+            if let None = font {
+                if let None = collection.into_fonts().nth(0) {
+                    return Err(Error::from_kind(ErrorKind::FontError));
+                }
+            }
+
+            format!("F{}", font_index)
         };
 
         Ok(Self {
@@ -86,12 +100,11 @@ impl Font {
         let face_name = self.face_name.clone();
 
         let font_buf_ref: Box<[u8]> = self.font_bytes.into_boxed_slice();
-        let library = ft::Library::init().unwrap();
-        let face = library.new_memory_face(&*font_buf_ref, 0).unwrap();
+        let collection = FontCollection::from_bytes(font_buf_ref.clone());
+        let font = collection.clone().into_font().unwrap_or(collection.into_fonts().nth(0).unwrap());
 
         // Extract basic font information
-        // TODO: return specific error when returning
-        let face_metrics = face.size_metrics().expect("Could not read font metrics!");
+        let face_metrics = font.v_metrics_unscaled();
 
         let font_stream = LoStream::new(
             LoDictionary::from_iter(vec![
@@ -114,9 +127,9 @@ impl Font {
         let mut font_descriptor_vec: Vec<(std::string::String, Object)> = vec![
             ("Type".into(), Name("FontDescriptor".into())),
             ("FontName".into(), Name(face_name.clone().into_bytes())),
-            ("Ascent".into(), Integer(face_metrics.ascender)),
-            ("Descent".into(), Integer(face_metrics.descender)),
-            ("CapHeight".into(), Integer(face_metrics.ascender)),
+            ("Ascent".into(), Integer(face_metrics.ascent as i64)),
+            ("Descent".into(), Integer(face_metrics.descent as i64)),
+            ("CapHeight".into(), Integer(face_metrics.ascent as i64)),
             ("ItalicAngle".into(), Integer(0)),
             ("Flags".into(), Integer(32)),
             ("StemV".into(), Integer(80)),
@@ -136,32 +149,31 @@ impl Font {
 
         // Glyph IDs - (Unicode IDs - character width, character height)
         let mut cmap = BTreeMap::<u32, (u32, u32, u32)>::new();
-        
         cmap.insert(0, (0, 1000, 1000));
 
         for unicode in 0x0000..0xffff {
-            let glyph_id = face.get_char_index(unicode);
-            if glyph_id != 0 {
-                // println!("unicode: {} - glyph index {}", unicode, glyph_id);
-                // this should not fail - if we can get the glyph id, we can get the glyph itself
-                if face.load_glyph(glyph_id, ft::face::NO_SCALE).is_ok() {
-                    
-                    let glyph_slot = face.glyph();
-                    let glyph_metrics = glyph_slot.metrics();
+            let glyph = font.glyph(Cpg(Cp(unicode)));
+            if let Some(glyph) = glyph {
 
-                    let w = glyph_metrics.horiAdvance;
-                    let h = glyph_metrics.vertAdvance;
+                if glyph.id().0 == 0 { continue; }
+                let glyph_id = glyph.id().0;
 
-                    if unicode == 0x0020 {
-                        space_height = glyph_metrics.vertAdvance;
+                if let Some(glyph) = font.glyph(Cgid(Gid(glyph_id))) {
+                    if let Some(glyph_metrics) = glyph.standalone().get_data() {                        
+                        if let Some(extents) = glyph_metrics.extents {
+                            let w = extents.max.x - extents.min.x;
+                            let h = extents.max.y - extents.min.y;
+                            
+                            if unicode == 0x0020 {
+                                space_height = h;
+                            }
+                            
+                            if h > max_height { max_height = h; };
+
+                            total_width += w as u32;
+                            cmap.insert(glyph_id, (unicode as u32, w as u32, h as u32));
+                        }
                     }
-
-                    if h > max_height {
-                        max_height = h;
-                    };
-
-                    total_width += w as u32;
-                    cmap.insert(glyph_id, (unicode as u32, w as u32, h as u32));
                 }
             }
         }

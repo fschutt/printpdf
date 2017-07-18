@@ -1,5 +1,5 @@
 //! PDF layer management. Layers can contain referenced or real content.
-extern crate freetype as ft;
+extern crate rusttype;
 
 use *;
 use indices::*;
@@ -389,31 +389,23 @@ impl PdfLayerReference {
         // let mut kerning_data = Vec::<freetype::Vector>::new();
 
         {
+            use rusttype::FontCollection;
+            use rusttype::CodepointOrGlyphId::Codepoint as Cpg;
+            use rusttype::Codepoint as Cp;
+
             let face_direct_ref = doc.fonts.get_font(&font).unwrap();
-            let library = ft::Library::init().unwrap();
-            let face = library.new_memory_face(&*face_direct_ref.data.font_bytes, 0)
-                              .expect("invalid memory font in use_text()");
+            let collection = FontCollection::from_bytes(&*face_direct_ref.data.font_bytes);
+            let font = collection.clone().into_font().unwrap_or(collection.into_fonts().nth(0).unwrap());
 
             // convert into list of glyph ids - unicode magic
             let char_iter = text.chars();
-            let char_iter_2 = text.chars();
-            let mut peekable = char_iter_2.peekable();
-            peekable.next(); /* offset by 1 character */
+
             for ch in char_iter {
-                list_gid.push(face.get_char_index(ch as usize) as u16);
-/*
-                // todo - kerning !!
-
-                use freetype::face::KerningMode;
-
-                if let Some(next) = peekable.peek() {
-                    let char_next = next.clone();
-                    let possible_kerning = face.get_kerning(ch as u32, char_next as u32, KerningMode::KerningDefault);
-                    kerning_data.push(possible_kerning.unwrap_or(freetype::ffi::FT_Vector { x: 1000, y: 1000 }));
+                if let Some(glyph) = font.glyph(Cpg(Cp(ch as u32))) {
+                    list_gid.push(glyph.id().0 as u16);
                 }
-
-                peekable.next();
-*/
+                
+                // todo - kerning !!
             }
         }
 

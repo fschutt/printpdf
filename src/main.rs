@@ -1,5 +1,3 @@
-
-
 extern crate image;
 extern crate printpdf;
 

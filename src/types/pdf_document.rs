@@ -147,7 +147,9 @@ impl PdfDocumentReference {
     pub fn add_font<R>(&self, font_stream: R)
     -> ::std::result::Result<IndirectFontRef, Error> where R: ::std::io::Read
     {
-        let font = Font::new(font_stream)?; 
+        let last_font_index = { let doc = self.document.borrow(); doc.fonts.len() };
+
+        let font = Font::new(font_stream, last_font_index)?; 
         // let name = font.face_name.clone();
         
         let font_ref;
