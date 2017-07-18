@@ -14,9 +14,9 @@ fn main() {
     let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 210.0, 297.0, "Layer 1");
     let current_layer = doc.get_page(page1).get_layer(layer1);
 
-    let text = "Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam";
-    let text2 = "Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam";
-    let font = doc.add_font(File::open("assets/fonts/RobotoMedium.ttf").unwrap()).unwrap();
+    let text = "Lorem ipsum dolor";
+    let text2 = "sadipscing elitr, sed diam";
+    let font = doc.add_font(File::open("assets/fonts/Raleway-Black.ttf").unwrap()).unwrap();
     let font2 = doc.add_font(File::open("assets/fonts/FreeSans.ttf").unwrap()).unwrap();    
 
     current_layer.begin_text_section();
