@@ -161,13 +161,12 @@ impl Font {
                 if let Some(glyph) = font.glyph(Cgid(Gid(glyph_id))) {
                     if let Some(glyph_metrics) = glyph.standalone().get_data() {                        
                         if let Some(extents) = glyph_metrics.extents {
-                            let w = extents.max.x - extents.min.x;
-                            let h = extents.max.y - extents.min.y;
+                            let w = glyph_metrics.unit_h_metrics.advance_width;
+                            let h = extents.max.y - extents.min.y - face_metrics.descent as i32;
                             
-                            if unicode == 0x0020 {
-                                space_height = h;
-                            }
-                            
+                            // large T
+                            if unicode == 0x0000 { space_height = h; }
+
                             if h > max_height { max_height = h; };
 
                             total_width += w as u32;

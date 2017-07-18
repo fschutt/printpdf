@@ -10,7 +10,7 @@ description = "Rust library for writing PDF files"
 
 [dependencies]
 lopdf = { git = "https://github.com/J-F-Liu/lopdf" }
-rusttype = { path = "../rusttype" }
+rusttype = { git = "https://github.com/sharazam/rusttype" }
 error-chain = "0.10.*"
 chrono = "0.3.0"
 rand = "0.3.15"

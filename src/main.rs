@@ -14,18 +14,23 @@ fn main() {
     let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 210.0, 297.0, "Layer 1");
     let current_layer = doc.get_page(page1).get_layer(layer1);
 
-    let text = "lksad";
-    let text2 = "AB CDEFG";
+    let text = "Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam";
+    let text2 = "Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam";
     let font = doc.add_font(File::open("assets/fonts/RobotoMedium.ttf").unwrap()).unwrap();
-    current_layer.use_text(text.clone(), 48, 0.0, 200.0, &font);
-    
-    let font2 = doc.add_font(File::open("assets/fonts/leaguespartan-bold.ttf").unwrap()).unwrap();
-    
+    let font2 = doc.add_font(File::open("assets/fonts/FreeSans.ttf").unwrap()).unwrap();    
+
+    current_layer.begin_text_section();
+        current_layer.set_font(&font, 48);
+        current_layer.set_text_cursor(0.0, 200.0);
+        current_layer.set_line_height(48);
+        current_layer.set_text_rendering_mode(TextRenderingMode::Fill);
+        current_layer.write_text(text.clone(), &font);
+    current_layer.end_text_section();
+
     current_layer.begin_text_section();
         current_layer.set_font(&font2, 33);
         current_layer.set_text_cursor(10.0, 10.0);
         current_layer.set_line_height(33);
-        current_layer.set_word_spacing(3000);
         current_layer.set_text_rendering_mode(TextRenderingMode::Stroke);
         current_layer.write_text(text2, &font2);
         current_layer.set_line_offset(10);
