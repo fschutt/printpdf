@@ -34,8 +34,6 @@ fn main() {
         current_layer.write_text(text, &font2);
     current_layer.end_text_section();
 
-    // current_layer.use_text(text.clone(), 24, None, 200.0, 150.0, &font);
-    // current_layer.use_text(text.clone(), 12, None, 200.0, 100.0, &font);
 /*
     // currently, the only reliable file format is bmp (jpeg works, but not in release mode)
     // this is an issue of the image library, not a fault of printpdf
