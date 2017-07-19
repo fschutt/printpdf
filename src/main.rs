@@ -15,10 +15,11 @@ fn main() {
     let current_layer = doc.get_page(page1).get_layer(layer1);
 
     let text = "Lorem ipsum dolor";
+    let font = doc.add_font(File::open("assets/fonts/FreeSerif.ttf").unwrap()).unwrap();    
     let font2 = doc.add_font(File::open("assets/fonts/FreeSans.ttf").unwrap()).unwrap();    
 
     current_layer.begin_text_section();
-        current_layer.set_font(&font2, 48);
+        current_layer.set_font(&font, 48);
         current_layer.set_text_cursor(0.0, 200.0);
         current_layer.set_line_height(48);
         current_layer.set_text_rendering_mode(TextRenderingMode::Fill);

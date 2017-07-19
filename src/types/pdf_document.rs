@@ -351,6 +351,16 @@ impl PdfDocumentReference {
 
         // ----- PAGE CONTENT
 
+        // add fonts (shared resources)
+        let mut font_dict_id = None;
+
+        // add all fonts / other resources shared in the whole document
+        let fonts_dict: lopdf::Dictionary =  doc.fonts.into_with_document(&mut doc.inner_doc);
+
+        if fonts_dict.len() > 0 {
+            font_dict_id = Some(doc.inner_doc.add_object(lopdf::Object::Dictionary(fonts_dict)));
+        }
+
         for (idx, page) in doc.pages.into_iter().enumerate() {
             
             let mut p = LoDictionary::from_iter(vec![
@@ -366,8 +376,12 @@ impl PdfDocumentReference {
 
             // this will collect the resources needed for rendering this page
             let layers_temp = ocg_list.iter().find(|e| e.0 == idx).unwrap();
-            let (resources_page, layer_streams) = page.collect_resources_and_streams(&mut doc.inner_doc, &layers_temp.1);
-            
+            let (mut resources_page, layer_streams) = page.collect_resources_and_streams(&mut doc.inner_doc, &layers_temp.1);
+
+            if let Some(f) = font_dict_id {
+                resources_page.set("Font", Reference(f));
+            }
+
             if resources_page.len() > 0 {
                 let resources_page_id = doc.inner_doc.add_object(lopdf::Object::Dictionary(resources_page));
                 p.set("Resources", Reference(resources_page_id));
@@ -389,18 +403,6 @@ impl PdfDocumentReference {
         pages.set::<_, LoObject>("Kids".to_string(), page_ids.into());
 
         // ----- END PAGE CONTENT
-
-        // add all fonts / other resources shared in the whole document
-        let fonts_dict: lopdf::Dictionary =  doc.fonts.into_with_document(&mut doc.inner_doc);
-        let mut resources_dict: lopdf::Dictionary = lopdf::Dictionary::new();
-
-        if fonts_dict.len() > 0 {
-            resources_dict.set("Font", lopdf::Object::Dictionary(fonts_dict));
-        }
-
-        if resources_dict.len() > 0 {
-            pages.set::<_, LoObject>("Resources".to_string(), resources_dict.into());
-        }
 
         doc.inner_doc.objects.insert(pages_id, Dictionary(pages));
 
