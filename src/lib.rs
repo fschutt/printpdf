@@ -2,7 +2,7 @@
 //! 
 //! [Crates.io](https://crates.io/crates/printpdf) | [Documentation](https://docs.rs/printpdf)
 //!     
-//! ```
+//! ```ignore
 //! [dependencies]
 //! printpdf = "0.1.0"
 //! ```
@@ -175,7 +175,7 @@
 //! let text2 = "unicode: стуфхfцчшщъыьэюя";
 //! 
 //! let font = doc.add_font(File::open("assets/fonts/RobotoMedium.ttf").unwrap()).unwrap();
-//! let font2 = doc.add_font(File::open("assets/fonts/leaguespartan-bold.ttf").unwrap()).unwrap();
+//! let font2 = doc.add_font(File::open("assets/fonts/RobotoMedium.ttf").unwrap()).unwrap();
 //! 
 //! // text, font size, x from left edge, y from top edge, font
 //! current_layer.use_text(text, 48, 200.0, 200.0, &font);
