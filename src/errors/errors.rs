@@ -1,6 +1,6 @@
 extern crate error_chain;
 extern crate image;
-extern crate rusttype;
+extern crate rusttype_bugfix_19072017 as rusttype;
 
 use super::*;
 

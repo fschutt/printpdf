@@ -1,5 +1,5 @@
 //! PDF layer management. Layers can contain referenced or real content.
-extern crate rusttype;
+extern crate rusttype_bugfix_19072017 as rusttype;
 
 use *;
 use indices::*;

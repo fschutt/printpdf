@@ -9,8 +9,8 @@ readme = "README.md"
 description = "Rust library for writing PDF files"
 
 [dependencies]
-lopdf = { git = "https://github.com/J-F-Liu/lopdf" }
-rusttype = { git = "https://github.com/sharazam/rusttype" }
+lopdf_bugfix_19072017 = "0.9.0"
+rusttype_bugfix_19072017 = "0.2.1"
 error-chain = "0.10.*"
 chrono = "0.3.0"
 rand = "0.3.15"

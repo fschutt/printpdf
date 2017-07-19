@@ -1,4 +1,4 @@
-extern crate lopdf;
+extern crate lopdf_bugfix_19072017 as lopdf;
 
 #[derive(Debug, Copy, Clone)]
 pub struct Point { 

@@ -1,6 +1,6 @@
 //! ICC profile that can be embedded into a PDF
 
-extern crate lopdf;
+extern crate lopdf_bugfix_19072017 as lopdf;
 
 /// Type of the icc profile
 #[derive(Debug, Clone, PartialEq)]

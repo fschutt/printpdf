@@ -1,6 +1,6 @@
 //! Embedding fonts in 2D for Pdf
-extern crate lopdf;
-extern crate rusttype;
+extern crate lopdf_bugfix_19072017 as lopdf;
+extern crate rusttype_bugfix_19072017 as rusttype;
 
 use *;
 use std::collections::HashMap;
