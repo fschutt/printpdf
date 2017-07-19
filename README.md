@@ -4,6 +4,26 @@
 
 `printpdf` is a library designed for creating printable PDF documents.
 
+[Crates.io](https://crates.io/crates/printpdf) | [Documentation](https://docs.rs/printpdf)
+
+```rust
+[dependencies]
+printpdf = "0.1.0"
+```
+
+## Features
+
+Currently, printpdf can only write documents, not read them.
+
+- Page generation
+- Layers (Illustrator like layers)
+- Graphics (lines, shapes, bezier curves)
+- Images (currently BMP only or generate your own images)
+- Embedded fonts (TTF and OTF) with Unicode support
+- Advanced graphics - overprint control, blending modes, etc.
+- Advanced typography - character scaling, character spacing, superscript, subscript, outlining, etc.
+- PDF layers (you should be able to open the PDF in Illustrator and have the layers appear)
+
 ## Getting started
 
 ### Writing PDF
@@ -193,6 +213,31 @@ current_layer.begin_text_section();
 current_layer.end_text_section();
 ```
 
+## Further reading
+
+The `PDFDocument` is hidden behind a `PDFDocumentReference`, which locks the things you can 
+do behind a facade. Pretty much all functions operate on a `PDFLayerReference`, so that would
+be where to look for existing functions or where to implement new functions. The `PDFDocumentReference`
+is a reference-counted document. It uses the pages and layers for inner mutablility, because 
+I ran into borrowing issues with the document. __IMPORTANT:__ All functions that mutate the state
+of the document, "borrow" the document mutably for the duration of the function. It is important
+that you don't borrow the document twice (your program will crash if you do so). I have prevented 
+this wherever possible, by making the document only public to the crate so you cannot lock it from
+outside of this library.
+
+Images have to be added to the pages resources before using them. Meaning, you can only use an image
+on the page that you added it to. Otherwise, you may end up with a corrupt PDF.
+
+Fonts are embedded using `rusttype`. In the future, there should be an option to use `freetype`, 
+because `freetype` can use OpenType fonts. Please report issues if you have any, especially if you 
+see `BorrowMut` errors (they should not happen). Kerning is currently not done, should be added later.
+However, "correct" kerning / placement requires a full font shaping engine, etc. This would be a completely
+different project.
+
+For learning how a PDF is actually made, please read the [wiki](https://github.com/sharazam/printpdf/wiki).
+When I began making this library, these resources were not available anywhere, so I hope to help other people 
+with these topics. Reading the wiki is essential if you want to contribute to this library.
+
 ## Goals and Roadmap
 
 The goal of printpdf is to be a general-use PDF library, such as libharu or similar.
@@ -221,17 +266,24 @@ are supported. See this list:
 
 Over time, there will be more standards supported. Checking a PDF for errors is currently only a stub.
 
-## Testing
+### Planned features
 
-Testing should be done in two stages. First, test the individual PDF objects, if the conversion into
-a PDF object is done correctly. The second stage is manual inspection of PDF objects via Adobe Preflight.
+- Clipping
+- Aligning / layouting text
+- Open Prepress Interface
+- Halftoning images, Gradients, Patterns
+- SVG / instantiated content
+- More font support
+- Forms, annotations
+- Bookmarks / Table of contents
+- Conformance / error checking for various PDF standards
+- Embedded Javascript
+- Reading PDF
+- Completion of printpdf wiki
 
-Put the tests of the first stage in /tests/mod.rs. The second stage tests are better to be handled
-inside the plugins' mod.rs file. `printpdf` depends highly on [lopdf](https://github.com/J-F-Liu/lopdf),
-so you can either construct your test object against a real type or a debug string of your serialized
-type. Either way is fine - you just have to check that the test object is conform to what PDF expects.
+## Contributing
 
-## Contibuting
+[READ THE WIKI FIRST !!!](https://github.com/sharazam/printpdf/wiki)
 
 - Fork the project, make you own branch
 - If you want to add support for some data type, let's say images or embedded video, create your type
@@ -243,9 +295,22 @@ in `/src/types/plugins/[family of your type]/[type].rs`
 - If you want to change this README, change the lib.rs instead and run `cargo readme > README.md`.
 - Create pull request
 
+## Testing
+
+Currently the testing is pretty much non-existent, because PDF is very hard to test. This should change
+over time: Testing should be done in two stages. First, test the individual PDF objects, if the conversion 
+into a PDF object is done correctly. The second stage is manual inspection of PDF objects via Adobe Preflight.
+
+Put the tests of the first stage in /tests/mod.rs. The second stage tests are better to be handled
+inside the plugins' mod.rs file. `printpdf` depends highly on [lopdf](https://github.com/J-F-Liu/lopdf),
+so you can either construct your test object against a real type or a debug string of your serialized
+type. Either way is fine - you just have to check that the test object is conform to what PDF expects.
+
 ## Useful links
 
-Here are some esources I found while working on this library
+Here are some resources I found while working on this library
+
+[PDFXPlorer, shows the DOM tree of a PDF, needs .NET 2.0](http://www.o2sol.com/pdfxplorer/download.htm)
 
 [Official PDF 1.7 reference](http://www.adobe.com/content/dam/Adobe/en/devnet/acrobat/pdfs/pdf_reference_1-7.pdf)
 
@@ -255,4 +320,3 @@ Here are some esources I found while working on this library
 
 [PDF X/3 technical notes](http://www.pdfxreport.com/lib/exe/fetch.php?media=en:technote_pdfx_checks.pdf)
 
-[PDFXPlorer, shows the DOM tree of a PDF, needs .NET 2.0](http://www.o2sol.com/pdfxplorer/download.htm)

@@ -19,7 +19,8 @@ Currently, printpdf can only write documents, not read them.
 - Images (currently BMP only or generate your own images)
 - Embedded fonts (TTF and OTF) with Unicode support
 - Advanced graphics - overprint control, blending modes, etc.
-- Advanced typography - character scaling, 
+- Advanced typography - character scaling, character spacing, superscript, subscript, outlining, etc.
+- PDF layers (you should be able to open the PDF in Illustrator and have the layers appear)
 
 ## Roadmap (planned)
 
