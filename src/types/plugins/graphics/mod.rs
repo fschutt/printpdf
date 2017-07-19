@@ -7,6 +7,7 @@ pub use self::two_dimensional::*;
 pub use self::three_dimensional::*;
 
 pub mod color;
+pub mod ocg;
 pub mod icc_profile;
 pub mod ctm;
 pub mod extgstate;
@@ -15,6 +16,7 @@ pub mod pattern;
 pub mod pdf_resources;
 
 pub use self::ctm::*;
+pub use self::ocg::*;
 pub use self::color::*;
 pub use self::icc_profile::*;
 pub use self::extgstate::*;

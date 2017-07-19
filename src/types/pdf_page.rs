@@ -63,18 +63,43 @@ impl PdfPage {
     /// While originally I had planned to build a system where you can reference contents
     /// from all over the document, this turned out to be a problem, because each type had
     /// to be handled differently (PDF weirdness)
+    ///
+    /// `layers` should be a Vec with all layers (optional content groups) that were added 
+    /// to the document on a document level, it should contain the indices of the layers 
+    /// (they will be ignored, todo) and references to the actual OCG dictionaries
     #[inline]
-    pub(crate) fn collect_resources_and_streams(self, doc: &mut lopdf::Document /* contents: &Vec<lopdf::Object> */)
+    pub(crate) fn collect_resources_and_streams(self, doc: &mut lopdf::Document, layers: &Vec<(usize, lopdf::Object)>)
     -> (lopdf::Dictionary, Vec<lopdf::Stream>)
     {
-        let resource_dictionary: lopdf::Dictionary = self.resources.into_with_document(doc);
+        let cur_layers = layers.iter().map(|l| l.1.clone()).collect();
+        let (resource_dictionary, ocg_refs) = self.resources.into_with_document_and_layers(doc, cur_layers);
 
         // set contents
         let mut layer_streams = Vec::<lopdf::Stream>::new();
-        for layer in self.layers {
-            // everything returned by layer.collect_resources() is expected to be an entry in the 
-            // pages resource dictionary. For example the layer.collect_resources will return ("Font", Stream("MyFont", etc.))
-            // If the resources is shared with in the document, it will be ("Font", Reference(4, 0))
+        use lopdf::content::Operation;
+        use lopdf::Object::*;
+
+        for (idx, mut layer) in self.layers.into_iter().enumerate() {
+
+            // push OCG and q to the beginning of the layer
+            layer.operations.insert(0, Operation::new("q".into(), vec![]));
+            layer.operations.insert(0, Operation::new("BDC".into(), vec![
+                Name("OC".into()),
+                Name(ocg_refs[idx].name.clone().into())
+            ]));
+
+            // push OCG END and Q to the end of the layer stream
+            layer.operations.push(Operation::new("Q".into(), vec![]));
+            layer.operations.push(Operation::new("EMC".into(), vec![]));
+
+            // should end up looking like this:
+
+            // /OC /MC0 BDC
+            // q
+            // <layer stream content>
+            // Q
+            // EMC
+
             let layer_stream = layer.into();
             layer_streams.push(layer_stream);
         }

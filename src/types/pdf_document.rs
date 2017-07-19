@@ -314,6 +314,7 @@ impl PdfDocumentReference {
 
         // page index, layer index, reference to OCG dictionary
         let ocg_list: Vec<(usize, Vec<(usize, lopdf::Object)>)> = 
+        
         page_layer_names.into_iter().map(|(page_idx, layer_names)| 
             (page_idx,
             layer_names.into_iter().enumerate().map(|(layer_idx, layer_name)|
@@ -350,7 +351,7 @@ impl PdfDocumentReference {
 
         // ----- PAGE CONTENT
 
-        for page in doc.pages.into_iter() {
+        for (idx, page) in doc.pages.into_iter().enumerate() {
             
             let mut p = LoDictionary::from_iter(vec![
                       ("Type", "Page".into()),
@@ -364,26 +365,18 @@ impl PdfDocumentReference {
                       ("Parent", Reference(pages_id)) ]);
 
             // this will collect the resources needed for rendering this page
-            let (resources_page, layer_streams) = page.collect_resources_and_streams(&mut doc.inner_doc);
-
+            let layers_temp = ocg_list.iter().find(|e| e.0 == idx).unwrap();
+            let (resources_page, layer_streams) = page.collect_resources_and_streams(&mut doc.inner_doc, &layers_temp.1);
+            
             if resources_page.len() > 0 {
                 let resources_page_id = doc.inner_doc.add_object(lopdf::Object::Dictionary(resources_page));
                 p.set("Resources", Reference(resources_page_id));
             }
 
-            // merge layer streams
-            let mut layer_streams_merged_vec = Vec::<u8>::new();
-
             // merge all streams of the individual layers into one big stream
+            let mut layer_streams_merged_vec = Vec::<u8>::new();
             for mut stream in layer_streams {
-
-                // todo: write begin of pdf layer
-
-                // todo: check if pdf is allowed to have layers
-                // if metadata.conformance.is_layering_allowed() { }
-
                 layer_streams_merged_vec.append(&mut stream.content);
-                // todo: write end of pdf layer
             }
 
             let merged_layer_stream = lopdf::Stream::new(lopdf::Dictionary::new(), layer_streams_merged_vec);

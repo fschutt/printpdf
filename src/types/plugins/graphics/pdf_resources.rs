@@ -10,6 +10,8 @@ pub struct PdfResources {
     pub patterns: PatternList,
     /// Graphics states used on this page
     pub graphics_states: ExtendedGraphicsStateList,
+    /// Layers / optional content ("Properties") in the resource dictionary
+    pub layers: OCGList,
 }
 
 impl PdfResources {
@@ -22,6 +24,7 @@ impl PdfResources {
             xobjects: XObjectList::new(),
             patterns: PatternList::new(),
             graphics_states: ExtendedGraphicsStateList::new(),
+            layers: OCGList::new(),
         }
     }
 
@@ -50,13 +53,32 @@ impl PdfResources {
     }
     
     /// See `XObject::Into_with_document`.
-    pub fn into_with_document(self, doc: &mut lopdf::Document)
-    -> lopdf::Dictionary
+    /// The resources also need access to the layers (the optional content groups), this should be a 
+    /// `Vec<lopdf::Object::Reference>` (to the actual OCG groups, which are added on the document level)
+    pub fn into_with_document_and_layers(self, doc: &mut lopdf::Document, layers: Vec<lopdf::Object>)
+    -> (lopdf::Dictionary, Vec<OCGRef>)
     {
             let mut dict = lopdf::Dictionary::new();
+
+            let mut ocg_dict = self.layers;
+            let mut ocg_references = Vec::<OCGRef>::new();
+
             let xobjects_dict: lopdf::Dictionary = self.xobjects.into_with_document(doc);
             let patterns_dict: lopdf::Dictionary = self.patterns.into();
             let graphics_state_dict: lopdf::Dictionary = self.graphics_states.into();
+
+            if layers.len() > 0 {
+
+                for l in layers {
+                    ocg_references.push(ocg_dict.add_ocg(l));
+                }
+
+                let cur_ocg_dict_obj: lopdf::Dictionary = ocg_dict.into();
+
+                if cur_ocg_dict_obj.len() > 0 {
+                    dict.set("Properties", lopdf::Object::Dictionary(cur_ocg_dict_obj));
+                }
+            }
 
             if xobjects_dict.len() > 0 {
                 dict.set("XObject", lopdf::Object::Dictionary(xobjects_dict));
@@ -70,6 +92,6 @@ impl PdfResources {
                 dict.set("ExtGState", lopdf::Object::Dictionary(graphics_state_dict));
             }
             
-            return dict;
+            return (dict, ocg_references);
     }
 }

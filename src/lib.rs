@@ -142,6 +142,8 @@
 //! images, for example, which can only be used once on the page they are created on (since that's
 //! the most common use-case).
 //!
+//! __WARNING__: `rusttype` can only load `.ttf` files, not `.otf` or other formats.
+//!
 //! ```rust
 //! use printpdf::*;
 //! use std::fs::File;
@@ -249,6 +251,7 @@
 //!
 //! [PDF X/3 technical notes](http://www.pdfxreport.com/lib/exe/fetch.php?media=en:technote_pdfx_checks.pdf)
 //!
+//! [PDFXPlorer, shows the DOM tree of a PDF, needs .NET 2.0](http://www.o2sol.com/pdfxplorer/download.htm)
 
 #![feature(try_from)]
 #![feature(collection_placement)]

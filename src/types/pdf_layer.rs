@@ -13,7 +13,7 @@ pub struct PdfLayer {
     /// Name of the layer. Must be present for the optional content group
     pub(crate) name: String,
     /// Stream objects in this layer. Usually, one layer == one stream
-    operations: Vec<lopdf::content::Operation>,
+    pub(super) operations: Vec<lopdf::content::Operation>,
 }
 
 /// A "reference" to the current layer, allows for inner mutability

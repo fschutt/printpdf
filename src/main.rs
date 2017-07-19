@@ -11,49 +11,29 @@ fn main() {
     // To prevent empty documents, you must specify at least one page with one layer
     // You can later on add more pages with the add_page() function
     // You also have to specify the title of the PDF and the document creator
-    let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 210.0, 297.0, "Layer 1");
+    let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 210.0, 297.0, "My custom layer");
     let current_layer = doc.get_page(page1).get_layer(layer1);
 
     let text = "Lorem ipsum dolor";
-    let text2 = "sadipscing elitr, sed diam";
-    let font = doc.add_font(File::open("assets/fonts/Raleway-Black.ttf").unwrap()).unwrap();
     let font2 = doc.add_font(File::open("assets/fonts/FreeSans.ttf").unwrap()).unwrap();    
 
     current_layer.begin_text_section();
-        current_layer.set_font(&font, 48);
+        current_layer.set_font(&font2, 48);
         current_layer.set_text_cursor(0.0, 200.0);
         current_layer.set_line_height(48);
         current_layer.set_text_rendering_mode(TextRenderingMode::Fill);
-        current_layer.write_text(text.clone(), &font);
+        current_layer.write_text(text.clone(), &font2);
     current_layer.end_text_section();
 
-    current_layer.begin_text_section();
-        current_layer.set_font(&font2, 33);
-        current_layer.set_text_cursor(10.0, 10.0);
-        current_layer.set_line_height(33);
-        current_layer.set_text_rendering_mode(TextRenderingMode::Stroke);
-        current_layer.write_text(text2, &font2);
-        current_layer.set_line_offset(10);
-        current_layer.write_text(text, &font2);
-    current_layer.end_text_section();
-
-/*
-    // currently, the only reliable file format is bmp (jpeg works, but not in release mode)
-    // this is an issue of the image library, not a fault of printpdf
-    let mut image_file = File::open("assets/img/BMP_test.bmp").unwrap();
-    let image = Image::try_from(image::bmp::BMPDecoder::new(&mut image_file)).unwrap();
-    // translate x, translate y, rotate, scale x, scale y
-    // by default, an image is optimized to 300 DPI (if scale is None)
-    // rotations and translations are always in relation to the lower left corner
-    image.add_to_layer(current_layer.clone(), None, None, None, None, None, None);
-*/
-
-/*
-    // A special thing is transcoding SVG files directly into PDF (for mapping symbols)    
-    // Specify the lower left corner of the SVG
-    let svg = doc.add_svg(File::open("./assets/img/SVG_test.svg").unwrap()).unwrap();
-    doc.get_page(page1).get_layer(layer1).use_svg(20.0, 20.0, 500.0, 400.0, svg);
-*/
+    let layer2 = doc.get_page(page1).add_layer("Test 2 Layer");
+    
+    layer2.begin_text_section();
+        layer2.set_font(&font2, 48);
+        layer2.set_text_cursor(0.0, 100.0);
+        layer2.set_line_height(48);
+        layer2.set_text_rendering_mode(TextRenderingMode::Fill);
+        layer2.write_text(text.clone(), &font2);
+    layer2.end_text_section();
 
     // There is no support for comments, images, annotations, 3D objects, signatures, gradients, etc. yet.
     // Save the PDF file
