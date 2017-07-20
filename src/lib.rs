@@ -330,7 +330,7 @@
 #[macro_use] pub mod glob_macros;
 
 extern crate lopdf_bugfix_19072017 as lopdf;
-extern crate rusttype_bugfix_19072017 as rusttype;
+extern crate freetype;
 extern crate chrono;
 extern crate rand;
 extern crate svg;

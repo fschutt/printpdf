@@ -1,6 +1,6 @@
 extern crate error_chain;
 extern crate image;
-extern crate rusttype_bugfix_19072017 as rusttype;
+extern crate freetype as ft;
 
 use super::*;
 
@@ -12,6 +12,7 @@ error_chain! {
 
     foreign_links {
         IoError(::std::io::Error);
+        FontError(ft::Error);
     }
 
     links {
@@ -20,9 +21,9 @@ error_chain! {
     }
 
     errors {
-       FontError {
+       /*FontError {
            description("Font could not be read")
            display("Corrupt font file")
-       }
+       }*/
     }
 }

@@ -1,5 +1,5 @@
 //! PDF layer management. Layers can contain referenced or real content.
-extern crate rusttype_bugfix_19072017 as rusttype;
+extern crate freetype as ft;
 
 use *;
 use indices::*;
@@ -389,21 +389,17 @@ impl PdfLayerReference {
         // let mut kerning_data = Vec::<freetype::Vector>::new();
 
         {
-            use rusttype::FontCollection;
-            use rusttype::CodepointOrGlyphId::Codepoint as Cpg;
-            use rusttype::Codepoint as Cp;
-
+            
             let face_direct_ref = doc.fonts.get_font(&font).unwrap();
-            let collection = FontCollection::from_bytes(&*face_direct_ref.data.font_bytes);
-            let font = collection.clone().into_font().unwrap_or(collection.into_fonts().nth(0).unwrap());
+            let library = ft::Library::init().unwrap();
+            let face = library.new_memory_face(&*face_direct_ref.data.font_bytes, 0)
+                       .expect("invalid memory font in write_text()");
 
             // convert into list of glyph ids - unicode magic
             let char_iter = text.chars();
 
             for ch in char_iter {
-                if let Some(glyph) = font.glyph(Cpg(Cp(ch as u32))) {
-                    list_gid.push(glyph.id().0 as u16);
-                }
+                list_gid.push(face.get_char_index(ch as usize) as u16);
                 
                 // todo - kerning !!
             }
