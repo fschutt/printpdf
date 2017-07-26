@@ -1,7 +1,7 @@
 //! Stub plugin for XMP Metadata streams, to be expanded later
 
 extern crate chrono;
-extern crate lopdf_bugfix_19072017 as lopdf;
+extern crate lopdf;
 
 use *;
 use rand::Rng;

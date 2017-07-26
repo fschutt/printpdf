@@ -1,6 +1,6 @@
 //! Wapper type for shared metadata between XMP Metadata and the DocumentInfo dictionary
 
-extern crate lopdf_bugfix_19072017 as lopdf;
+extern crate lopdf;
 extern crate chrono;
 
 use *;

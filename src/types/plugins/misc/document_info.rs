@@ -1,6 +1,6 @@
 //! Info dictionary of a PDF document
 
-extern crate lopdf_bugfix_19072017 as lopdf;
+extern crate lopdf;
 extern crate chrono;
 
 use *;
