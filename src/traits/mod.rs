@@ -1,5 +1,5 @@
 //! Traits used in a PDF document
-extern crate lopdf_bugfix_19072017 as lopdf;
+extern crate lopdf;
 
 /// Object can be serialized to an `lopdf::Object`, such as a Dictionary, etc.
 pub trait IntoPdfObject: ::std::fmt::Debug {

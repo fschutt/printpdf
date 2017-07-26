@@ -1,4 +1,4 @@
-extern crate lopdf_bugfix_19072017 as lopdf;
+extern crate lopdf;
 extern crate svg;
 
 use *;

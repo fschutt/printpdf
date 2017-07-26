@@ -1,5 +1,5 @@
 //! Embedding fonts in 2D for Pdf
-extern crate lopdf_bugfix_19072017 as lopdf;
+extern crate lopdf;
 extern crate freetype as ft;
 
 use *;
