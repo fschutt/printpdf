@@ -1,6 +1,6 @@
 [package]
 name = "printpdf"
-version = "0.1.0"
+version = "0.1.2"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 repository = "https://github.com/sharazam/printpdf"
 homepage = "https://github.com/sharazam/printpdf"
@@ -10,7 +10,7 @@ description = "Rust library for writing PDF files"
 
 [dependencies]
 lopdf = "0.10.0"
-freetype-rs = "0.13.0"		
+freetype-rs = "0.13.0"
 error-chain = "0.10.*"
 chrono = "0.3.0"
 rand = "0.3.15"

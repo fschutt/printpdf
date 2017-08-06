@@ -41,7 +41,7 @@ impl PdfDocument {
 
     /// Creates a new PDF document
     #[inline]
-    pub fn new<S>(document_title: S, initial_page_width_mm: f64, initial_page_height_mm: f64, 
+    pub fn new<S>(document_title: S, initial_page_width_mm: f64, initial_page_height_mm: f64,
                   initial_layer_name: S)
     -> (PdfDocumentReference, PdfPageIndex, PdfLayerIndex) where S: Into<String>
     {
@@ -57,8 +57,8 @@ impl PdfDocument {
         let doc_ref = Rc::new(RefCell::new(doc));
 
         let (initial_page, layer_index) = PdfPage::new(
-            initial_page_width_mm, 
-            initial_page_height_mm, 
+            initial_page_width_mm,
+            initial_page_height_mm,
             initial_layer_name,
             0);
 
@@ -84,7 +84,7 @@ impl PdfDocumentReference {
     /// Set the trapping of the document
     #[inline]
     pub fn with_trapping(self, trapping: bool)
-    -> Self 
+    -> Self
     {
         self.document.borrow_mut().metadata.trapping = trapping;
         self
@@ -102,13 +102,13 @@ impl PdfDocumentReference {
     /// Set the version of the document
     #[inline]
     pub fn with_document_version(self, version: u32)
-    -> Self 
+    -> Self
     {
         self.document.borrow_mut().metadata.document_version = version;
         self
     }
 
-    /// Changes the conformance of this document. It is recommended to call 
+    /// Changes the conformance of this document. It is recommended to call
     /// `check_for_errors()` after changing it.
     #[inline]
     pub fn with_conformance(self, conformance: PdfConformance)
@@ -134,7 +134,7 @@ impl PdfDocumentReference {
     #[inline]
     pub fn add_page<S>(&self, x_mm: f64, y_mm: f64, inital_layer_name: S)
     -> (PdfPageIndex, PdfLayerIndex) where S: Into<String>
-    { 
+    {
         let mut doc = self.document.borrow_mut();
         let (pdf_page, pdf_layer_index) = PdfPage::new(x_mm, y_mm, inital_layer_name, doc.pages.len());
         doc.pages.push(pdf_page);
@@ -149,9 +149,9 @@ impl PdfDocumentReference {
     {
         let last_font_index = { let doc = self.document.borrow(); doc.fonts.len() };
 
-        let font = Font::new(font_stream, last_font_index)?; 
+        let font = Font::new(font_stream, last_font_index)?;
         // let name = font.face_name.clone();
-        
+
         let font_ref;
 
         let possible_ref = {
@@ -164,9 +164,9 @@ impl PdfDocumentReference {
             return Ok(font_ref);
         } else {
             let mut doc = self.document.borrow_mut();
-            let direct_ref = DirectFontRef { 
-                inner_obj: doc.inner_doc.new_object_id(), 
-                data: font 
+            let direct_ref = DirectFontRef {
+                inner_obj: doc.inner_doc.new_object_id(),
+                data: font
             };
 
             doc.fonts.add_font(font_ref.clone(), direct_ref);
@@ -185,17 +185,17 @@ impl PdfDocumentReference {
         PdfPageReference { document: Rc::downgrade(&self.document).clone(), page }
     }
 
-    /// Returns a direct reference (object ID) to the font from an 
+    /// Returns a direct reference (object ID) to the font from an
     /// indirect reference (postscript name)
     #[inline]
     pub fn get_font(&self, font: &IndirectFontRef)
     -> Option<DirectFontRef>
     {
         let doc = self.document.borrow();
-        doc.fonts.get_font(font) 
+        doc.fonts.get_font(font)
     }
 
-    /// Drops the PDFDocument, returning the inner `lopdf::Document`. 
+    /// Drops the PDFDocument, returning the inner `lopdf::Document`.
     /// Document may be only half-written, use only in extreme cases
     #[inline]
     pub unsafe fn get_inner(self)
@@ -208,7 +208,7 @@ impl PdfDocumentReference {
     // --- MISC FUNCTIONS
 
     /// Checks for invalid settings in the document
-    pub fn check_for_errors(&self) 
+    pub fn check_for_errors(&self)
     -> ::std::result::Result<(), Error>
     {
         // todo
@@ -230,7 +230,7 @@ impl PdfDocumentReference {
     pub fn save<W: Write + Seek>(self, target: &mut W)
     -> ::std::result::Result<(), Error>
     {
-        use lopdf::{Dictionary as LoDictionary, 
+        use lopdf::{Dictionary as LoDictionary,
                     Object as LoObject};
         use lopdf::Object::*;
         use std::iter::FromIterator;
@@ -244,8 +244,8 @@ impl PdfDocumentReference {
         let (xmp_metadata, document_info, icc_profile) = doc.metadata.clone().into_obj();
         let xmp_metadata_id = doc.inner_doc.add_object(xmp_metadata);
         let document_info_id = doc.inner_doc.add_object(document_info);
-            
-        // add catalog 
+
+        // add catalog
         let icc_profile_descr = "Commercial and special offset print acccording to ISO \
                                  12647-2:2004 / Amd 1, paper type 1 or 2 (matte or gloss-coated \
                                  offset paper, 115 g/m2), screen ruling 60/cm";
@@ -258,10 +258,10 @@ impl PdfDocumentReference {
                           ("Type", Name("OutputIntent".into())),
                           ("OutputConditionIdentifier", String(icc_profile_short.into(), Literal)),
                           ("RegistryName", String("http://www.color.org".into(), Literal)),
-                          ("Info", String(icc_profile_str.into(), Literal)), 
+                          ("Info", String(icc_profile_str.into(), Literal)),
                         ]);
 
-        if let Some(profile) = icc_profile { 
+        if let Some(profile) = icc_profile {
             let icc_profile: lopdf::Stream = profile.into();
             let icc_profile_id = doc.inner_doc.add_object(lopdf::Object::Stream(icc_profile));
             output_intents.set("DestinationOutputProfile", Reference(icc_profile_id));
@@ -288,9 +288,9 @@ impl PdfDocumentReference {
         // ----- OCG CONTENT
 
         // page index + page names to add the OCG to the /Catalog
-        let page_layer_names: Vec<(usize, Vec<std::string::String>)> = 
-            doc.pages.iter().map(|page| 
-                (page.index, page.layers.iter().map(|layer| 
+        let page_layer_names: Vec<(usize, Vec<std::string::String>)> =
+            doc.pages.iter().map(|page|
+                (page.index, page.layers.iter().map(|layer|
                     layer.name.clone()).collect()
             )).collect();
 
@@ -313,12 +313,12 @@ impl PdfDocumentReference {
         let intent_arr_ref = doc.inner_doc.add_object(intent_arr);
 
         // page index, layer index, reference to OCG dictionary
-        let ocg_list: Vec<(usize, Vec<(usize, lopdf::Object)>)> = 
-        
-        page_layer_names.into_iter().map(|(page_idx, layer_names)| 
+        let ocg_list: Vec<(usize, Vec<(usize, lopdf::Object)>)> =
+
+        page_layer_names.into_iter().map(|(page_idx, layer_names)|
             (page_idx,
             layer_names.into_iter().enumerate().map(|(layer_idx, layer_name)|
-                (layer_idx, 
+                (layer_idx,
                 Reference(doc.inner_doc.add_object(
                     Dictionary(LoDictionary::from_iter(vec![
                         ("Type", Name("OCG".into())),
@@ -330,11 +330,11 @@ impl PdfDocumentReference {
             ).collect()))
         .collect();
 
-        let flattened_ocg_list: Vec<lopdf::Object> = 
-            ocg_list.iter().flat_map(|&(_, ref layers)| 
+        let flattened_ocg_list: Vec<lopdf::Object> =
+            ocg_list.iter().flat_map(|&(_, ref layers)|
                 layers.iter().map(|&(_, ref obj)| obj.clone())
             ).collect();
-        
+
         catalog.set("OCProperties", Dictionary(LoDictionary::from_iter(vec![
             ("OCGs", Array(flattened_ocg_list.clone())),
             // optional content configuration dictionary, page 376
@@ -362,7 +362,7 @@ impl PdfDocumentReference {
         }
 
         for (idx, page) in doc.pages.into_iter().enumerate() {
-            
+
             let mut p = LoDictionary::from_iter(vec![
                       ("Type", "Page".into()),
                       ("Rotate", Integer(0)),
@@ -393,9 +393,9 @@ impl PdfDocumentReference {
                 layer_streams_merged_vec.append(&mut stream.content);
             }
 
-            let merged_layer_stream = lopdf::Stream::new(lopdf::Dictionary::new(), layer_streams_merged_vec);
+            let merged_layer_stream = lopdf::Stream::new(lopdf::Dictionary::new(), layer_streams_merged_vec).with_compression(false);
             let page_content_id = doc.inner_doc.add_object(merged_layer_stream);
-            
+
             p.set("Contents", Reference(page_content_id));
             page_ids.push(Reference(doc.inner_doc.add_object(p)))
         }
@@ -413,7 +413,7 @@ impl PdfDocumentReference {
         doc.inner_doc.trailer.set("Root", Reference(catalog_id));
         doc.inner_doc.trailer.set("Info", Reference(document_info_id));
         doc.inner_doc.trailer.set("ID", Array(vec![
-                                            String(doc.document_id.as_bytes().to_vec(), Literal), 
+                                            String(doc.document_id.as_bytes().to_vec(), Literal),
                                             String(instance_id.as_bytes().to_vec(), Literal)
                                         ]));
 
@@ -433,7 +433,7 @@ impl PdfDocumentReference {
     fn optimize(doc: &mut lopdf::Document)
     {
         doc.prune_objects();
-        doc.delete_zero_length_streams(); 
+        doc.delete_zero_length_streams();
         doc.compress();
     }
 }
@@ -443,7 +443,7 @@ impl std::convert::From<lopdf::Doument> for PdfDocument
 {
     fn from(doc: lopdf::Doument) -> Self
     {
-        
+
     }
 }
 */
