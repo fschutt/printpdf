@@ -8,7 +8,7 @@
 
 ```rust
 [dependencies]
-printpdf = "0.1.0"
+printpdf = "0.1.2"
 ```
 
 ## Features
@@ -29,8 +29,8 @@ Currently, printpdf can only write documents, not read them.
 ### Writing PDF
 
 There are two types of functions: `add_*` and `use_*`. `add_*`-functions operate on the
-document and return a reference to the content that has been added. This is used for 
-instantiating objects via references in the document (for example, for reusing a block of 
+document and return a reference to the content that has been added. This is used for
+instantiating objects via references in the document (for example, for reusing a block of
 data - like a font) without copying it (and bloating the file size).
 
 Instancing happens via the `use_*`-functions, which operate on the layer. Meaning, you can only
@@ -58,9 +58,9 @@ let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 247.0, 210.0, 
 
 let mut current_layer = doc.get_page(page1).get_layer(layer1);
 
-// Quadratic shape. The "false" determines if the next (following) 
+// Quadratic shape. The "false" determines if the next (following)
 // point is a bezier handle (for curves)
-// If you want holes, simply reorder the winding of the points to be 
+// If you want holes, simply reorder the winding of the points to be
 // counterclockwise instead of clockwise.
 let points1 = vec![(Point::new(100.0, 100.0), false),
                    (Point::new(100.0, 200.0), false),
@@ -112,7 +112,7 @@ Note: Images only get compressed in release mode. You might get huge PDFs (6 or 
 debug mode. In release mode, the compression makes these files much smaller (~ 100 - 200 KB).
 
 To make this process faster, use `BufReader` instead of directly reading from the file.
-Images are currently not a top priority. 
+Images are currently not a top priority.
 
 Scaling of images is implicitly done to fit one pixel = one dot at 300 dpi.
 
@@ -124,7 +124,7 @@ extern crate image; /* currently: version 0.14.0 */
 use printpdf::*;
 use std::fs::File;
 use std::convert::TryFrom;
-use std::convert::From; 
+use std::convert::From;
 
 fn main() {
     let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 247.0, 210.0, "Layer 1");
@@ -141,14 +141,14 @@ fn main() {
     image.add_to_layer(current_layer.clone(), None, None, None, None, None, None);
 
     // you can also construct images manually from your data:
-    let mut image_file_2 = ImageXObject { 
+    let mut image_file_2 = ImageXObject {
         width: 200,
         height: 200,
         color_space: ColorSpace::Greyscale,
         bits_per_component: ColorBits::Bit8,
         interpolate: true,
         /* put your bytes here. Make sure the total number of bytes =
-           width * height * (bytes per component * number of components) 
+           width * height * (bytes per component * number of components)
            (e.g. 2 (bytes) x 3 (colors) for RGB 16bit) */
         image_data: Vec::new(),
         image_filter: None, /* does not work yet */
@@ -157,16 +157,14 @@ fn main() {
 
     let image2 = Image::from(image_file_2);
 }
-``` 
+```
 
-### Adding fonts
+#### Adding fonts
 
 Note: Fonts are shared between pages. This means that they are added to the document first
-and then a reference to this one object can be passed to multiple pages. This is different to 
+and then a reference to this one object can be passed to multiple pages. This is different to
 images, for example, which can only be used once on the page they are created on (since that's
 the most common use-case).
-
-__WARNING__: `rusttype` can only load `.ttf` files, not `.otf` or other formats.
 
 ```rust
 use printpdf::*;
@@ -179,18 +177,18 @@ let text = "Lorem ipsum";
 let text2 = "unicode: стуфхfцчшщъыьэюя";
 
 let font = doc.add_font(File::open("assets/fonts/RobotoMedium.ttf").unwrap()).unwrap();
-let font2 = doc.add_font(File::open("assets/fonts/leaguespartan-bold.ttf").unwrap()).unwrap();
+let font2 = doc.add_font(File::open("assets/fonts/RobotoMedium.ttf").unwrap()).unwrap();
 
 // text, font size, x from left edge, y from top edge, font
 current_layer.use_text(text, 48, 200.0, 200.0, &font);
 
-// For more complex layout of text, you can use functions 
+// For more complex layout of text, you can use functions
 // defined on the PdfLayerReference
-// Make sure to wrap your commands 
+// Make sure to wrap your commands
 // in a `begin_text_section()` and `end_text_section()` wrapper
 current_layer.begin_text_section();
 
-    // setup the general fonts. 
+    // setup the general fonts.
     // see the docs for these functions for details
     current_layer.set_font(&font2, 33);
     current_layer.set_text_cursor(10.0, 10.0);
@@ -215,33 +213,33 @@ current_layer.end_text_section();
 
 ## Further reading
 
-The `PDFDocument` is hidden behind a `PDFDocumentReference`, which locks the things you can 
+The `PDFDocument` is hidden behind a `PDFDocumentReference`, which locks the things you can
 do behind a facade. Pretty much all functions operate on a `PDFLayerReference`, so that would
 be where to look for existing functions or where to implement new functions. The `PDFDocumentReference`
-is a reference-counted document. It uses the pages and layers for inner mutablility, because 
+is a reference-counted document. It uses the pages and layers for inner mutablility, because
 I ran into borrowing issues with the document. __IMPORTANT:__ All functions that mutate the state
 of the document, "borrow" the document mutably for the duration of the function. It is important
-that you don't borrow the document twice (your program will crash if you do so). I have prevented 
+that you don't borrow the document twice (your program will crash if you do so). I have prevented
 this wherever possible, by making the document only public to the crate so you cannot lock it from
 outside of this library.
 
 Images have to be added to the pages resources before using them. Meaning, you can only use an image
 on the page that you added it to. Otherwise, you may end up with a corrupt PDF.
 
-Fonts are embedded using `rusttype`. In the future, there should be an option to use `freetype`, 
-because `freetype` can use OpenType fonts. Please report issues if you have any, especially if you 
+Fonts are embedded using `rusttype`. In the future, there should be an option to use `freetype`,
+because `freetype` can use OpenType fonts. Please report issues if you have any, especially if you
 see `BorrowMut` errors (they should not happen). Kerning is currently not done, should be added later.
 However, "correct" kerning / placement requires a full font shaping engine, etc. This would be a completely
 different project.
 
 For learning how a PDF is actually made, please read the [wiki](https://github.com/sharazam/printpdf/wiki).
-When I began making this library, these resources were not available anywhere, so I hope to help other people 
+When I began making this library, these resources were not available anywhere, so I hope to help other people
 with these topics. Reading the wiki is essential if you want to contribute to this library.
 
 ## Goals and Roadmap
 
 The goal of printpdf is to be a general-use PDF library, such as libharu or similar.
-PDFs generated by printpdf must always adhere to a PDF standard. However, not all standards 
+PDFs generated by printpdf must always adhere to a PDF standard. However, not all standards
 are supported. See this list:
 
 - [ ] PDF/A-1b:2005
@@ -290,7 +288,7 @@ Over time, there will be more standards supported. Checking a PDF for errors is 
 in `/src/types/plugins/[family of your type]/[type].rs`
 - The type should implement `IntoPdfObject`, so that it can be added to the document
 - Change the `page` and `layer content types to have a convenience function for adding your type
-- Document your changes. Add a doc test (how you expect the type to be used) and a unit test 
+- Document your changes. Add a doc test (how you expect the type to be used) and a unit test
 (if the type is conform to the expected PDF type)
 - If you want to change this README, change the lib.rs instead and run `cargo readme > README.md`.
 - Create pull request
@@ -298,7 +296,7 @@ in `/src/types/plugins/[family of your type]/[type].rs`
 ## Testing
 
 Currently the testing is pretty much non-existent, because PDF is very hard to test. This should change
-over time: Testing should be done in two stages. First, test the individual PDF objects, if the conversion 
+over time: Testing should be done in two stages. First, test the individual PDF objects, if the conversion
 into a PDF object is done correctly. The second stage is manual inspection of PDF objects via Adobe Preflight.
 
 Put the tests of the first stage in /tests/mod.rs. The second stage tests are better to be handled
