@@ -4,7 +4,7 @@
 //!
 //! ```ignore
 //! [dependencies]
-//! printpdf = "0.1.0"
+//! printpdf = "0.1.2"
 //! ```
 //!
 //! # Features
@@ -161,8 +161,6 @@
 //! and then a reference to this one object can be passed to multiple pages. This is different to
 //! images, for example, which can only be used once on the page they are created on (since that's
 //! the most common use-case).
-//!
-//! __WARNING__: `rusttype` can only load `.ttf` files, not `.otf` or other formats.
 //!
 //! ```rust
 //! use printpdf::*;

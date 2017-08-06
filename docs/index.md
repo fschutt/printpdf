@@ -1,11 +1,11 @@
-`printpdf` is a PDF library for creating printable (PDF-X conform) PDF documents. 
+`printpdf` is a PDF library for creating printable (PDF-X conform) PDF documents.
 It should make the process of generating PDF easier
 
 [Crates.io](https://crates.io/crates/printpdf) | [Documentation](https://docs.rs/printpdf)
 
 ```
 [dependencies]
-printpdf = "0.1.0"
+printpdf = "0.1.2"
 ```
 You also need to install the FreeType library as printpdf links to it (statically).
 
