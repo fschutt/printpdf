@@ -1,21 +1,21 @@
 //! Module regulating the comparison and feature sets / allowed plugins of a PDF document
-//! 
+//!
 //! NOTE: All credit to Wikipedia:
-//! 
+//!
 //! [PDF/X Versions](https://en.wikipedia.org/wiki/PDF/X)
 //!
 //! [PDF/A Versions](https://en.wikipedia.org/wiki/PDF/A)
 
 /// List of (relevant) PDF versions
 /// Please note the difference between **PDF/A** (archiving), **PDF/UA** (universal acessibility),
-/// **PDF/X** (printing), **PDF/E** (engineering / CAD), **PDF/VT** (large volume transactions with 
+/// **PDF/X** (printing), **PDF/E** (engineering / CAD), **PDF/VT** (large volume transactions with
 /// repeated content)
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[allow(non_camel_case_types)]
 pub enum PdfConformance {
     /// `PDF/A-1b` basic PDF, many features restricted
     A1B_2005_PDF_1_4,
-    /// `PDF/A-1a` language specification, hierarchical document structure, 
+    /// `PDF/A-1a` language specification, hierarchical document structure,
     /// character mappings to unicode, descriptive text for images
     A1A_2005_PDF_1_4,
     /// `PDF/A-2:2011` - JPEG compression, transpareny, layering, OpenType fonts
@@ -48,10 +48,10 @@ pub enum PdfConformance {
     /// content. This can be described as OPI-like (Open Prepress Interface) workflows.
     /// Specifically this allows graphics to be referenced that are outside the PDF
     X5G_2010_PDF_1_6,
-    /// `PDF/X-5pg` An extension of PDF/X-4p that enables the use of external graphical 
+    /// `PDF/X-5pg` An extension of PDF/X-4p that enables the use of external graphical
     /// content in conjunction with a reference to an external ICC Profile for the output intent.
     X5PG_2010_PDF_1_6,
-    /// `PDF/X-5n` An extension of PDF/X-4p that allows the externally supplied ICC 
+    /// `PDF/X-5n` An extension of PDF/X-4p that allows the externally supplied ICC
     /// Profile for the output intent to use a color space other than Greyscale, RGB and CMYK.
     X5N_2010_PDF_1_6,
     /// `PDF/E-1:2008` 3D Objects, geospatial, etc.
@@ -68,6 +68,7 @@ impl PdfConformance {
     pub fn get_identifier_string(&self)
     -> String
     {
+        // todo: these identifiers might not be correct in all cases
         let identifier = match *self {
             PdfConformance::A1B_2005_PDF_1_4  => "PDF/A-1b:2005",
             PdfConformance::A1A_2005_PDF_1_4  => "PDF/A-1a:2005",
@@ -82,10 +83,10 @@ impl PdfConformance {
             PdfConformance::X1A_2003_PDF_1_4  => "PDF/X-1a:2003",
             PdfConformance::X3_2003_PDF_1_4   => "PDF/X-3:2003",
             PdfConformance::X4_2010_PDF_1_4   => "PDF/X-4",
-            PdfConformance::X4P_2010_PDF_1_6  => "PDF/X-4",
-            PdfConformance::X5G_2010_PDF_1_6  => "PDF/X-5",
-            PdfConformance::X5PG_2010_PDF_1_6 => "PDF/X-5",
-            PdfConformance::X5N_2010_PDF_1_6  => "PDF/X-5",
+            PdfConformance::X4P_2010_PDF_1_6  => "PDF/X-4P",
+            PdfConformance::X5G_2010_PDF_1_6  => "PDF/X-5G",
+            PdfConformance::X5PG_2010_PDF_1_6 => "PDF/X-5PG",
+            PdfConformance::X5N_2010_PDF_1_6  => "PDF/X-5N",
             PdfConformance::E1_2008_PDF_1_6   => "PDF/E-1",
             PdfConformance::VT_2010_PDF_1_4   => "PDF/VT",
         };
@@ -93,7 +94,7 @@ impl PdfConformance {
         identifier.to_string()
     }
 
-    /// __STUB__: Detects if the PDF has 3D content, but the 
+    /// __STUB__: Detects if the PDF has 3D content, but the
     /// conformance to the given PDF standard does not allow it.
     pub fn is_3d_content_allowed(&self)
     -> bool
@@ -112,7 +113,7 @@ impl PdfConformance {
         false
     }
 
-    /// __STUB__: Detects if the PDF has audio content, but the 
+    /// __STUB__: Detects if the PDF has audio content, but the
     /// conformance to the given PDF standard does not allow it.
     pub fn is_audio_content_allowed(&self)
     -> bool
@@ -121,7 +122,7 @@ impl PdfConformance {
         false
     }
 
-    /// __STUB__: Detects if the PDF has 3D content, but the 
+    /// __STUB__: Detects if the PDF has 3D content, but the
     /// conformance to the given PDF standard does not allow it.
     pub fn is_javascript_content_allowed(&self)
     -> bool
@@ -130,7 +131,7 @@ impl PdfConformance {
         false
     }
 
-    /// __STUB__: Detects if the PDF has JPEG images, but the 
+    /// __STUB__: Detects if the PDF has JPEG images, but the
     /// conformance to the given PDF standard does not allow it
     pub fn is_jpeg_content_allowed(&self)
     -> bool
@@ -139,8 +140,9 @@ impl PdfConformance {
         false
     }
 
-    /// Detects if the PDF must have XMP metadata 
+    /// Detects if the PDF must have XMP metadata
     /// if it has to conform to the given PDF Standard
+    #[cfg_attr(feature = "cargo-clippy", allow(match_same_arms))]
     pub fn must_have_xmp_metadata(&self)
     -> bool
     {
@@ -168,8 +170,9 @@ impl PdfConformance {
         }
     }
 
-    /// __STUB__: Detects if the PDF has layering (optional content groups), 
+    /// __STUB__: Detects if the PDF has layering (optional content groups),
     /// but the conformance to the given PDF standard does not allow it.
+    #[cfg_attr(feature = "cargo-clippy", allow(match_same_arms))]
     pub fn is_layering_allowed(&self)
     -> bool
     {

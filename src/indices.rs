@@ -1,5 +1,5 @@
-//! These indices are for library internal use only. The trick is to publicly export 
-//! the types, but put the indices inside a private module. This way you can't 
+//! These indices are for library internal use only. The trick is to publicly export
+//! the types, but put the indices inside a private module. This way you can't
 //! construct these types outside of the library. Use the `add_*` functions to get an index instead.
 
 /// Index of the page (0-based)
@@ -14,11 +14,11 @@ impl PdfLayerIndex {
 }
 
 /// Index of the arbitrary content data
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct PdfContentIndex(pub usize);
 
 /// Index of a font
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct FontIndex(pub PdfContentIndex);
 
 impl Into<PdfContentIndex> for FontIndex {

@@ -1,3 +1,5 @@
+#![cfg_attr(feature = "cargo-clippy", allow(module_inception))]
+
 //! Errors for printpdf
 
 pub mod errors;

@@ -28,22 +28,20 @@ impl Into<Operation> for PdfColor {
                 FillColor(fill) => {
                     let ci = match fill {
                         Color::Rgb(_) => { OP_COLOR_SET_FILL_CS_DEVICERGB }
-                        Color::Cmyk(_) => { OP_COLOR_SET_FILL_CS_DEVICECMYK }
+                        Color::Cmyk(_) | Color::SpotColor(_) => { OP_COLOR_SET_FILL_CS_DEVICECMYK }
                         Color::Greyscale(_) => { OP_COLOR_SET_FILL_CS_DEVICEGRAY }
-                        Color::SpotColor(_) => { OP_COLOR_SET_FILL_CS_DEVICECMYK }
                     };
-                    let cvec = fill.into_vec().into_iter().map(move |float| Real(float)).collect();
+                    let cvec = fill.into_vec().into_iter().map(Real).collect();
                     (ci, cvec)
                 },
                 OutlineColor(outline) => {
                     let ci = match outline {
                         Color::Rgb(_) => { OP_COLOR_SET_STROKE_CS_DEVICERGB }
-                        Color::Cmyk(_) => { OP_COLOR_SET_STROKE_CS_DEVICECMYK }
+                        Color::Cmyk(_) | Color::SpotColor(_) => { OP_COLOR_SET_STROKE_CS_DEVICECMYK }
                         Color::Greyscale(_) => { OP_COLOR_SET_STROKE_CS_DEVICEGRAY }
-                        Color::SpotColor(_) => { OP_COLOR_SET_STROKE_CS_DEVICECMYK }
                     };
 
-                    let cvec = outline.into_vec().into_iter().map(move |float| Real(float)).collect();
+                    let cvec = outline.into_vec().into_iter().map(Real).collect();
                     (ci, cvec)
                 }
             }
@@ -54,7 +52,7 @@ impl Into<Operation> for PdfColor {
 }
 
 /// Color space (enum for marking the number of bits a color has)
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum ColorSpace {
     Rgb,
     Cmyk,
@@ -67,11 +65,8 @@ impl From<image::ColorType> for ColorSpace {
     {
         use image::ColorType::*;
         match color_type {
-            Gray(_) => ColorSpace::Greyscale,
-            RGB(_) => ColorSpace::Rgb,
-            Palette(_) => ColorSpace::Rgb, /* todo: support indexed colors*/
-            GrayA(_) => ColorSpace::Greyscale,
-            RGBA(_) => ColorSpace::Rgb,
+            Gray(_) | GrayA(_) => ColorSpace::Greyscale,
+            RGB(_) | RGBA(_) | Palette(_) => ColorSpace::Rgb, /* todo: support indexed colors*/
         }
     }
 }
@@ -89,7 +84,7 @@ impl Into<&'static str> for ColorSpace {
 }
 
 /// How many bits does a color have?
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum ColorBits {
     Bit1,
     Bit8,
@@ -103,44 +98,14 @@ impl From<image::ColorType> for ColorBits {
         use image::ColorType::*;
         use ColorBits::*;
 
-        // not sure why the compile does not see this
-        #[allow(unused_assignments)]
-        let mut num_bytes_color_type = ColorBits::Bit1;
-
         match color_type {
-            Gray(num_bytes) => num_bytes_color_type = match num_bytes {
-                1 =>  Bit1,
+            Gray(num_bytes) |RGB(num_bytes) | Palette(num_bytes) |
+            GrayA(num_bytes) | RGBA(num_bytes) => match num_bytes {
                 8 =>  Bit8,
                 16 => Bit16,
                 _ => Bit1,
-            },
-            RGB(num_bytes) => num_bytes_color_type = match num_bytes {
-                1 =>  Bit1,
-                8 =>  Bit8,
-                16 => Bit16,
-                _ => Bit1,
-            },
-            Palette(num_bytes) => num_bytes_color_type = match num_bytes {
-                1 =>  Bit1,
-                8 =>  Bit8,
-                16 => Bit16,
-                _ => Bit1,
-            },
-            GrayA(num_bytes) => num_bytes_color_type = match num_bytes {
-                1 =>  Bit1,
-                8 =>  Bit8,
-                16 => Bit16,
-                _ => Bit1,
-            },
-            RGBA(num_bytes) => num_bytes_color_type = match num_bytes {
-                1 =>  Bit1,
-                8 =>  Bit8,
-                16 => Bit16,
-                _ => Bit1,
-            },
+            }
         }
-
-        return num_bytes_color_type;
     }
 }
 
@@ -166,7 +131,7 @@ pub enum Color {
 }
 
 impl Color {
-    
+
     /// Consumes the color and converts into into a vector of numbers
     pub fn into_vec(self)
     -> Vec<f64>

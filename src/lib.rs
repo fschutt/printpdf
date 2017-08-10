@@ -4,7 +4,7 @@
 //!
 //! ```ignore
 //! [dependencies]
-//! printpdf = "0.1.2"
+//! printpdf = "0.1.3"
 //! ```
 //!
 //! # Features
@@ -223,7 +223,7 @@
 //! on the page that you added it to. Otherwise, you may end up with a corrupt PDF.
 //!
 //! Fonts are embedded using `rusttype`. In the future, there should be an option to use `freetype`,
-//! because `freetype` can use OpenType fonts. Please report issues if you have any, especially if you
+//! because `freetype` can use `OpenType` fonts. Please report issues if you have any, especially if you
 //! see `BorrowMut` errors (they should not happen). Kerning is currently not done, should be added later.
 //! However, "correct" kerning / placement requires a full font shaping engine, etc. This would be a completely
 //! different project.
@@ -304,7 +304,7 @@
 //!
 //! Here are some resources I found while working on this library
 //!
-//! [PDFXPlorer, shows the DOM tree of a PDF, needs .NET 2.0](http://www.o2sol.com/pdfxplorer/download.htm)
+//! [`PDFXPlorer`, shows the DOM tree of a PDF, needs .NET 2.0](http://www.o2sol.com/pdfxplorer/download.htm)
 //!
 //! [Official PDF 1.7 reference](http://www.adobe.com/content/dam/Adobe/en/devnet/acrobat/pdfs/pdf_reference_1-7.pdf)
 //!
@@ -322,6 +322,35 @@
 #![allow(unused_doc_comment)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
+
+// Enable clippy if our Cargo.toml file asked us to do so.
+#![cfg_attr(feature="clippy", feature(plugin))]
+#![cfg_attr(feature="clippy", plugin(clippy))]
+
+#![warn(missing_copy_implementations,
+        trivial_numeric_casts,
+        trivial_casts,
+        unused_extern_crates,
+        unused_import_braces,
+        unused_qualifications)]
+
+#![cfg_attr(feature="clippy", warn(cast_possible_truncation))]
+#![cfg_attr(feature="clippy", warn(cast_possible_truncation))]
+#![cfg_attr(feature="clippy", warn(cast_precision_loss))]
+#![cfg_attr(feature="clippy", warn(cast_sign_loss))]
+#![cfg_attr(feature="clippy", warn(missing_docs_in_private_items))]
+#![cfg_attr(feature="clippy", warn(mut_mut))]
+
+// Disallow `println!`. Use `debug!` for debug output
+// (which is provided by the `log` crate).
+#![cfg_attr(feature="clippy", warn(print_stdout))]
+
+// This allows us to use `unwrap` on `Option` values (because doing makes
+// working with Regex matches much nicer) and when compiling in test mode
+// (because using it in tests is idiomatic).
+#![cfg_attr(all(not(test), feature="clippy"), warn(result_unwrap_used))]
+#![cfg_attr(feature="clippy", warn(unseparated_literal_suffix))]
+#![cfg_attr(feature="clippy", warn(wrong_pub_self_convention))]
 
 #[macro_use] extern crate error_chain;
 #[macro_use] extern crate log;

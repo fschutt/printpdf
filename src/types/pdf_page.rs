@@ -34,8 +34,8 @@ impl PdfPage {
     /// Create a new page, notice that width / height are in millimeter.
     /// Page must contain at least one layer
     #[inline]
-    pub fn new<S>(width_mm: f64, 
-                  height_mm: f64, 
+    pub fn new<S>(width_mm: f64,
+                  height_mm: f64,
                   layer_name: S,
                   page_index: usize)
     -> (Self, PdfLayerIndex) where S: Into<String>
@@ -57,18 +57,18 @@ impl PdfPage {
     }
 
     /// Iterates through the layers attached to this page and gathers all resources,
-    /// which the layers need. Then returns a dictonary with all the resources 
+    /// which the layers need. Then returns a dictonary with all the resources
     /// (fonts, image XObjects, etc.)
     ///
     /// While originally I had planned to build a system where you can reference contents
     /// from all over the document, this turned out to be a problem, because each type had
     /// to be handled differently (PDF weirdness)
     ///
-    /// `layers` should be a Vec with all layers (optional content groups) that were added 
-    /// to the document on a document level, it should contain the indices of the layers 
+    /// `layers` should be a Vec with all layers (optional content groups) that were added
+    /// to the document on a document level, it should contain the indices of the layers
     /// (they will be ignored, todo) and references to the actual OCG dictionaries
     #[inline]
-    pub(crate) fn collect_resources_and_streams(self, doc: &mut lopdf::Document, layers: &Vec<(usize, lopdf::Object)>)
+    pub(crate) fn collect_resources_and_streams(self, doc: &mut lopdf::Document, layers: &[(usize, lopdf::Object)])
     -> (lopdf::Dictionary, Vec<lopdf::Stream>)
     {
         let cur_layers = layers.iter().map(|l| l.1.clone()).collect();
@@ -104,14 +104,14 @@ impl PdfPage {
             layer_streams.push(layer_stream);
         }
 
-        return (resource_dictionary, layer_streams);
+        (resource_dictionary, layer_streams)
     }
 
-    /// Change the graphics state. Before this operation is done, you should save 
-    /// the graphics state using the `save_graphics_state()` function. This will change the 
-    /// current graphics state until the end of the page or until the page is reset to the 
+    /// Change the graphics state. Before this operation is done, you should save
+    /// the graphics state using the `save_graphics_state()` function. This will change the
+    /// current graphics state until the end of the page or until the page is reset to the
     /// previous state.
-    /// Returns the old graphics state, in case it was overwritten, as well as a reference 
+    /// Returns the old graphics state, in case it was overwritten, as well as a reference
     /// to the currently active graphics state
     #[inline]
     pub fn add_graphics_state(&mut self, added_state: ExtendedGraphicsState)
@@ -147,7 +147,7 @@ impl PdfPageReference {
     {
         let doc = self.document.upgrade().unwrap();
         let mut doc = doc.borrow_mut();
-        let mut page = doc.pages.get_mut(self.page.0).unwrap();
+        let page = &mut doc.pages[self.page.0];
 
         let current_page_index = page.layers.len(); /* order is important */
         let layer = PdfLayer::new(layer_name);
@@ -156,24 +156,26 @@ impl PdfPageReference {
 
         PdfLayerReference {
             document: self.document.clone(),
-            page: self.page.clone(),
+            page: self.page,
             layer: index,
         }
     }
 
     /// Validates that a layer is present and returns a reference to it
     #[inline]
+    #[cfg_attr(feature = "cargo-clippy", allow(no_effect))]
+
     pub fn get_layer(&self, layer: PdfLayerIndex)
     -> PdfLayerReference
     {
         let doc = self.document.upgrade().unwrap();
         let doc = doc.borrow();
 
-        doc.pages.get(self.page.0).unwrap().layers.get(layer.0).unwrap();
+        let _ = &doc.pages[self.page.0].layers[layer.0];
 
         PdfLayerReference {
             document: self.document.clone(),
-            page: self.page.clone(),
+            page: self.page,
             layer: layer,
         }
     }

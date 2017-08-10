@@ -2,7 +2,7 @@ use *;
 use std::collections::HashMap;
 
 /// __STUB__
-#[derive(Debug)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct Pattern {
 
 }
@@ -12,10 +12,7 @@ impl Pattern {
     pub fn new()
     -> Self
     {
-        Self 
-        { 
-
-        }
+        Self::default()
     }
 }
 
@@ -35,7 +32,7 @@ impl PatternRef {
     }
 }
 
-#[derive(Debug)]
+#[derive(Default, Debug)]
 pub struct PatternList {
     patterns: HashMap<String, Pattern>,
 }

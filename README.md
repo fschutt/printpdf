@@ -8,7 +8,7 @@
 
 ```rust
 [dependencies]
-printpdf = "0.1.2"
+printpdf = "0.1.3"
 ```
 
 ## Features
@@ -227,7 +227,7 @@ Images have to be added to the pages resources before using them. Meaning, you c
 on the page that you added it to. Otherwise, you may end up with a corrupt PDF.
 
 Fonts are embedded using `rusttype`. In the future, there should be an option to use `freetype`,
-because `freetype` can use OpenType fonts. Please report issues if you have any, especially if you
+because `freetype` can use `OpenType` fonts. Please report issues if you have any, especially if you
 see `BorrowMut` errors (they should not happen). Kerning is currently not done, should be added later.
 However, "correct" kerning / placement requires a full font shaping engine, etc. This would be a completely
 different project.
@@ -308,7 +308,7 @@ type. Either way is fine - you just have to check that the test object is confor
 
 Here are some resources I found while working on this library
 
-[PDFXPlorer, shows the DOM tree of a PDF, needs .NET 2.0](http://www.o2sol.com/pdfxplorer/download.htm)
+[`PDFXPlorer`, shows the DOM tree of a PDF, needs .NET 2.0](http://www.o2sol.com/pdfxplorer/download.htm)
 
 [Official PDF 1.7 reference](http://www.adobe.com/content/dam/Adobe/en/devnet/acrobat/pdfs/pdf_reference_1-7.pdf)
 

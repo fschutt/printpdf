@@ -1,24 +1,24 @@
 //! Extended graphics state, for advanced graphical operation (overprint, black point control, etc.)
-//! 
+//!
 //! Some of the operations can be done on the layer directly, but for advanced graphics,
 //! you need to set the graphics state. A PDF has an internal default graphics state,
-//! which can be reset to by setting "ExtendedGraphicsState::default()" as the active gs 
+//! which can be reset to by setting `ExtendedGraphicsState::default()` as the active gs
 //! dictionary. Setting a new graphics state overwrites the old one, there is no "undo".
 //!
 //! In order to use a graphics state, it must be added to the Pages resource dicitionary.
-//! This is done by the `layer.set_graphics_state()` function, which returns a reference with the name of 
-//! the newly added dictionary. From inside a stream, the graphics state parameter is invoked 
+//! This is done by the `layer.set_graphics_state()` function, which returns a reference with the name of
+//! the newly added dictionary. From inside a stream, the graphics state parameter is invoked
 //! with the "gs" command using the name of the graphics state as a operator.
 //! This is done using the `layer.use_graphics_state()`.
-//! 
+//!
 //! A full graphics state change is done like this:
 //!
 //! ```rust,ignore
 //! let mut new_state = ExtendedGraphicsState::default();
 //! new_state.overprint_stroke = true;
-//! 
+//!
 //! // it is best to put the next lines in a seperate function
-//! // A PdfLayerReferences contains the indices of the page and the layer 
+//! // A PdfLayerReferences contains the indices of the page and the layer
 //! // as well as a `std::sync::Weak` reference to the document.
 //! // This is why you need the braces, otherwise, you'll trigger a deadlock
 //! {
@@ -37,7 +37,6 @@ use lopdf::content::Operation;
 use lopdf::Object::*;
 use traits::{IntoPdfObject, IntoPdfStreamOperation};
 use std::string::String;
-use *;
 use indices::FontIndex;
 use std::collections::HashSet;
 use std::collections::HashMap;
@@ -70,19 +69,18 @@ pub (crate) const CURRENT_FILL_ALPHA: &'static str = "current_fill_alpha";
 pub (crate) const ALPHA_IS_SHAPE: &'static str = "alpha_is_shape";
 pub (crate) const TEXT_KNOCKOUT: &'static str = "text_knockout";
 
-/// List of many ExtendedGraphicsState 
+/// List of many `ExtendedGraphicsState`
 #[derive(Debug)]
 pub struct ExtendedGraphicsStateList {
     /// Current indent level + current graphics state
     pub(crate) latest_graphics_state: (usize, ExtendedGraphicsState),
     /// All graphics states needed for this layer, collected together with a name for each one
     /// The name should be: "GS[index of the graphics state]", so `/GS0` for the first graphics state.
-    pub(crate) all_graphics_states: HashMap<std::string::String, (usize, ExtendedGraphicsState)>,
+    pub(crate) all_graphics_states: HashMap<String, (usize, ExtendedGraphicsState)>,
 }
 
-impl ExtendedGraphicsStateList {
-    /// Creates a new ExtendedGraphicsStateList
-    pub fn new()
+impl Default for ExtendedGraphicsStateList {
+    fn default()
     -> Self
     {
         Self {
@@ -90,12 +88,21 @@ impl ExtendedGraphicsStateList {
             all_graphics_states: HashMap::new(),
         }
     }
+}
+
+impl ExtendedGraphicsStateList {
+    /// Creates a new ExtendedGraphicsStateList
+    pub fn new()
+    -> Self
+    {
+        Self::default()
+    }
 
     /// Adds a graphics state
     pub fn add_graphics_state(&mut self, added_state: ExtendedGraphicsState)
     -> ExtendedGraphicsStateRef
     {
-        let gs_ref = ExtendedGraphicsStateRef::new(self.all_graphics_states.len()); 
+        let gs_ref = ExtendedGraphicsStateRef::new(self.all_graphics_states.len());
         self.all_graphics_states.insert(gs_ref.gs_name.clone(), (self.latest_graphics_state.0, added_state.clone()));
         self.latest_graphics_state = (self.latest_graphics_state.0, added_state);
         gs_ref
@@ -103,12 +110,14 @@ impl ExtendedGraphicsStateList {
 }
 
 impl Into<lopdf::Dictionary> for ExtendedGraphicsStateList {
+
+    #[cfg_attr(feature = "cargo-clippy", allow(needless_return))]
     fn into(self)
     -> lopdf::Dictionary
     {
         let mut ext_g_state_resources = lopdf::Dictionary::new();
 
-        for (name, (_, graphics_state)) in self.all_graphics_states.into_iter() {
+        for (name, (_, graphics_state)) in self.all_graphics_states {
             let gs: lopdf::Object = graphics_state.into();
             ext_g_state_resources.set(name.to_string(), gs);
         }
@@ -117,21 +126,21 @@ impl Into<lopdf::Dictionary> for ExtendedGraphicsStateList {
     }
 }
 
-/// ExtGState dictionary
+/// `ExtGState` dictionary
 #[derive(Debug, PartialEq, Clone)]
 pub struct ExtendedGraphicsState {
     /* /Type ExtGState */
 
     /// NOTE: We need to track which fields have changed in relation to the default() method.
-    /// This is because we want to optimize out the fields that haven't changed in relation 
-    /// to the last graphics state. Please use only the constants defined in this module for 
-    /// declaring the changed fields. The way to go about this is to first convert the ExtGState 
-    /// into a vector of operations and then remove all operations that are unnecessary 
+    /// This is because we want to optimize out the fields that haven't changed in relation
+    /// to the last graphics state. Please use only the constants defined in this module for
+    /// declaring the changed fields. The way to go about this is to first convert the ExtGState
+    /// into a vector of operations and then remove all operations that are unnecessary
     /// before writing the document.
     ///
-    /// If you are unsure about this, please use the `.with_[field name]` method. These methods 
+    /// If you are unsure about this, please use the `.with_[field name]` method. These methods
     /// will set the `changed_fields` to the correct values. If you want to take care of this field
-    /// manually: Every time you change a field on the ExtGState dicitionary, you have to add the 
+    /// manually: Every time you change a field on the ExtGState dicitionary, you have to add the
     /// string identifier of that field into the `changed_fields` vector.
     pub(crate) changed_fields: HashSet<&'static str>,
 
@@ -292,20 +301,19 @@ pub struct ExtendedGraphicsState {
     pub(crate) text_knockout: bool,
 }
 
+#[derive(Debug, Clone, Default)]
 pub struct ExtendedGraphicsStateBuilder {
     /// Private field so we can control the `changed_fields` parameter
     gs: ExtendedGraphicsState,
 }
 
 impl ExtendedGraphicsStateBuilder {
-    
+
     /// Creates a new graphics state builder
     pub fn new()
     -> Self
     {
-        Self {
-            gs: ExtendedGraphicsState::default(),
-        }
+        Self::default()
     }
 
     /// Sets the line width
@@ -561,6 +569,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Consumes the builder and returns an actual ExtendedGraphicsState
     #[inline]
+    #[cfg_attr(feature = "cargo-clippy", allow(needless_return))]
     pub fn build(self)
     -> ExtendedGraphicsState
     {
@@ -568,9 +577,9 @@ impl ExtendedGraphicsStateBuilder {
     }
 }
 
-impl ExtendedGraphicsState {
-    /// Creates a default ExtGState dictionary. Useful for resetting  
-    pub(crate) fn default()
+impl Default for ExtendedGraphicsState {
+    /// Creates a default ExtGState dictionary. Useful for resetting
+    fn default()
     -> Self
     {
         Self {
@@ -608,13 +617,16 @@ impl ExtendedGraphicsState {
 impl Into<lopdf::Object> for ExtendedGraphicsState {
 
     /// Compares the current graphics state with the previous one and returns an
-    /// "optimized" graphics state, meaning only the fields that have changed in 
+    /// "optimized" graphics state, meaning only the fields that have changed in
     /// comparison to the previous one are returned.
+    #[cfg_attr(feature = "cargo-clippy", allow(needless_return))]
+    #[cfg_attr(feature = "cargo-clippy", allow(cyclomatic_complexity))]
+    #[cfg_attr(feature = "cargo-clippy", allow(string_lit_as_bytes))]
     fn into(self)
     -> lopdf::Object
     {
         use std::iter::FromIterator;
-        let mut gs_operations = Vec::<(std::string::String, lopdf::Object)>::new();
+        let mut gs_operations = Vec::<(String, lopdf::Object)>::new();
 
         // for each field, look if it was contained in the "changed fields"
         if self.changed_fields.contains(LINE_WIDTH) {
@@ -678,88 +690,88 @@ impl Into<lopdf::Object> for ExtendedGraphicsState {
         }
 
         // set optional parameters
-        if let &Some(ldp) = &self.line_dash_pattern {
-            if self.changed_fields.contains(LINE_DASH_PATTERN) {    
+        if let Some(ldp) = self.line_dash_pattern {
+            if self.changed_fields.contains(LINE_DASH_PATTERN) {
                 let pattern: lopdf::Object = ldp.into();
                 gs_operations.push(("D".to_string(), pattern));
             }
         }
 
-        if let &Some(ref font) = &self.font {
-            if self.changed_fields.contains(FONT) { 
+        if let Some(ref font) = self.font {
+            if self.changed_fields.contains(FONT) {
                 // let font_ref: lopdf::Object = font.into(); /* should be a reference to a font dictionary later on*/
                 // gs_operations.push(("Font".to_string(), font_ref));
             }
         }
 
-        // todo: transfer functions, halftone functions, 
+        // todo: transfer functions, halftone functions,
         // black generation, undercolor removal
-        // these types cannot yet be converted into lopdf::Objects, 
+        // these types cannot yet be converted into lopdf::Objects,
         // need to implement Into<Object> for them
 
-        if self.changed_fields.contains(BLACK_GENERATION) { 
-            if let &Some(ref black_generation) = &self.black_generation {
+        if self.changed_fields.contains(BLACK_GENERATION) {
+            if let Some(ref black_generation) = self.black_generation {
 
             }
         }
 
-        if self.changed_fields.contains(BLACK_GENERATION_EXTRA) { 
-            if let &Some(ref black_generation_extra) = &self.black_generation_extra {
+        if self.changed_fields.contains(BLACK_GENERATION_EXTRA) {
+            if let Some(ref black_generation_extra) = self.black_generation_extra {
 
             }
         }
 
-        if self.changed_fields.contains(UNDERCOLOR_REMOVAL) { 
-            if let &Some(ref under_color_removal) = &self.under_color_removal {
+        if self.changed_fields.contains(UNDERCOLOR_REMOVAL) {
+            if let Some(ref under_color_removal) = self.under_color_removal {
 
             }
         }
 
-        if self.changed_fields.contains(UNDERCOLOR_REMOVAL_EXTRA) { 
-            if let &Some(ref under_color_removal_extra) = &self.under_color_removal_extra {
+        if self.changed_fields.contains(UNDERCOLOR_REMOVAL_EXTRA) {
+            if let Some(ref under_color_removal_extra) = self.under_color_removal_extra {
 
-           } 
+           }
         }
 
-        if self.changed_fields.contains(TRANSFER_FUNCTION) { 
-            if let &Some(ref transfer_function) = &self.transfer_function {
+        if self.changed_fields.contains(TRANSFER_FUNCTION) {
+            if let Some(ref transfer_function) = self.transfer_function {
 
             }
         }
 
-        if self.changed_fields.contains(TRANSFER_FUNCTION_EXTRA) { 
-            if let &Some(ref transfer_extra_function) = &self.transfer_extra_function {
+        if self.changed_fields.contains(TRANSFER_FUNCTION_EXTRA) {
+            if let Some(ref transfer_extra_function) = self.transfer_extra_function {
 
             }
         }
 
-        if self.changed_fields.contains(HALFTONE_DICTIONARY) { 
-            if let &Some(ref halftone_dictionary) = &self.halftone_dictionary {
+        if self.changed_fields.contains(HALFTONE_DICTIONARY) {
+            if let Some(ref halftone_dictionary) = self.halftone_dictionary {
 
             }
         }
 
         if self.changed_fields.contains(SOFT_MASK) {
-            if let &Some(ref soft_mask) = &self.soft_mask {
-                
+            if let Some(ref soft_mask) = self.soft_mask {
+
             } else {
-                gs_operations.push(("SM".to_string(), lopdf::Object::Name("None".as_bytes().to_vec())));
+                gs_operations.push(("SM".to_string(), Name("None".as_bytes().to_vec())));
             }
         }
-        
+
         // if there are operations, push the "Type > ExtGState"
         // otherwise, just return an empty dictionary
-        if gs_operations.len() > 0 {
+        if !gs_operations.is_empty() {
             gs_operations.push(("Type".to_string(), "ExtGState".into()));
         }
 
         let graphics_state = lopdf::Dictionary::from_iter(gs_operations);
 
-        return lopdf::Object::Dictionary(graphics_state);
+        return Dictionary(graphics_state);
     }
 }
 
-/// A reference to the graphics state, for reusing the 
+/// A reference to the graphics state, for reusing the
 /// graphics state during a stream without adding new graphics states all the time
 pub struct ExtendedGraphicsStateRef {
     /// The name / hash of the graphics state
@@ -771,7 +783,7 @@ impl ExtendedGraphicsStateRef {
     #[inline]
     pub fn new(index: usize)
     -> Self
-    {   
+    {
         Self {
             gs_name: format!("GS{:?}", index)
         }
@@ -779,7 +791,7 @@ impl ExtendedGraphicsStateRef {
 }
 
 /// __(PDF 1.3)__ A code specifying whether a color component value of 0
-/// in a DeviceCMYK color space should erase that component (`EraseUnderlying`) or
+/// in a `DeviceCMYK` color space should erase that component (`EraseUnderlying`) or
 /// leave it unchanged (`KeepUnderlying`) when overprinting (see Section 4.5.6, “Over-
 /// print Control”). Initial value: `EraseUnderlying`
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -796,13 +808,13 @@ impl Into<lopdf::Object> for OverprintMode {
     {
         use OverprintMode::*;
         match self {
-            EraseUnderlying     => lopdf::Object::Integer(0),
-            KeepUnderlying      => lopdf::Object::Integer(1),
+            EraseUnderlying     => Integer(0),
+            KeepUnderlying      => Integer(1),
         }
     }
 }
 
-/// Black generation calculates the amount of black to be used when trying to 
+/// Black generation calculates the amount of black to be used when trying to
 /// reproduce a particular color.
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum BlackGenerationFunction {
@@ -832,14 +844,14 @@ pub enum BlackGenerationExtraFunction {
 
 }
 
-/// See `BlackGenerationFunction`, too. Undercolor removal reduces the amounts 
-/// of the cyan, magenta, and yellow components to compensate for the amount of 
+/// See `BlackGenerationFunction`, too. Undercolor removal reduces the amounts
+/// of the cyan, magenta, and yellow components to compensate for the amount of
 /// black that was added by black generation.
-/// 
-/// The undercolor-removal function computes the amount to subtract from each of 
-/// the intermediate c, m, and y values to produce the final cyan, magenta, and yellow 
-/// components. It can simply return its k operand unchanged, or it can return 0.0 
-/// (so that no color is removed), some fraction of the black amount, or even a 
+///
+/// The undercolor-removal function computes the amount to subtract from each of
+/// the intermediate c, m, and y values to produce the final cyan, magenta, and yellow
+/// components. It can simply return its k operand unchanged, or it can return 0.0
+/// (so that no color is removed), some fraction of the black amount, or even a
 /// negative amount, thereby adding to the total amount of colorant.
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum UnderColorRemovalFunction {
@@ -862,17 +874,17 @@ pub enum TransferExtraFunction {
 }
 
 /// In PDF 1.2, the graphics state includes a current halftone parameter,
-/// which determines the halftoning process to be used by the painting operators. 
-/// It may be defined by either a dictionary or a stream, depending on the 
-/// type of halftone; the term halftone dictionary is used generically 
-/// throughout this section to refer to either a dictionary object or the 
-/// dictionary portion of a stream object. (The halftones that are defined 
-/// by streams are specifically identified as such in the descriptions 
-/// of particular halftone types; unless otherwise stated, they are 
+/// which determines the halftoning process to be used by the painting operators.
+/// It may be defined by either a dictionary or a stream, depending on the
+/// type of halftone; the term halftone dictionary is used generically
+/// throughout this section to refer to either a dictionary object or the
+/// dictionary portion of a stream object. (The halftones that are defined
+/// by streams are specifically identified as such in the descriptions
+/// of particular halftone types; unless otherwise stated, they are
 /// understood to be defined by simple dictionaries instead.)
 
 /*
-    << 
+    <<
         /Type /Halftone
         /HalftoneType 1
         /Frequency 120
@@ -885,26 +897,26 @@ pub enum TransferExtraFunction {
 /// Deserialized into Integer: 1, 5, 6, 10 or 16
 #[derive(Debug, PartialEq, Clone)]
 pub enum HalftoneType {
-    /// 1: Defines a single halftone screen by a frequency, angle, and spot function 
+    /// 1: Defines a single halftone screen by a frequency, angle, and spot function
     Type1(f64, f64, SpotFunction),
-    /// 5: Defines an arbitrary number of halftone screens, one for each colorant or 
-    /// color component (including both primary and spot colorants). 
-    /// The keys in this dictionary are names of colorants; the values are halftone 
+    /// 5: Defines an arbitrary number of halftone screens, one for each colorant or
+    /// color component (including both primary and spot colorants).
+    /// The keys in this dictionary are names of colorants; the values are halftone
     /// dictionaries of other types, each defining the halftone screen for a single colorant.
     Type5(Vec<HalftoneType>),
     /// 6: Defines a single halftone screen by a threshold array containing 8-bit sample values.
     Type6(Vec<u8>),
-    /// 10: Defines a single halftone screen by a threshold array containing 8-bit sample values, 
+    /// 10: Defines a single halftone screen by a threshold array containing 8-bit sample values,
     /// representing a halftone cell that may have a nonzero screen angle.
     Type10(Vec<u8>),
-    /// 16: __(PDF 1.3)__ Defines a single halftone screen by a threshold array containing 16-bit 
+    /// 16: __(PDF 1.3)__ Defines a single halftone screen by a threshold array containing 16-bit
     /// sample values, representing a halftone cell that may have a nonzero screen angle.
     Type16(Vec<u16>),
 }
 
 impl HalftoneType {
     /// Get the identifer integer of the HalftoneType
-    pub fn get_type(&self) 
+    pub fn get_type(&self)
     -> i64
     {
         use HalftoneType::*;
@@ -943,22 +955,22 @@ pub enum SpotFunction {
     /// `y`
     LineY,
     /// ```rust,ignore
-    /// if (abs(x) + abs(y) <= 1 { 
-    ///     1 - (pow(x, 2) + pow(y, 2)) 
-    /// } else { 
-    ///     pow((abs(x) - 1), 2) + pow((abs(y) - 1), 2) - 1 
+    /// if (abs(x) + abs(y) <= 1 {
+    ///     1 - (pow(x, 2) + pow(y, 2))
+    /// } else {
+    ///     pow((abs(x) - 1), 2) + pow((abs(y) - 1), 2) - 1
     /// }
     /// ```
     Round,
     /// ```rust,ignore
     /// let w = (3 * abs(x)) + (4 * abs(y)) - 3;
-    /// 
-    /// if w < 0 { 
+    ///
+    /// if w < 0 {
     ///     1 - ((pow(x, 2) + pow((abs(y) / 0.75), 2)) / 4)
-    /// } else if w > 1 { 
+    /// } else if w > 1 {
     ///     pow((pow((1 - abs(x), 2) + (1 - abs(y)) / 0.75), 2) / 4) - 1
     /// } else {
-    ///     0.5 - w 
+    ///     0.5 - w
     /// }
     /// ```
     Ellipse,
@@ -991,12 +1003,13 @@ pub enum SpotFunction {
     Diamond,
 }
 
+#[cfg_attr(feature = "cargo-clippy", allow(boxed_local))]
 impl IntoPdfObject for HalftoneType {
     fn into_obj(self: Box<Self>)
     -> Vec<lopdf::Object>
     {
         use std::iter::FromIterator;
-        vec![lopdf::Object::Dictionary(lopdf::Dictionary::from_iter(vec![
+        vec![Dictionary(lopdf::Dictionary::from_iter(vec![
                     ("Type", "Halftone".into()),
                     ("HalftoneType", self.get_type().into())
             ]))]
@@ -1043,7 +1056,7 @@ impl Into<lopdf::Object> for BlendMode {
             }
         };
 
-        lopdf::Object::Name(blend_mode_str.as_bytes().to_vec())
+        Name(blend_mode_str.as_bytes().to_vec())
     }
 }
 
@@ -1051,8 +1064,8 @@ impl Into<lopdf::Object> for BlendMode {
 /// Blending modes for objects
 /// In the following reference, each function gets one new color (the thing to paint on top)
 /// and an old color (the color that was already present before the object gets painted)
-/// 
-/// The function simply notes the formula that has to be applied to (color_new, color_old) in order
+///
+/// The function simply notes the formula that has to be applied to (`color_new`, `color_old`) in order
 /// to get the desired effect. You have to run each formula once for each color channel.
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum SeperableBlendMode {
@@ -1062,25 +1075,25 @@ pub enum SeperableBlendMode {
     Normal,
     /// Multiplies the old color and source color values
     /// Note that these values have to be in the range [0.0 to 1.0] to work.
-    /// The result color is always at least as dark as either of the two constituent 
-    /// colors. Multiplying any color with black produces black; multiplying with white 
-    /// leaves the original color unchanged.Painting successive overlapping objects with 
+    /// The result color is always at least as dark as either of the two constituent
+    /// colors. Multiplying any color with black produces black; multiplying with white
+    /// leaves the original color unchanged.Painting successive overlapping objects with
     /// a color other than black or white produces progressively darker colors.
     ///
     /// `color_old * color_new`
     Multiply,
-    /// Multiplies the complements of the old color and new color values, then 
+    /// Multiplies the complements of the old color and new color values, then
     /// complements the result
-    /// The result color is always at least as light as either of the two constituent colors. 
-    /// Screening any color with white produces white; screening with black leaves the original 
-    /// color unchanged. The effect is similar to projecting multiple photographic slides 
+    /// The result color is always at least as light as either of the two constituent colors.
+    /// Screening any color with white produces white; screening with black leaves the original
+    /// color unchanged. The effect is similar to projecting multiple photographic slides
     /// simultaneously onto a single screen.
     ///
     /// `color_old + color_new - (color_old * color_new)`
     Screen,
-    /// Multiplies or screens the colors, depending on the old color value. Source colors 
-    /// overlay the old color while preserving its highlights and shadows. The old color is 
-    /// not replaced but is mixed with the source color to reflect the lightness or darkness 
+    /// Multiplies or screens the colors, depending on the old color value. Source colors
+    /// overlay the old color while preserving its highlights and shadows. The old color is
+    /// not replaced but is mixed with the source color to reflect the lightness or darkness
     /// of the old color.
     ///
     /// TLDR: It's the inverse of HardLight
@@ -1100,10 +1113,10 @@ pub enum SeperableBlendMode {
     Darken,
     /// Selects the lighter one of two colors. The old color is replaced with the
     /// new color where the new color is lighter; otherwise, it is left unchanged.
-    /// 
+    ///
     /// `max(color_old, color_new)`
     Lighten,
-    /// Brightens the backdrop color to reflect the source color. Painting with 
+    /// Brightens the backdrop color to reflect the source color. Painting with
     /// black produces no changes.
     ///
     /// ```rust,ignore
@@ -1114,7 +1127,7 @@ pub enum SeperableBlendMode {
     /// }
     /// ```
     ColorDodge,
-    /// Darkens the backdrop color to reflect the source color. Painting with 
+    /// Darkens the backdrop color to reflect the source color. Painting with
     /// white produces no change.
     ///
     /// ```rust,ignore
@@ -1125,7 +1138,7 @@ pub enum SeperableBlendMode {
     /// }
     /// ```
     ColorBurn,
-    /// Multiplies or screens the colors, depending on the source color value. The effect is 
+    /// Multiplies or screens the colors, depending on the source color value. The effect is
     /// similar to shining a harsh spotlight on the old color. It's the inverse of Screen.
     ///
     /// ```rust,ignore
@@ -1136,7 +1149,7 @@ pub enum SeperableBlendMode {
     /// }
     /// ```
     HardLight,
-    /// Darkens or lightens the colors, depending on the source color value. 
+    /// Darkens or lightens the colors, depending on the source color value.
     /// The effect is similar to shining a diffused spotlight on the backdrop.
     ///
     /// ```rust,ignore
@@ -1156,35 +1169,35 @@ pub enum SeperableBlendMode {
     ///
     /// `abs(color_old - color_new)`
     Difference,
-    /// Produces an effect similar to that of the Difference mode but lower in contrast. 
+    /// Produces an effect similar to that of the Difference mode but lower in contrast.
     /// Painting with white inverts the backdrop color; painting with black produces no change.
     ///
     /// `color_old + color_new - (2 * color_old * color_new)`
     Exclusion,
 }
 
-/// Since the nonseparable blend modes consider all color components in combination, their 
-/// computation depends on the blending color space in which the components are interpreted. 
-/// They may be applied to all multiple-component color spaces that are allowed as blending 
+/// Since the nonseparable blend modes consider all color components in combination, their
+/// computation depends on the blending color space in which the components are interpreted.
+/// They may be applied to all multiple-component color spaces that are allowed as blending
 /// color spaces (see Section 7.2.3, “Blending Color Space”).
-/// 
+///
 /// All of these blend modes conceptually entail the following steps:
-/// 
-/// 1. Convert the backdrop and source colors from the blending color space to an intermediate 
+///
+/// 1. Convert the backdrop and source colors from the blending color space to an intermediate
 ///    HSL (hue-saturation-luminosity) representation.
-/// 2. Create a new color from some combination of hue, saturation, and luminosity components 
+/// 2. Create a new color from some combination of hue, saturation, and luminosity components
 ///    selected from the backdrop and source colors.
 /// 3. Convert the result back to the original (blending) color space.
-/// 
-/// However, the formulas given below do not actually perform these conversions. Instead, 
-/// they start with whichever color (backdrop or source) is providing the hue for the result; 
+///
+/// However, the formulas given below do not actually perform these conversions. Instead,
+/// they start with whichever color (backdrop or source) is providing the hue for the result;
 /// then they adjust this color to have the proper saturation and luminosity.
-/// 
+///
 /// ### For RGB color spaces
-/// 
-/// The nonseparable blend mode formulas make use of several auxiliary functions. These 
-/// functions operate on colors that are assumed to have red, green, and blue components. 
-/// 
+///
+/// The nonseparable blend mode formulas make use of several auxiliary functions. These
+/// functions operate on colors that are assumed to have red, green, and blue components.
+///
 /// ```rust,ignore
 /// # #[macro_use] extern crate printpdf;
 /// # use printpdf::Rgb;
@@ -1193,7 +1206,7 @@ pub enum SeperableBlendMode {
 /// fn luminosity(input: Rgb) -> f64 {
 ///     0.3 * input.r + 0.59 * input.g + 0.11 * input.b
 /// }
-/// 
+///
 /// fn set_luminosity(input: Rgb, target_luminosity: f64) -> Rgb {
 ///     let d = target_luminosity - luminosity(input);
 ///     Rgb {
@@ -1203,11 +1216,11 @@ pub enum SeperableBlendMode {
 ///         icc_profile: input.icc_profile,
 ///     }
 /// }
-/// 
+///
 /// fn clip_color(mut input: Rgb) -> Rgb {
-/// 
+///
 ///     let lum = luminosity(input);
-/// 
+///
 ///     let mut cur_r = (input.r * 1000.0) as i64;
 ///     let mut cur_g = (input.g * 1000.0) as i64;
 ///     let mut cur_b = (input.b * 1000.0) as i64;
@@ -1215,11 +1228,11 @@ pub enum SeperableBlendMode {
 ///     /// min! and max! is defined in printpdf/src/glob_macros.rs
 ///     let mut min = min!(cur_r, cur_g, cur_b);
 ///     let mut max = max!(cur_r, cur_g, cur_b);
-///  
-///     let new_min = (min as f64) / 1000.0; 
+///
+///     let new_min = (min as f64) / 1000.0;
 ///     let new_max = (max as f64) / 1000.0;
-/// 
-///     if new_min < 0.0 { 
+///
+///     if new_min < 0.0 {
 ///         input.r = lum + (((input.r - lum) * lum) / (lum - new_min));
 ///         input.g = lum + (((input.g - lum) * lum) / (lum - new_min));
 ///         input.b = lum + (((input.b - lum) * lum) / (lum - new_min));
@@ -1228,10 +1241,10 @@ pub enum SeperableBlendMode {
 ///         input.g = lum + ((input.g - lum) * (1.0 - lum) / (new_max - lum));
 ///         input.b = lum + ((input.b - lum) * (1.0 - lum) / (new_max - lum));
 ///     }
-/// 
+///
 ///     return input;
 /// }
-/// 
+///
 /// fn saturation(input: Rgb) -> f64 {
 ///     let mut cur_r = (input.r * 1000.0) as i64;
 ///     let mut cur_g = (input.g * 1000.0) as i64;
@@ -1240,20 +1253,20 @@ pub enum SeperableBlendMode {
 ///     /// min! and max! is defined in printpdf/src/glob_macros.rs
 ///     let mut min = min!(cur_r, cur_g, cur_b);
 ///     let mut max = max!(cur_r, cur_g, cur_b);
-///  
+///
 ///     let new_min = (min as f64) / 1000.0;
 ///     let new_max = (max as f64) / 1000.0;
 ///     new_max - new_min
 /// }
 /// ```
-/// 
+///
 /// ### For CMYK color spaces
-/// 
-/// The C, M, and Y components are converted to their complementary R, G, and B components 
-/// in the usual way. The formulas above are applied to the RGB color values. The results 
+///
+/// The C, M, and Y components are converted to their complementary R, G, and B components
+/// in the usual way. The formulas above are applied to the RGB color values. The results
 /// are converted back to C, M, and Y.
-/// 
-/// For the K component, the result is the K component of Cb for the Hue, Saturation, and 
+///
+/// For the K component, the result is the K component of Cb for the Hue, Saturation, and
 /// Color blend modes; it is the K component of Cs for the Luminosity blend mode.
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum NonSeperableBlendMode {
@@ -1268,7 +1281,7 @@ pub enum NonSeperableBlendMode {
 /// they are subject to practical limitations in the color reproduction capabilities of
 /// the output device. Such limitations may sometimes require compromises to be
 /// made among various properties of a color specification when rendering colors for
-/// a given device. Specifying a rendering intent (PDF 1.1) allows a PDF file to set priorities 
+/// a given device. Specifying a rendering intent (PDF 1.1) allows a PDF file to set priorities
 /// regarding which of these properties to preserve and which to sacrifice.
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum RenderingIntent {
@@ -1278,7 +1291,7 @@ pub enum RenderingIntent {
     /// white point, which is bluish compared to that of a printer’s paper,
     /// would be reproduced with a blue cast. In-gamut colors are
     /// reproduced exactly; out-of-gamut colors are mapped to the
-    /// nearest value within the reproducible gamut. This style of reproduction 
+    /// nearest value within the reproducible gamut. This style of reproduction
     /// has the advantage of providing exact color matches
     /// from one output medium to another. It has the disadvantage of
     /// causing colors with Y values between the medium’s white point
@@ -1303,8 +1316,8 @@ pub enum RenderingIntent {
     /// graphics, where saturation is the most important attribute of the
     /// color.
     Saturation,
-    /// Colors are represented in a manner that provides a pleasing perceptual 
-    /// appearance. To preserve color relationships, both in-gamut 
+    /// Colors are represented in a manner that provides a pleasing perceptual
+    /// appearance. To preserve color relationships, both in-gamut
     /// and out-of-gamut colors are generally modified from
     /// their precise colorimetric values. A typical use might be for scanned images.
     Perceptual,
@@ -1312,6 +1325,7 @@ pub enum RenderingIntent {
 
 /* ri name */
 impl IntoPdfStreamOperation for RenderingIntent {
+    #[cfg_attr(feature = "cargo-clippy", allow(boxed_local))]
     fn into_stream_op(self: Box<Self>)
     -> Vec<Operation>
     {
@@ -1341,7 +1355,7 @@ impl Into<lopdf::Object> for RenderingIntent {
             Perceptual => "Perceptual",
         };
 
-        lopdf::Object::Name(rendering_intent_string.as_bytes().to_vec())
+        Name(rendering_intent_string.as_bytes().to_vec())
     }
 }
 
@@ -1349,7 +1363,7 @@ impl Into<lopdf::Object> for RenderingIntent {
 /// The bytes range from 0xFF (opaque) to 0x00 (transparent). The alpha channel of a
 /// PNG image have to be sorted out.
 /// Can also be used for Vignettes, etc.
-/// Beware of color spaces! 
+/// Beware of color spaces!
 /// __See PDF Reference Page 545__ - Soft masks
 #[derive(Debug, PartialEq, Clone)]
 pub struct SoftMask {
@@ -1365,7 +1379,7 @@ pub enum SoftMaskFunction {
     /// In this function, the old (backdrop) color does not contribute to the result.
     /// This is the easies function, but may look bad at edges.
     GroupAlpha,
-    // 
+    //
     GroupLuminosity,
 
 }
@@ -1412,9 +1426,9 @@ impl Into<Operation> for LineJoinStyle {
 
 impl Into<lopdf::Object> for LineJoinStyle {
     fn into(self)
-    -> lopdf::Object 
+    -> lopdf::Object
     {
-        lopdf::Object::Integer(self.into())
+        Integer(self.into())
     }
 }
 
@@ -1455,9 +1469,9 @@ impl Into<Operation> for LineCapStyle {
 
 impl Into<lopdf::Object> for LineCapStyle {
     fn into(self)
-    -> lopdf::Object 
+    -> lopdf::Object
     {
-        lopdf::Object::Integer(self.into())
+        Integer(self.into())
     }
 }
 
@@ -1469,7 +1483,7 @@ pub struct LineDashPattern {
     pub offset: i64,
     /// Length of the first dash in the dash pattern. If `None`, the line will be solid (good for resetting the dash pattern)
     pub dash_1: Option<i64>,
-    /// Whitespace after the first dash. If `None`, whitespace will be the same as length_1st, 
+    /// Whitespace after the first dash. If `None`, whitespace will be the same as length_1st,
     /// meaning that the line will have dash - whitespace - dash - whitespace in even offsets
     pub gap_1: Option<i64>,
     /// Length of the second dash in the dash pattern. If None, will be equal to length_1st
@@ -1500,12 +1514,15 @@ impl LineDashPattern {
 
 // conversion into a dash array for reuse in operation / gs dictionary
 impl Into<(Vec<i64>, i64)> for LineDashPattern {
+    #[cfg_attr(feature = "cargo-clippy", allow(never_loop))]
+    #[cfg_attr(feature = "cargo-clippy", allow(while_let_loop))]
+    #[cfg_attr(feature = "cargo-clippy", allow(needless_return))]
     fn into(self)
     -> (Vec<i64>, i64)
     {
         let mut dash_array = Vec::<i64>::new();
 
-        // note: it may be that PDF allows more than 6 operators. 
+        // note: it may be that PDF allows more than 6 operators.
         // I've not seen it in practise, though
 
         // break as soon as we encounter a None
@@ -1540,7 +1557,7 @@ impl Into<(Vec<i64>, i64)> for LineDashPattern {
 
         return (dash_array, self.offset);
     }
-    
+
 }
 
 impl Into<Operation> for LineDashPattern {
@@ -1548,7 +1565,7 @@ impl Into<Operation> for LineDashPattern {
     -> Operation
     {
         let (dash_array, offset) = self.into();
-        let dash_array_ints = dash_array.into_iter().map(|int| Integer(int)).collect();
+        let dash_array_ints = dash_array.into_iter().map(Integer).collect();
         Operation::new("d", vec![Array(dash_array_ints), Integer(offset)])
     }
 }
@@ -1559,7 +1576,7 @@ impl Into<lopdf::Object> for LineDashPattern {
     {
         use lopdf::Object::*;
         let (dash_array, offset) = self.into();
-        let mut dash_array_ints: Vec<lopdf::Object> = dash_array.into_iter().map(|int| Integer(int)).collect();
+        let mut dash_array_ints: Vec<lopdf::Object> = dash_array.into_iter().map(Integer).collect();
         dash_array_ints.push(Integer(offset));
         Array(dash_array_ints)
     }

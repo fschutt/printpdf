@@ -1,5 +1,5 @@
-extern crate error_chain;
-extern crate image;
+#![allow(unused_qualifications)]
+
 extern crate freetype as ft;
 
 use super::*;
@@ -20,10 +20,5 @@ error_chain! {
         IndexError(index_error::Error, index_error::ErrorKind);
     }
 
-    errors {
-       /*FontError {
-           description("Font could not be read")
-           display("Corrupt font file")
-       }*/
-    }
+    errors { }
 }

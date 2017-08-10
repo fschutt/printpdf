@@ -1,8 +1,8 @@
 extern crate lopdf;
 
-#[derive(Debug)]
+#[derive(Default, Debug)]
 pub struct OCGList {
-    /// The reference to the layer as well as a reference to the 
+    /// The reference to the layer as well as a reference to the
     /// OCG dictionary
     pub(crate) layers: Vec<(OCGRef, lopdf::Object)>,
 }
@@ -12,9 +12,7 @@ impl OCGList {
     pub fn new()
     -> Self
     {
-        Self {
-            layers: Vec::new(),
-        }
+        Self::default()
     }
 
     /// Adds a new OCG List from a reference
@@ -29,6 +27,7 @@ impl OCGList {
 }
 
 impl Into<lopdf::Dictionary> for OCGList {
+    #[cfg_attr(feature = "cargo-clippy", allow(needless_return))]
     fn into(self)
     -> lopdf::Dictionary
     {

@@ -1,6 +1,6 @@
 //! Embedding fonts in 2D for Pdf
-extern crate lopdf;
-extern crate freetype as ft;
+use lopdf;
+use freetype as ft;
 
 use *;
 use std::collections::HashMap;
@@ -17,11 +17,12 @@ pub struct Font {
 }
 
 /// The text rendering mode determines how a text is drawn
-/// The default rendering mode is `Fill`. The color of the 
-/// fill / stroke is determine by the current pages outline / 
+/// The default rendering mode is `Fill`. The color of the
+/// fill / stroke is determine by the current pages outline /
 /// fill color.
 ///
 /// See PDF Reference 1.7 Page 402
+#[derive(Debug, Copy, Clone)]
 pub enum TextRenderingMode {
     Fill,
     Stroke,
@@ -64,7 +65,7 @@ impl Font {
         let face_name = {
             let library = ft::Library::init()?;
             let face = library.new_memory_face(&buf, 0)?;
-            face.postscript_name().unwrap_or(format!("F{}", font_index))            
+            face.postscript_name().unwrap_or_else(|| format!("F{}", font_index))
         };
 
         Ok(Self {
@@ -129,7 +130,7 @@ impl Font {
         let mut max_height = 0;
         // Total width of all characters
         let mut total_width = 0;
-        // Widths (or heights, depends on self.vertical_writing) 
+        // Widths (or heights, depends on self.vertical_writing)
         // of the individual characters, indexed by glyph id
         let mut widths = HashMap::<u32, u32>::new();
         // Height of the space (0x0020 character), to scale the font correctly
@@ -141,25 +142,23 @@ impl Font {
 
         for unicode in 0x0000..0xffff {
             let glyph_id = face.get_char_index(unicode);
-            if glyph_id != 0 {
-                if face.load_glyph(glyph_id, ft::face::NO_SCALE).is_ok() {
-                    
-                    let glyph_slot = face.glyph();
-                    let glyph_metrics = glyph_slot.metrics();
-                    let w = glyph_metrics.horiAdvance;
-                    let h = glyph_metrics.vertAdvance;
+            if glyph_id != 0 && face.load_glyph(glyph_id, ft::face::NO_SCALE).is_ok() {
 
-                    if unicode == 0x0020 {
-                        space_height = glyph_metrics.vertAdvance;
-                    }
+                let glyph_slot = face.glyph();
+                let glyph_metrics = glyph_slot.metrics();
+                let w = glyph_metrics.horiAdvance;
+                let h = glyph_metrics.vertAdvance;
 
-                    if h > max_height {
-                        max_height = h;
-                    }
-
-                    total_width += w as u32;
-                    cmap.insert(glyph_id, (unicode as u32, w as u32, h as u32));
+                if unicode == 0x0020 {
+                    space_height = glyph_metrics.vertAdvance;
                 }
+
+                if h > max_height {
+                    max_height = h;
+                }
+
+                total_width += w as u32;
+                cmap.insert(glyph_id, (unicode as u32, w as u32, h as u32));
             }
         }
 
@@ -171,7 +170,7 @@ impl Font {
         // Plus, the maximum number of Glyph-IDs in one range is 100
         // Since the glyph IDs are sequential, all we really have to do is to enumerate the vector
         // and create buckets of 100 / rest to 256 if needed
-        let mut cid_to_unicode_map = format!(include_str!("../../../../templates/gid_to_unicode_beg.txt"), 
+        let mut cid_to_unicode_map = format!(include_str!("../../../../templates/gid_to_unicode_beg.txt"),
                                              face_name.clone());
 
         let mut cur_block_id: u32 = 0;          // ID of the block, to be used it {} beginbfchar
@@ -179,7 +178,7 @@ impl Font {
         let mut last_block_begin: u32 = 0;      // glyph ID of the start of the current block,
                                                 // to satisfy the "less than 100 entries per block" rule
 
-        for (glyph_id, unicode_width_tuple) in cmap.iter() {
+        for (glyph_id, unicode_width_tuple) in &cmap {
 
             if (*glyph_id >> 8) as u16 != cur_first_bit || *glyph_id > last_block_begin + 100 {
                 cid_to_unicode_map.push_str("endbfchar\r\n");
@@ -202,7 +201,7 @@ impl Font {
         }
 
         cid_to_unicode_map.push_str(include_str!("../../../../templates/gid_to_unicode_end.txt"));
-        
+
         let cid_to_unicode_map_stream = LoStream::new(LoDictionary::new(), cid_to_unicode_map.as_bytes().to_vec());
         let cid_to_unicode_map_stream_id = doc.add_object(cid_to_unicode_map_stream);
 
@@ -220,7 +219,7 @@ impl Font {
         // scale the font width so that it sort-of fits into an 1000 unit square
         let percentage_font_scaling = 1000.0 / (space_height as f64);
 
-        for (gid, width) in widths.into_iter() {
+        for (gid, width) in widths {
             if gid == current_high_gid {
                 current_width_vec.push(Integer((width as f64 * percentage_font_scaling) as i64));
                 current_high_gid += 1;
@@ -233,17 +232,17 @@ impl Font {
             }
         }
 
-        let w = { 
+        let w = {
             if self.vertical_writing { ("W2",  Array(widths_list)) }
             else { ("W",  Array(widths_list)) }
         };
 
         // default width for characters
-        let dw = { 
+        let dw = {
             if self.vertical_writing { ("DW2", Integer(1000)) }
             else { ("DW", Integer(1000)) }
         };
-        
+
         let mut desc_fonts = LoDictionary::from_iter(vec![
             ("Type", Name("Font".into())),
             ("Subtype", Name("CIDFontType0".into())),
@@ -256,19 +255,19 @@ impl Font {
             w, dw,
         ]);
 
-        let font_bbox = vec![ Integer(0), Integer(max_height as i64), Integer(total_width as i64), Integer(max_height as i64) ];
+        let font_bbox = vec![ Integer(0), Integer(max_height), Integer(total_width as i64), Integer(max_height) ];
         font_descriptor_vec.push(("FontFile3".into(), Reference(doc.add_object(font_stream))));
-        
+
         // although the following entry is technically not needed, Adobe Reader needs it
         font_descriptor_vec.push(("FontBBox".into(), Array(font_bbox)));
-        
+
         let font_descriptor_vec_id = doc.add_object(LoDictionary::from_iter(font_descriptor_vec));
 
         desc_fonts.set("FontDescriptor", Reference(font_descriptor_vec_id));
 
         font_vec.push(("DescendantFonts".into(), Array(vec![Dictionary(desc_fonts)])));
         font_vec.push(("ToUnicode".into(), Reference(cid_to_unicode_map_stream_id)));
-               
+
         lopdf::Dictionary::from_iter(font_vec)
     }
 }
@@ -288,13 +287,13 @@ pub struct IndirectFontRef {
     pub(crate) name: String,
 }
 
-/// Direct reference (wrapper for lopdf::Object::Reference) 
+/// Direct reference (wrapper for `lopdf::Object::Reference`)
 /// for increased type safety
 #[derive(Debug, Clone)]
 pub struct DirectFontRef {
     /// Reference to the content in the document stream
     pub(crate) inner_obj: lopdf::ObjectId,
-    /// Actual font data 
+    /// Actual font data
     pub(crate) data: Font,
 }
 
@@ -310,20 +309,18 @@ impl IndirectFontRef {
 }
 
 /// Font list for tracking fonts within a single PDF document
-#[derive(Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct FontList {
     fonts: HashMap<IndirectFontRef, DirectFontRef>,
 }
 
 impl FontList {
-    
+
     /// Creates a new FontList
     pub fn new()
     -> Self
     {
-        Self {
-            fonts: HashMap::new(),
-        }
+        Self::default()
     }
 
     /// Adds a font to the FontList
@@ -334,7 +331,7 @@ impl FontList {
         font_ref
     }
 
-    /// Turns an indirect font reference into a direct one 
+    /// Turns an indirect font reference into a direct one
     /// (Warning): clones the direct font reference
     #[inline]
     pub fn get_font(&self, font: &IndirectFontRef)
@@ -351,20 +348,29 @@ impl FontList {
     /// Returns the number of fonts currenly in use
     #[inline]
     pub fn len(&self)
-    -> usize 
+    -> usize
     {
         self.fonts.len()
     }
 
+    /// Returns if the font list is empty
+    #[inline]
+    pub fn is_empty(&self)
+    -> bool
+    {
+        self.fonts.is_empty()
+    }
+
+    /// Converts the fonts into a dictionary
+    #[cfg_attr(feature = "cargo-clippy", allow(needless_return))]
     pub(crate) fn into_with_document(self, doc: &mut lopdf::Document)
     ->lopdf::Dictionary
     {
         let mut font_dict = lopdf::Dictionary::new();
 
-        for (indirect_ref, direct_font_ref) in self.fonts.into_iter() {
-
+        for (indirect_ref, direct_font_ref) in self.fonts {
             let font_dict_collected = direct_font_ref.data.into_with_document(doc);
-            doc.objects.insert(direct_font_ref.inner_obj.clone(), lopdf::Object::Dictionary(font_dict_collected));
+            doc.objects.insert(direct_font_ref.inner_obj, lopdf::Object::Dictionary(font_dict_collected));
             font_dict.set(indirect_ref.name,lopdf::Object::Reference(direct_font_ref.inner_obj));
         }
 

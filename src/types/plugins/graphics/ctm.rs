@@ -4,7 +4,7 @@ use lopdf;
 use lopdf::content::Operation;
 
 /// PDF "current transformation matrix". Once set, will operate on all following shapes,
-/// until the `layer.restore_graphics_state()` is called. It is important to 
+/// until the `layer.restore_graphics_state()` is called. It is important to
 /// call `layer.save_graphics_state()` earlier.
 #[derive(Debug, Copy, Clone)]
 pub enum CurTransMat {
@@ -24,14 +24,14 @@ pub enum CurTransMat {
 /// Text matrix. Text placement is a bit different, but uses the same
 /// concepts as a CTM that's why it's merged here
 ///
-/// Note: "TextScale" does not exist. Use `layer.set_word_spacing()`
-/// and `layer.set_character_spacing()` to specify the scaling between words 
+/// Note: `TextScale` does not exist. Use `layer.set_word_spacing()`
+/// and `layer.set_character_spacing()` to specify the scaling between words
 /// and characters.
 #[derive(Debug, Copy, Clone)]
 pub enum TextMatrix {
     /// Text rotation matrix, used for rotating text
     Rotate(f64),
-    /// Text translate matrix, used for indenting (transforming) text 
+    /// Text translate matrix, used for indenting (transforming) text
     /// (different to regular text placement)
     Translate(f64, f64),
 }
@@ -68,7 +68,7 @@ impl Into<Operation> for CurTransMat {
 	{
 		use lopdf::Object::*;
         let matrix_nums: [f64; 6] = self.into();
-        let matrix: Vec<lopdf::Object> = matrix_nums.to_vec().into_iter().map(|float| Real(float)).collect();
+        let matrix: Vec<lopdf::Object> = matrix_nums.to_vec().into_iter().map(Real).collect();
         Operation::new("cm", matrix)
 	}
 }
@@ -79,7 +79,7 @@ impl Into<Operation> for TextMatrix {
     {
         use lopdf::Object::*;
         let matrix_nums: [f64; 6] = self.into();
-        let matrix: Vec<lopdf::Object> = matrix_nums.to_vec().into_iter().map(|float| Real(float)).collect();
+        let matrix: Vec<lopdf::Object> = matrix_nums.to_vec().into_iter().map(Real).collect();
         Operation::new("Tm", matrix)
     }
 }
@@ -90,7 +90,7 @@ impl Into<lopdf::Object> for CurTransMat {
     {
         use lopdf::Object::*;
         let matrix_nums: [f64; 6] = self.into();
-        Array(matrix_nums.to_vec().into_iter().map(|float| Real(float)).collect())
+        Array(matrix_nums.to_vec().into_iter().map(Real).collect())
     }
 }
 

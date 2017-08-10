@@ -1,4 +1,4 @@
-//! Wapper type for shared metadata between XMP Metadata and the DocumentInfo dictionary
+//! Wapper type for shared metadata between XMP Metadata and the `DocumentInfo` dictionary
 
 extern crate lopdf;
 extern crate chrono;
@@ -57,16 +57,16 @@ impl PdfMetadata {
 	pub fn into_obj(self)
 	-> (lopdf::Object, lopdf::Object, Option<IccProfile>)
 	{
-		let xmp_obj = self.xmp_metadata.into_obj(self.conformance.clone(), 
+		let xmp_obj = self.xmp_metadata.into_obj(self.conformance,
 												 self.trapping,
-												 self.creation_date.clone(), 
-												 self.modification_date.clone(), 
-												 self.metadata_date.clone(),
+												 self.creation_date,
+												 self.modification_date,
+												 self.metadata_date,
 												 self.document_title.clone());
 
 		let doc_info_obj = self.document_info.into_obj(self.document_title,
 													   self.trapping,
-														  self.conformance.clone(),
+														  self.conformance,
 														  self.creation_date,
 														  self.modification_date);
 		// add icc profile if necessary

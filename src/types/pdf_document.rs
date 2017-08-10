@@ -23,13 +23,13 @@ pub struct PdfDocument {
     /// Inner PDF document
     pub(super) inner_doc: lopdf::Document,
     /// Document ID. Must be changed if the document is loaded / parsed from a file
-    pub document_id: std::string::String,
+    pub document_id: String,
     /// Metadata for this document
     pub metadata: PdfMetadata,
 }
 
 /// Marker struct for a document. Used to make the API a bit nicer.
-/// It simply calls PdfDocument:: ... functions.
+/// It simply calls `PdfDocument` functions.
 pub struct PdfDocumentReference {
     /// A wrapper for a document, so actions from outside this library
     /// are restricted to functions inside this crate (only functions in `lopdf`
@@ -41,6 +41,7 @@ impl PdfDocument {
 
     /// Creates a new PDF document
     #[inline]
+    #[cfg_attr(feature = "cargo-clippy", allow(new_ret_no_self))]
     pub fn new<S>(document_title: S, initial_page_width_mm: f64, initial_page_height_mm: f64,
                   initial_layer_name: S)
     -> (PdfDocumentReference, PdfPageIndex, PdfLayerIndex) where S: Into<String>
@@ -160,8 +161,8 @@ impl PdfDocumentReference {
             match doc.fonts.get_font(&font_ref) { Some(f) => Some(f.clone()), None => None }
         };
 
-        if let Some(_) = possible_ref {
-            return Ok(font_ref);
+        if possible_ref.is_some() {
+            Ok(font_ref)
         } else {
             let mut doc = self.document.borrow_mut();
             let direct_ref = DirectFontRef {
@@ -170,7 +171,7 @@ impl PdfDocumentReference {
             };
 
             doc.fonts.add_font(font_ref.clone(), direct_ref);
-            return Ok(font_ref);
+            Ok(font_ref)
         }
     }
 
@@ -178,10 +179,11 @@ impl PdfDocumentReference {
 
     /// Returns the page (for inserting content)
     #[inline]
+    #[cfg_attr(feature = "cargo-clippy", allow(unnecessary_operation))]
     pub fn get_page(&self, page: PdfPageIndex)
     -> PdfPageReference
     {
-        self.document.borrow_mut().pages.get(page.0).unwrap();
+        &self.document.borrow_mut().pages[page.0];
         PdfPageReference { document: Rc::downgrade(&self.document).clone(), page }
     }
 
@@ -263,7 +265,7 @@ impl PdfDocumentReference {
 
         if let Some(profile) = icc_profile {
             let icc_profile: lopdf::Stream = profile.into();
-            let icc_profile_id = doc.inner_doc.add_object(lopdf::Object::Stream(icc_profile));
+            let icc_profile_id = doc.inner_doc.add_object(Stream(icc_profile));
             output_intents.set("DestinationOutputProfile", Reference(icc_profile_id));
         }
 
@@ -323,8 +325,8 @@ impl PdfDocumentReference {
                     Dictionary(LoDictionary::from_iter(vec![
                         ("Type", Name("OCG".into())),
                         ("Name", String(layer_name.into(), Literal)),
-                        ("Intent", Reference(intent_arr_ref.clone())),
-                        ("Usage", Reference(usage_ocg_dict_ref.clone()))
+                        ("Intent", Reference(intent_arr_ref)),
+                        ("Usage", Reference(usage_ocg_dict_ref))
                     ]))
                 )))
             ).collect()))
@@ -358,7 +360,7 @@ impl PdfDocumentReference {
         let fonts_dict: lopdf::Dictionary =  doc.fonts.into_with_document(&mut doc.inner_doc);
 
         if fonts_dict.len() > 0 {
-            font_dict_id = Some(doc.inner_doc.add_object(lopdf::Object::Dictionary(fonts_dict)));
+            font_dict_id = Some(doc.inner_doc.add_object(Dictionary(fonts_dict)));
         }
 
         for (idx, page) in doc.pages.into_iter().enumerate() {
@@ -383,7 +385,7 @@ impl PdfDocumentReference {
             }
 
             if resources_page.len() > 0 {
-                let resources_page_id = doc.inner_doc.add_object(lopdf::Object::Dictionary(resources_page));
+                let resources_page_id = doc.inner_doc.add_object(Dictionary(resources_page));
                 p.set("Resources", Reference(resources_page_id));
             }
 

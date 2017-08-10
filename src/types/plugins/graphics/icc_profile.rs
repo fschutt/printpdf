@@ -3,7 +3,7 @@
 extern crate lopdf;
 
 /// Type of the icc profile
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum IccProfileType {
     Cmyk,
     Rgb,
@@ -27,10 +27,10 @@ pub struct IccProfile {
 impl IccProfile {
     /// Creates a new Icc Profile
     pub fn new(icc: Vec<u8>, icc_type: IccProfileType)
-    -> Self 
+    -> Self
     {
-        Self { 
-            icc: icc, 
+        Self {
+            icc: icc,
             icc_type: icc_type,
             has_alternate: true,
             has_range: false,
@@ -40,7 +40,7 @@ impl IccProfile {
     /// Does the ICC profile have an alternate version (such as "DeviceCMYk")?
     #[inline]
     pub fn with_alternate_profile(mut self, has_alternate: bool)
-    -> Self 
+    -> Self
     {
         self.has_alternate = has_alternate;
         self
@@ -49,7 +49,7 @@ impl IccProfile {
     /// Does the ICC profile have an "Range" dictionary?
     #[inline]
     pub fn with_range(mut self, has_range: bool)
-    -> Self 
+    -> Self
     {
         self.has_range = has_range;
         self
@@ -61,7 +61,7 @@ impl Into<lopdf::Stream> for IccProfile {
     fn into(self)
     -> lopdf::Stream
     {
-        use lopdf::{Dictionary as LoDictionary, 
+        use lopdf::{Dictionary as LoDictionary,
                     Stream as LoStream};
         use lopdf::Object::*;
         use std::iter::FromIterator;
@@ -110,10 +110,10 @@ impl IccProfileRef {
         Self {
             name: format!("/ICC{}", index)
         }
-    }   
+    }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub struct IccProfileList {
     profiles: Vec<IccProfile>,
 }
@@ -123,9 +123,7 @@ impl IccProfileList {
     pub fn new()
     -> Self
     {
-        Self {
-            profiles: Vec::new(),
-        }
+        Self::default()
     }
 
     /// Adds an ICC profile

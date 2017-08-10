@@ -2,7 +2,7 @@ use *;
 use extgstate::ExtendedGraphicsState;
 
 /// Struct for storing the PDF Resources, to be used on a PDF page
-#[derive(Debug)]
+#[derive(Default, Debug)]
 pub struct PdfResources {
     /// External graphics objects
     pub xobjects: XObjectList,
@@ -20,12 +20,7 @@ impl PdfResources {
     pub fn new()
     -> Self
     {
-        Self {
-            xobjects: XObjectList::new(),
-            patterns: PatternList::new(),
-            graphics_states: ExtendedGraphicsStateList::new(),
-            layers: OCGList::new(),
-        }
+        Self::default()
     }
 
     /// Add a graphics state to the resources
@@ -51,10 +46,11 @@ impl PdfResources {
     {
         self.patterns.add_pattern(pattern)
     }
-    
+
     /// See `XObject::Into_with_document`.
-    /// The resources also need access to the layers (the optional content groups), this should be a 
+    /// The resources also need access to the layers (the optional content groups), this should be a
     /// `Vec<lopdf::Object::Reference>` (to the actual OCG groups, which are added on the document level)
+    #[cfg_attr(feature = "cargo-clippy", allow(needless_return))]
     pub fn into_with_document_and_layers(self, doc: &mut lopdf::Document, layers: Vec<lopdf::Object>)
     -> (lopdf::Dictionary, Vec<OCGRef>)
     {
@@ -67,7 +63,7 @@ impl PdfResources {
             let patterns_dict: lopdf::Dictionary = self.patterns.into();
             let graphics_state_dict: lopdf::Dictionary = self.graphics_states.into();
 
-            if layers.len() > 0 {
+            if !layers.is_empty() {
 
                 for l in layers {
                     ocg_references.push(ocg_dict.add_ocg(l));
@@ -91,7 +87,7 @@ impl PdfResources {
             if graphics_state_dict.len() > 0 {
                 dict.set("ExtGState", lopdf::Object::Dictionary(graphics_state_dict));
             }
-            
+
             return (dict, ocg_references);
     }
 }

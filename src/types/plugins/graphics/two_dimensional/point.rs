@@ -1,16 +1,14 @@
-extern crate lopdf;
-
 #[derive(Debug, Copy, Clone)]
-pub struct Point { 
+pub struct Point {
     /// x position from the bottom left corner in pt
-    pub x: f64, 
+    pub x: f64,
     /// y position from the bottom left corner in pt
-    pub y: f64 
+    pub y: f64
 }
 
 impl Point {
 
-    /// Create a new point. 
+    /// Create a new point.
     /// **WARNING: The reference point for a point is the bottom left corner, not the top left**
     #[inline]
     pub fn new(x_mm: f64, y_mm: f64)
@@ -24,8 +22,11 @@ impl Point {
 }
 
 impl PartialEq for Point {
+
     // custom compare function because of floating point inaccuracy
+    #[cfg_attr(feature = "cargo-clippy", allow(needless_return))]
     fn eq(&self, other: &Point) -> bool {
+
         if self.x.is_normal() && other.x.is_normal() &&
            self.y.is_normal() && other.y.is_normal() {
             // four floating point numbers have to match
@@ -34,6 +35,7 @@ impl PartialEq for Point {
             let y_eq = (self.y * 1000.0).round() == (other.y * 1000.0).round();
             if y_eq { return true; }
         }
+
         return false;
     }
 }

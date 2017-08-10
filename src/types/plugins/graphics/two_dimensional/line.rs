@@ -2,7 +2,7 @@ use *;
 use traits::*;
 
 #[derive(Debug, Clone)]
-pub struct Line { 
+pub struct Line {
     /// 2D Points for the line
     pub points: Vec<(Point, bool)>,
     /// Is the line closed or open?
@@ -21,7 +21,7 @@ impl Line {
     #[inline]
     pub fn new(points: Vec<(Point, bool)>,
                has_stroke: bool,
-               is_closed: bool, 
+               is_closed: bool,
                has_fill: bool)
     -> Self
     {
@@ -34,6 +34,7 @@ impl Line {
     }
 }
 
+#[cfg_attr(feature = "cargo-clippy", allow(boxed_local))]
 impl IntoPdfStreamOperation for Line {
 
     fn into_stream_op(self: Box<Self>)
@@ -95,24 +96,20 @@ impl IntoPdfStreamOperation for Line {
                     // is filled and stroked but not closed
                     operations.place_back() <- Operation::new(OP_PATH_PAINT_FILL_NZ, vec![]);
                 }
+            } else if self.is_closed {
+                // not filled, but stroked and closed
+                operations.place_back() <- Operation::new(OP_PATH_PAINT_STROKE_CLOSE, vec![]);
             } else {
-                if self.is_closed {
-                    // not filled, but stroked and closed
-                    operations.place_back() <- Operation::new(OP_PATH_PAINT_STROKE_CLOSE, vec![]);
-                } else {
-                    // not filled, not closed but only stroked (regular path)
-                    operations.place_back() <- Operation::new(OP_PATH_PAINT_STROKE, vec![]);
-                } 
-            } 
-        } else {
-            if self.has_fill {
-                // is not stroked, only filled
-                // closed-ness doesn't matter in this case, an area is always closed
-                operations.place_back() <- Operation::new(OP_PATH_PAINT_FILL_NZ, vec![]);
-            } else {
-                // no painting operation nothing, path is invisible, only end the path
-                operations.place_back() <- Operation::new(OP_PATH_PAINT_END, vec![]);
+                // not filled, not closed but only stroked (regular path)
+                operations.place_back() <- Operation::new(OP_PATH_PAINT_STROKE, vec![]);
             }
+        } else if self.has_fill {
+            // is not stroked, only filled
+            // closed-ness doesn't matter in this case, an area is always closed
+            operations.place_back() <- Operation::new(OP_PATH_PAINT_FILL_NZ, vec![]);
+        } else {
+            // no painting operation nothing, path is invisible, only end the path
+            operations.place_back() <- Operation::new(OP_PATH_PAINT_END, vec![]);
         }
 
         operations

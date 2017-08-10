@@ -1,5 +1,5 @@
 //! PDF layer management. Layers can contain referenced or real content.
-extern crate freetype as ft;
+use freetype as ft;
 
 use *;
 use indices::*;
@@ -13,7 +13,7 @@ pub struct PdfLayer {
     /// Name of the layer. Must be present for the optional content group
     pub(crate) name: String,
     /// Stream objects in this layer. Usually, one layer == one stream
-    pub(super) operations: Vec<lopdf::content::Operation>,
+    pub(super) operations: Vec<Operation>,
 }
 
 /// A "reference" to the current layer, allows for inner mutability
@@ -49,12 +49,8 @@ impl Into<lopdf::Stream> for PdfLayer {
         use lopdf::{Stream, Dictionary};
         let stream_content = lopdf::content::Content { operations: self.operations };
 
-        /* page contents may not be compressed (todo: is this valid for XObjects?) */
-        let stream = Stream::new(Dictionary::new(), stream_content.encode().unwrap())
-                    .with_compression(false);
-
-        println!("stream: {:?}", stream.allows_compression);
-        return stream;
+        // page contents may not be compressed (todo: is this valid for XObjects?)
+        Stream::new(Dictionary::new(), stream_content.encode().unwrap()).with_compression(false)
     }
 }
 
@@ -77,7 +73,7 @@ impl PdfLayerReference {
     {
         let doc = self.document.upgrade().unwrap();
         let mut doc = doc.borrow_mut();
-        let mut page_mut = doc.pages.get_mut(self.page.0).unwrap();
+        let page_mut = &mut doc.pages[self.page.0];
 
         page_mut.add_xobject(XObject::Image(image.into()))
     }
@@ -90,9 +86,9 @@ impl PdfLayerReference {
     {
         let doc = self.document.upgrade().unwrap();
         let mut doc = doc.borrow_mut();
-        let mut page_mut = doc.pages.get_mut(self.page.0).unwrap();
+        let page_mut = &mut doc.pages[self.page.0];
         let form_data = form.try_into()?;
-        Ok(page_mut.add_xobject(XObject::Form(form_data)))
+        Ok(page_mut.add_xobject(XObject::Form(Box::new(form_data))))
     }
 
     /// Begins a new text section
@@ -196,11 +192,12 @@ impl PdfLayerReference {
 
         let doc = self.document.upgrade().unwrap();
         let mut doc = doc.borrow_mut();
-        let mut page_mut = doc.pages.get_mut(self.page.0).unwrap();
+        let page_mut = &mut doc.pages[self.page.0];
 
         let new_ref = page_mut.add_graphics_state(new_overprint_state);
+
         // add gs operator to stream
-        page_mut.layers.get_mut(self.layer.0).unwrap()
+        page_mut.layers[self.layer.0]
             .operations.push(lopdf::content::Operation::new(
                 "gs", vec![lopdf::Object::Name(new_ref.gs_name.as_bytes().to_vec())]
         ));
@@ -217,10 +214,10 @@ impl PdfLayerReference {
 
         let doc = self.document.upgrade().unwrap();
         let mut doc = doc.borrow_mut();
-        let mut page_mut = doc.pages.get_mut(self.page.0).unwrap();
+        let page_mut = &mut doc.pages[self.page.0];
 
         let new_ref = page_mut.add_graphics_state(new_overprint_state);
-        page_mut.layers.get_mut(self.layer.0).unwrap()
+        page_mut.layers[self.layer.0]
             .operations.push(lopdf::content::Operation::new(
                 "gs", vec![lopdf::Object::Name(new_ref.gs_name.as_bytes().to_vec())]
         ));
@@ -237,11 +234,11 @@ impl PdfLayerReference {
 
         let doc = self.document.upgrade().unwrap();
         let mut doc = doc.borrow_mut();
-        let mut page_mut = doc.pages.get_mut(self.page.0).unwrap();
+        let page_mut = &mut doc.pages[self.page.0];
 
         let new_ref = page_mut.add_graphics_state(new_blend_mode_state);
 
-        page_mut.layers.get_mut(self.layer.0).unwrap()
+        page_mut.layers[self.layer.0]
             .operations.push(lopdf::content::Operation::new(
                 "gs", vec![lopdf::Object::Name(new_ref.gs_name.as_bytes().to_vec())]
         ));
@@ -373,7 +370,7 @@ impl PdfLayerReference {
     /// Sets the position where the text should appear (in mm)
     #[inline]
     pub fn write_text<S>(&self, text: S, font: &IndirectFontRef)
-    -> () where S: Into<std::string::String>
+    -> () where S: Into<String>
     {
         use lopdf::Object::*;
         use lopdf::StringFormat::Hexadecimal;
@@ -393,8 +390,7 @@ impl PdfLayerReference {
         // let mut kerning_data = Vec::<freetype::Vector>::new();
 
         {
-
-            let face_direct_ref = doc.fonts.get_font(&font).unwrap();
+            let face_direct_ref = doc.fonts.get_font(font).unwrap();
             let library = ft::Library::init().unwrap();
             let face = library.new_memory_face(&*face_direct_ref.data.font_bytes, 0)
                        .expect("invalid memory font in write_text()");
@@ -413,8 +409,8 @@ impl PdfLayerReference {
             .flat_map(|x| vec!((x >> 8) as u8, (x & 255) as u8))
             .collect::<Vec<u8>>();
 
-        doc.pages.get_mut(self.page.0).unwrap()
-            .layers.get_mut(self.layer.0).unwrap()
+        doc.pages[self.page.0]
+            .layers[self.layer.0]
                 .operations.push(Operation::new("Tj",
                     vec![String(bytes, Hexadecimal)]
         ));
@@ -436,7 +432,7 @@ impl PdfLayerReference {
     #[inline]
     pub fn use_text<S>(&self, text: S, font_size: i64,
                        x_mm: f64, y_mm: f64, font: &IndirectFontRef)
-    -> () where S: Into<std::string::String>
+    -> () where S: Into<String>
     {
             self.begin_text_section();
             self.set_font(font, font_size);
@@ -473,9 +469,9 @@ impl PdfLayerReference {
     {
         let doc = self.document.upgrade().unwrap();
         let mut doc = doc.borrow_mut();
-        let mut page_mut = doc.pages.get_mut(self.page.0).unwrap();
+        let page_mut = &mut doc.pages[self.page.0];
 
-        page_mut.layers.get_mut(self.layer.0).unwrap()
+        page_mut.layers[self.layer.0]
           .operations.push(lopdf::content::Operation::new(
               "Do", vec![lopdf::Object::Name(name.as_bytes().to_vec())]
         ));
@@ -487,9 +483,7 @@ impl PdfLayerReference {
     {
         let doc = self.document.upgrade().unwrap();
         let mut doc = doc.borrow_mut();
-        let layer = doc.pages.get_mut(self.page.0).unwrap()
-            .layers.get_mut(self.layer.0).unwrap();
-
+        let layer = &mut doc.pages[self.page.0].layers[self.layer.0];
         layer.operations.push(op.into());
     }
 }

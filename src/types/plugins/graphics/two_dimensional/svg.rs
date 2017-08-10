@@ -6,7 +6,7 @@ use *;
 /// Unit for SVG elements. Uses uom crate for normalization
 /// Since this library is designed to output PDFs, the only measurement
 /// that PDF understands is point, so eventually everything is converted into point.
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum SvgUnit {
     /// Multiple of the total height of the first seen font (usually 16px)
     /// Not yet supported, will be 16px
@@ -29,7 +29,7 @@ pub enum SvgUnit {
     Pc(f64),
 }
 
-// Should convert to points. For now, only returns the inner number 
+// Should convert to points. For now, only returns the inner number
 impl Into<f64> for SvgUnit {
     fn into(self)
     -> f64
@@ -51,7 +51,7 @@ impl Into<f64> for SvgUnit {
     }
 }
 
-/// SVG data 
+/// SVG data
 #[derive(Debug, Clone)]
 pub struct Svg {
     /// The actual line drawing, etc. operations, in order
@@ -78,26 +78,23 @@ impl Svg {
 
         // get width and height
         for event in parser {
-            match event {
-                Event::Tag(_, _, attributes) => {
-                    let mut mark_break = false;
-                    if let Some(w) = attributes.get("width") {
-                        if let Ok(parsed_w) = w.parse::<f64>() {
-                            initial_width = Some(SvgUnit::Pt(parsed_w));
-                            mark_break = true;
-                        }
+            if let Event::Tag(_, _, attributes) = event {
+                let mut mark_break = false;
+                if let Some(w) = attributes.get("width") {
+                    if let Ok(parsed_w) = w.parse::<f64>() {
+                        initial_width = Some(SvgUnit::Pt(parsed_w));
+                        mark_break = true;
                     }
+                }
 
-                    if let Some(h) = attributes.get("height") {
-                        if let Ok(parsed_h) = h.parse::<f64>() {
-                            initial_height = Some(SvgUnit::Pt(parsed_h));
-                            mark_break = true;
-                        }
+                if let Some(h) = attributes.get("height") {
+                    if let Ok(parsed_h) = h.parse::<f64>() {
+                        initial_height = Some(SvgUnit::Pt(parsed_h));
+                        mark_break = true;
                     }
+                }
 
-                    if mark_break { break; }
-                },
-                _ => {},
+                if mark_break { break; }
             }
         }
 
@@ -117,8 +114,8 @@ impl Svg {
                         scale_x: Option<f64>, scale_y: Option<f64>)
     -> std::result::Result<(), std::io::Error>
     {
-        let svg_w: f64 = self.width.clone().unwrap_or(SvgUnit::Pt(10.0)).into();
-        let svg_h: f64 = self.height.clone().unwrap_or(SvgUnit::Pt(10.0)).into();
+        let svg_w: f64 = self.width.unwrap_or(SvgUnit::Pt(10.0)).into();
+        let svg_h: f64 = self.height.unwrap_or(SvgUnit::Pt(10.0)).into();
 
         // add svg as XObject to page
         let svg_ref = layer.add_svg(self)?;
@@ -130,12 +127,10 @@ impl Svg {
             } else {
                 layer.use_xobject(svg_ref, translate_x, translate_y, rotate_cw, Some(scale_x * svg_w), Some(svg_h));
             }
+        } else if let Some(scale_y) = scale_y {
+            layer.use_xobject(svg_ref, translate_x, translate_y, rotate_cw, Some(svg_w), Some(svg_h * scale_y));
         } else {
-            if let Some(scale_y) = scale_y {
-                layer.use_xobject(svg_ref, translate_x, translate_y, rotate_cw, Some(svg_w), Some(svg_h * scale_y)); 
-            } else {
-                layer.use_xobject(svg_ref, translate_x, translate_y, rotate_cw, Some(svg_w), Some(svg_h)); 
-            }
+            layer.use_xobject(svg_ref, translate_x, translate_y, rotate_cw, Some(svg_w), Some(svg_h));
         }
 
         Ok(())
@@ -145,7 +140,7 @@ impl Svg {
 impl std::convert::TryInto<FormXObject> for Svg {
     type Error = std::io::Error;
 
-    fn try_into(self) 
+    fn try_into(self)
     -> std::result::Result<FormXObject, std::io::Error>
     {
         let content = lopdf::content::Content{ operations: self.operations };
@@ -170,7 +165,7 @@ impl std::convert::TryInto<FormXObject> for Svg {
     }
 }
 
-/// SVG XObject, identified by its name
+/// SVG `XObject`, identified by its name
 #[derive(Debug)]
 pub struct SvgRef {
     pub(super) name: String

@@ -19,6 +19,9 @@ svg = "0.5.6"
 log = "0.3.8"
 image = "0.14.0"
 
+[features]
+clippy = []
+
 [[bin]]
 doc = false
 name = "printpdf"

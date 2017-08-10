@@ -1,5 +1,5 @@
-//! Abstraction class for images. 
-//! Please use this class instead of adding ImageXObjects yourself
+//! Abstraction class for images.
+//! Please use this class instead of adding `ImageXObjects` yourself
 
 extern crate image;
 
@@ -7,7 +7,7 @@ use std::convert::TryFrom;
 use image::ImageDecoder;
 use *;
 
-/// Image - wrapper around an ImageXObject to allow for more control
+/// Image - wrapper around an `ImageXObject` to allow for more control
 /// within the library
 #[derive(Debug)]
 pub struct Image {
@@ -16,7 +16,7 @@ pub struct Image {
 }
 
 impl From<ImageXObject> for Image {
-    fn from(image: ImageXObject) 
+    fn from(image: ImageXObject)
     -> Self
     {
         Self {
@@ -28,7 +28,7 @@ impl From<ImageXObject> for Image {
 
 impl<T: ImageDecoder> TryFrom<T> for Image {
     type Error = image::ImageError;
-    fn try_from(image: T) 
+    fn try_from(image: T)
     -> std::result::Result<Self, Self::Error>
     {
         let image = ImageXObject::try_from(image)?;
@@ -44,9 +44,10 @@ impl Image {
     /// This is due to a PDF weirdness - images are basically just "names"
     /// and you have to make sure that they are added to the same page
     /// as they are used on.
-    /// 
+    ///
     /// You can use the "dpi" parameter to specify a scaling - the default is 300dpi
-    /// 
+    ///
+    #[cfg_attr(feature = "cargo-clippy", allow(too_many_arguments))]
     pub fn add_to_layer(self, layer: PdfLayerReference,
                         translate_x: Option<f64>, translate_y: Option<f64>,
                         rotate_cw: Option<f64>,
@@ -69,12 +70,10 @@ impl Image {
             } else {
                 layer.use_xobject(image, translate_x, translate_y, rotate_cw, Some(scale_x * image_w), Some(image_h));
             }
+        } else if let Some(scale_y) = scale_y {
+            layer.use_xobject(image, translate_x, translate_y, rotate_cw, Some(image_w), Some(image_h * scale_y));
         } else {
-            if let Some(scale_y) = scale_y {
-                layer.use_xobject(image, translate_x, translate_y, rotate_cw, Some(image_w), Some(image_h * scale_y)); 
-            } else {
-                layer.use_xobject(image, translate_x, translate_y, rotate_cw, Some(image_w), Some(image_h)); 
-            }
+            layer.use_xobject(image, translate_x, translate_y, rotate_cw, Some(image_w), Some(image_h));
         }
     }
 }

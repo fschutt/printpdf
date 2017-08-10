@@ -1,5 +1,4 @@
 //! Out of bounds errors
-extern crate error_chain;
 
 error_chain! {
 
