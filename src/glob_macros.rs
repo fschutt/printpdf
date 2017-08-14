@@ -5,3 +5,9 @@
 macro_rules! mm_to_pt {
     ($mm: expr) => ($mm * 2.834_646_f64);
 }
+
+/// Convert point to millimeter
+#[macro_export]
+macro_rules! pt_to_mm {
+    ($mm: expr) => ($mm * 0.352_778_f64);
+}
