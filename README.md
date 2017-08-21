@@ -8,7 +8,7 @@
 
 ```rust
 [dependencies]
-printpdf = "0.1.3"
+printpdf = "0.1.4"
 ```
 
 ## Features
