@@ -6,7 +6,7 @@
 
 [Crates.io](https://crates.io/crates/printpdf) | [Documentation](https://docs.rs/printpdf)
 
-```toml
+```ignore,toml
 [dependencies]
 printpdf = "0.1.4"
 ```
@@ -41,11 +41,17 @@ instantiate blobs / content when you have a reference to the layer. Here are som
 ```rust
 use printpdf::*;
 use std::fs::File;
+use std::io::Cursor;
+use std::io::Write;
 
 let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 247.0, 210.0, "Layer 1");
 let (page2, layer1) = doc.add_page(10.0, 250.0,"Page 2, Layer 1");
 
-doc.save(&mut File::create("test_working.pdf").unwrap()).unwrap();
+// for performance reasons, use a memory buffer, otherwise each byte will get written seperately
+let mut file_buffer = Cursor::new(Vec::<u8>::new());
+doc.save(&mut file_buffer).unwrap();
+let mut file = File::create("test_working.pdf").unwrap();
+file.write_all(&file_buffer.into_inner()).unwrap();
 ```
 
 #### Adding graphical shapes
