@@ -1,9 +1,10 @@
 # Contribution and License
 
-The goal of `printpdf` is to be a complete PDF library so you could technically go ahead and build an alternative Illustrator 
-just using this library. The library is commercially maintained by my company, Maps4Print (we make printable PDF maps from 
-OpenStreetMap data). It was thought of a library for mapping and GIS. Instantiating content, minimal file size (useful when 
-you have many polygons / roads / shapes) are the goals.
+The goal of `printpdf` is to be a complete PDF library so you could technically go ahead and build an alternative Illustrator
+just using this library. The library is commercially maintained by my company, Maps4Print (we make printable PDF maps from
+OpenStreetMap data). It was thought of a library for mapping and GIS. Instantiating content, minimal file size (useful when
+you have many polygons / roads / shapes) are the goals. It is thought for graphics-heavy PDF files, it may not fit your purpose
+completely.
 
 By contributing to this library, you license your code under the MIT license.
 
