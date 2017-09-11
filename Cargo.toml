@@ -9,7 +9,7 @@ readme = "README.md"
 description = "Rust library for writing PDF files"
 
 [dependencies]
-lopdf = "0.11.0"
+lopdf = "0.12.0"
 freetype-rs = "0.13.0"
 error-chain = "0.10.*"
 chrono = "0.3.0"
