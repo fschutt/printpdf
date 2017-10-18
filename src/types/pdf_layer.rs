@@ -460,7 +460,7 @@ impl PdfLayerReference {
         // todo: what about width / height?
         doc.pages.get_mut(self.page.0).unwrap()
             .layers.get_mut(self.layer.0).unwrap()
-                .layer.place_back() <- PdfResource::ReferencedResource(svg_data_index.0.clone());
+                .layer.push(PdfResource::ReferencedResource(svg_data_index.0.clone()));
     }
 */
 

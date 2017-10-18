@@ -3,7 +3,7 @@
 
 use *;
 use std::collections::HashMap;
-use std::convert::TryFrom;
+use image::ImageDecoder;
 
 /* Parent: Resources dictionary of the page */
 /// External object that gets reference outside the PDF content stream
@@ -165,12 +165,9 @@ impl ImageXObject {
             clipping_bbox: bbox,
         }
     }
-}
 
-impl<T: image::ImageDecoder> TryFrom<T> for ImageXObject {
-    type Error = image::ImageError;
-    fn try_from(mut image: T)
-    -> std::result::Result<Self, Self::Error>
+    pub fn try_from<T: ImageDecoder>(mut image: T)
+    -> std::result::Result<Self, image::ImageError>
     {
         use image::DecodingResult;
 
@@ -210,8 +207,8 @@ fn u16_to_u8(u16_vec: Vec<u16>)
     for long_byte in u16_vec {
         let byte1: u8 = (long_byte >> 8) as u8;
         let byte2: u8 = long_byte as u8;
-        new_vec.place_back() <- byte1;
-        new_vec.place_back() <- byte2;
+        new_vec.push(byte1);
+        new_vec.push(byte2);
     }
 
     return new_vec;

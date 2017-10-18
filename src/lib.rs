@@ -322,8 +322,6 @@
 //!
 
 #![feature(try_from)]
-#![feature(collection_placement)]
-#![feature(placement_in_syntax)]
 
 #![allow(unused_doc_comment)]
 #![allow(unused_variables)]

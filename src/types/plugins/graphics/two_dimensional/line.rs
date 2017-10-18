@@ -91,25 +91,25 @@ impl IntoPdfStreamOperation for Line {
             if self.has_fill {
                 if self.is_closed {
                     // is filled and stroked and closed
-                    operations.place_back() <- Operation::new(OP_PATH_PAINT_FILL_STROKE_CLOSE_NZ, vec![]);
+                    operations.push(Operation::new(OP_PATH_PAINT_FILL_STROKE_CLOSE_NZ, vec![]));
                 } else {
                     // is filled and stroked but not closed
-                    operations.place_back() <- Operation::new(OP_PATH_PAINT_FILL_NZ, vec![]);
+                    operations.push(Operation::new(OP_PATH_PAINT_FILL_NZ, vec![]));
                 }
             } else if self.is_closed {
                 // not filled, but stroked and closed
-                operations.place_back() <- Operation::new(OP_PATH_PAINT_STROKE_CLOSE, vec![]);
+                operations.push(Operation::new(OP_PATH_PAINT_STROKE_CLOSE, vec![]));
             } else {
                 // not filled, not closed but only stroked (regular path)
-                operations.place_back() <- Operation::new(OP_PATH_PAINT_STROKE, vec![]);
+                operations.push(Operation::new(OP_PATH_PAINT_STROKE, vec![]));
             }
         } else if self.has_fill {
             // is not stroked, only filled
             // closed-ness doesn't matter in this case, an area is always closed
-            operations.place_back() <- Operation::new(OP_PATH_PAINT_FILL_NZ, vec![]);
+            operations.push(Operation::new(OP_PATH_PAINT_FILL_NZ, vec![]));
         } else {
             // no painting operation nothing, path is invisible, only end the path
-            operations.place_back() <- Operation::new(OP_PATH_PAINT_END, vec![]);
+            operations.push(Operation::new(OP_PATH_PAINT_END, vec![]));
         }
 
         operations

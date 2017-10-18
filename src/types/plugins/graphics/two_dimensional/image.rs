@@ -3,7 +3,6 @@
 
 extern crate image;
 
-use std::convert::TryFrom;
 use image::ImageDecoder;
 use *;
 
@@ -26,10 +25,9 @@ impl From<ImageXObject> for Image {
 
 }
 
-impl<T: ImageDecoder> TryFrom<T> for Image {
-    type Error = image::ImageError;
-    fn try_from(image: T)
-    -> std::result::Result<Self, Self::Error>
+impl Image {
+    pub fn try_from<T: ImageDecoder>(image: T)
+    -> std::result::Result<Self, image::ImageError>
     {
         let image = ImageXObject::try_from(image)?;
         Ok(Self {
