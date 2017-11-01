@@ -116,9 +116,9 @@ impl Font {
         let mut font_descriptor_vec: Vec<(std::string::String, Object)> = vec![
             ("Type".into(), Name("FontDescriptor".into())),
             ("FontName".into(), Name(face_name.clone().into_bytes())),
-            ("Ascent".into(), Integer(face_metrics.ascender)),
-            ("Descent".into(), Integer(face_metrics.descender)),
-            ("CapHeight".into(), Integer(face_metrics.ascender)),
+            ("Ascent".into(), Integer(face_metrics.ascender as i64)),
+            ("Descent".into(), Integer(face_metrics.descender as i64)),
+            ("CapHeight".into(), Integer(face_metrics.ascender as i64)),
             ("ItalicAngle".into(), Integer(0)),
             ("Flags".into(), Integer(32)),
             ("StemV".into(), Integer(80)),
@@ -255,7 +255,7 @@ impl Font {
             w, dw,
         ]);
 
-        let font_bbox = vec![ Integer(0), Integer(max_height), Integer(total_width as i64), Integer(max_height) ];
+        let font_bbox = vec![ Integer(0), Integer(max_height as i64), Integer(total_width as i64), Integer(max_height as i64) ];
         font_descriptor_vec.push(("FontFile3".into(), Reference(doc.add_object(font_stream))));
 
         // although the following entry is technically not needed, Adobe Reader needs it
