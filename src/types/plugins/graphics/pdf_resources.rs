@@ -2,7 +2,7 @@ use *;
 use extgstate::ExtendedGraphicsState;
 
 /// Struct for storing the PDF Resources, to be used on a PDF page
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct PdfResources {
     /// External graphics objects
     pub xobjects: XObjectList,

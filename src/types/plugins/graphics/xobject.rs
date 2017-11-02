@@ -10,7 +10,7 @@ use image::ImageDecoder;
 /// Gets constructed similar to the `ExtGState`, then inserted into the `/XObject` dictionary
 /// on the page. You can instantiate `XObjects` with the `/Do` operator. The `layer.add_xobject()`
 /// (or better yet, the `layer.add_image()`, `layer.add_form()`) methods will do this for you.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum XObject {
     /* /Subtype /Image */
     /// Image XObject, for images
@@ -58,7 +58,7 @@ impl Into<lopdf::Object> for XObject {
 }
 
 /// List of `XObjects`
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct XObjectList {
     objects: HashMap<String, XObject>,
 }
@@ -120,7 +120,7 @@ impl XObjectRef {
 /* todo: inline images? (icons, logos, etc.) */
 /* todo: JPXDecode filter */
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ImageXObject {
     /// Width of the image (original width, not scaled width)
     pub width: i64,
@@ -264,7 +264,7 @@ pub enum ImageFilter {
 /// A `FormXObject` is basically a layer-like content stream and can contain anything
 /// as long as it's a valid strem. A `FormXObject` is intended to be used for reapeated
 /// content on one page.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FormXObject {
     /* /Type /XObject */
     /* /Subtype /Form */
@@ -546,7 +546,7 @@ pub enum OCGIntent {
 }
 
 /// TODO, very low priority
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PostScriptXObject {
     /// __(Optional)__ A stream whose contents are to be used in
     /// place of the PostScript XObject’s stream when the target

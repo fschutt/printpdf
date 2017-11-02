@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use lopdf::content::Operation;
 
 /// One layer of PDF data
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PdfLayer {
     /// Name of the layer. Must be present for the optional content group
     pub(crate) name: String,

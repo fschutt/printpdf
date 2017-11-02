@@ -14,7 +14,7 @@ use std::cell::RefCell;
 use std::io::BufWriter;
 
 /// PDF document
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PdfDocument {
     /// Pages of the document
     pub(super) pages: Vec<PdfPage>,

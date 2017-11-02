@@ -70,7 +70,7 @@ pub (crate) const ALPHA_IS_SHAPE: &'static str = "alpha_is_shape";
 pub (crate) const TEXT_KNOCKOUT: &'static str = "text_knockout";
 
 /// List of many `ExtendedGraphicsState`
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExtendedGraphicsStateList {
     /// Current indent level + current graphics state
     pub(crate) latest_graphics_state: (usize, ExtendedGraphicsState),

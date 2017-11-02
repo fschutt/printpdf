@@ -1,6 +1,6 @@
 extern crate lopdf;
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct OCGList {
     /// The reference to the layer as well as a reference to the
     /// OCG dictionary

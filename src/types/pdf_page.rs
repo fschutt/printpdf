@@ -6,7 +6,7 @@ use std::rc::Weak;
 use std::cell::RefCell;
 
 /// PDF page
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PdfPage {
     /// The index of the page in the document
     pub(crate) index: usize,

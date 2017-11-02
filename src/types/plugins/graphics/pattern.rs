@@ -32,7 +32,7 @@ impl PatternRef {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct PatternList {
     patterns: HashMap<String, Pattern>,
 }
