@@ -2,6 +2,7 @@ extern crate printpdf;
 
 use printpdf::*;
 use std::fs::File;
+use std::io::BufWriter;
 
 fn main() {
     // To prevent empty documents, you must specify at least one page with one layer
@@ -15,5 +16,5 @@ fn main() {
     let _ = doc.get_page(page2).add_layer("Layer 3");
 
     // If this is successful, you should see a PDF with two blank A4 pages
-    doc.save(&mut File::create("test_pages.pdf").unwrap()).unwrap();
+    doc.save(&mut BufWriter::new(File::create("test_pages.pdf").unwrap())).unwrap();
 }

@@ -2,6 +2,7 @@ extern crate printpdf;
 
 use printpdf::*;
 use std::fs::File;
+use std::io::BufWriter;
 
 fn main() {
 
@@ -55,5 +56,5 @@ fn main() {
 
     // If this is successful, you should see a PDF two shapes, one rectangle
     // and a dotted line 
-    doc.save(&mut File::create("test_graphics.pdf").unwrap()).unwrap();
+    doc.save(&mut BufWriter::new(File::create("test_graphics.pdf").unwrap())).unwrap();
 }

@@ -1,6 +1,7 @@
 extern crate printpdf;
 use printpdf::*;
 use std::fs::File;
+use std::io::BufWriter;
 
 fn main() {
     let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 500.0, 300.0, "Layer 1");
@@ -57,5 +58,5 @@ fn main() {
 
     current_layer.end_text_section();
 
-    doc.save(&mut File::create("test_fonts.pdf").unwrap()).unwrap();
+    doc.save(&mut BufWriter::new(File::create("test_fonts.pdf").unwrap())).unwrap();
 }

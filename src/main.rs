@@ -2,6 +2,7 @@ extern crate printpdf;
 
 use printpdf::*;
 use std::fs::File;
+use std::io::BufWriter;
 
 fn main() {
 
@@ -37,5 +38,5 @@ fn main() {
 
     // There is no support for comments, images, annotations, 3D objects, signatures, gradients, etc. yet.
     // Save the PDF file
-    doc.save(&mut File::create("test_working.pdf").unwrap()).unwrap();
+    doc.save(&mut BufWriter::new(File::create("test_working.pdf").unwrap())).unwrap();
 }

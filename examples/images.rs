@@ -5,6 +5,7 @@ use printpdf::*;
 use std::io::Cursor;
 use image::bmp::BMPDecoder;
 use std::fs::File;
+use std::io::BufWriter;
 
 fn main() {
     let (doc, page1, layer1) = PdfDocument::new("printpdf graphics test", 210.0, 297.0, "Layer 1");
@@ -22,5 +23,5 @@ fn main() {
     // layer,     
     image2.add_to_layer(current_layer.clone(), None, None, None, None, None, None);
 
-    doc.save(&mut File::create("test_image.pdf").unwrap()).unwrap();
+    doc.save(&mut BufWriter::new(File::create("test_image.pdf").unwrap())).unwrap();
 }

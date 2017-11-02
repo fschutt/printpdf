@@ -37,25 +37,19 @@
 //! ```rust
 //! use printpdf::*;
 //! use std::fs::File;
-//! use std::io::Cursor;
-//! use std::io::Write;
+//! use std::io::BufWriter;
 //!
 //! let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 247.0, 210.0, "Layer 1");
 //! let (page2, layer1) = doc.add_page(10.0, 250.0,"Page 2, Layer 1");
 //!
-//! // for performance reasons, use a memory buffer, otherwise each byte will get written seperately
-//! let mut file_buffer = Cursor::new(Vec::<u8>::new());
-//! doc.save(&mut file_buffer).unwrap();
-//! let mut file = File::create("test_working.pdf").unwrap();
-//! file.write_all(&file_buffer.into_inner()).unwrap();
+//! doc.save(&mut BufWriter::new(File::create("test_working.pdf").unwrap())).unwrap();
 //! ```
 //!
 //! ### Adding graphical shapes
 //!
 //! ```
 //! use printpdf::*;
-//! use std::fs::File;
-//!
+//! 
 //! let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 247.0, 210.0, "Layer 1");
 //!
 //! let mut current_layer = doc.get_page(page1).get_layer(layer1);
@@ -123,9 +117,9 @@
 //! extern crate image; /* currently: version 0.14.0 */
 //!
 //! use printpdf::*;
-//! use std::fs::File;
 //! use std::convert::From;
-//!
+//! use std::fs::File;
+//! 
 //! fn main() {
 //!     let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 247.0, 210.0, "Layer 1");
 //!     let current_layer = doc.get_page(page1).get_layer(layer1);
@@ -169,7 +163,7 @@
 //! ```rust
 //! use printpdf::*;
 //! use std::fs::File;
-//!
+//! 
 //! let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 247.0, 210.0, "Layer 1");
 //! let current_layer = doc.get_page(page1).get_layer(layer1);
 //!

@@ -1,6 +1,6 @@
 [package]
 name = "printpdf"
-version = "0.1.7"
+version = "0.2.0"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 repository = "https://github.com/sharazam/printpdf"
 homepage = "https://github.com/sharazam/printpdf"

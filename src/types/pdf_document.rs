@@ -8,8 +8,10 @@ use *;
 use indices::*;
 use std::io::{Write, Seek};
 use rand::Rng;
+
 use std::rc::Rc;
 use std::cell::RefCell;
+use std::io::BufWriter;
 
 /// PDF document
 #[derive(Debug)]
@@ -229,7 +231,7 @@ impl PdfDocumentReference {
     }
 
     /// Save PDF Document, writing the contents to the target
-    pub fn save<W: Write + Seek>(self, target: &mut W)
+    pub fn save<W: Write + Seek>(self, target: &mut BufWriter<W>)
     -> ::std::result::Result<(), Error>
     {
         use lopdf::{Dictionary as LoDictionary,
@@ -429,7 +431,7 @@ impl PdfDocumentReference {
 
         // does nothing in debug mode, optimized in release mode
         Self::optimize(&mut doc.inner_doc);
-        doc.inner_doc.save_to(target).unwrap();
+        doc.inner_doc.save_to(target)?;
 
         Ok(())
     }
