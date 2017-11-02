@@ -6,7 +6,7 @@
 
  ```ignore,toml
  [dependencies]
- printpdf = "0.1.7"
+ printpdf = { git = "https://github.com/fschutt/printpdf" }
  ```
 
  # Features
@@ -39,17 +39,11 @@
  ```rust
  use printpdf::*;
  use std::fs::File;
- use std::io::Cursor;
- use std::io::Write;
+ use std::io::BufWriter;
 
  let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 247.0, 210.0, "Layer 1");
  let (page2, layer1) = doc.add_page(10.0, 250.0,"Page 2, Layer 1");
-
- // for performance reasons, use a memory buffer, otherwise each byte will get written seperately
- let mut file_buffer = Cursor::new(Vec::<u8>::new());
- doc.save(&mut file_buffer).unwrap();
- let mut file = File::create("test_working.pdf").unwrap();
- file.write_all(&file_buffer.into_inner()).unwrap();
+ doc.save(&mut BufWriter::new(File::create("test_working.pdf").unwrap())).unwrap();
  ```
 
  ### Adding graphical shapes
@@ -212,6 +206,13 @@
 
  current_layer.end_text_section();
  ```
+
+ # Upgrading to `0.2.0` / Changelog
+
+ - The `document.save()` method now needs a `BufWriter`, to enforce buffered output (breaking change).
+ - The `PdfDocument` now implements `Clone`, so you can write one document to multiple outputs.
+ - You can disable the automatic embedding of an ICC profile by using a `CustomPdfConformance`. 
+   See `examples/no_icc.rs` for usage information.
 
  # Further reading
 

@@ -205,6 +205,13 @@
 //! current_layer.end_text_section();
 //! ```
 //!
+//! # Upgrading to `0.2.0` / Changelog
+//! 
+//! - The `document.save()` method now needs a `BufWriter`, to enforce buffered output (breaking change).
+//! - The `PdfDocument` now implements `Clone`, so you can write one document to multiple outputs.
+//! - You can disable the automatic embedding of an ICC profile by using a `CustomPdfConformance`. 
+//!   See `examples/no_icc.rs` for usage information.
+//! 
 //! # Further reading
 //!
 //! The `PDFDocument` is hidden behind a `PDFDocumentReference`, which locks the things you can
