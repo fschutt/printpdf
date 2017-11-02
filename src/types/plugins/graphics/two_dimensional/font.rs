@@ -142,7 +142,7 @@ impl Font {
 
         for unicode in 0x0000..0xffff {
             let glyph_id = face.get_char_index(unicode);
-            if glyph_id != 0 && face.load_glyph(glyph_id, ft::face::NO_SCALE).is_ok() {
+            if glyph_id != 0 && face.load_glyph(glyph_id, ft::face::LoadFlag::NO_SCALE).is_ok() {
 
                 let glyph_slot = face.glyph();
                 let glyph_metrics = glyph_slot.metrics();

@@ -9,15 +9,15 @@ readme = "README.md"
 description = "Rust library for writing PDF files"
 
 [dependencies]
-lopdf = "0.12.0"
-freetype-rs = "0.13.0"
-error-chain = "0.10.*"
-chrono = "0.3.0"
-rand = "0.3.15"
-num = "0.1.37"
-svg = "0.5.6"
+lopdf = "0.13.0"
+freetype-rs = "0.16.0"
+error-chain = "0.11.*"
+chrono = "0.4.0"
+rand = "0.3.17"
+num = "0.1.40"
+svg = "0.5.7"
 log = "0.3.8"
-image = "0.14.0"
+image = "0.17.0"
 
 [features]
 clippy = []
