@@ -57,7 +57,7 @@ impl PdfMetadata {
 	pub fn into_obj(self)
 	-> (lopdf::Object, lopdf::Object, Option<IccProfile>)
 	{
-		let xmp_obj = self.xmp_metadata.into_obj(self.conformance,
+		let xmp_obj = self.xmp_metadata.into_obj(self.conformance.clone(),
 												 self.trapping,
 												 self.creation_date,
 												 self.modification_date,
@@ -66,9 +66,9 @@ impl PdfMetadata {
 
 		let doc_info_obj = self.document_info.into_obj(self.document_title,
 													   self.trapping,
-														  self.conformance,
-														  self.creation_date,
-														  self.modification_date);
+													   self.conformance.clone(),
+													   self.creation_date,
+													   self.modification_date);
 		// add icc profile if necessary
 		let icc_profile = {
 		    if self.conformance.must_have_icc_profile() {

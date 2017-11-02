@@ -10,7 +10,7 @@
 /// Please note the difference between **PDF/A** (archiving), **PDF/UA** (universal acessibility),
 /// **PDF/X** (printing), **PDF/E** (engineering / CAD), **PDF/VT** (large volume transactions with
 /// repeated content)
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[allow(non_camel_case_types)]
 pub enum PdfConformance {
     /// `PDF/A-1b` basic PDF, many features restricted
@@ -60,6 +60,74 @@ pub enum PdfConformance {
     /// is set up in a way that it can easily inject data into the PDF, for high-throughput PDFs
     /// (like postcards, stamps), that require customization before printing
     VT_2010_PDF_1_4,
+    /// Custom PDF conformance, to allow / disallow options. This allows for making very small
+    /// documents, for example
+    Custom(CustomPdfConformance),
+}
+
+/// Allows building custom conformance profiles. This is useful if you want very small documents for example and 
+/// you don't __need__ conformance with any PDF standard, you just want a PDF file.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct CustomPdfConformance {
+    /// Identifier for this conformance
+    /// 
+    /// Default: __""__
+    pub identifier: String,
+    /// Does this standard allow 3d content?
+    ///
+    /// Default: __false__
+    pub allows_3d_content: bool,
+    /// Does this standard allow video content?
+    ///
+    /// Default: __false__
+    pub allows_video_content: bool,
+    /// Does this standard allow audio content
+    ///
+    /// Default: __false__
+    pub allows_audio_content: bool,
+    /// Does this standard allow enbedded JS?
+    ///
+    /// Default: __false__
+    pub allows_embedded_javascript: bool,
+    /// Does this standard allow enbedding JPEG files?
+    ///
+    /// Default: __true__
+    pub allows_jpeg_content: bool,
+    /// Does this standard require XMP metadata to be set?
+    /// 
+    /// Default: __true__
+    pub requires_xmp_metadata: bool,
+    /// Does this standard allow the default PDF fonts (Helvetica, etc.)
+    /// 
+    /// _(please don't enable this if you do any work that has to be printed accurately)_
+    /// 
+    /// Default: __false__
+    pub allows_default_fonts: bool,
+    /// Does this standard require an ICC profile to be embedded for color management?
+    /// 
+    /// Default: __true__
+    pub requires_icc_profile: bool,
+    /// Does this standard allow PDF layers?
+    /// 
+    /// Default: __true__
+    pub allows_pdf_layers: bool,
+}
+
+impl Default for CustomPdfConformance {
+    fn default() -> Self {
+        CustomPdfConformance {
+            identifier: "".into(),
+            allows_3d_content: false,
+            allows_video_content: false,
+            allows_audio_content: false,
+            allows_embedded_javascript: false,
+            allows_jpeg_content: true,
+            requires_xmp_metadata: true,
+            allows_default_fonts: false,
+            requires_icc_profile: true,
+            allows_pdf_layers: true,
+        }
+    }
 }
 
 impl PdfConformance {
@@ -89,6 +157,7 @@ impl PdfConformance {
             PdfConformance::X5N_2010_PDF_1_6  => "PDF/X-5N",
             PdfConformance::E1_2008_PDF_1_6   => "PDF/E-1",
             PdfConformance::VT_2010_PDF_1_4   => "PDF/VT",
+            PdfConformance::Custom(ref c)     => &c.identifier,
         };
 
         identifier.to_string()
@@ -101,6 +170,7 @@ impl PdfConformance {
     {
         match *self {
            PdfConformance::E1_2008_PDF_1_6   => true,
+           PdfConformance::Custom(ref c)     => c.allows_3d_content,
            _ => false,
         }
     }
@@ -110,7 +180,10 @@ impl PdfConformance {
     -> bool
     {
         // todo
-        false
+        match *self {
+            PdfConformance::Custom(ref c) => c.allows_video_content,
+            _                             => false,
+        }
     }
 
     /// __STUB__: Detects if the PDF has audio content, but the
@@ -119,7 +192,10 @@ impl PdfConformance {
     -> bool
     {
         // todo
-        false
+        match *self {
+            PdfConformance::Custom(ref c) => c.allows_audio_content,
+            _                             => false,
+        }
     }
 
     /// __STUB__: Detects if the PDF has 3D content, but the
@@ -128,7 +204,10 @@ impl PdfConformance {
     -> bool
     {
         // todo
-        false
+        match *self {
+            PdfConformance::Custom(ref c) => c.allows_embedded_javascript,
+            _                         => false,
+        }
     }
 
     /// __STUB__: Detects if the PDF has JPEG images, but the
@@ -137,7 +216,10 @@ impl PdfConformance {
     -> bool
     {
         // todo
-        false
+        match *self {
+            PdfConformance::Custom(ref c) => c.allows_jpeg_content,
+            _                         => true,
+        }
     }
 
     /// Detects if the PDF must have XMP metadata
@@ -155,6 +237,7 @@ impl PdfConformance {
             PdfConformance::X4P_2010_PDF_1_6  => { true },
             PdfConformance::X5G_2010_PDF_1_6  => { true },
             PdfConformance::X5PG_2010_PDF_1_6 => { true },
+            PdfConformance::Custom(ref c)     => { c.requires_xmp_metadata }
             _                                 => { false },
         }
     }
@@ -166,6 +249,7 @@ impl PdfConformance {
         // todo
         match *self {
             PdfConformance::X1A_2001_PDF_1_3  => { false },
+            PdfConformance::Custom(ref c)     => { c.requires_icc_profile }
             _                                 => { true },
         }
     }
@@ -181,6 +265,7 @@ impl PdfConformance {
             PdfConformance::X3_2002_PDF_1_3   => { false },
             PdfConformance::X1A_2003_PDF_1_4  => { false },
             PdfConformance::X3_2003_PDF_1_4   => { false },
+            PdfConformance::Custom(ref c)     => { c.allows_pdf_layers }
             _                                 => { true },
         }
     }
