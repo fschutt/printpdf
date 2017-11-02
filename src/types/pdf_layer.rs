@@ -80,14 +80,13 @@ impl PdfLayerReference {
 
     /// Add an svg element to the layer
     /// To be called from the `svg.add_to_layer()` class (see `use_xobject` documentation)
-    pub(crate) fn add_svg<T>(&self, form: T)
-    -> std::result::Result<XObjectRef, T::Error>
-    where T: std::convert::TryInto<FormXObject>
+    pub(crate) fn add_svg(&self, svg: Svg)
+    -> std::result::Result<XObjectRef, ::std::io::Error>
     {
         let doc = self.document.upgrade().unwrap();
         let mut doc = doc.borrow_mut();
         let page_mut = &mut doc.pages[self.page.0];
-        let form_data = form.try_into()?;
+        let form_data = svg.try_into()?;
         Ok(page_mut.add_xobject(XObject::Form(Box::new(form_data))))
     }
 

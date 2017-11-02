@@ -119,13 +119,11 @@
 //! Scaling of images is implicitly done to fit one pixel = one dot at 300 dpi.
 //!
 //! ```
-//! #![feature(try_from)]
 //! extern crate printpdf;
 //! extern crate image; /* currently: version 0.14.0 */
 //!
 //! use printpdf::*;
 //! use std::fs::File;
-//! use std::convert::TryFrom;
 //! use std::convert::From;
 //!
 //! fn main() {
@@ -320,8 +318,6 @@
 //!
 //! [PDF X/3 technical notes](http://www.pdfxreport.com/lib/exe/fetch.php?media=en:technote_pdfx_checks.pdf)
 //!
-
-#![feature(try_from)]
 
 #![allow(unused_doc_comment)]
 #![allow(unused_variables)]
