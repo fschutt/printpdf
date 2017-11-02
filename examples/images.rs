@@ -1,10 +1,8 @@
-#![feature(try_from)]
 extern crate printpdf;
 extern crate image;
 
 use printpdf::*;
 use std::io::Cursor;
-use std::convert::TryFrom; 
 use image::bmp::BMPDecoder;
 use std::fs::File;
 

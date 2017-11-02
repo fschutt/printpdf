@@ -135,12 +135,8 @@ impl Svg {
 
         Ok(())
     }
-}
 
-impl std::convert::TryInto<FormXObject> for Svg {
-    type Error = std::io::Error;
-
-    fn try_into(self)
+    pub fn try_into(self)
     -> std::result::Result<FormXObject, std::io::Error>
     {
         let content = lopdf::content::Content{ operations: self.operations };
