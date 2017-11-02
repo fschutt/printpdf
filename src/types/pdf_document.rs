@@ -244,7 +244,12 @@ impl PdfDocumentReference {
 
         // extra pdf infos
         let (xmp_metadata, document_info, icc_profile) = doc.metadata.clone().into_obj();
-        let xmp_metadata_id = doc.inner_doc.add_object(xmp_metadata);
+
+        let xmp_metadata_id = match xmp_metadata {
+            Some(metadata) => Some(doc.inner_doc.add_object(metadata)),
+            None => None,
+        };
+
         let document_info_id = doc.inner_doc.add_object(document_info);
 
         // add catalog
@@ -263,20 +268,23 @@ impl PdfDocumentReference {
                           ("Info", String(icc_profile_str.into(), Literal)),
                         ]);
 
-        if let Some(profile) = icc_profile {
-            let icc_profile: lopdf::Stream = profile.into();
-            let icc_profile_id = doc.inner_doc.add_object(Stream(icc_profile));
-            output_intents.set("DestinationOutputProfile", Reference(icc_profile_id));
-        }
-
         let mut catalog = LoDictionary::from_iter(vec![
                       ("Type", "Catalog".into()),
                       ("PageLayout", "OneColumn".into()),
                       ("PageMode", "Use0".into()),
                       ("Pages", Reference(pages_id)),
-                      ("Metadata", Reference(xmp_metadata_id) ),
-                      ("OutputIntents", Array(vec![Dictionary(output_intents)])),
                     ]);
+
+        if let Some(profile) = icc_profile {
+            let icc_profile: lopdf::Stream = profile.into();
+            let icc_profile_id = doc.inner_doc.add_object(Stream(icc_profile));
+            output_intents.set("DestinationOutputProfile", Reference(icc_profile_id));
+            catalog.set("OutputIntents", Array(vec![Dictionary(output_intents)]));
+        }
+
+        if let Some(metadata_id) = xmp_metadata_id {
+            catalog.set("Metadata", Reference(metadata_id));
+        }
 
         let mut pages = LoDictionary::from_iter(vec![
                       ("Type", "Pages".into()),

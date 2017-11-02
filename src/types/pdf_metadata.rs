@@ -53,16 +53,23 @@ impl PdfMetadata {
 		}
 	}
 
-	/// Consumes the metadata, returning the (xmp_metadata, document_info, icc_profile_stream).
+	/// Consumes the metadata, returning the (Option<xmp_metadata>, document_info, icc_profile_stream).
 	pub fn into_obj(self)
-	-> (lopdf::Object, lopdf::Object, Option<IccProfile>)
+	-> (Option<lopdf::Object>, lopdf::Object, Option<IccProfile>)
 	{
-		let xmp_obj = self.xmp_metadata.into_obj(self.conformance.clone(),
-												 self.trapping,
-												 self.creation_date,
-												 self.modification_date,
-												 self.metadata_date,
-												 self.document_title.clone());
+		let xmp_obj = {
+			if self.conformance.must_have_xmp_metadata() {
+				Some(self.xmp_metadata.into_obj(
+					 	self.conformance.clone(),
+						self.trapping,
+						self.creation_date,
+						self.modification_date,
+						self.metadata_date,
+						self.document_title.clone()))
+			} else { 
+				None
+			}
+		}; 
 
 		let doc_info_obj = self.document_info.into_obj(self.document_title,
 													   self.trapping,
