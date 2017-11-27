@@ -243,12 +243,15 @@ impl PdfLayerReference {
         ));
     }
 
-    /// Set the current line thickness
+    /// Set the current line thickness, in points
+    ///
+    /// __NOTE__: 0.0 is a special value, it does not make the line disappear, but rather
+    /// makes it appear 1px wide across all devices
     #[inline]
-    pub fn set_outline_thickness(&self, outline_thickness: i64)
+    pub fn set_outline_thickness(&self, outline_thickness: f64)
     {
         use lopdf::Object::*;
-        self.internal_add_operation(Operation::new(OP_PATH_STATE_SET_LINE_WIDTH, vec![Integer(outline_thickness)]));
+        self.internal_add_operation(Operation::new(OP_PATH_STATE_SET_LINE_WIDTH, vec![Real(outline_thickness)]));
     }
 
     /// Set the current line join style for outlines

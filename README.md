@@ -82,7 +82,7 @@
 
  current_layer.set_fill_color(fill_color);
  current_layer.set_outline_color(outline_color);
- current_layer.set_outline_thickness(10);
+ current_layer.set_outline_thickness(10.0);
 
  // Draw first line
  current_layer.add_shape(line1);
@@ -98,7 +98,7 @@
 
  current_layer.set_fill_color(fill_color_2);
  current_layer.set_outline_color(outline_color_2);
- current_layer.set_outline_thickness(15);
+ current_layer.set_outline_thickness(15.0);
 
  // draw second line
  current_layer.add_shape(line2);
@@ -207,13 +207,14 @@
  current_layer.end_text_section();
  ```
 
- # Upgrading to `0.2.0` / Changelog
+ # Upgrading to `0.2.1` / Changelog
 
  - The `document.save()` method now needs a `BufWriter`, to enforce buffered output (breaking change).
  - The `PdfDocument` now implements `Clone`, so you can write one document to multiple outputs.
  - You can disable the automatic embedding of an ICC profile by using a `CustomPdfConformance`.
    See `examples/no_icc.rs` for usage information.
  - `add_font` changed to `add_external_font` + added `add_builtin_font` function (see example folder)
+ - `set_outline_thickness` now accepts floating-point units
 
  # Further reading
 
