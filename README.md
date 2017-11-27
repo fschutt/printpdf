@@ -1,12 +1,12 @@
-﻿[![Build Status](https://travis-ci.org/fschutt/printpdf.svg?branch=master)](https://travis-ci.org/fschutt/printpdf)
+﻿ # printpdf
 
  `printpdf` is a library designed for creating printable PDF documents.
 
  [Crates.io](https://crates.io/crates/printpdf) | [Documentation](https://docs.rs/printpdf)
 
- ```ignore,toml
+ ```toml
  [dependencies]
- printpdf = { git = "https://github.com/fschutt/printpdf" }
+ printpdf = "0.2.0"
  ```
 
  # Features
@@ -43,14 +43,14 @@
 
  let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 247.0, 210.0, "Layer 1");
  let (page2, layer1) = doc.add_page(10.0, 250.0,"Page 2, Layer 1");
+
  doc.save(&mut BufWriter::new(File::create("test_working.pdf").unwrap())).unwrap();
  ```
 
  ### Adding graphical shapes
 
- ```
+ ```rust
  use printpdf::*;
- use std::fs::File;
 
  let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 247.0, 210.0, "Layer 1");
 
@@ -114,13 +114,13 @@
 
  Scaling of images is implicitly done to fit one pixel = one dot at 300 dpi.
 
- ```
+ ```rust
  extern crate printpdf;
  extern crate image; /* currently: version 0.14.0 */
 
  use printpdf::*;
- use std::fs::File;
  use std::convert::From;
+ use std::fs::File;
 
  fn main() {
      let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 247.0, 210.0, "Layer 1");
@@ -172,8 +172,8 @@
  let text = "Lorem ipsum";
  let text2 = "unicode: стуфхfцчшщъыьэюя";
 
- let font = doc.add_font(File::open("assets/fonts/RobotoMedium.ttf").unwrap()).unwrap();
- let font2 = doc.add_font(File::open("assets/fonts/RobotoMedium.ttf").unwrap()).unwrap();
+ let font = doc.add_external_font(File::open("assets/fonts/RobotoMedium.ttf").unwrap()).unwrap();
+ let font2 = doc.add_external_font(File::open("assets/fonts/RobotoMedium.ttf").unwrap()).unwrap();
 
  // text, font size, x from left edge, y from top edge, font
  current_layer.use_text(text, 48, 200.0, 200.0, &font);
@@ -211,8 +211,9 @@
 
  - The `document.save()` method now needs a `BufWriter`, to enforce buffered output (breaking change).
  - The `PdfDocument` now implements `Clone`, so you can write one document to multiple outputs.
- - You can disable the automatic embedding of an ICC profile by using a `CustomPdfConformance`. 
+ - You can disable the automatic embedding of an ICC profile by using a `CustomPdfConformance`.
    See `examples/no_icc.rs` for usage information.
+ - `add_font` changed to `add_external_font` + added `add_builtin_font` function (see example folder)
 
  # Further reading
 
@@ -229,9 +230,9 @@
  Images have to be added to the pages resources before using them. Meaning, you can only use an image
  on the page that you added it to. Otherwise, you may end up with a corrupt PDF.
 
- Fonts are embedded using `rusttype`. In the future, there should be an option to use `freetype`,
- because `freetype` can use `OpenType` fonts. Please report issues if you have any, especially if you
- see `BorrowMut` errors (they should not happen). Kerning is currently not done, should be added later.
+ Fonts are embedded using `freetype`. In the future, there should be an option to use `rusttype`.
+ Please report issues if you have any, especially if you see `BorrowMut` errors (they should not happen).
+ Kerning is currently not done, because neither `freetype` nor `rusttype` can reliably read kerning data.
  However, "correct" kerning / placement requires a full font shaping engine, etc. This would be a completely
  different project.
 
@@ -295,7 +296,7 @@
  (if the type is conform to the expected PDF type)
  - If you want to change this README, change the lib.rs instead and run `cargo readme > README.md`.
  - Create pull request
- 
+
  # Testing
 
  Currently the testing is pretty much non-existent, because PDF is very hard to test. This should change

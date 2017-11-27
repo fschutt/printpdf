@@ -4,7 +4,7 @@
 //!
 //! ```ignore,toml
 //! [dependencies]
-//! printpdf = "0.1.7"
+//! printpdf = "0.2.0"
 //! ```
 //!
 //! # Features
@@ -227,9 +227,9 @@
 //! Images have to be added to the pages resources before using them. Meaning, you can only use an image
 //! on the page that you added it to. Otherwise, you may end up with a corrupt PDF.
 //!
-//! Fonts are embedded using `rusttype`. In the future, there should be an option to use `freetype`,
-//! because `freetype` can use `OpenType` fonts. Please report issues if you have any, especially if you
-//! see `BorrowMut` errors (they should not happen). Kerning is currently not done, should be added later.
+//! Fonts are embedded using `freetype`. In the future, there should be an option to use `rusttype`.
+//! Please report issues if you have any, especially if you see `BorrowMut` errors (they should not happen).
+//! Kerning is currently not done, because neither `freetype` nor `rusttype` can reliably read kerning data.
 //! However, "correct" kerning / placement requires a full font shaping engine, etc. This would be a completely
 //! different project.
 //!
