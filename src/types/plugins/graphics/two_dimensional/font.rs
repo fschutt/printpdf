@@ -1,13 +1,91 @@
+#![allow(trivial_numeric_casts)]
+
 //! Embedding fonts in 2D for Pdf
 use lopdf;
 use freetype as ft;
 
 use *;
-use std::collections::HashMap;
+use lopdf::{Stream as LoStream, Dictionary as LoDictionary};
+use lopdf::StringFormat;
+use std::collections::{HashMap, BTreeMap};
+use std::iter::FromIterator;
 
 /// The font
+#[derive(Debug, Clone, PartialEq)]
+pub enum Font {
+    /// Represents one of the 14 built-in fonts (Arial, Helvetica, etc.)
+    BuiltinFont(BuiltinFont),
+    /// Represents a font loaded from an external file
+    ExternalFont(ExternalFont),
+}
+
+/// Standard built-in PDF fonts
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum BuiltinFont {
+    TimesRoman,
+    TimesBold,
+    TimesItalic,
+    TimesBoldItalic,
+    Helvetica,
+    HelveticaBold,
+    HelveticaOblique,
+    HelveticaBoldOblique,
+    Courier,
+    CourierOblique,
+    CourierBold,
+    CourierBoldOblique,
+    Symbol,
+    ZapfDingbats,
+}
+
+impl Into<&'static str> for BuiltinFont {
+    fn into(self) -> &'static str {
+        use BuiltinFont::*;
+        match self {
+            TimesRoman              => "Times-Roman",
+            TimesBold               => "Times-Bold",
+            TimesItalic             => "Times-Italic",
+            TimesBoldItalic         => "Times-BoldItalic",
+            Helvetica               => "Helvetica",
+            HelveticaBold           => "Helvetica-Bold",
+            HelveticaOblique        => "Helvetica-Oblique",
+            HelveticaBoldOblique    => "Helvetica-BoldOblique",
+            Courier                 => "Courier",
+            CourierOblique          => "Courier-Oblique",
+            CourierBold             => "Courier-Bold",
+            CourierBoldOblique      => "Courier-BoldOblique",
+            Symbol                  => "Symbol",
+            ZapfDingbats            => "ZapfDingbats",
+        }
+    }
+}
+
+impl BuiltinFont {
+
+    /// Takes the font and adds it to the document and consumes the font
+    pub(crate) fn into_with_document(self, doc: &mut lopdf::Document)
+    -> LoDictionary
+    {
+        use lopdf::Object;
+        use lopdf::Object::*;
+
+        let font_id: &'static str = self.into();
+
+        // Begin setting required font attributes
+        let font_vec: Vec<(std::string::String, Object)> = vec![
+            ("Type".into(), Name("Font".into())),
+            ("Subtype".into(), Name("Type1".into())),
+            ("BaseFont".into(), Name(font_id.into())),
+            ("Encoding".into(), Name("WinAnsiEncoding".into())),
+            // Missing DescendantFonts and ToUnicode
+        ];
+
+        LoDictionary::from_iter(font_vec)
+    }
+}
+
 #[derive(Debug, Clone)]
-pub struct Font {
+pub struct ExternalFont {
     /// Font data
     pub(crate) font_bytes: Vec<u8>,
     /// Font name, for adding as a resource on the document
@@ -52,7 +130,7 @@ impl Into<i64> for TextRenderingMode {
     }
 }
 
-impl Font {
+impl ExternalFont {
 
     /// Creates a new font. The `index` is used for naming / identifying the font
     pub fn new<R>(mut font_stream: R, font_index: usize)
@@ -77,14 +155,10 @@ impl Font {
 
     /// Takes the font and adds it to the document and consumes the font
     pub(crate) fn into_with_document(self, doc: &mut lopdf::Document)
-    ->lopdf::Dictionary
+    -> LoDictionary
     {
-        use lopdf::Object::*;
         use lopdf::Object;
-        use lopdf::{Stream as LoStream, Dictionary as LoDictionary};
-        use lopdf::StringFormat;
-        use std::collections::BTreeMap;
-        use std::iter::FromIterator;
+        use lopdf::Object::*;
 
         let face_name = self.face_name.clone();
 
@@ -268,13 +342,13 @@ impl Font {
         font_vec.push(("DescendantFonts".into(), Array(vec![Dictionary(desc_fonts)])));
         font_vec.push(("ToUnicode".into(), Reference(cid_to_unicode_map_stream_id)));
 
-        lopdf::Dictionary::from_iter(font_vec)
+        LoDictionary::from_iter(font_vec)
     }
 }
 
-impl PartialEq for Font {
+impl PartialEq for ExternalFont {
     /// Two fonts are equal if their names are equal, the contents aren't checked
-    fn eq(&self, other: &Font) -> bool {
+    fn eq(&self, other: &ExternalFont) -> bool {
         self.face_name == other.face_name
     }
 }
@@ -362,18 +436,21 @@ impl FontList {
     }
 
     /// Converts the fonts into a dictionary
-    #[cfg_attr(feature = "cargo-clippy", allow(needless_return))]
     pub(crate) fn into_with_document(self, doc: &mut lopdf::Document)
     ->lopdf::Dictionary
     {
         let mut font_dict = lopdf::Dictionary::new();
 
         for (indirect_ref, direct_font_ref) in self.fonts {
-            let font_dict_collected = direct_font_ref.data.into_with_document(doc);
+            let font_dict_collected = match direct_font_ref.data {
+                Font::ExternalFont(font) => font.into_with_document(doc),
+                Font::BuiltinFont(font)  => font.into_with_document(doc),
+            };
+
             doc.objects.insert(direct_font_ref.inner_obj, lopdf::Object::Dictionary(font_dict_collected));
             font_dict.set(indirect_ref.name,lopdf::Object::Reference(direct_font_ref.inner_obj));
         }
 
-        return font_dict;
+        font_dict
     }
 }

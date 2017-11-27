@@ -13,8 +13,8 @@ fn main() {
     let mut font_reader = std::io::Cursor::new(include_bytes!("../assets/fonts/RobotoMedium.ttf").as_ref());
     let mut font_reader2 = std::io::Cursor::new(include_bytes!("../assets/fonts/RobotoMedium.ttf").as_ref());
 
-    let font = doc.add_font(&mut font_reader).unwrap();
-    let font2 = doc.add_font(&mut font_reader2).unwrap();
+    let font = doc.add_external_font(&mut font_reader).unwrap();
+    let font2 = doc.add_external_font(&mut font_reader2).unwrap();
 
     // `use_text` is a wrapper around making a simple string
     current_layer.use_text(text, 48, 10.0, 200.0, &font);

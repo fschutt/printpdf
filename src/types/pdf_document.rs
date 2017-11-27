@@ -72,6 +72,31 @@ impl PdfDocument {
 
 }
 
+macro_rules! implement_adding_fonts {
+    ($self:expr, $font_name:expr, $font:expr) => ({
+        let font_ref;
+
+        let possible_ref = {
+            let doc = $self.document.borrow();
+            font_ref = IndirectFontRef::new($font_name);
+            match doc.fonts.get_font(&font_ref) { Some(f) => Some(f.clone()), None => None }
+        };
+
+        if possible_ref.is_some() {
+            Ok(font_ref)
+        } else {
+            let mut doc = $self.document.borrow_mut();
+            let direct_ref = DirectFontRef {
+                inner_obj: doc.inner_doc.new_object_id(),
+                data: $font
+            };
+
+            doc.fonts.add_font(font_ref.clone(), direct_ref);
+            Ok(font_ref)
+        }
+    })
+}
+
 impl PdfDocumentReference {
 
     // ----- BUILDER FUNCTIONS
@@ -146,35 +171,23 @@ impl PdfDocumentReference {
     }
 
     /// Add a font from a font stream
-    #[inline]
-    pub fn add_font<R>(&self, font_stream: R)
+    pub fn add_external_font<R>(&self, font_stream: R)
     -> ::std::result::Result<IndirectFontRef, Error> where R: ::std::io::Read
     {
         let last_font_index = { let doc = self.document.borrow(); doc.fonts.len() };
+        let external_font = ExternalFont::new(font_stream, last_font_index)?;
+        let external_font_name = external_font.face_name.clone();
+        let font = Font::ExternalFont(external_font);
+        implement_adding_fonts!(&self, external_font_name, font)
+    }
 
-        let font = Font::new(font_stream, last_font_index)?;
-        // let name = font.face_name.clone();
-
-        let font_ref;
-
-        let possible_ref = {
-            let doc = self.document.borrow();
-            font_ref = IndirectFontRef::new(font.face_name.clone());
-            match doc.fonts.get_font(&font_ref) { Some(f) => Some(f.clone()), None => None }
-        };
-
-        if possible_ref.is_some() {
-            Ok(font_ref)
-        } else {
-            let mut doc = self.document.borrow_mut();
-            let direct_ref = DirectFontRef {
-                inner_obj: doc.inner_doc.new_object_id(),
-                data: font
-            };
-
-            doc.fonts.add_font(font_ref.clone(), direct_ref);
-            Ok(font_ref)
-        }
+    /// Add a built-in font to the document
+    pub fn add_builtin_font<R>(&self, builtin_font: BuiltinFont)
+    -> ::std::result::Result<IndirectFontRef, Error> where R: ::std::io::Read
+    {
+        let last_font_index = { let doc = self.document.borrow(); doc.fonts.len() };
+        let builtin_font_name: &'static str = builtin_font.clone().into();
+        implement_adding_fonts!(&self, builtin_font_name, Font::BuiltinFont(builtin_font))
     }
 
     // ----- GET FUNCTIONS

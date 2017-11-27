@@ -47,9 +47,9 @@
 //!
 //! ### Adding graphical shapes
 //!
-//! ```
+//! ```rust
 //! use printpdf::*;
-//! 
+//!
 //! let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 247.0, 210.0, "Layer 1");
 //!
 //! let mut current_layer = doc.get_page(page1).get_layer(layer1);
@@ -112,14 +112,14 @@
 //!
 //! Scaling of images is implicitly done to fit one pixel = one dot at 300 dpi.
 //!
-//! ```
+//! ```rust
 //! extern crate printpdf;
 //! extern crate image; /* currently: version 0.14.0 */
 //!
 //! use printpdf::*;
 //! use std::convert::From;
 //! use std::fs::File;
-//! 
+//!
 //! fn main() {
 //!     let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 247.0, 210.0, "Layer 1");
 //!     let current_layer = doc.get_page(page1).get_layer(layer1);
@@ -163,15 +163,15 @@
 //! ```rust
 //! use printpdf::*;
 //! use std::fs::File;
-//! 
+//!
 //! let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 247.0, 210.0, "Layer 1");
 //! let current_layer = doc.get_page(page1).get_layer(layer1);
 //!
 //! let text = "Lorem ipsum";
 //! let text2 = "unicode: стуфхfцчшщъыьэюя";
 //!
-//! let font = doc.add_font(File::open("assets/fonts/RobotoMedium.ttf").unwrap()).unwrap();
-//! let font2 = doc.add_font(File::open("assets/fonts/RobotoMedium.ttf").unwrap()).unwrap();
+//! let font = doc.add_external_font(File::open("assets/fonts/RobotoMedium.ttf").unwrap()).unwrap();
+//! let font2 = doc.add_external_font(File::open("assets/fonts/RobotoMedium.ttf").unwrap()).unwrap();
 //!
 //! // text, font size, x from left edge, y from top edge, font
 //! current_layer.use_text(text, 48, 200.0, 200.0, &font);
@@ -206,12 +206,12 @@
 //! ```
 //!
 //! # Upgrading to `0.2.0` / Changelog
-//! 
+//!
 //! - The `document.save()` method now needs a `BufWriter`, to enforce buffered output (breaking change).
 //! - The `PdfDocument` now implements `Clone`, so you can write one document to multiple outputs.
-//! - You can disable the automatic embedding of an ICC profile by using a `CustomPdfConformance`. 
+//! - You can disable the automatic embedding of an ICC profile by using a `CustomPdfConformance`.
 //!   See `examples/no_icc.rs` for usage information.
-//! 
+//!
 //! # Further reading
 //!
 //! The `PDFDocument` is hidden behind a `PDFDocumentReference`, which locks the things you can

@@ -15,8 +15,8 @@ fn main() {
     let current_layer = doc.get_page(page1).get_layer(layer1);
 
     let text = "Lorem ipsum dolor";
-    let font = doc.add_font(File::open("assets/fonts/RobotoMedium.ttf").unwrap()).unwrap();
-    let font2 = doc.add_font(File::open("assets/fonts/RobotoMedium.ttf").unwrap()).unwrap();
+    let font = doc.add_external_font(File::open("assets/fonts/RobotoMedium.ttf").unwrap()).unwrap();
+    let font2 = doc.add_external_font(File::open("assets/fonts/RobotoMedium.ttf").unwrap()).unwrap();
 
     current_layer.begin_text_section();
         current_layer.set_font(&font, 48);

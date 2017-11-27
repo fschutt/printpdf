@@ -382,31 +382,34 @@ impl PdfLayerReference {
         let mut doc = doc.borrow_mut();
 
         // glyph IDs that make up this string
-        let mut list_gid = Vec::<u16>::new();
 
         // kerning for each glyph id. If no kerning is present, will be 0
         // must be the same length as list_gid
         // let mut kerning_data = Vec::<freetype::Vector>::new();
 
-        {
-            let face_direct_ref = doc.fonts.get_font(font).unwrap();
-            let library = ft::Library::init().unwrap();
-            let face = library.new_memory_face(&*face_direct_ref.data.font_bytes, 0)
-                       .expect("invalid memory font in write_text()");
+        let bytes: Vec<u8> = {
+            if let Font::ExternalFont(face_direct_ref) = doc.fonts.get_font(font).unwrap().data {
+                let mut list_gid = Vec::<u16>::new();
+                let library = ft::Library::init().unwrap();
+                let face = library.new_memory_face(&*face_direct_ref.font_bytes, 0)
+                           .expect("invalid memory font in write_text()");
 
-            // convert into list of glyph ids - unicode magic
-            let char_iter = text.chars();
+                // convert into list of glyph ids - unicode magic
+                let char_iter = text.chars();
 
-            for ch in char_iter {
-                list_gid.push(face.get_char_index(ch as usize) as u16);
+                for ch in char_iter {
+                    list_gid.push(face.get_char_index(ch as usize) as u16);
 
-                // todo - kerning !!
+                    // todo - kerning !!
+                }
+
+                list_gid.iter()
+                    .flat_map(|x| vec!((x >> 8) as u8, (x & 255) as u8))
+                    .collect::<Vec<u8>>()
+            } else {
+                text.as_bytes().to_vec()
             }
-        }
-
-        let bytes: Vec<u8> = list_gid.iter()
-            .flat_map(|x| vec!((x >> 8) as u8, (x & 255) as u8))
-            .collect::<Vec<u8>>();
+        };
 
         doc.pages[self.page.0]
             .layers[self.layer.0]
