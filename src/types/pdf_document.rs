@@ -182,8 +182,8 @@ impl PdfDocumentReference {
     }
 
     /// Add a built-in font to the document
-    pub fn add_builtin_font<R>(&self, builtin_font: BuiltinFont)
-    -> ::std::result::Result<IndirectFontRef, Error> where R: ::std::io::Read
+    pub fn add_builtin_font(&self, builtin_font: BuiltinFont)
+    -> ::std::result::Result<IndirectFontRef, Error>
     {
         let last_font_index = { let doc = self.document.borrow(); doc.fonts.len() };
         let builtin_font_name: &'static str = builtin_font.clone().into();
