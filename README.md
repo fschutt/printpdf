@@ -1,5 +1,7 @@
 ﻿ # printpdf
 
+ [![Build Status](https://travis-ci.org/fschutt/printpdf.svg?branch=master)](https://travis-ci.org/fschutt/printpdf)
+
  `printpdf` is a library designed for creating printable PDF documents.
 
  [Crates.io](https://crates.io/crates/printpdf) | [Documentation](https://docs.rs/printpdf)
