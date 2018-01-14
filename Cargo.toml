@@ -21,8 +21,3 @@ image = "0.17.0"
 
 [features]
 clippy = []
-
-[[bin]]
-doc = false
-name = "printpdf"
-path = "src/main.rs"
