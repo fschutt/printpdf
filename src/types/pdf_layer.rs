@@ -418,6 +418,7 @@ impl PdfLayerReference {
                     }
 
                     // todo - kerning !!
+                    // font.pair_kerning(scale, id, base_glyph.id());
                 }
 
                 list_gid.iter()

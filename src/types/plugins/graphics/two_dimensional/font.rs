@@ -152,7 +152,7 @@ impl ExternalFont {
 
             if let None = font {
                 if let None = collection.into_fonts().nth(0) {
-                    return Err(Error::from_kind(ErrorKind::FontError));
+                    return Err(Error::from_kind(FontError));
                 }
             }
 
@@ -220,22 +220,14 @@ impl ExternalFont {
         // Widths (or heights, depends on self.vertical_writing)
         // of the individual characters, indexed by glyph id
         let mut widths = HashMap::<u32, u32>::new();
+        // Height of the space (0x0020 character), to scale the font correctly
+        let mut space_height;
 
         // Glyph IDs - (Unicode IDs - character width, character height)
         let mut cmap = BTreeMap::<u32, (u32, u32, u32)>::new();
         cmap.insert(0, (0, 1000, 1000));
 
         for unicode in 0x0000..0xffff {
-
-<<<<<<< HEAD
-                let glyph_slot = face.glyph();
-                let glyph_metrics = glyph_slot.metrics();
-                let w = glyph_metrics.horiAdvance;
-                let h = glyph_metrics.vertAdvance;
-
-                if h > max_height {
-                    max_height = h;
-=======
             let glyph = font.glyph(Cpg(Cp(unicode)));
             if let Some(glyph) = glyph {
                 if glyph.id().0 == 0 { continue; }
@@ -247,7 +239,7 @@ impl ExternalFont {
                             let h = extents.max.y - extents.min.y - face_metrics.descent as i32;
 
                             // large T
-                            if unicode == 0x0020 { space_height = h; }
+                            // if unicode == 0x0020 { space_height = h; }
 
                             if h > max_height { max_height = h; };
 
@@ -255,10 +247,12 @@ impl ExternalFont {
                             cmap.insert(glyph_id, (unicode as u32, w as u32, h as u32));
                         }
                     }
->>>>>>> Migrated to rusttype again
                 }
             }
         }
+
+        let v_metrics = font.v_metrics_unscaled();
+        space_height = v_metrics.ascent /* - v_metrics.line_gap + v_metrics.descent + v_metrics.line_gap*/ as i32;
 
         // Maps the character index to a unicode value
         // Add this to the "ToUnicode" dictionary
