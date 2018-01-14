@@ -6,7 +6,7 @@
 
 [Crates.io](https://crates.io/crates/printpdf) | [Documentation](https://docs.rs/printpdf)
 
-```ignore,toml
+```toml,ignore
 [dependencies]
 printpdf = "0.2.1"
 ```
