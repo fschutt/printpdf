@@ -379,7 +379,7 @@
 #[macro_use] pub mod glob_macros;
 
 extern crate lopdf;
-extern crate freetype;
+extern crate rusttype;
 extern crate chrono;
 extern crate rand;
 pub extern crate image;

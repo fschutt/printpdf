@@ -1,6 +1,6 @@
 #![allow(unused_qualifications)]
 
-extern crate freetype as ft;
+extern crate rusttype;
 
 use super::*;
 
@@ -12,7 +12,6 @@ error_chain! {
 
     foreign_links {
         IoError(::std::io::Error);
-        FontError(ft::Error);
     }
 
     links {
@@ -20,5 +19,10 @@ error_chain! {
         IndexError(index_error::Error, index_error::ErrorKind);
     }
 
-    errors { }
+    errors {
+        FontError {
+            description("Font could not be read")
+            display("Corrupt font file")
+        }
+    }
 }

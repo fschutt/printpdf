@@ -2,13 +2,19 @@
 
 //! Embedding fonts in 2D for Pdf
 use lopdf;
-use freetype as ft;
+use rusttype;
 
 use lopdf::{Stream as LoStream, Dictionary as LoDictionary};
 use lopdf::StringFormat;
 use std::collections::{HashMap, BTreeMap};
 use std::iter::FromIterator;
 use PrintpdfError;
+
+use rusttype::FontCollection;
+use rusttype::CodepointOrGlyphId::Codepoint as Cpg;
+use rusttype::CodepointOrGlyphId::GlyphId as Cgid;
+use rusttype::Codepoint as Cp;
+use rusttype::GlyphId as Gid;
 
 /// The font
 #[derive(Debug, Clone, PartialEq)]
@@ -141,9 +147,16 @@ impl ExternalFont {
         font_stream.read_to_end(&mut buf)?;
 
         let face_name = {
-            let library = ft::Library::init()?;
-            let face = library.new_memory_face(&buf, 0)?;
-            face.postscript_name().unwrap_or_else(|| format!("F{}", font_index))
+            let collection = FontCollection::from_bytes(buf.clone());
+            let font = collection.clone().into_font();
+
+            if let None = font {
+                if let None = collection.into_fonts().nth(0) {
+                    return Err(Error::from_kind(ErrorKind::FontError));
+                }
+            }
+
+            format!("F{}", font_index)
         };
 
         Ok(Self {
@@ -163,11 +176,11 @@ impl ExternalFont {
         let face_name = self.face_name.clone();
 
         let font_buf_ref: Box<[u8]> = self.font_bytes.into_boxed_slice();
-        let library = ft::Library::init().unwrap();
-        let face = library.new_memory_face(&*font_buf_ref, 0).unwrap();
+        let collection = FontCollection::from_bytes(font_buf_ref.clone());
+        let font = collection.clone().into_font().unwrap_or(collection.into_fonts().nth(0).unwrap());
 
         // Extract basic font information
-        let face_metrics = face.size_metrics().expect("Could not read font metrics!");
+        let face_metrics = font.v_metrics_unscaled();
 
         let font_stream = LoStream::new(
             LoDictionary::from_iter(vec![
@@ -190,9 +203,9 @@ impl ExternalFont {
         let mut font_descriptor_vec: Vec<(::std::string::String, Object)> = vec![
             ("Type".into(), Name("FontDescriptor".into())),
             ("FontName".into(), Name(face_name.clone().into_bytes())),
-            ("Ascent".into(), Integer(face_metrics.ascender as i64)),
-            ("Descent".into(), Integer(face_metrics.descender as i64)),
-            ("CapHeight".into(), Integer(face_metrics.ascender as i64)),
+            ("Ascent".into(), Integer(face_metrics.ascent as i64)),
+            ("Descent".into(), Integer(face_metrics.descent as i64)),
+            ("CapHeight".into(), Integer(face_metrics.ascent as i64)),
             ("ItalicAngle".into(), Integer(0)),
             ("Flags".into(), Integer(32)),
             ("StemV".into(), Integer(80)),
@@ -213,9 +226,8 @@ impl ExternalFont {
         cmap.insert(0, (0, 1000, 1000));
 
         for unicode in 0x0000..0xffff {
-            let glyph_id = face.get_char_index(unicode);
-            if glyph_id != 0 && face.load_glyph(glyph_id, ft::face::LoadFlag::NO_SCALE).is_ok() {
 
+<<<<<<< HEAD
                 let glyph_slot = face.glyph();
                 let glyph_metrics = glyph_slot.metrics();
                 let w = glyph_metrics.horiAdvance;
@@ -223,10 +235,28 @@ impl ExternalFont {
 
                 if h > max_height {
                     max_height = h;
-                }
+=======
+            let glyph = font.glyph(Cpg(Cp(unicode)));
+            if let Some(glyph) = glyph {
+                if glyph.id().0 == 0 { continue; }
+                let glyph_id = glyph.id().0;
+                if let Some(glyph) = font.glyph(Cgid(Gid(glyph_id))) {
+                    if let Some(glyph_metrics) = glyph.standalone().get_data() {
+                        if let Some(extents) = glyph_metrics.extents {
+                            let w = glyph_metrics.unit_h_metrics.advance_width;
+                            let h = extents.max.y - extents.min.y - face_metrics.descent as i32;
 
-                total_width += w as u32;
-                cmap.insert(glyph_id, (unicode as u32, w as u32, h as u32));
+                            // large T
+                            if unicode == 0x0020 { space_height = h; }
+
+                            if h > max_height { max_height = h; };
+
+                            total_width += w as u32;
+                            cmap.insert(glyph_id, (unicode as u32, w as u32, h as u32));
+                        }
+                    }
+>>>>>>> Migrated to rusttype again
+                }
             }
         }
 
