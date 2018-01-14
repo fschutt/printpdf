@@ -47,6 +47,7 @@ install:
         } ElseIf ($Env:TARGET -eq 'i686-pc-windows-gnu') {
           $Env:PATH += ';C:\MinGW\bin'
         }
+  - C:\msys64\usr\bin\bash -lc "pacman -S --noconfirm mingw-w64-x86_64-freetype"
   - rustc -Vv
   - cargo -V
 
