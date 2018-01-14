@@ -44,10 +44,11 @@ install:
   - ps: >-
         If ($Env:TARGET -eq 'x86_64-pc-windows-gnu') {
           $Env:PATH += ';C:\msys64\mingw64\bin'
+          C:\msys64\usr\bin\bash -lc "pacman -S --noconfirm mingw-w64-x86_64-freetype"
         } ElseIf ($Env:TARGET -eq 'i686-pc-windows-gnu') {
           $Env:PATH += ';C:\MinGW\bin'
+          C:\msys64\usr\bin\bash -lc "pacman -S --noconfirm mingw-w64-i686-freetype"
         }
-  - C:\msys64\usr\bin\bash -lc "pacman -S --noconfirm mingw-w64-x86_64-freetype"
   - rustc -Vv
   - cargo -V
 
