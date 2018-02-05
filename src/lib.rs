@@ -4,7 +4,7 @@
 //!
 //! ```toml,ignore
 //! [dependencies]
-//! printpdf = "0.2.1"
+//! printpdf = "0.2.2"
 //! ```
 //!
 //! # Features
