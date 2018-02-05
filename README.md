@@ -209,13 +209,9 @@ current_layer.begin_text_section();
 current_layer.end_text_section();
 ```
 
-## Upgrading to `0.2.1` / Changelog
+## Changelog
 
-- The `document.save()` method now needs a `BufWriter`, to enforce buffered output (breaking change).
-- The `PdfDocument` now implements `Clone`, so you can write one document to multiple outputs.
-- You can disable the automatic embedding of an ICC profile by using a `CustomPdfConformance`.
-  See `examples/no_icc.rs` for usage information.
-- `set_outline_thickness` now accepts floating-point units
+See the CHANGELOG.md file.
 
 ## Further reading
 
