@@ -1,5 +1,4 @@
 extern crate printpdf;
-extern crate image;
 
 use printpdf::*;
 use std::io::Cursor;

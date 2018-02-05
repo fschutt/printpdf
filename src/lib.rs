@@ -143,9 +143,10 @@
 //!
 //! ```rust
 //! extern crate printpdf;
-//! extern crate image; /* currently: version 0.14.0 */
-//!
+//! 
+//! // imports the `image` library with the exact version that we are using
 //! use printpdf::*;
+//! 
 //! use std::convert::From;
 //! use std::fs::File;
 //!
@@ -367,7 +368,7 @@ extern crate lopdf;
 extern crate freetype;
 extern crate chrono;
 extern crate rand;
-extern crate image;
+pub extern crate image;
 
 pub mod traits;
 pub mod types;
