@@ -6,7 +6,7 @@ extern crate rand;
 
 use *;
 use indices::*;
-use std::io::{Write, Seek};
+use std::io::Write;
 use rand::Rng;
 
 use std::rc::Rc;
@@ -244,7 +244,7 @@ impl PdfDocumentReference {
     }
 
     /// Save PDF Document, writing the contents to the target
-    pub fn save<W: Write + Seek>(self, target: &mut BufWriter<W>)
+    pub fn save<W: Write>(self, target: &mut BufWriter<W>)
     -> ::std::result::Result<(), Error>
     {
         use lopdf::{Dictionary as LoDictionary,

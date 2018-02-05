@@ -77,7 +77,7 @@ impl PdfLayerReference {
 
         page_mut.add_xobject(XObject::Image(image.into()))
     }
-
+/*
     /// Add an svg element to the layer
     /// To be called from the `svg.add_to_layer()` class (see `use_xobject` documentation)
     pub(crate) fn add_svg(&self, svg: Svg)
@@ -89,7 +89,7 @@ impl PdfLayerReference {
         let form_data = svg.try_into()?;
         Ok(page_mut.add_xobject(XObject::Form(Box::new(form_data))))
     }
-
+*/
     /// Begins a new text section
     /// You have to make sure to call `end_text_section` afterwards
     #[inline]

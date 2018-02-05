@@ -2,20 +2,18 @@
 name = "printpdf"
 version = "0.2.1"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
-repository = "https://github.com/sharazam/printpdf"
-homepage = "https://github.com/sharazam/printpdf"
+repository = "https://github.com/fschutt/printpdf"
+homepage = "https://github.com/fschutt/printpdf"
 license = "MIT"
 readme = "README.md"
 description = "Rust library for writing PDF files"
 
 [dependencies]
-lopdf = "0.14.1"
+lopdf = "0.15.1"
 freetype-rs = "0.16.0"
 error-chain = "0.11.*"
 chrono = "0.4.0"
-rand = "0.3.17"
-num = "0.1.40"
-svg = "0.5.7"
+rand = { version = "0.3.17", default-features = false }
 log = "0.3.8"
 image = "0.17.0"
 

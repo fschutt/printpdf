@@ -362,7 +362,6 @@ extern crate lopdf;
 extern crate freetype;
 extern crate chrono;
 extern crate rand;
-extern crate svg;
 extern crate image;
 
 pub mod traits;
