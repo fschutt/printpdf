@@ -22,16 +22,45 @@
 //!
 //! # Getting started
 //!
+//! ## Installation requirements
+//! 
+//! ### Linux
+//! 
+//! You need to install freetype, if you haven't already installed it:
+//! ```
+//! sudo apt install libfreetype6-dev
+//! ```
+//! 
+//! ### Windows
+//! 
+//! ### -pc-windows-gnu
+//! 
+//! In order to easily setup freetype just get MSYS2 and install either the `mingw-w64-x86_64-freetype` or `mingw-w64-i686-freetype` package and then use Rust from within the correct mingw shell of MSYS2.
+//! 
+//! More information on setting up MSYS2 for Rust can be found in [the Rust readme](https://github.com/rust-lang/rust#building-on-windows)
+//! 
+//! ### -pc-windows-msvc
+//! 
+//! Prebuilt libraries for freetype are available [here](https://github.com/PistonDevelopers/binaries).
+//! 
+//! Then in the root of your project, in one of the parent directories, or in your home directory, create a .cargo directory. This directory should contain a `config` file that contains the following snippet:
+//! 
+//! ```toml
+//! [target.i686-pc-windows-msvc.freetype]
+//! rustc-link-search = ["C:\\Path\\To\\binaries\\i686"]
+//! rustc-link-lib = ["freetype"]
+//! 
+//! [target.x86_64-pc-windows-msvc.freetype]
+//! rustc-link-search = ["C:\\Path\\To\\binaries\\x86_64"]
+//! rustc-link-lib = ["freetype"]
+//! ```
+//! 
+//! For more informations, check [the official Cargo documentation](http://doc.crates.io/build-script.html#overriding-build-scripts).
+//! 
+//! (taken from [this README](https://github.com/PistonDevelopers/freetype-sys/blob/master/README.md))
+//! 
 //! ## Writing PDF
-//!
-//! There are two types of functions: `add_*` and `use_*`. `add_*`-functions operate on the
-//! document and return a reference to the content that has been added. This is used for
-//! instantiating objects via references in the document (for example, for reusing a block of
-//! data - like a font) without copying it (and bloating the file size).
-//!
-//! Instancing happens via the `use_*`-functions, which operate on the layer. Meaning, you can only
-//! instantiate blobs / content when you have a reference to the layer. Here are some examples:
-//!
+//! 
 //! ### Simple page
 //!
 //! ```rust
@@ -205,13 +234,9 @@
 //! current_layer.end_text_section();
 //! ```
 //!
-//! # Upgrading to `0.2.1` / Changelog
-//!
-//! - The `document.save()` method now needs a `BufWriter`, to enforce buffered output (breaking change).
-//! - The `PdfDocument` now implements `Clone`, so you can write one document to multiple outputs.
-//! - You can disable the automatic embedding of an ICC profile by using a `CustomPdfConformance`.
-//!   See `examples/no_icc.rs` for usage information.
-//! - `set_outline_thickness` now accepts floating-point units
+//! ## Changelog
+//! 
+//! See the CHANGELOG.md file.
 //!
 //! # Further reading
 //!

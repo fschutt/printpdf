@@ -19,3 +19,6 @@ image = "0.17.0"
 
 [features]
 clippy = []
+
+[badges]
+travis-ci = { repository = "fschutt/printpdf" }
