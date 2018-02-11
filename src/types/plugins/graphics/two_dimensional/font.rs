@@ -207,8 +207,6 @@ impl ExternalFont {
         // Widths (or heights, depends on self.vertical_writing)
         // of the individual characters, indexed by glyph id
         let mut widths = HashMap::<u32, u32>::new();
-        // Height of the space (0x0020 character), to scale the font correctly
-        let mut space_height = 1000;
 
         // Glyph IDs - (Unicode IDs - character width, character height)
         let mut cmap = BTreeMap::<u32, (u32, u32, u32)>::new();
@@ -222,10 +220,6 @@ impl ExternalFont {
                 let glyph_metrics = glyph_slot.metrics();
                 let w = glyph_metrics.horiAdvance;
                 let h = glyph_metrics.vertAdvance;
-
-                if unicode == 0x0020 {
-                    space_height = glyph_metrics.vertAdvance;
-                }
 
                 if h > max_height {
                     max_height = h;
@@ -291,7 +285,7 @@ impl ExternalFont {
         let mut current_width_vec = Vec::<Object>::new();
 
         // scale the font width so that it sort-of fits into an 1000 unit square
-        let percentage_font_scaling = 1000.0 / (space_height as f64);
+        let percentage_font_scaling = 1000.0 / (face.em_size() as f64);
 
         for (gid, width) in widths {
             if gid == current_high_gid {

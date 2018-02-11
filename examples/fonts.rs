@@ -11,10 +11,8 @@ fn main() {
     let text2 = "dolor sit amet";
 
     let mut font_reader = std::io::Cursor::new(include_bytes!("../assets/fonts/RobotoMedium.ttf").as_ref());
-    let mut font_reader2 = std::io::Cursor::new(include_bytes!("../assets/fonts/RobotoMedium.ttf").as_ref());
 
     let font = doc.add_external_font(&mut font_reader).unwrap();
-    let font2 = doc.add_external_font(&mut font_reader2).unwrap();
 
     // `use_text` is a wrapper around making a simple string
     current_layer.use_text(text, 48, 10.0, 200.0, &font);
@@ -33,16 +31,16 @@ fn main() {
 
         // setup the general fonts.
         // see the docs for these functions for details
-        current_layer.set_font(&font2, 33);
+        current_layer.set_font(&font, 33);
         current_layer.set_text_cursor(10.0, 100.0);
         current_layer.set_line_height(33);
         current_layer.set_word_spacing(3000);
         current_layer.set_character_spacing(10);
 
         // write two lines (one line break)
-        current_layer.write_text(text, &font2);
+        current_layer.write_text(text, &font);
         current_layer.add_line_break();
-        current_layer.write_text(text2, &font2);
+        current_layer.write_text(text2, &font);
         current_layer.add_line_break();
 
         current_layer.set_text_rendering_mode(TextRenderingMode::FillStroke);
@@ -50,11 +48,11 @@ fn main() {
         current_layer.set_text_matrix(TextMatrix::Rotate(10.0));
 
         // write one line, but write text2 in superscript
-        current_layer.write_text(text, &font2);
+        current_layer.write_text(text, &font);
         current_layer.set_line_offset(10);
         current_layer.set_text_rendering_mode(TextRenderingMode::Stroke);
-        current_layer.set_font(&font2, 18);
-        current_layer.write_text(text2, &font2);
+        current_layer.set_font(&font, 18);
+        current_layer.write_text(text2, &font);
 
     current_layer.end_text_section();
 
