@@ -4,6 +4,7 @@
 extern crate image;
 
 use image::ImageDecoder;
+use Mm;
 use {ImageXObject, PdfLayerReference};
 
 /// Image - wrapper around an `ImageXObject` to allow for more control
@@ -47,7 +48,7 @@ impl Image {
     ///
     #[cfg_attr(feature = "cargo-clippy", allow(too_many_arguments))]
     pub fn add_to_layer(self, layer: PdfLayerReference,
-                        translate_x: Option<f64>, translate_y: Option<f64>,
+                        translate_x: Option<Mm>, translate_y: Option<Mm>,
                         rotate_cw: Option<f64>,
                         scale_x: Option<f64>, scale_y: Option<f64>,
                         dpi: Option<f64>)
@@ -57,21 +58,21 @@ impl Image {
         let dpi = dpi.unwrap_or(300.0);
 
         //Image at the given dpi should 1px = 1pt
-        let image_w = mm_to_pt!(self.image.width as f64 * (25.4 / dpi));
-        let image_h = mm_to_pt!(self.image.height as f64 * (25.4 / dpi));
+        let image_w = self.image.width.into_pt(dpi);
+        let image_h = self.image.height.into_pt(dpi);
 
         let image = layer.add_image(self.image);
 
         if let Some(scale_x) = scale_x {
             if let Some(scale_y) = scale_y {
-                layer.use_xobject(image, translate_x, translate_y, rotate_cw, Some(scale_x * image_w), Some(image_h * scale_y));
+                layer.use_xobject(image, translate_x, translate_y, rotate_cw, Some(scale_x * image_w.0), Some(image_h.0 * scale_y));
             } else {
-                layer.use_xobject(image, translate_x, translate_y, rotate_cw, Some(scale_x * image_w), Some(image_h));
+                layer.use_xobject(image, translate_x, translate_y, rotate_cw, Some(scale_x * image_w.0), Some(image_h.0));
             }
         } else if let Some(scale_y) = scale_y {
-            layer.use_xobject(image, translate_x, translate_y, rotate_cw, Some(image_w), Some(image_h * scale_y));
+            layer.use_xobject(image, translate_x, translate_y, rotate_cw, Some(image_w.0), Some(image_h.0 * scale_y));
         } else {
-            layer.use_xobject(image, translate_x, translate_y, rotate_cw, Some(image_w), Some(image_h));
+            layer.use_xobject(image, translate_x, translate_y, rotate_cw, Some(image_w.0), Some(image_h.0));
         }
     }
 }

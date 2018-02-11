@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::BufWriter;
 
 fn main() {
-    let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 500.0, 300.0, "Layer 1");
+    let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", Mm(500.0), Mm(300.0), "Layer 1");
     let current_layer = doc.get_page(page1).get_layer(layer1);
 
     let text = "Lorem ipsum";
@@ -15,7 +15,7 @@ fn main() {
     let font = doc.add_external_font(&mut font_reader).unwrap();
 
     // `use_text` is a wrapper around making a simple string
-    current_layer.use_text(text, 48, 10.0, 200.0, &font);
+    current_layer.use_text(text, 48, Mm(10.0), Mm(200.0), &font);
 
     // text fill color = blue
     let blue = Rgb::new(13.0 / 256.0, 71.0 / 256.0, 161.0 / 256.0, None);
@@ -28,11 +28,11 @@ fn main() {
     // Make sure to wrap your commands
     // in a `begin_text_section()` and `end_text_section()` wrapper
     current_layer.begin_text_section();
-
+ 
         // setup the general fonts.
         // see the docs for these functions for details
         current_layer.set_font(&font, 33);
-        current_layer.set_text_cursor(10.0, 100.0);
+        current_layer.set_text_cursor(Mm(10.0), Mm(100.0));
         current_layer.set_line_height(33);
         current_layer.set_word_spacing(3000);
         current_layer.set_character_spacing(10);

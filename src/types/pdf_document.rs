@@ -14,7 +14,7 @@ use std::io::BufWriter;
 use indices::*;
 use {
     ExternalFont, Font, PdfPage, FontList, IccProfileList, PdfMetadata, PdfConformance, IndirectFontRef, 
-    DirectFontRef, BuiltinFont, PdfPageReference, PrintpdfError
+    DirectFontRef, BuiltinFont, PdfPageReference, PrintpdfError, Mm
 };
 
 /// PDF document
@@ -48,8 +48,7 @@ impl PdfDocument {
     /// Creates a new PDF document
     #[inline]
     #[cfg_attr(feature = "cargo-clippy", allow(new_ret_no_self))]
-    pub fn new<S>(document_title: S, initial_page_width_mm: f64, initial_page_height_mm: f64,
-                  initial_layer_name: S)
+    pub fn new<S>(document_title: S, initial_page_width: Mm, initial_page_height: Mm, initial_layer_name: S)
     -> (PdfDocumentReference, PdfPageIndex, PdfLayerIndex) where S: Into<String>
     {
         let doc = Self {
@@ -64,8 +63,8 @@ impl PdfDocument {
         let doc_ref = Rc::new(RefCell::new(doc));
 
         let (initial_page, layer_index) = PdfPage::new(
-            initial_page_width_mm,
-            initial_page_height_mm,
+            initial_page_width,
+            initial_page_height,
             initial_layer_name,
             0);
 
@@ -164,7 +163,7 @@ impl PdfDocumentReference {
 
     /// Create a new pdf page and returns the index of the page
     #[inline]
-    pub fn add_page<S>(&self, x_mm: f64, y_mm: f64, inital_layer_name: S)
+    pub fn add_page<S>(&self, x_mm: Mm, y_mm: Mm, inital_layer_name: S)
     -> (PdfPageIndex, PdfLayerIndex) where S: Into<String>
     {
         let mut doc = self.document.borrow_mut();
@@ -396,11 +395,11 @@ impl PdfDocumentReference {
                       ("Type", "Page".into()),
                       ("Rotate", Integer(0)),
                       ("MediaBox", vec![0.into(), 0.into(),
-                       page.width_pt.into(), page.heigth_pt.into()].into()),
+                       page.width.into(), page.height.into()].into()),
                       ("TrimBox", vec![0.into(), 0.into(),
-                       page.width_pt.into(), page.heigth_pt.into()].into()),
+                       page.width.into(), page.height.into()].into()),
                       ("CropBox", vec![0.into(), 0.into(),
-                       page.width_pt.into(), page.heigth_pt.into()].into()),
+                       page.width.into(), page.height.into()].into()),
                       ("Parent", Reference(pages_id)) ]);
 
             // this will collect the resources needed for rendering this page

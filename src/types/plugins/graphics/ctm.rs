@@ -2,16 +2,16 @@
 
 use lopdf;
 use lopdf::content::Operation;
+use {Mm, Pt};
 
 /// PDF "current transformation matrix". Once set, will operate on all following shapes,
 /// until the `layer.restore_graphics_state()` is called. It is important to
 /// call `layer.save_graphics_state()` earlier.
 #[derive(Debug, Copy, Clone)]
 pub enum CurTransMat {
-
-    /// Translation matrix (in millimeter from bottom left corner)
+    /// Translation matrix (in points from bottom left corner)
     /// X and Y can have different values
-    Translate(f64, f64),
+    Translate(Mm, Mm),
     /// Rotation matrix (clockwise, in degrees)
     Rotate(f64),
     /// Scale matrix (1.0 = 100% scale, no change)
@@ -33,7 +33,7 @@ pub enum TextMatrix {
     Rotate(f64),
     /// Text translate matrix, used for indenting (transforming) text
     /// (different to regular text placement)
-    Translate(f64, f64),
+    Translate(Mm, Mm),
 }
 
 impl Into<[f64; 6]> for TextMatrix {
@@ -42,7 +42,12 @@ impl Into<[f64; 6]> for TextMatrix {
     {
         use TextMatrix::*;
         match self {
-            Translate(x, y) => { [ 1.0, 0.0, 0.0, 1.0, mm_to_pt!(x), mm_to_pt!(y) ]  /* 1 0 0 1 x y cm */ }
+            Translate(x, y) => { 
+                // 1 0 0 1 x y cm 
+                let x_pt: Pt = x.into();
+                let y_pt: Pt = y.into();
+                [ 1.0, 0.0, 0.0, 1.0, x_pt.0, y_pt.0 ] 
+            }
             Rotate(rot) => { let rad = (360.0 - rot).to_radians(); [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), 0.0, 0.0 ] /* cos sin -sin cos 0 0 cm */ }
         }
     }
@@ -54,10 +59,24 @@ impl Into<[f64; 6]> for CurTransMat {
     {
         use CurTransMat::*;
         match self {
-            Translate(x, y) => { [ 1.0, 0.0, 0.0, 1.0, mm_to_pt!(x), mm_to_pt!(y) ]  /* 1 0 0 1 x y cm */ }
-            Rotate(rot) => { let rad = (360.0 - rot).to_radians(); [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), 0.0, 0.0 ] /* cos sin -sin cos 0 0 cm */ }
-            Scale(x, y) => { [ x, 0.0, 0.0, y, 0.0, 0.0 ] /* x 0 0 y 0 0 cm */ }
-            Identity => { [ 1.0, 0.0, 0.0, 1.0, 0.0, 0.0 ] }
+            Translate(x, y) => { 
+                // 1 0 0 1 x y cm 
+                let x_pt: Pt = x.into();
+                let y_pt: Pt = y.into();
+                [ 1.0, 0.0, 0.0, 1.0, x_pt.0, y_pt.0 ]   
+            }
+            Rotate(rot) => { 
+                // cos sin -sin cos 0 0 cm 
+                let rad = (360.0 - rot).to_radians(); 
+                [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), 0.0, 0.0 ] 
+            }
+            Scale(x, y) => { 
+                // x 0 0 y 0 0 cm
+                [ x, 0.0, 0.0, y, 0.0, 0.0 ] 
+            }
+            Identity => { 
+                [ 1.0, 0.0, 0.0, 1.0, 0.0, 0.0 ] 
+            }
         }
     }
 }
@@ -100,7 +119,7 @@ fn test_ctm_translate()
     use self::*;
 
     // test that the translation matrix look like what PDF expects
-    let ctm_trans = CurTransMat::Translate(150.0, 50.0);
+    let ctm_trans = CurTransMat::Translate(Mm(150.0), Mm(50.0));
     let ctm_trans_arr: [f64; 6] = ctm_trans.into();
     assert_eq!([1.0_f64, 0.0, 0.0, 1.0, 425.1969, 141.7323], ctm_trans_arr);
 

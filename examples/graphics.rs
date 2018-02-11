@@ -6,25 +6,25 @@ use std::io::BufWriter;
 
 fn main() {
 
-    let (doc, page1, layer1) = PdfDocument::new("printpdf graphics test",297.0, 210.0, "Layer 1");
+    let (doc, page1, layer1) = PdfDocument::new("printpdf graphics test", Mm(297.0), Mm(210.0), "Layer 1");
     let current_layer = doc.get_page(page1).get_layer(layer1);
 
     // Quadratic shape. The "false" determines if the next (following)
     // point is a bezier handle (for curves)
     // If you want holes, simply reorder the winding of the points to be
     // counterclockwise instead of clockwise.
-    let points1 = vec![(Point::new(100.0, 100.0), false),
-                       (Point::new(100.0, 200.0), false),
-                       (Point::new(300.0, 200.0), false),
-                       (Point::new(300.0, 100.0), false)];
+    let points1 = vec![(Point::new(Mm(100.0), Mm(100.0)), false),
+                       (Point::new(Mm(100.0), Mm(200.0)), false),
+                       (Point::new(Mm(300.0), Mm(200.0)), false),
+                       (Point::new(Mm(300.0), Mm(100.0)), false)];
 
     // Is the shape stroked? Is the shape closed? Is the shape filled?
     let line1 = Line::new(points1, true, true, true);
 
     // Triangle shape
-    let points2 = vec![(Point::new(150.0, 150.0), false),
-                       (Point::new(150.0, 250.0), false),
-                       (Point::new(350.0, 250.0), false)];
+    let points2 = vec![(Point::new(Mm(150.0), Mm(150.0)), false),
+                       (Point::new(Mm(150.0), Mm(250.0)), false),
+                       (Point::new(Mm(350.0), Mm(250.0)), false)];
     let line2 = Line::new(points2, true, false, false);
 
     let fill_color = Color::Cmyk(Cmyk::new(0.0, 0.23, 0.0, 0.0, None));

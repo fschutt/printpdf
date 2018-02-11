@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::BufWriter;
 
 fn main() {
-    let (mut doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 500.0, 300.0, "Layer 1");
+    let (mut doc, page1, layer1) = PdfDocument::new("PDF_Document_title", Mm(500.0), Mm(300.0), "Layer 1");
     doc = doc.with_conformance(PdfConformance::Custom(CustomPdfConformance {
         requires_icc_profile: false,
         requires_xmp_metadata: false,
@@ -18,6 +18,6 @@ fn main() {
     let text = "Lorem ipsum";
 
     let font = doc.add_builtin_font(BuiltinFont::TimesBoldItalic).unwrap();
-    current_layer.use_text(text, 48, 10.0, 200.0, &font);
+    current_layer.use_text(text, 48, Mm(10.0), Mm(200.0), &font);
     doc.save(&mut BufWriter::new(File::create("test_builtin_fonts.pdf").unwrap())).unwrap();
 }

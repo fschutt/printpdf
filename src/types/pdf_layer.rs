@@ -9,7 +9,7 @@ use lopdf::content::Operation;
 use glob_defines::OP_PATH_STATE_SET_LINE_WIDTH;
 use {
     Font, XObject, PdfColor,  PdfDocument, ExtendedGraphicsStateBuilder, Line, ImageXObject, XObjectRef, Color, IndirectFontRef, BlendMode,
-    LineJoinStyle, LineCapStyle, LineDashPattern, CurTransMat, TextMatrix, TextRenderingMode,
+    LineJoinStyle, LineCapStyle, LineDashPattern, CurTransMat, TextMatrix, TextRenderingMode, Mm, Pt
 };
 
 /// One layer of PDF data
@@ -147,7 +147,7 @@ impl PdfLayerReference {
     ///
     /// Function is limited to this library to ensure that outside code cannot call it
     pub(crate) fn use_xobject(&self, xobj: XObjectRef,
-                        translate_x: Option<f64>, translate_y: Option<f64>,
+                        translate_x: Option<Mm>, translate_y: Option<Mm>,
                         rotate_cw: Option<f64>,
                         scale_x: Option<f64>, scale_y: Option<f64>)
     {
@@ -155,17 +155,17 @@ impl PdfLayerReference {
         self.save_graphics_state();
 
         // apply ctm if any
+        let (mut t_x, mut t_y) = (Mm(0.0), Mm(0.0));
         let (mut s_x, mut s_y) = (0.0, 0.0);
-        let (mut t_x, mut t_y) = (0.0, 0.0);
 
-        if let Some(sc_x) = scale_x { s_x = sc_x; }
-        if let Some(sc_y) = scale_y { s_y = sc_y; }
         if let Some(tr_x) = translate_x { t_x = tr_x; }
         if let Some(tr_y) = translate_y { t_y = tr_y; }
+        if let Some(sc_x) = scale_x { s_x = sc_x; }
+        if let Some(sc_y) = scale_y { s_y = sc_y; }
 
         // translate, rotate, scale - order does not matter
 
-        if t_x != 0.0 || t_y != 0.0 {
+        if t_x != Mm(0.0) || t_y != Mm(0.0) {
             let translate_ctm = CurTransMat::Translate(t_x, t_y);
             self.internal_add_operation(translate_ctm);
         }
@@ -297,9 +297,11 @@ impl PdfLayerReference {
 
     /// Sets the position where the text should appear
     #[inline]
-    pub fn set_text_cursor(&self, x: f64, y:f64) {
+    pub fn set_text_cursor(&self, x:Mm, y:Mm) {
+        let x_in_pt: Pt = x.into();
+        let y_in_pt: Pt = y.into();
         self.internal_add_operation(Operation::new("Td",
-                vec![mm_to_pt!(x).into(), mm_to_pt!(y).into()]
+                vec![x_in_pt.into(), y_in_pt.into()]
         ));
     }
 
@@ -438,15 +440,15 @@ impl PdfLayerReference {
         self.internal_add_operation(Operation::new("Q", Vec::new()));
     }
 
-    /// Add text to the file
+    /// Add text to the file, x and y are measure in millimeter from the bottom left corner
     #[inline]
     pub fn use_text<S>(&self, text: S, font_size: i64,
-                       x_mm: f64, y_mm: f64, font: &IndirectFontRef)
+                       x: Mm, y: Mm, font: &IndirectFontRef)
     -> () where S: Into<String>
     {
             self.begin_text_section();
             self.set_font(font, font_size);
-            self.set_text_cursor(x_mm, y_mm);
+            self.set_text_cursor(x, y);
             self.write_text(text, font);
             self.end_text_section();
     }

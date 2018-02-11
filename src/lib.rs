@@ -33,13 +33,13 @@
 //! 
 //! ### Windows
 //! 
-//! ### -pc-windows-gnu
+//! #### pc-windows-gnu
 //! 
 //! In order to easily setup freetype just get MSYS2 and install either the `mingw-w64-x86_64-freetype` or `mingw-w64-i686-freetype` package and then use Rust from within the correct mingw shell of MSYS2.
 //! 
 //! More information on setting up MSYS2 for Rust can be found in [the Rust readme](https://github.com/rust-lang/rust#building-on-windows)
 //! 
-//! ### -pc-windows-msvc
+//! #### pc-windows-msvc
 //! 
 //! Prebuilt libraries for freetype are available [here](https://github.com/PistonDevelopers/binaries).
 //! 
@@ -68,8 +68,8 @@
 //! use std::fs::File;
 //! use std::io::BufWriter;
 //!
-//! let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 247.0, 210.0, "Layer 1");
-//! let (page2, layer1) = doc.add_page(10.0, 250.0,"Page 2, Layer 1");
+//! let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", Mm(247.0), Mm(210.0), "Layer 1");
+//! let (page2, layer1) = doc.add_page(Mm(10.0), Mm(250.0),"Page 2, Layer 1");
 //!
 //! doc.save(&mut BufWriter::new(File::create("test_working.pdf").unwrap())).unwrap();
 //! ```
@@ -79,7 +79,7 @@
 //! ```rust
 //! use printpdf::*;
 //!
-//! let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 247.0, 210.0, "Layer 1");
+//! let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", Mm(247.0), Mm(210.0), "Layer 1");
 //!
 //! let mut current_layer = doc.get_page(page1).get_layer(layer1);
 //!
@@ -87,18 +87,18 @@
 //! // point is a bezier handle (for curves)
 //! // If you want holes, simply reorder the winding of the points to be
 //! // counterclockwise instead of clockwise.
-//! let points1 = vec![(Point::new(100.0, 100.0), false),
-//!                    (Point::new(100.0, 200.0), false),
-//!                    (Point::new(300.0, 200.0), false),
-//!                    (Point::new(300.0, 100.0), false)];
+//! let points1 = vec![(Point::new(Mm(100.0), Mm(100.0)), false),
+//!                    (Point::new(Mm(100.0), Mm(200.0)), false),
+//!                    (Point::new(Mm(300.0), Mm(200.0)), false),
+//!                    (Point::new(Mm(300.0), Mm(100.0)), false)];
 //!
 //! // Is the shape stroked? Is the shape closed? Is the shape filled?
 //! let line1 = Line::new(points1, true, true, true);
 //!
 //! // Triangle shape
-//! let points2 = vec![(Point::new(150.0, 150.0), false),
-//!                    (Point::new(150.0, 250.0), false),
-//!                    (Point::new(350.0, 250.0), false)];
+//! let points2 = vec![(Point::new(Mm(150.0), Mm(150.0)), false),
+//!                    (Point::new(Mm(150.0), Mm(250.0)), false),
+//!                    (Point::new(Mm(350.0), Mm(250.0)), false)];
 //!
 //! let line2 = Line::new(points2, true, false, false);
 //!
@@ -151,7 +151,7 @@
 //! use std::fs::File;
 //!
 //! fn main() {
-//!     let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 247.0, 210.0, "Layer 1");
+//!     let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", Mm(247.0), Mm(210.0), "Layer 1");
 //!     let current_layer = doc.get_page(page1).get_layer(layer1);
 //!
 //!     // currently, the only reliable file format is bmp (jpeg works, but not in release mode)
@@ -166,8 +166,8 @@
 //!
 //!     // you can also construct images manually from your data:
 //!     let mut image_file_2 = ImageXObject {
-//!         width: 200,
-//!         height: 200,
+//!         width: Px(200),
+//!         height: Px(200),
 //!         color_space: ColorSpace::Greyscale,
 //!         bits_per_component: ColorBits::Bit8,
 //!         interpolate: true,
@@ -194,7 +194,7 @@
 //! use printpdf::*;
 //! use std::fs::File;
 //!
-//! let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", 247.0, 210.0, "Layer 1");
+//! let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", Mm(247.0), Mm(210.0), "Layer 1");
 //! let current_layer = doc.get_page(page1).get_layer(layer1);
 //!
 //! let text = "Lorem ipsum";
@@ -204,7 +204,7 @@
 //! let font2 = doc.add_external_font(File::open("assets/fonts/RobotoMedium.ttf").unwrap()).unwrap();
 //!
 //! // text, font size, x from left edge, y from top edge, font
-//! current_layer.use_text(text, 48, 200.0, 200.0, &font);
+//! current_layer.use_text(text, 48, Mm(200.0), Mm(200.0), &font);
 //!
 //! // For more complex layout of text, you can use functions
 //! // defined on the PdfLayerReference
@@ -215,7 +215,7 @@
 //!     // setup the general fonts.
 //!     // see the docs for these functions for details
 //!     current_layer.set_font(&font2, 33);
-//!     current_layer.set_text_cursor(10.0, 10.0);
+//!     current_layer.set_text_cursor(Mm(10.0), Mm(10.0));
 //!     current_layer.set_line_height(33);
 //!     current_layer.set_word_spacing(3000);
 //!     current_layer.set_character_spacing(10);
@@ -371,6 +371,7 @@ extern crate rand;
 pub extern crate image;
 
 pub mod types;
+pub mod scale;
 pub mod errors;
 mod glob_defines;
 mod indices;
@@ -383,6 +384,7 @@ pub use self::errors::pdf_error::ErrorKind as PdfErrorKind;
 pub use self::errors::index_error::Error as IndexError;
 pub use self::errors::index_error::ErrorKind as IndexErrorKind;
 
+pub use self::scale::{Mm, Pt, Px};
 pub use self::types::pdf_conformance::{CustomPdfConformance, PdfConformance};
 pub use self::types::pdf_document::{PdfDocumentReference, PdfDocument};
 pub use self::types::pdf_metadata::PdfMetadata;

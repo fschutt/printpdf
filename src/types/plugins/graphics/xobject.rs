@@ -7,7 +7,7 @@ use image::{ImageError, ImageDecoder};
 use chrono::DateTime;
 use chrono::offset::Utc;
 use {
-    ColorSpace, ColorBits, CurTransMat,
+    ColorSpace, ColorBits, CurTransMat, Px
 };
 
 /* Parent: Resources dictionary of the page */
@@ -127,9 +127,9 @@ impl XObjectRef {
 #[derive(Debug, Clone)]
 pub struct ImageXObject {
     /// Width of the image (original width, not scaled width)
-    pub width: i64,
+    pub width: Px,
     /// Height of the image (original height, not scaled height)
-    pub height: i64,
+    pub height: Px,
     /// Color space (Greyscale, RGB, CMYK)
     pub color_space: ColorSpace,
     /// Bits per color component (1, 2, 4, 8, 16) - 1 for black/white, 8 Greyscale / RGB, etc.
@@ -153,7 +153,7 @@ impl ImageXObject {
     /// Creates a new ImageXObject
     // #[cfg_attr(feature = "cargo-clippy", allow(needless_lifetimes))]
     #[cfg_attr(feature = "cargo-clippy", allow(too_many_arguments))]
-    pub fn new(width: i64, height: i64, color_space: ColorSpace,
+    pub fn new(width: Px, height: Px, color_space: ColorSpace,
                bits: ColorBits, interpolate: bool, image_filter: Option<ImageFilter>,
                bbox: Option<CurTransMat>, data: Vec<u8>)
     -> Self
@@ -188,8 +188,8 @@ impl ImageXObject {
         }
 
         Ok(Self {
-            width: dim.0 as i64,
-            height: dim.1 as i64,
+            width: Px(dim.0 as usize),
+            height: Px(dim.1 as usize),
             color_space: color_space,
             bits_per_component: color_bits,
             image_data: cur_data,
@@ -233,8 +233,8 @@ impl Into<lopdf::Stream> for ImageXObject {
         let dict = lopdf::Dictionary::from_iter(vec![
             ("Type", Name("XObject".as_bytes().to_vec())),
             ("Subtype", Name("Image".as_bytes().to_vec())),
-            ("Width", Integer(self.width)),
-            ("Height", Integer(self.height)),
+            ("Width", Integer(self.width.0 as i64)),
+            ("Height", Integer(self.height.0 as i64)),
             ("Interpolate", self.interpolate.into()),
             ("BitsPerComponent", Integer(self.bits_per_component.into())),
             ("ColorSpace", Name(cs.as_bytes().to_vec())),

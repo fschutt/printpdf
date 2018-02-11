@@ -13,7 +13,7 @@ fn main() {
 	// Currently, fonts need to use an embedded font, so if you need to write something, the file size
 	// will still be bloated (because of the embedded font)
 	// Also, OCG content is still enabled, even if you disable it here. 
-    let (mut doc, _page1, _layer1) = PdfDocument::new("printpdf no_icc test", 297.0, 210.0, "Layer 1");
+    let (mut doc, _page1, _layer1) = PdfDocument::new("printpdf no_icc test", Mm(297.0), Mm(210.0), "Layer 1");
     doc = doc.with_conformance(PdfConformance::Custom(CustomPdfConformance {
     	requires_icc_profile: false,
     	requires_xmp_metadata: false,

@@ -7,7 +7,7 @@ use std::cell::RefCell;
 use indices::{PdfPageIndex, PdfLayerIndex};
 use {
     PdfResources, PdfLayer, PdfDocument, ExtendedGraphicsState, ExtendedGraphicsStateRef, Pattern, XObject, XObjectRef,
-    PdfLayerReference, PatternRef,
+    PdfLayerReference, PatternRef, Mm, Pt
 };
 
 /// PDF page
@@ -16,9 +16,9 @@ pub struct PdfPage {
     /// The index of the page in the document
     pub(crate) index: usize,
     /// page width in point
-    pub width_pt: f64,
+    pub width: Pt,
     /// page height in point
-    pub heigth_pt: f64,
+    pub height: Pt,
     /// Page layers
     pub layers: Vec<PdfLayer>,
     /// Resources used in this page
@@ -39,16 +39,16 @@ impl PdfPage {
     /// Create a new page, notice that width / height are in millimeter.
     /// Page must contain at least one layer
     #[inline]
-    pub fn new<S>(width_mm: f64,
-                  height_mm: f64,
+    pub fn new<S>(width: Mm,
+                  height: Mm,
                   layer_name: S,
                   page_index: usize)
     -> (Self, PdfLayerIndex) where S: Into<String>
     {
         let mut page = Self {
             index: page_index,
-            width_pt: mm_to_pt!(width_mm),
-            heigth_pt: mm_to_pt!(height_mm),
+            width: width.into(),
+            height: height.into(),
             layers: Vec::new(),
             resources: PdfResources::new(),
         };
@@ -169,7 +169,6 @@ impl PdfPageReference {
     /// Validates that a layer is present and returns a reference to it
     #[inline]
     #[cfg_attr(feature = "cargo-clippy", allow(no_effect))]
-
     pub fn get_layer(&self, layer: PdfLayerIndex)
     -> PdfLayerReference
     {

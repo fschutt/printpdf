@@ -1,5 +1,6 @@
 //! Macros for printpdf
 
+/*
 /// Convert millimeter to points
 #[macro_export]
 macro_rules! mm_to_pt {
@@ -9,5 +10,6 @@ macro_rules! mm_to_pt {
 /// Convert point to millimeter
 #[macro_export]
 macro_rules! pt_to_mm {
-    ($mm: expr) => ($mm * 0.352_778_f64);
+    ($pt: expr) => ($pt * 0.352_778_f64);
 }
+*/
