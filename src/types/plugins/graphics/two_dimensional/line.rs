@@ -5,6 +5,7 @@ use glob_defines::{
     OP_PATH_PAINT_STROKE_CLOSE, OP_PATH_PAINT_STROKE, OP_PATH_PAINT_END,
 };
 use Point;
+use std::iter::{FromIterator, IntoIterator};
 
 #[derive(Debug, Clone)]
 pub struct Line {
@@ -16,26 +17,59 @@ pub struct Line {
     pub has_fill: bool,
     /// Should the line have an outline (stroke)?
     pub has_stroke: bool,
+    /// Is this line a clipping path?
+    pub is_clipping_path: bool,
+}
+
+impl Default for Line {
+    fn default() -> Self {
+        Self {
+            points: Vec::new(),
+            is_closed: false,
+            has_fill: false,
+            has_stroke: false,
+            is_clipping_path: false,
+        }
+    }
+}
+
+impl FromIterator<(Point, bool)> for Line {
+    fn from_iter<I: IntoIterator<Item=(Point, bool)>>(iter: I) -> Self {
+        let mut points = Vec::new();
+        for i in iter {
+            points.push(i);
+        }
+        Line {
+            points: points,
+            .. Default::default()
+        }
+    }
 }
 
 impl Line {
 
-    /// Creates a new line from the given points
-    /// Each point has a bool, indicating if the next point is a bezier curve
-    /// This allows compression inside the pdf since PDF knows several operators for this.
+    /// Sets if the line is closed or not
     #[inline]
-    pub fn new(points: Vec<(Point, bool)>,
-               has_stroke: bool,
-               is_closed: bool,
-               has_fill: bool)
-    -> Self
-    {
-        Self {
-            points,
-            is_closed,
-            has_fill,
-            has_stroke,
-        }
+    pub fn set_closed(&mut self, is_closed: bool) {
+        self.is_closed = is_closed;
+    }
+
+    /// Sets if the line is filled
+    #[inline]
+    pub fn set_fill(&mut self, has_fill: bool) {
+        self.has_fill = has_fill;
+    }
+
+    /// Sets if the line is stroked (has an outline)
+    #[inline]
+    pub fn set_stroke(&mut self, has_stroke: bool) {
+        self.has_stroke = has_stroke;
+    }
+
+    /// Sets if the line is a clipping path
+    #[inline]
+    pub fn set_as_clipping_path(&mut self, is_clipping_path: bool) {
+        self.is_clipping_path = is_clipping_path;
     }
 
     pub fn into_stream_op(self)

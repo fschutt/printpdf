@@ -3,6 +3,7 @@ extern crate printpdf;
 use printpdf::*;
 use std::fs::File;
 use std::io::BufWriter;
+use std::iter::FromIterator;
 
 fn main() {
 
@@ -19,13 +20,26 @@ fn main() {
                        (Point::new(Mm(300.0), Mm(100.0)), false)];
 
     // Is the shape stroked? Is the shape closed? Is the shape filled?
-    let line1 = Line::new(points1, true, true, true);
+    let line1 = Line { 
+        points: points1, 
+        is_closed: true, 
+        has_fill: true,
+        has_stroke: true,
+        is_clipping_path: false,
+    };
 
     // Triangle shape
-    let points2 = vec![(Point::new(Mm(150.0), Mm(150.0)), false),
-                       (Point::new(Mm(150.0), Mm(250.0)), false),
-                       (Point::new(Mm(350.0), Mm(250.0)), false)];
-    let line2 = Line::new(points2, true, false, false);
+    // Note: Line is invisible by default, the previous method of 
+    // constructing a line is recommended!
+    let mut line2 = Line::from_iter(vec![
+        (Point::new(Mm(150.0), Mm(150.0)), false),
+        (Point::new(Mm(150.0), Mm(250.0)), false),
+        (Point::new(Mm(350.0), Mm(250.0)), false)]);
+
+    line2.set_closed(false);
+    line2.set_stroke(true);
+    line2.set_fill(false);
+    line2.set_as_clipping_path(false);
 
     let fill_color = Color::Cmyk(Cmyk::new(0.0, 0.23, 0.0, 0.0, None));
     let outline_color = Color::Rgb(Rgb::new(0.75, 1.0, 0.64, None));

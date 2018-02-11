@@ -78,11 +78,13 @@
 //!
 //! ```rust
 //! use printpdf::*;
-//!
-//! let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", Mm(247.0), Mm(210.0), "Layer 1");
-//!
-//! let mut current_layer = doc.get_page(page1).get_layer(layer1);
-//!
+//! use std::fs::File;
+//! use std::io::BufWriter;
+//! use std::iter::FromIterator;
+//! 
+//! let (doc, page1, layer1) = PdfDocument::new("printpdf graphics test", Mm(297.0), Mm(210.0), "Layer 1");
+//! let current_layer = doc.get_page(page1).get_layer(layer1);
+//! 
 //! // Quadratic shape. The "false" determines if the next (following)
 //! // point is a bezier handle (for curves)
 //! // If you want holes, simply reorder the winding of the points to be
@@ -91,16 +93,28 @@
 //!                    (Point::new(Mm(100.0), Mm(200.0)), false),
 //!                    (Point::new(Mm(300.0), Mm(200.0)), false),
 //!                    (Point::new(Mm(300.0), Mm(100.0)), false)];
-//!
+//! 
 //! // Is the shape stroked? Is the shape closed? Is the shape filled?
-//! let line1 = Line::new(points1, true, true, true);
-//!
+//! let line1 = Line { 
+//!     points: points1, 
+//!     is_closed: true, 
+//!     has_fill: true,
+//!     has_stroke: true,
+//!     is_clipping_path: false,
+//! };
+//! 
 //! // Triangle shape
-//! let points2 = vec![(Point::new(Mm(150.0), Mm(150.0)), false),
-//!                    (Point::new(Mm(150.0), Mm(250.0)), false),
-//!                    (Point::new(Mm(350.0), Mm(250.0)), false)];
-//!
-//! let line2 = Line::new(points2, true, false, false);
+//! // Note: Line is invisible by default, the previous method of 
+//! // constructing a line is recommended!
+//! let mut line2 = Line::from_iter(vec![
+//!     (Point::new(Mm(150.0), Mm(150.0)), false),
+//!     (Point::new(Mm(150.0), Mm(250.0)), false),
+//!     (Point::new(Mm(350.0), Mm(250.0)), false)]);
+//! 
+//! line2.set_stroke(true);
+//! line2.set_closed(false);
+//! line2.set_fill(false);
+//! line2.set_as_clipping_path(false);
 //!
 //! let fill_color = Color::Cmyk(Cmyk::new(0.0, 0.23, 0.0, 0.0, None));
 //! let outline_color = Color::Rgb(Rgb::new(0.75, 1.0, 0.64, None));
