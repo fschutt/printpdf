@@ -1,5 +1,9 @@
-use *;
-use extgstate::ExtendedGraphicsState;
+use lopdf;
+use {
+    XObject, Pattern, ExtendedGraphicsState, ExtendedGraphicsStateList, 
+    PatternRef, OCGRef, XObjectList, XObjectRef, ExtendedGraphicsStateRef,
+    OCGList, PatternList
+};
 
 /// Struct for storing the PDF Resources, to be used on a PDF page
 #[derive(Default, Debug, Clone)]

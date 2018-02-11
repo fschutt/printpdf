@@ -377,7 +377,54 @@ mod glob_defines;
 mod indices;
 #[cfg(test)] mod tests;
 
-pub use self::traits::*;
-pub use self::types::*;
-pub use self::errors::*;
-use glob_defines::*;
+pub use self::errors::errors::Error as PrintpdfError;
+pub use self::errors::errors::ErrorKind as PrintpdfErrorKind;
+pub use self::errors::pdf_error::Error as PdfError;
+pub use self::errors::pdf_error::ErrorKind as PdfErrorKind;
+pub use self::errors::index_error::Error as IndexError;
+pub use self::errors::index_error::ErrorKind as IndexErrorKind;
+
+pub use self::traits::{IntoPdfObject, IntoPdfStreamOperation};
+pub use self::types::pdf_conformance::{CustomPdfConformance, PdfConformance};
+pub use self::types::pdf_document::{PdfDocumentReference, PdfDocument};
+pub use self::types::pdf_metadata::PdfMetadata;
+pub use self::types::pdf_page::{PdfPage, PdfPageReference};
+pub use self::types::pdf_layer::{PdfLayer, PdfLayerReference};
+
+pub use self::types::plugins::xmp::xmp_metadata::XmpMetadata;
+pub use self::types::plugins::misc::document_info::DocumentInfo;
+
+/// Stub module for 3D content in a PDF
+pub use self::types::plugins::graphics::three_dimensional;
+pub use self::types::plugins::graphics::two_dimensional::*;
+pub use self::types::plugins::graphics::color::{
+    Color, Rgb, Cmyk, Greyscale, SpotColor, PdfColor, ColorSpace, ColorBits
+};
+pub use self::types::plugins::graphics::ctm::{CurTransMat, TextMatrix};
+pub use self::types::plugins::graphics::extgstate::{
+    ExtendedGraphicsState, ExtendedGraphicsStateList, ExtendedGraphicsStateRef, ExtendedGraphicsStateBuilder,
+    OverprintMode, BlackGenerationFunction, BlackGenerationExtraFunction, UnderColorRemovalFunction,
+    UnderColorRemovalExtraFunction, TransferFunction, TransferExtraFunction, HalftoneType,
+    SpotFunction, BlendMode, SeperableBlendMode, NonSeperableBlendMode, RenderingIntent, SoftMask,
+    SoftMaskFunction, LineJoinStyle, LineCapStyle, LineDashPattern, 
+};
+pub use self::types::plugins::graphics::icc_profile::{
+    IccProfileType, IccProfile, IccProfileRef, IccProfileList
+};
+pub use self::types::plugins::graphics::ocg::{OCGList, OCGRef};
+pub use self::types::plugins::graphics::pattern::{Pattern, PatternRef, PatternList};
+pub use self::types::plugins::graphics::pdf_resources::PdfResources;
+pub use self::types::plugins::graphics::xobject::{
+    XObject, XObjectList, XObjectRef, ImageXObject, ImageXObjectRef, 
+    ImageFilter, FormXObject, FormXObjectRef, FormType, SMask, GroupXObject, 
+    GroupXObjectType, ReferenceXObject, OptionalContentGroup, OCGIntent, PostScriptXObject, 
+};
+
+/// Stub module for future audio embedding implementation
+pub use self::types::plugins::media::audio;
+/// Stub module for future video embedding implementation
+pub use self::types::plugins::media::video;
+/// Stub module for interactive (JavaScript) content, embedded in PDF files
+pub use self::types::plugins::interactive;
+/// Stub module for encryption (passwords). Not implemented yet.
+pub use self::types::plugins::security;

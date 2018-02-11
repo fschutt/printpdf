@@ -3,7 +3,11 @@
 extern crate lopdf;
 extern crate chrono;
 
-use *;
+use {
+	IccProfileType, PdfConformance, XmpMetadata, DocumentInfo, IccProfile
+};
+
+use glob_defines::ICC_PROFILE_ECI_V2;
 
 /// This is a wrapper in order to keep shared data between the documents XMP metadata and
 /// the "Info" dictionary in sync

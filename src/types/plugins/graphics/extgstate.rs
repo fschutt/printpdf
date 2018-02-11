@@ -806,7 +806,7 @@ impl Into<lopdf::Object> for OverprintMode {
     fn into(self)
     -> lopdf::Object
     {
-        use OverprintMode::*;
+        use self::OverprintMode::*;
         match self {
             EraseUnderlying     => Integer(0),
             KeepUnderlying      => Integer(1),
@@ -919,7 +919,7 @@ impl HalftoneType {
     pub fn get_type(&self)
     -> i64
     {
-        use HalftoneType::*;
+        use self::HalftoneType::*;
         match *self {
             Type1(_, _, _) => 1,
             Type5(_) => 5, /* this type does not actually exist, todo */
@@ -927,6 +927,16 @@ impl HalftoneType {
             Type10(_) => 10,
             Type16(_) => 16,
         }
+    }
+
+    pub fn into_obj(self)
+    -> Vec<lopdf::Object> 
+    {
+        use std::iter::FromIterator;
+        vec![Dictionary(lopdf::Dictionary::from_iter(vec![
+                    ("Type", "Halftone".into()),
+                    ("HalftoneType", self.get_type().into())
+            ]))]
     }
 }
 
@@ -1003,19 +1013,6 @@ pub enum SpotFunction {
     Diamond,
 }
 
-#[cfg_attr(feature = "cargo-clippy", allow(boxed_local))]
-impl IntoPdfObject for HalftoneType {
-    fn into_obj(self: Box<Self>)
-    -> Vec<lopdf::Object>
-    {
-        use std::iter::FromIterator;
-        vec![Dictionary(lopdf::Dictionary::from_iter(vec![
-                    ("Type", "Halftone".into()),
-                    ("HalftoneType", self.get_type().into())
-            ]))]
-    }
-}
-
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum BlendMode {
     Seperable(SeperableBlendMode),
@@ -1025,9 +1022,9 @@ pub enum BlendMode {
 impl Into<lopdf::Object> for BlendMode {
     fn into(self)
     -> lopdf::Object {
-        use BlendMode::*;
-        use SeperableBlendMode::*;
-        use NonSeperableBlendMode::*;
+        use self::BlendMode::*;
+        use self::SeperableBlendMode::*;
+        use self::NonSeperableBlendMode::*;
 
         let blend_mode_str = match self {
             Seperable(s) => {
@@ -1329,7 +1326,7 @@ impl IntoPdfStreamOperation for RenderingIntent {
     fn into_stream_op(self: Box<Self>)
     -> Vec<Operation>
     {
-        use RenderingIntent::*;
+        use self::RenderingIntent::*;
         let rendering_intent_string = match *self {
             AbsoluteColorimetric => "AbsoluteColorimetric",
             RelativeColorimetric => "RelativeColorimetric",
@@ -1347,7 +1344,7 @@ impl Into<lopdf::Object> for RenderingIntent {
     fn into(self)
     -> lopdf::Object
     {
-        use RenderingIntent::*;
+        use self::RenderingIntent::*;
         let rendering_intent_string = match self {
             AbsoluteColorimetric => "AbsoluteColorimetric",
             RelativeColorimetric => "RelativeColorimetric",
@@ -1406,7 +1403,7 @@ impl Into<i64> for LineJoinStyle {
     fn into(self)
     -> i64
     {
-        use LineJoinStyle::*;
+        use self::LineJoinStyle::*;
         match self {
             Miter => 0,
             Round => 1,
@@ -1450,7 +1447,7 @@ impl Into<i64> for LineCapStyle {
     fn into(self)
     -> i64
     {
-        use LineCapStyle::*;
+        use self::LineCapStyle::*;
         match self {
             Butt => 0,
             Round => 1,

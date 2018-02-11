@@ -9,10 +9,6 @@ pub struct PdfPageIndex(pub usize);
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct PdfLayerIndex(pub usize);
 
-impl PdfLayerIndex {
-
-}
-
 /// Index of the arbitrary content data
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct PdfContentIndex(pub usize);

@@ -1,5 +1,11 @@
-use *;
-use traits::*;
+use lopdf;
+use glob_defines::{
+    OP_PATH_CONST_MOVE_TO, OP_PATH_CONST_3BEZIER_V1, OP_PATH_CONST_3BEZIER_V2, OP_PATH_CONST_4BEZIER,
+    OP_PATH_CONST_LINE_TO, OP_PATH_PAINT_FILL_STROKE_CLOSE_NZ, OP_PATH_PAINT_FILL_NZ,
+    OP_PATH_PAINT_STROKE_CLOSE, OP_PATH_PAINT_STROKE, OP_PATH_PAINT_END,
+};
+use Point;
+use traits::IntoPdfStreamOperation;
 
 #[derive(Debug, Clone)]
 pub struct Line {

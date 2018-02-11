@@ -1,11 +1,16 @@
 //! PDF layer management. Layers can contain referenced or real content.
 use freetype as ft;
+use lopdf;
 
-use *;
-use indices::*;
+use indices::{PdfPageIndex, PdfLayerIndex};
 use std::rc::Weak;
 use std::cell::RefCell;
 use lopdf::content::Operation;
+use glob_defines::OP_PATH_STATE_SET_LINE_WIDTH;
+use {
+    Font, XObject, PdfColor,  PdfDocument, ExtendedGraphicsStateBuilder, Line, ImageXObject, XObjectRef, Color, IndirectFontRef, BlendMode,
+    LineJoinStyle, LineCapStyle, LineDashPattern, CurTransMat, TextMatrix, TextRenderingMode,
+};
 
 /// One layer of PDF data
 #[derive(Debug, Clone)]
@@ -60,6 +65,7 @@ impl PdfLayerReference {
     /// Use has_fill to determine if the line should be filled.
     pub fn add_shape(&self, line: Line)
     {
+        use traits::IntoPdfStreamOperation;
         let line_ops = Box::new(line).into_stream_op();
         for op in line_ops {
             self.internal_add_operation(op);
