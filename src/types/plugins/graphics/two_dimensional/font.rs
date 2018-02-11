@@ -4,11 +4,11 @@
 use lopdf;
 use freetype as ft;
 
-use *;
 use lopdf::{Stream as LoStream, Dictionary as LoDictionary};
 use lopdf::StringFormat;
 use std::collections::{HashMap, BTreeMap};
 use std::iter::FromIterator;
+use PrintpdfError;
 
 /// The font
 #[derive(Debug, Clone, PartialEq)]
@@ -72,7 +72,7 @@ impl BuiltinFont {
         let font_id: &'static str = self.into();
 
         // Begin setting required font attributes
-        let font_vec: Vec<(std::string::String, Object)> = vec![
+        let font_vec: Vec<(::std::string::String, Object)> = vec![
             ("Type".into(), Name("Font".into())),
             ("Subtype".into(), Name("Type1".into())),
             ("BaseFont".into(), Name(font_id.into())),
@@ -178,7 +178,7 @@ impl ExternalFont {
         .with_compression(false); /* important! font stream must not be compressed! */
 
         // Begin setting required font attributes
-        let mut font_vec: Vec<(std::string::String, Object)> = vec![
+        let mut font_vec: Vec<(::std::string::String, Object)> = vec![
             ("Type".into(), Name("Font".into())),
             ("Subtype".into(), Name("Type0".into())),
             ("BaseFont".into(), Name(face_name.clone().into_bytes())),
@@ -187,7 +187,7 @@ impl ExternalFont {
             // Missing DescendantFonts and ToUnicode
         ];
 
-        let mut font_descriptor_vec: Vec<(std::string::String, Object)> = vec![
+        let mut font_descriptor_vec: Vec<(::std::string::String, Object)> = vec![
             ("Type".into(), Name("FontDescriptor".into())),
             ("FontName".into(), Name(face_name.clone().into_bytes())),
             ("Ascent".into(), Integer(face_metrics.ascender as i64)),

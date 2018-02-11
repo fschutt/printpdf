@@ -1,9 +1,14 @@
 // clippy lints when serializing PDF strings, in this case its wrong
 #![cfg_attr(feature = "cargo-clippy", allow(string_lit_as_bytes))]
 
-use *;
+use lopdf;
 use std::collections::HashMap;
-use image::ImageDecoder;
+use image::{ImageError, ImageDecoder};
+use chrono::DateTime;
+use chrono::offset::Utc;
+use {
+    ColorSpace, ColorBits, CurTransMat,
+};
 
 /* Parent: Resources dictionary of the page */
 /// External object that gets reference outside the PDF content stream
@@ -28,11 +33,10 @@ impl XObject {
 
     #[cfg(debug_assertions)]
     #[inline]
-    #[cfg_attr(feature = "cargo-clippy", allow(needless_return))]
     fn compress_stream(stream: lopdf::Stream)
     -> lopdf::Stream
     {
-        return stream;
+        stream
     }
 
     #[cfg(not(debug_assertions))]
@@ -41,7 +45,7 @@ impl XObject {
     -> lopdf::Stream
     {
         stream.compress();
-        return stream
+        stream
     }
 }
 
@@ -167,7 +171,7 @@ impl ImageXObject {
     }
 
     pub fn try_from<T: ImageDecoder>(mut image: T)
-    -> Result<Self, image::ImageError>
+    -> Result<Self, ImageError>
     {
         use image::DecodingResult;
 
@@ -323,7 +327,7 @@ pub struct FormXObject {
     /// modified. If a page-piece dictionary (PieceInfo) is present, the modification date
     /// is used to ascertain which of the application data dictionaries it contains correspond
     /// to the current content of the form (see Section 10.4, “Page-Piece Dictionaries”).
-    pub last_modified: Option<chrono::DateTime<chrono::offset::Utc>>,
+    pub last_modified: Option<DateTime<Utc>>,
     /* /StructParent integer */
     /// (Required if the form XObject is a structural content item; PDF 1.3) The integer key of
     /// the form XObject’s entry in the structural parent tree (see “Finding Structure Elements

@@ -4,15 +4,18 @@ extern crate lopdf;
 extern crate chrono;
 extern crate rand;
 
-use *;
-use indices::*;
-use std::io::Write;
 use rand::Rng;
 
 use std::rc::Rc;
 use std::cell::RefCell;
+use std::io::Write;
 use std::io::BufWriter;
-use PrintpdfError;
+
+use indices::*;
+use {
+    ExternalFont, Font, PdfPage, FontList, IccProfileList, PdfMetadata, PdfConformance, IndirectFontRef, 
+    DirectFontRef, BuiltinFont, PdfPageReference, PrintpdfError
+};
 
 /// PDF document
 #[derive(Debug, Clone)]
@@ -314,7 +317,7 @@ impl PdfDocumentReference {
         // ----- OCG CONTENT
 
         // page index + page names to add the OCG to the /Catalog
-        let page_layer_names: Vec<(usize, Vec<std::string::String>)> =
+        let page_layer_names: Vec<(usize, Vec<::std::string::String>)> =
             doc.pages.iter().map(|page|
                 (page.index, page.layers.iter().map(|layer|
                     layer.name.clone()).collect()
@@ -434,7 +437,7 @@ impl PdfDocumentReference {
 
         // save inner document
         let catalog_id = doc.inner_doc.add_object(catalog);
-        let instance_id: std::string::String = rand::thread_rng().gen_ascii_chars().take(32).collect();
+        let instance_id = rand::thread_rng().gen_ascii_chars().take(32).collect::<::std::string::String>();
 
         doc.inner_doc.trailer.set("Root", Reference(catalog_id));
         doc.inner_doc.trailer.set("Info", Reference(document_info_id));

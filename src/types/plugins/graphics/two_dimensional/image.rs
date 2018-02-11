@@ -4,7 +4,7 @@
 extern crate image;
 
 use image::ImageDecoder;
-use *;
+use {ImageXObject, PdfLayerReference};
 
 /// Image - wrapper around an `ImageXObject` to allow for more control
 /// within the library

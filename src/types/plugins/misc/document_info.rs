@@ -3,7 +3,7 @@
 extern crate lopdf;
 extern crate chrono;
 
-use *;
+use PdfConformance;
 
 /// "Info" dictionary of a PDF document.
 /// Actual data is contained in `DocumentMetadata`, to keep it in sync with the `XmpMetadata`

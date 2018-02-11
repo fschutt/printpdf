@@ -1,4 +1,4 @@
-use *;
+use lopdf;
 use std::collections::HashMap;
 
 /// __STUB__

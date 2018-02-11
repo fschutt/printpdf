@@ -1,10 +1,13 @@
 //! Color module (CMYK or RGB). Shared between 2D and 3D module.
 
 use image;
-
-use *;
-use glob_defines::*;
 use lopdf::content::Operation;
+
+use glob_defines::{
+    OP_COLOR_SET_FILL_CS_DEVICERGB, OP_COLOR_SET_FILL_CS_DEVICECMYK, OP_COLOR_SET_FILL_CS_DEVICEGRAY,
+    OP_COLOR_SET_STROKE_CS_DEVICERGB, OP_COLOR_SET_STROKE_CS_DEVICECMYK, OP_COLOR_SET_STROKE_CS_DEVICEGRAY,
+};
+use IccProfileRef;
 
 /// Tuple for differentiating outline and fill colors
 #[derive(Debug, Clone, PartialEq)]

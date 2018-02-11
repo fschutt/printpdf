@@ -1,9 +1,14 @@
 //! PDF page management
 
-use *;
-use indices::*;
+use lopdf;
 use std::rc::Weak;
 use std::cell::RefCell;
+
+use indices::{PdfPageIndex, PdfLayerIndex};
+use {
+    PdfResources, PdfLayer, PdfDocument, ExtendedGraphicsState, ExtendedGraphicsStateRef, Pattern, XObject, XObjectRef,
+    PdfLayerReference, PatternRef,
+};
 
 /// PDF page
 #[derive(Debug, Clone)]

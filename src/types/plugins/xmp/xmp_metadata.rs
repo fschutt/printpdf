@@ -1,10 +1,11 @@
 //! Stub plugin for XMP Metadata streams, to be expanded later
 
-extern crate chrono;
-extern crate lopdf;
+use chrono;
+use lopdf;
+use rand;
 
-use *;
 use rand::Rng;
+use PdfConformance;
 
 /// Initial struct for Xmp metatdata. This should be expanded later for XML handling, etc.
 /// Right now it just fills out the necessary fields
@@ -41,7 +42,7 @@ impl XmpMetadata {
                            modification_date: chrono::DateTime<chrono::Local>,
                            metadata_date: chrono::DateTime<chrono::Local>,
                            document_title: S)
-    -> lopdf::Object where S: Into<String> + std::fmt::Display
+    -> lopdf::Object where S: Into<String> + ::std::fmt::Display
     {
         use lopdf::{Stream as LoStream, Dictionary as LoDictionary};
         use lopdf::Object::*;
@@ -51,7 +52,7 @@ impl XmpMetadata {
         let trapping = if trapping { "True" } else { "False" };
 
         // let xmp_instance_id = "2898d852-f86f-4479-955b-804d81046b19";
-        let instance_id: std::string::String = rand::thread_rng().gen_ascii_chars().take(32).collect();
+        let instance_id = rand::thread_rng().gen_ascii_chars().take(32).collect::<::std::string::String>();
         let create_date = to_pdf_xmp_date(creation_date);
         let modification_date = to_pdf_xmp_date(modification_date);
         let metadata_date = to_pdf_xmp_date(metadata_date);

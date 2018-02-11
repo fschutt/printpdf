@@ -1,7 +1,6 @@
 extern crate lopdf;
 extern crate svg;
 
-use *;
 
 /// Unit for SVG elements. Uses uom crate for normalization
 /// Since this library is designed to output PDFs, the only measurement
