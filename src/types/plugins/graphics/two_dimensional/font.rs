@@ -134,7 +134,7 @@ impl ExternalFont {
 
     /// Creates a new font. The `index` is used for naming / identifying the font
     pub fn new<R>(mut font_stream: R, font_index: usize)
-    -> std::result::Result<Self, Error> where R: ::std::io::Read
+    -> Result<Self, PrintpdfError> where R: ::std::io::Read
     {
         // read font from stream and parse font metrics
         let mut buf = Vec::<u8>::new();

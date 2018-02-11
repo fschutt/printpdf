@@ -5,7 +5,6 @@ use glob_defines::{
     OP_PATH_PAINT_STROKE_CLOSE, OP_PATH_PAINT_STROKE, OP_PATH_PAINT_END,
 };
 use Point;
-use traits::IntoPdfStreamOperation;
 
 #[derive(Debug, Clone)]
 pub struct Line {
@@ -38,12 +37,8 @@ impl Line {
             has_stroke,
         }
     }
-}
 
-#[cfg_attr(feature = "cargo-clippy", allow(boxed_local))]
-impl IntoPdfStreamOperation for Line {
-
-    fn into_stream_op(self: Box<Self>)
+    pub fn into_stream_op(self)
     -> Vec<lopdf::content::Operation>
     {
         use lopdf::content::Operation;
@@ -120,5 +115,4 @@ impl IntoPdfStreamOperation for Line {
 
         operations
     }
-
 }

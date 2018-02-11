@@ -65,8 +65,7 @@ impl PdfLayerReference {
     /// Use has_fill to determine if the line should be filled.
     pub fn add_shape(&self, line: Line)
     {
-        use traits::IntoPdfStreamOperation;
-        let line_ops = Box::new(line).into_stream_op();
+        let line_ops = line.into_stream_op();
         for op in line_ops {
             self.internal_add_operation(op);
         }

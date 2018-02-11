@@ -167,7 +167,7 @@ impl ImageXObject {
     }
 
     pub fn try_from<T: ImageDecoder>(mut image: T)
-    -> std::result::Result<Self, image::ImageError>
+    -> Result<Self, image::ImageError>
     {
         use image::DecodingResult;
 

@@ -35,7 +35,6 @@
 use lopdf;
 use lopdf::content::Operation;
 use lopdf::Object::*;
-use traits::{IntoPdfObject, IntoPdfStreamOperation};
 use std::string::String;
 use indices::FontIndex;
 use std::collections::HashSet;
@@ -1321,20 +1320,19 @@ pub enum RenderingIntent {
 }
 
 /* ri name */
-impl IntoPdfStreamOperation for RenderingIntent {
-    #[cfg_attr(feature = "cargo-clippy", allow(boxed_local))]
-    fn into_stream_op(self: Box<Self>)
+impl RenderingIntent {
+    pub fn into_stream_op(self)
     -> Vec<Operation>
     {
         use self::RenderingIntent::*;
-        let rendering_intent_string = match *self {
+        let rendering_intent_string = match self {
             AbsoluteColorimetric => "AbsoluteColorimetric",
             RelativeColorimetric => "RelativeColorimetric",
             Saturation => "Saturation",
             Perceptual => "Perceptual",
         };
 
-        vec![Operation::new("ri", vec![Name(rendering_intent_string.as_bytes().to_vec())] )]
+        vec![ Operation::new("ri", vec![ Name(rendering_intent_string.as_bytes().to_vec()) ]) ]
     }
 }
 

@@ -12,6 +12,7 @@ use rand::Rng;
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::io::BufWriter;
+use PrintpdfError;
 
 /// PDF document
 #[derive(Debug, Clone)]
@@ -172,7 +173,7 @@ impl PdfDocumentReference {
 
     /// Add a font from a font stream
     pub fn add_external_font<R>(&self, font_stream: R)
-    -> ::std::result::Result<IndirectFontRef, Error> where R: ::std::io::Read
+    -> ::std::result::Result<IndirectFontRef, PrintpdfError> where R: ::std::io::Read
     {
         let last_font_index = { let doc = self.document.borrow(); doc.fonts.len() };
         let external_font = ExternalFont::new(font_stream, last_font_index)?;
@@ -183,7 +184,7 @@ impl PdfDocumentReference {
 
     /// Add a built-in font to the document
     pub fn add_builtin_font(&self, builtin_font: BuiltinFont)
-    -> ::std::result::Result<IndirectFontRef, Error>
+    -> ::std::result::Result<IndirectFontRef, PrintpdfError>
     {
         let last_font_index = { let doc = self.document.borrow(); doc.fonts.len() };
         let builtin_font_name: &'static str = builtin_font.clone().into();
@@ -226,7 +227,7 @@ impl PdfDocumentReference {
 
     /// Checks for invalid settings in the document
     pub fn check_for_errors(&self)
-    -> ::std::result::Result<(), Error>
+    -> ::std::result::Result<(), PrintpdfError>
     {
         // todo
         warn!("Checking PDFs for errors is currently not supported!");
@@ -236,7 +237,7 @@ impl PdfDocumentReference {
     /// Tries to match the document to the given conformance.
     /// Errors only on an unrecoverable error.
     pub fn repair_errors(&self, conformance: PdfConformance)
-    -> ::std::result::Result<(), Error>
+    -> ::std::result::Result<(), PrintpdfError>
     {
         //todo
         warn!("Reparing PDFs is currently not supported!");
@@ -245,7 +246,7 @@ impl PdfDocumentReference {
 
     /// Save PDF Document, writing the contents to the target
     pub fn save<W: Write>(self, target: &mut BufWriter<W>)
-    -> ::std::result::Result<(), Error>
+    -> ::std::result::Result<(), PrintpdfError>
     {
         use lopdf::{Dictionary as LoDictionary,
                     Object as LoObject};

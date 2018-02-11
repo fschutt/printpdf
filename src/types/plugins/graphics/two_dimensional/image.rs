@@ -27,7 +27,7 @@ impl From<ImageXObject> for Image {
 
 impl Image {
     pub fn try_from<T: ImageDecoder>(image: T)
-    -> std::result::Result<Self, image::ImageError>
+    -> Result<Self, image::ImageError>
     {
         let image = ImageXObject::try_from(image)?;
         Ok(Self {

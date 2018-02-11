@@ -370,7 +370,6 @@ extern crate chrono;
 extern crate rand;
 pub extern crate image;
 
-pub mod traits;
 pub mod types;
 pub mod errors;
 mod glob_defines;
@@ -384,7 +383,6 @@ pub use self::errors::pdf_error::ErrorKind as PdfErrorKind;
 pub use self::errors::index_error::Error as IndexError;
 pub use self::errors::index_error::ErrorKind as IndexErrorKind;
 
-pub use self::traits::{IntoPdfObject, IntoPdfStreamOperation};
 pub use self::types::pdf_conformance::{CustomPdfConformance, PdfConformance};
 pub use self::types::pdf_document::{PdfDocumentReference, PdfDocument};
 pub use self::types::pdf_metadata::PdfMetadata;
