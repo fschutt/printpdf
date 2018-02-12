@@ -9,7 +9,7 @@
 
 ```toml,ignore
 [dependencies]
-printpdf = "0.2.2"
+printpdf = "0.2.3"
 ```
 
 ## Features

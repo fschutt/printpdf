@@ -1,5 +1,17 @@
 # Changelog
 
+## `0.2.3`
+
+- printpdf now uses rusttype and does not require freetype anymore! There was an ugly 
+  character-spacing hack that was fixed. You should now be able to build printpdf on windows 
+  without further setup. 
+- Millimeters and points are now strongly typed - instead of `f64`, you now must denote the
+  scale with `Pt(f64)`, `Mm(f64)` or `Px(f64)`. The `mm_to_pt!` and `pt_to_mm!` macros have
+  been dropped since you can now do true conversions between these types. The reason for this
+  change was because this raw `f64`-based conversion bit me hard while using the library.
+- The `Line` now has a different API and no `new()` function anymore. This is because
+  `Line::new(true, false, true)` is less expressive than `Line { has_stroke: true, ... }`. 
+
 ## `0.2.2`
 
 - SVG functionality was removed (commented out), because it didn't work in the first place
