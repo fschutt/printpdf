@@ -22,3 +22,4 @@ clippy = []
 
 [badges]
 travis-ci = { repository = "fschutt/printpdf" }
+appveyor = { repository = "fschutt/printpdf" }
