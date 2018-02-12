@@ -2,8 +2,6 @@
 
 //! Embedding fonts in 2D for Pdf
 use lopdf;
-use rusttype;
-
 use lopdf::{Stream as LoStream, Dictionary as LoDictionary};
 use lopdf::StringFormat;
 use std::collections::{HashMap, BTreeMap};
@@ -142,6 +140,8 @@ impl ExternalFont {
     pub fn new<R>(mut font_stream: R, font_index: usize)
     -> Result<Self, PrintpdfError> where R: ::std::io::Read
     {
+        use errors::FontError;
+
         // read font from stream and parse font metrics
         let mut buf = Vec::<u8>::new();
         font_stream.read_to_end(&mut buf)?;
@@ -152,7 +152,7 @@ impl ExternalFont {
 
             if let None = font {
                 if let None = collection.into_fonts().nth(0) {
-                    return Err(Error::from_kind(FontError));
+                    return Err(PrintpdfError::from_kind(FontError));
                 }
             }
 
@@ -220,28 +220,35 @@ impl ExternalFont {
         // Widths (or heights, depends on self.vertical_writing)
         // of the individual characters, indexed by glyph id
         let mut widths = HashMap::<u32, u32>::new();
-        // Height of the space (0x0020 character), to scale the font correctly
-        let mut space_height;
 
         // Glyph IDs - (Unicode IDs - character width, character height)
         let mut cmap = BTreeMap::<u32, (u32, u32, u32)>::new();
         cmap.insert(0, (0, 1000, 1000));
 
         for unicode in 0x0000..0xffff {
+
             let glyph = font.glyph(Cpg(Cp(unicode)));
+
             if let Some(glyph) = glyph {
-                if glyph.id().0 == 0 { continue; }
+                
+                if glyph.id().0 == 0 { 
+                    continue; 
+                }
+
                 let glyph_id = glyph.id().0;
+
                 if let Some(glyph) = font.glyph(Cgid(Gid(glyph_id))) {
+
                     if let Some(glyph_metrics) = glyph.standalone().get_data() {
+
                         if let Some(extents) = glyph_metrics.extents {
+                            
                             let w = glyph_metrics.unit_h_metrics.advance_width;
                             let h = extents.max.y - extents.min.y - face_metrics.descent as i32;
-
-                            // large T
-                            // if unicode == 0x0020 { space_height = h; }
-
-                            if h > max_height { max_height = h; };
+                            
+                            if h > max_height { 
+                                max_height = h; 
+                            };
 
                             total_width += w as u32;
                             cmap.insert(glyph_id, (unicode as u32, w as u32, h as u32));
@@ -250,9 +257,6 @@ impl ExternalFont {
                 }
             }
         }
-
-        let v_metrics = font.v_metrics_unscaled();
-        space_height = v_metrics.ascent /* - v_metrics.line_gap + v_metrics.descent + v_metrics.line_gap*/ as i32;
 
         // Maps the character index to a unicode value
         // Add this to the "ToUnicode" dictionary
@@ -309,7 +313,7 @@ impl ExternalFont {
         let mut current_width_vec = Vec::<Object>::new();
 
         // scale the font width so that it sort-of fits into an 1000 unit square
-        let percentage_font_scaling = 1000.0 / (face.em_size() as f64);
+        let percentage_font_scaling = 1000.0 / (font.units_per_em() as f64);
 
         for (gid, width) in widths {
             if gid == current_high_gid {

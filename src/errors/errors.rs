@@ -1,7 +1,5 @@
 #![allow(unused_qualifications)]
 
-extern crate rusttype;
-
 use super::*;
 
 error_chain! {

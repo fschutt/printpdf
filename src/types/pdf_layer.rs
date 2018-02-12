@@ -1,7 +1,6 @@
 //! PDF layer management. Layers can contain referenced or real content.
 
 use lopdf;
-use rusttype;
 
 use indices::{PdfPageIndex, PdfLayerIndex};
 use std::rc::Weak;
