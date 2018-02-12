@@ -37,8 +37,8 @@ environment:
 # (Based on from https://github.com/rust-lang/libc/blob/master/appveyor.yml)
 install:
   - choco install -y mingw
-  - ps: Start-FileDownload "https://static.rust-lang.org/dist/rust-${env:TARGET}.exe" -FileName "rust-install.exe"
-  - ps: .\rust-install.exe /VERYSILENT /NORESTART /DIR="C:\rust" | Out-Null
+  - curl -sSf -o rustup-init.exe https://win.rustup.rs
+  - rustup-init.exe --default-host %TARGET% --default-toolchain %CHANNEL% -y
   - ps: $env:PATH="$env:PATH;C:\rust\bin;C:\tools\mingw64\bin"
   - gcc -v
   - rustc -vV
