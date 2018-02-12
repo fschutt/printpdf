@@ -10,7 +10,7 @@ description = "Rust library for writing PDF files"
 
 [dependencies]
 lopdf = "0.15.1"
-freetype-rs = "0.16.0"
+freetype-rs = "0.17.0"
 error-chain = "0.11.0"
 chrono = "0.4.0"
 rand = { version = "0.4.2", default-features = false }
