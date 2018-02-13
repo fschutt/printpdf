@@ -1,5 +1,10 @@
 # Changelog
 
+## `0.2.4`
+
+- Nothing changed, just a dependency update, because `rusttype` was yanked, so `printpdf 0.2.3`
+  doesn't build anymore
+
 ## `0.2.3`
 
 - printpdf now uses rusttype and does not require freetype anymore! There was an ugly 
