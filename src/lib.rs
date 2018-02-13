@@ -339,7 +339,6 @@
 
 #[macro_use] extern crate error_chain;
 #[macro_use] extern crate log;
-#[macro_use] pub mod glob_macros;
 
 extern crate lopdf;
 extern crate rusttype;
