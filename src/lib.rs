@@ -349,6 +349,7 @@ pub extern crate image;
 pub mod types;
 pub mod scale;
 pub mod errors;
+pub mod utils;
 mod glob_defines;
 mod indices;
 #[cfg(test)] mod tests;
@@ -377,7 +378,7 @@ pub use self::types::plugins::graphics::two_dimensional::font::{
 };
 pub use self::types::plugins::graphics::two_dimensional::image::Image;
 pub use self::types::plugins::graphics::two_dimensional::line::Line;
-pub use self::types::plugins::graphics::two_dimensional::point::Point;
+pub use self::types::plugins::graphics::two_dimensional::point::{Point};
 
 pub use self::types::plugins::graphics::color::{
     Color, Rgb, Cmyk, Greyscale, SpotColor, PdfColor, ColorSpace, ColorBits
