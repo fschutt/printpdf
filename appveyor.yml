@@ -10,8 +10,14 @@ environment:
       CHANNEL: stable
     - TARGET: i686-pc-windows-msvc
       CHANNEL: stable
-    - TARGET: x86_64-pc-windows-gnu
-      CHANNEL: stable
+    # This target is commented out because for some reason appveyor only ships 
+    # GCC in 32-bit mode, so when compiling miniz.c (require for zipping), it'll
+    # fail although the build itself will work fine (because nobody uses a 32-bit 
+    # compiler anymore in the real world). Just use a 64-bit compiler and 
+    # everything will work fine.
+    #  
+    # - TARGET: x86_64-pc-windows-gnu
+    #   CHANNEL: stable
     - TARGET: x86_64-pc-windows-msvc
       CHANNEL: stable
 
