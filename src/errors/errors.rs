@@ -10,6 +10,7 @@ error_chain! {
 
     foreign_links {
         IoError(::std::io::Error);
+        RusttypeError(::rusttype::Error);
     }
 
     links {

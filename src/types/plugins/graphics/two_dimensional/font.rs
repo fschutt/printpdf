@@ -9,8 +9,6 @@ use std::iter::FromIterator;
 use PrintpdfError;
 
 use rusttype::FontCollection;
-use rusttype::CodepointOrGlyphId::Codepoint as Cpg;
-use rusttype::CodepointOrGlyphId::GlyphId as Cgid;
 use rusttype::Codepoint as Cp;
 use rusttype::GlyphId as Gid;
 
@@ -140,22 +138,13 @@ impl ExternalFont {
     pub fn new<R>(mut font_stream: R, font_index: usize)
     -> Result<Self, PrintpdfError> where R: ::std::io::Read
     {
-        use errors::FontError;
-
         // read font from stream and parse font metrics
         let mut buf = Vec::<u8>::new();
         font_stream.read_to_end(&mut buf)?;
 
         let face_name = {
-            let collection = FontCollection::from_bytes(buf.clone());
-            let font = collection.clone().into_font();
-
-            if let None = font {
-                if let None = collection.into_fonts().nth(0) {
-                    return Err(PrintpdfError::from_kind(FontError));
-                }
-            }
-
+            let collection = FontCollection::from_bytes(buf.clone())?;
+            collection.clone().into_font().unwrap_or(collection.font_at(0)?);
             format!("F{}", font_index)
         };
 
@@ -176,8 +165,10 @@ impl ExternalFont {
         let face_name = self.face_name.clone();
 
         let font_buf_ref: Box<[u8]> = self.font_bytes.into_boxed_slice();
-        let collection = FontCollection::from_bytes(font_buf_ref.clone());
-        let font = collection.clone().into_font().unwrap_or(collection.into_fonts().nth(0).unwrap());
+        let collection = FontCollection::from_bytes(font_buf_ref.clone()).unwrap();
+        let font = collection.clone().into_font().unwrap_or_else(|_| {
+            collection.font_at(0).unwrap()
+        });
 
         // Extract basic font information
         let face_metrics = font.v_metrics_unscaled();
@@ -225,35 +216,30 @@ impl ExternalFont {
         let mut cmap = BTreeMap::<u32, (u32, u32, u32)>::new();
         cmap.insert(0, (0, 1000, 1000));
 
-        for unicode in 0x0000..0xffff {
+        for unicode in 0x0001..0xffff {
 
-            let glyph = font.glyph(Cpg(Cp(unicode)));
+            let glyph = font.glyph(Cp(unicode));
 
-            if let Some(glyph) = glyph {
-                
-                if glyph.id().0 == 0 { 
-                    continue; 
-                }
+            if glyph.id().0 == 0 { 
+                continue; 
+            }    
 
-                let glyph_id = glyph.id().0;
+            let glyph_id = glyph.id().0;
+            let glyph = font.glyph(Gid(glyph_id));
 
-                if let Some(glyph) = font.glyph(Cgid(Gid(glyph_id))) {
+            if let Some(glyph_metrics) = glyph.standalone().get_data() {
 
-                    if let Some(glyph_metrics) = glyph.standalone().get_data() {
+                if let Some(extents) = glyph_metrics.extents {
+                    
+                    let w = glyph_metrics.unit_h_metrics.advance_width;
+                    let h = extents.max.y - extents.min.y - face_metrics.descent as i32;
+                    
+                    if h > max_height { 
+                        max_height = h; 
+                    };
 
-                        if let Some(extents) = glyph_metrics.extents {
-                            
-                            let w = glyph_metrics.unit_h_metrics.advance_width;
-                            let h = extents.max.y - extents.min.y - face_metrics.descent as i32;
-                            
-                            if h > max_height { 
-                                max_height = h; 
-                            };
-
-                            total_width += w as u32;
-                            cmap.insert(glyph_id, (unicode as u32, w as u32, h as u32));
-                        }
-                    }
+                    total_width += w as u32;
+                    cmap.insert(glyph_id, (unicode as u32, w as u32, h as u32));
                 }
             }
         }

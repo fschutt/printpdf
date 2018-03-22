@@ -381,6 +381,9 @@ impl PdfLayerReference {
     pub fn write_text<S>(&self, text: S, font: &IndirectFontRef)
     -> () where S: Into<String>
     {
+        // NOTE: The unwrap() calls in this function are safe, since
+        // we've already checked the font for validity when it was added to the document
+
         use lopdf::Object::*;
         use lopdf::StringFormat::Hexadecimal;
         use lopdf::content::Operation;
@@ -399,22 +402,22 @@ impl PdfLayerReference {
 
         let bytes: Vec<u8> = {
             use rusttype::FontCollection;
-            use rusttype::CodepointOrGlyphId::Codepoint as Cpg;
             use rusttype::Codepoint as Cp;
 
             if let Font::ExternalFont(face_direct_ref) = doc.fonts.get_font(font).unwrap().data {
 
                 let mut list_gid = Vec::<u16>::new();
-                let collection = FontCollection::from_bytes(&*face_direct_ref.font_bytes);
-                let font = collection.clone().into_font().unwrap_or(collection.into_fonts().nth(0).unwrap());
+                let collection = FontCollection::from_bytes(&*face_direct_ref.font_bytes).unwrap();
+                let font = collection.clone().into_font().unwrap_or(collection.font_at(0).unwrap());
 
                 // convert into list of glyph ids - unicode magic
                 let char_iter = text.chars();
 
                 for ch in char_iter {
-                    if let Some(glyph) = font.glyph(Cpg(Cp(ch as u32))) {
-                        list_gid.push(glyph.id().0 as u16);
-                    }
+                    // note: font.glyph will panic if the character is \0
+                    // since that can't happen in Rust, I think we're safe here
+                    let glyph = font.glyph(Cp(ch as u32));
+                    list_gid.push(glyph.id().0 as u16);
 
                     // todo - kerning !!
                     // font.pair_kerning(scale, id, base_glyph.id());
