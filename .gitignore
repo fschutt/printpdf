@@ -2,6 +2,5 @@ target/*
 ./*.pdf
 ./test_
 test_
-*.lock
 .vscode/*
 .cargo/*
