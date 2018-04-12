@@ -1,5 +1,16 @@
 # Changelog
 
+## `0.2.5`
+
+- Fixed important word-spacing bug. In any version from 0.2.3 to this release there was a bug
+  where the spacing between words wasn't adjusted correctly, because the horizontal advance width
+  wasn't been taken into account. This has been fixed
+- `Pt` and `Mm` can now be multiplied and divided by `f64`, mostly to ease the use of using them with
+  projections
+- New `utils::calculate_points_for_rect` and `utils::calculate_points_for_circle` functions make
+  it easier to create circles and squares in a PDF. They are only convenience functions, mostly 
+  because PDF has no built-in notation for circles or squares.
+
 ## `0.2.4`
 
 - Nothing changed, just a dependency update, because `rusttype` was yanked, so `printpdf 0.2.3`

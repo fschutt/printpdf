@@ -216,31 +216,33 @@ impl ExternalFont {
         let mut cmap = BTreeMap::<u32, (u32, u32, u32)>::new();
         cmap.insert(0, (0, 1000, 1000));
 
-        for unicode in 0x0001..0xffff {
+        for unicode in 0x0000..0xffff {
 
             let glyph = font.glyph(Cp(unicode));
 
             if glyph.id().0 == 0 { 
                 continue; 
-            }    
+            }
 
             let glyph_id = glyph.id().0;
             let glyph = font.glyph(Gid(glyph_id));
 
             if let Some(glyph_metrics) = glyph.standalone().get_data() {
 
-                if let Some(extents) = glyph_metrics.extents {
-                    
-                    let w = glyph_metrics.unit_h_metrics.advance_width;
-                    let h = extents.max.y - extents.min.y - face_metrics.descent as i32;
-                    
-                    if h > max_height { 
-                        max_height = h; 
-                    };
+                let w = glyph_metrics.unit_h_metrics.advance_width;
 
-                    total_width += w as u32;
-                    cmap.insert(glyph_id, (unicode as u32, w as u32, h as u32));
-                }
+                // Note: extents can be None, but then the character may still have a
+                // horizontal advance!
+                let h = glyph_metrics.extents.and_then(|extents| {
+                    Some(extents.max.y - extents.min.y - face_metrics.descent as i32)
+                }).unwrap_or(1000);
+
+                if h > max_height {
+                    max_height = h;
+                };
+
+                total_width += w as u32;
+                cmap.insert(glyph_id, (unicode as u32, w as u32, h as u32));
             }
         }
 
