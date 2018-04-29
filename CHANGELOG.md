@@ -1,5 +1,9 @@
 # Changelog
 
+## `0.2.6`
+
+- Updated `image` dependency
+
 ## `0.2.5`
 
 - Fixed important word-spacing bug. In any version from 0.2.3 to this release there was a bug

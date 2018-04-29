@@ -9,7 +9,18 @@ os:
   - linux
   - osx
 
-sudo: false
+cache: cargo
+
+matrix:
+  fast_finish: true
+
+branches:
+  only:
+    - auto
+
+script:
+  - cargo build --verbose --examples
+  - cargo test --verbose
 
 notifications:
   email: false

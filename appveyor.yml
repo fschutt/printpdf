@@ -39,5 +39,5 @@ build: false
 # Equivalent to Travis' `script` phase
 # TODO modify this phase as you see fit
 test_script:
-  - cargo build
+  - cargo build --verbose --examples
   - cargo test --verbose
