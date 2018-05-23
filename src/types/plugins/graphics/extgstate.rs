@@ -1,3 +1,5 @@
+#![allow(unused_variables)]
+
 //! Extended graphics state, for advanced graphical operation (overprint, black point control, etc.)
 //!
 //! Some of the operations can be done on the layer directly, but for advanced graphics,
@@ -929,7 +931,7 @@ impl HalftoneType {
     }
 
     pub fn into_obj(self)
-    -> Vec<lopdf::Object> 
+    -> Vec<lopdf::Object>
     {
         use std::iter::FromIterator;
         vec![Dictionary(lopdf::Dictionary::from_iter(vec![

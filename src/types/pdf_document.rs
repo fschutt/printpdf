@@ -1,20 +1,18 @@
 //! A `PDFDocument` represents the whole content of the file
 
-extern crate lopdf;
-extern crate chrono;
-extern crate rand;
-
-use rand::Rng;
-
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::io::Write;
 use std::io::BufWriter;
+use rand::distributions::Alphanumeric;
+use rand::{Rng, thread_rng};
+use lopdf;
+use chrono;
 
 use indices::*;
 use {
-    ExternalFont, Font, PdfPage, FontList, IccProfileList, PdfMetadata, PdfConformance, IndirectFontRef, 
-    DirectFontRef, BuiltinFont, PdfPageReference, PrintpdfError, Mm
+    ExternalFont, Font, PdfPage, FontList, IccProfileList, PdfMetadata, PdfConformance, IndirectFontRef,
+    DirectFontRef, BuiltinFont, PdfPageReference, Error, Mm
 };
 
 /// PDF document
@@ -53,7 +51,7 @@ impl PdfDocument {
     {
         let doc = Self {
             pages: Vec::new(),
-            document_id: rand::thread_rng().gen_ascii_chars().take(32).collect(),
+            document_id: thread_rng().sample_iter(&Alphanumeric).take(32).collect(),
             fonts: FontList::new(),
             icc_profiles: IccProfileList::new(),
             inner_doc: lopdf::Document::with_version("1.3"),
@@ -175,7 +173,7 @@ impl PdfDocumentReference {
 
     /// Add a font from a font stream
     pub fn add_external_font<R>(&self, font_stream: R)
-    -> ::std::result::Result<IndirectFontRef, PrintpdfError> where R: ::std::io::Read
+    -> ::std::result::Result<IndirectFontRef, Error> where R: ::std::io::Read
     {
         let last_font_index = { let doc = self.document.borrow(); doc.fonts.len() };
         let external_font = ExternalFont::new(font_stream, last_font_index)?;
@@ -186,9 +184,8 @@ impl PdfDocumentReference {
 
     /// Add a built-in font to the document
     pub fn add_builtin_font(&self, builtin_font: BuiltinFont)
-    -> ::std::result::Result<IndirectFontRef, PrintpdfError>
+    -> ::std::result::Result<IndirectFontRef, Error>
     {
-        let last_font_index = { let doc = self.document.borrow(); doc.fonts.len() };
         let builtin_font_name: &'static str = builtin_font.clone().into();
         implement_adding_fonts!(&self, builtin_font_name, Font::BuiltinFont(builtin_font))
     }
@@ -229,26 +226,26 @@ impl PdfDocumentReference {
 
     /// Checks for invalid settings in the document
     pub fn check_for_errors(&self)
-    -> ::std::result::Result<(), PrintpdfError>
+    -> ::std::result::Result<(), Error>
     {
-        // todo
+        // TODO
         warn!("Checking PDFs for errors is currently not supported!");
         Ok(())
     }
 
     /// Tries to match the document to the given conformance.
     /// Errors only on an unrecoverable error.
-    pub fn repair_errors(&self, conformance: PdfConformance)
-    -> ::std::result::Result<(), PrintpdfError>
+    pub fn repair_errors(&self, _conformance: PdfConformance)
+    -> ::std::result::Result<(), Error>
     {
-        //todo
+        // TODO
         warn!("Reparing PDFs is currently not supported!");
         Ok(())
     }
 
     /// Save PDF Document, writing the contents to the target
     pub fn save<W: Write>(self, target: &mut BufWriter<W>)
-    -> ::std::result::Result<(), PrintpdfError>
+    -> ::std::result::Result<(), Error>
     {
         use lopdf::{Dictionary as LoDictionary,
                     Object as LoObject};
@@ -436,7 +433,7 @@ impl PdfDocumentReference {
 
         // save inner document
         let catalog_id = doc.inner_doc.add_object(catalog);
-        let instance_id = rand::thread_rng().gen_ascii_chars().take(32).collect::<::std::string::String>();
+        let instance_id = thread_rng().sample_iter(&Alphanumeric).take(32).collect::<::std::string::String>();
 
         doc.inner_doc.trailer.set("Root", Reference(catalog_id));
         doc.inner_doc.trailer.set("Info", Reference(document_info_id));

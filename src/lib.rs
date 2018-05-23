@@ -21,9 +21,9 @@
 //! - PDF layers (you should be able to open the PDF in Illustrator and have the layers appear)
 //!
 //! # Getting started
-//! 
+//!
 //! ## Writing PDF
-//! 
+//!
 //! ### Simple page
 //!
 //! ```rust
@@ -44,10 +44,10 @@
 //! use std::fs::File;
 //! use std::io::BufWriter;
 //! use std::iter::FromIterator;
-//! 
+//!
 //! let (doc, page1, layer1) = PdfDocument::new("printpdf graphics test", Mm(297.0), Mm(210.0), "Layer 1");
 //! let current_layer = doc.get_page(page1).get_layer(layer1);
-//! 
+//!
 //! // Quadratic shape. The "false" determines if the next (following)
 //! // point is a bezier handle (for curves)
 //! // If you want holes, simply reorder the winding of the points to be
@@ -56,24 +56,24 @@
 //!                    (Point::new(Mm(100.0), Mm(200.0)), false),
 //!                    (Point::new(Mm(300.0), Mm(200.0)), false),
 //!                    (Point::new(Mm(300.0), Mm(100.0)), false)];
-//! 
+//!
 //! // Is the shape stroked? Is the shape closed? Is the shape filled?
-//! let line1 = Line { 
-//!     points: points1, 
-//!     is_closed: true, 
+//! let line1 = Line {
+//!     points: points1,
+//!     is_closed: true,
 //!     has_fill: true,
 //!     has_stroke: true,
 //!     is_clipping_path: false,
 //! };
-//! 
+//!
 //! // Triangle shape
-//! // Note: Line is invisible by default, the previous method of 
+//! // Note: Line is invisible by default, the previous method of
 //! // constructing a line is recommended!
 //! let mut line2 = Line::from_iter(vec![
 //!     (Point::new(Mm(150.0), Mm(150.0)), false),
 //!     (Point::new(Mm(150.0), Mm(250.0)), false),
 //!     (Point::new(Mm(350.0), Mm(250.0)), false)]);
-//! 
+//!
 //! line2.set_stroke(true);
 //! line2.set_closed(false);
 //! line2.set_fill(false);
@@ -120,10 +120,10 @@
 //!
 //! ```rust
 //! extern crate printpdf;
-//! 
+//!
 //! // imports the `image` library with the exact version that we are using
 //! use printpdf::*;
-//! 
+//!
 //! use std::convert::From;
 //! use std::fs::File;
 //!
@@ -213,52 +213,52 @@
 //! ```
 //!
 //! ## Changelog
-//! 
+//!
 //! See the CHANGELOG.md file.
 //!
 //! # Further reading
 //!
-//! The `PDFDocument` is hidden behind a `PDFDocumentReference`, which locks 
-//! the things you can do behind a facade. Pretty much all functions operate 
-//! on a `PDFLayerReference`, so that would be where to look for existing 
+//! The `PDFDocument` is hidden behind a `PDFDocumentReference`, which locks
+//! the things you can do behind a facade. Pretty much all functions operate
+//! on a `PDFLayerReference`, so that would be where to look for existing
 //! functions or where to implement new functions. The `PDFDocumentReference`
-//! is a reference-counted document. It uses the pages and layers for inner 
+//! is a reference-counted document. It uses the pages and layers for inner
 //! mutablility, because
-//! I ran into borrowing issues with the document. __IMPORTANT:__ All functions 
-//! that mutate the state of the document, "borrow" the document mutably for 
-//! the duration of the function. It is important that you don't borrow the 
+//! I ran into borrowing issues with the document. __IMPORTANT:__ All functions
+//! that mutate the state of the document, "borrow" the document mutably for
+//! the duration of the function. It is important that you don't borrow the
 //! document twice (your program will crash if you do so). I have prevented
-//! this wherever possible, by making the document only public to the crate 
+//! this wherever possible, by making the document only public to the crate
 //! so you cannot lock it from outside of this library.
 //!
-//! Images have to be added to the pages resources before using them. Meaning, 
-//! you can only use an image on the page that you added it to. Otherwise, 
+//! Images have to be added to the pages resources before using them. Meaning,
+//! you can only use an image on the page that you added it to. Otherwise,
 //! you may end up with a corrupt PDF.
 //!
-//! Fonts are embedded using `freetype`. There is a `rusttype` branch in this 
+//! Fonts are embedded using `freetype`. There is a `rusttype` branch in this
 //! repository, but `rusttype` does fails to get the height of an unscaled
 //! font correctly, so that's why you currently have to use `freetype`
-//! 
-//! Please report issues if you have any, especially if you see `BorrowMut` 
-//! errors (they should not happen). Kerning is currently not done, because 
+//!
+//! Please report issues if you have any, especially if you see `BorrowMut`
+//! errors (they should not happen). Kerning is currently not done, because
 //! neither `freetype` nor `rusttype` can reliably read kerning data.
-//! However, "correct" kerning / placement requires a full font shaping 
+//! However, "correct" kerning / placement requires a full font shaping
 //! engine, etc. This would be a completely different project.
 //!
-//! For learning how a PDF is actually made, please read the 
-//! [wiki](https://github.com/fschutt/printpdf/wiki) (currently not 
-//! completely finished). When I began making this library, these resources 
+//! For learning how a PDF is actually made, please read the
+//! [wiki](https://github.com/fschutt/printpdf/wiki) (currently not
+//! completely finished). When I began making this library, these resources
 //! were not available anywhere, so I hope to help other people
-//! with these topics. Reading the wiki is essential if you want to 
+//! with these topics. Reading the wiki is essential if you want to
 //! contribute to this library.
 //!
 //! # Goals and Roadmap
 //!
-//! The goal of printpdf is to be a general-use PDF library, such as 
-//! libharu or similar. PDFs generated by printpdf should always adhere 
-//! to a PDF standard, except if you turn it off. Currently, only the 
-//! standard `PDF/X-3:2002` is covered (i.e. valid PDF according to Adobe 
-//! Acrobat). Over time, there will be more standards supported. Checking a 
+//! The goal of printpdf is to be a general-use PDF library, such as
+//! libharu or similar. PDFs generated by printpdf should always adhere
+//! to a PDF standard, except if you turn it off. Currently, only the
+//! standard `PDF/X-3:2002` is covered (i.e. valid PDF according to Adobe
+//! Acrobat). Over time, there will be more standards supported. Checking a
 //! PDF for errors is currently only a stub.
 //!
 //! ## Planned features / Not done yet
@@ -278,16 +278,16 @@
 //!
 //! # Testing
 //!
-//! Currently the testing is pretty much non-existent, because PDF is very hard to test. 
-//! This should change over time: Testing should be done in two stages. First, test 
-//! the individual PDF objects, if the conversion into a PDF object is done correctly. 
+//! Currently the testing is pretty much non-existent, because PDF is very hard to test.
+//! This should change over time: Testing should be done in two stages. First, test
+//! the individual PDF objects, if the conversion into a PDF object is done correctly.
 //! The second stage is manual inspection of PDF objects via Adobe Preflight.
 //!
-//! Put the tests of the first stage in /tests/mod.rs. The second stage tests are 
-//! better to be handled inside the plugins' mod.rs file. `printpdf` depends highly 
-//! on [lopdf](https://github.com/J-F-Liu/lopdf), so you can either construct your 
-//! test object against a real type or a debug string of your serialized type. 
-//! Either way is fine - you just have to check that the test object is conform to 
+//! Put the tests of the first stage in /tests/mod.rs. The second stage tests are
+//! better to be handled inside the plugins' mod.rs file. `printpdf` depends highly
+//! on [lopdf](https://github.com/J-F-Liu/lopdf), so you can either construct your
+//! test object against a real type or a debug string of your serialized type.
+//! Either way is fine - you just have to check that the test object is conform to
 //! what PDF expects.
 //!
 //! # Useful links
@@ -303,10 +303,6 @@
 //! [PDF X/1-a Validator](https://www.pdf-online.com/osa/validate.aspx)
 //!
 //! [PDF X/3 technical notes](http://www.pdfxreport.com/lib/exe/fetch.php?media=en:technote_pdfx_checks.pdf)
-
-#![allow(unused_doc_comment)]
-#![allow(unused_variables)]
-#![allow(dead_code)]
 
 // Enable clippy if our Cargo.toml file asked us to do so.
 #![cfg_attr(feature="clippy", feature(plugin))]
@@ -330,20 +326,16 @@
 // (which is provided by the `log` crate).
 #![cfg_attr(feature="clippy", warn(print_stdout))]
 
-// This allows us to use `unwrap` on `Option` values (because doing makes
-// working with Regex matches much nicer) and when compiling in test mode
-// (because using it in tests is idiomatic).
 #![cfg_attr(all(not(test), feature="clippy"), warn(result_unwrap_used))]
 #![cfg_attr(feature="clippy", warn(unseparated_literal_suffix))]
 #![cfg_attr(feature="clippy", warn(wrong_pub_self_convention))]
 
-#[macro_use] extern crate error_chain;
-#[macro_use] extern crate log;
+#[macro_use] pub extern crate log;
 
-extern crate lopdf;
-extern crate rusttype;
-extern crate chrono;
-extern crate rand;
+pub extern crate lopdf;
+pub extern crate rusttype;
+pub extern crate chrono;
+pub extern crate rand;
 pub extern crate image;
 
 pub mod types;
@@ -354,12 +346,10 @@ mod glob_defines;
 mod indices;
 #[cfg(test)] mod tests;
 
-pub use self::errors::errors::Error as PrintpdfError;
-pub use self::errors::errors::ErrorKind as PrintpdfErrorKind;
-pub use self::errors::pdf_error::Error as PdfError;
-pub use self::errors::pdf_error::ErrorKind as PdfErrorKind;
-pub use self::errors::index_error::Error as IndexError;
-pub use self::errors::index_error::ErrorKind as IndexErrorKind;
+pub use self::errors::Error;
+pub use self::errors::PdfError;
+pub use self::errors::IndexError;
+pub use rusttype::Error as RusttypeError;
 
 pub use self::scale::{Mm, Pt, Px};
 pub use self::types::pdf_conformance::{CustomPdfConformance, PdfConformance};
@@ -389,7 +379,7 @@ pub use self::types::plugins::graphics::extgstate::{
     OverprintMode, BlackGenerationFunction, BlackGenerationExtraFunction, UnderColorRemovalFunction,
     UnderColorRemovalExtraFunction, TransferFunction, TransferExtraFunction, HalftoneType,
     SpotFunction, BlendMode, SeperableBlendMode, NonSeperableBlendMode, RenderingIntent, SoftMask,
-    SoftMaskFunction, LineJoinStyle, LineCapStyle, LineDashPattern, 
+    SoftMaskFunction, LineJoinStyle, LineCapStyle, LineDashPattern,
 };
 pub use self::types::plugins::graphics::icc_profile::{
     IccProfileType, IccProfile, IccProfileRef, IccProfileList
@@ -398,9 +388,9 @@ pub use self::types::plugins::graphics::ocg::{OCGList, OCGRef};
 pub use self::types::plugins::graphics::pattern::{Pattern, PatternRef, PatternList};
 pub use self::types::plugins::graphics::pdf_resources::PdfResources;
 pub use self::types::plugins::graphics::xobject::{
-    XObject, XObjectList, XObjectRef, ImageXObject, ImageXObjectRef, 
-    ImageFilter, FormXObject, FormXObjectRef, FormType, SMask, GroupXObject, 
-    GroupXObjectType, ReferenceXObject, OptionalContentGroup, OCGIntent, PostScriptXObject, 
+    XObject, XObjectList, XObjectRef, ImageXObject, ImageXObjectRef,
+    ImageFilter, FormXObject, FormXObjectRef, FormType, SMask, GroupXObject,
+    GroupXObjectType, ReferenceXObject, OptionalContentGroup, OCGIntent, PostScriptXObject,
 };
 
 /// Stub module for future audio embedding implementation

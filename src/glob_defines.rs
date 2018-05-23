@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! PDF constants for tags for reducing typing mistakes
 
 /*
@@ -151,7 +153,7 @@ pub(crate) const OP_PATH_CONST_CLIP_EO: &str = "W*";
 
 /// Path painting
 
-/// Stroke path 
+/// Stroke path
 pub(crate) const OP_PATH_PAINT_STROKE: &str                         = "S";
 /// Close and stroke path
 pub(crate) const OP_PATH_PAINT_STROKE_CLOSE: &str                   = "s";

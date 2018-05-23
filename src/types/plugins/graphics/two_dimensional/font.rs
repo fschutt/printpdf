@@ -6,7 +6,7 @@ use lopdf::{Stream as LoStream, Dictionary as LoDictionary};
 use lopdf::StringFormat;
 use std::collections::{HashMap, BTreeMap};
 use std::iter::FromIterator;
-use PrintpdfError;
+use Error;
 
 use rusttype::FontCollection;
 use rusttype::Codepoint as Cp;
@@ -62,12 +62,8 @@ impl Into<&'static str> for BuiltinFont {
     }
 }
 
-impl BuiltinFont {
-
-    /// Takes the font and adds it to the document and consumes the font
-    pub(crate) fn into_with_document(self, doc: &mut lopdf::Document)
-    -> LoDictionary
-    {
+impl Into<LoDictionary> for BuiltinFont {
+    fn into(self) -> LoDictionary {
         use lopdf::Object;
         use lopdf::Object::*;
 
@@ -136,7 +132,7 @@ impl ExternalFont {
 
     /// Creates a new font. The `index` is used for naming / identifying the font
     pub fn new<R>(mut font_stream: R, font_index: usize)
-    -> Result<Self, PrintpdfError> where R: ::std::io::Read
+    -> Result<Self, Error> where R: ::std::io::Read
     {
         // read font from stream and parse font metrics
         let mut buf = Vec::<u8>::new();
@@ -220,8 +216,8 @@ impl ExternalFont {
 
             let glyph = font.glyph(Cp(unicode));
 
-            if glyph.id().0 == 0 { 
-                continue; 
+            if glyph.id().0 == 0 {
+                continue;
             }
 
             let glyph_id = glyph.id().0;
@@ -272,9 +268,7 @@ impl ExternalFont {
                 cid_to_unicode_map.push_str(format!("{} beginbfchar\r\n", cur_block_id).as_str());
             }
 
-            let unicode = unicode_width_tuple.0;
-            let width = unicode_width_tuple.1;
-            let height = unicode_width_tuple.2;
+            let (unicode, width, _) = *unicode_width_tuple;
 
             cid_to_unicode_map.push_str(format!("<{:04x}> <{:04x}>\n", glyph_id, unicode).as_str());
             widths.insert(*glyph_id, width);
@@ -454,7 +448,7 @@ impl FontList {
         for (indirect_ref, direct_font_ref) in self.fonts {
             let font_dict_collected = match direct_font_ref.data {
                 Font::ExternalFont(font) => font.into_with_document(doc),
-                Font::BuiltinFont(font)  => font.into_with_document(doc),
+                Font::BuiltinFont(font)  => font.into(),
             };
 
             doc.objects.insert(direct_font_ref.inner_obj, lopdf::Object::Dictionary(font_dict_collected));
