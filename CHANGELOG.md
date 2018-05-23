@@ -2,7 +2,11 @@
 
 ## `0.2.6`
 
-- Updated `image` dependency
+- Updated `image` dependency to 0.19.0
+- Updated `rand` dependency to 0.5.0
+- Removed `error-chain`-generated errors in favor of simpler error enums (slight code-breaking change)
+- Removed `FontError`, since it wasn't used anywhere
+- Publicly re-exported `rusttype::Error` because that prevented error handling in applications that use `printpdf`
 
 ## `0.2.5`
 
@@ -12,7 +16,7 @@
 - `Pt` and `Mm` can now be multiplied and divided by `f64`, mostly to ease the use of using them with
   projections
 - New `utils::calculate_points_for_rect` and `utils::calculate_points_for_circle` functions make
-  it easier to create circles and squares in a PDF. They are only convenience functions, mostly 
+  it easier to create circles and squares in a PDF. They are only convenience functions, mostly
   because PDF has no built-in notation for circles or squares.
 
 ## `0.2.4`
@@ -22,15 +26,15 @@
 
 ## `0.2.3`
 
-- printpdf now uses rusttype and does not require freetype anymore! There was an ugly 
-  character-spacing hack that was fixed. You should now be able to build printpdf on windows 
-  without further setup. 
+- printpdf now uses rusttype and does not require freetype anymore! There was an ugly
+  character-spacing hack that was fixed. You should now be able to build printpdf on windows
+  without further setup.
 - Millimeters and points are now strongly typed - instead of `f64`, you now must denote the
   scale with `Pt(f64)`, `Mm(f64)` or `Px(f64)`. The `mm_to_pt!` and `pt_to_mm!` macros have
   been dropped since you can now do true conversions between these types. The reason for this
   change was because this raw `f64`-based conversion bit me hard while using the library.
 - The `Line` now has a different API and no `new()` function anymore. This is because
-  `Line::new(true, false, true)` is less expressive than `Line { has_stroke: true, ... }`. 
+  `Line::new(true, false, true)` is less expressive than `Line { has_stroke: true, ... }`.
 
 ## `0.2.2`
 
