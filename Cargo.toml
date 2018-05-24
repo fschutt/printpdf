@@ -10,9 +10,9 @@ description = "Rust library for writing PDF files"
 
 [dependencies]
 lopdf = "0.15.1"
-rusttype = "0.5.2"
+rusttype = "0.6.0"
 chrono = "0.4.0"
-rand = "0.5.0"
+rand = { version = "0.5.0", default-features = false, features = ["std"] }
 log = "0.4.1"
 image = "0.19.0"
 

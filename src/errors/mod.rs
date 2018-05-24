@@ -85,5 +85,14 @@ impl_from!(RusttypeError, Error::Rusttype);
 impl_from!(PdfError, Error::Pdf);
 impl_from!(IndexError, Error::Index);
 
-
-
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::Error::*;
+        match *self {
+            Io(ref e) => write!(f, "{}", e),
+            Rusttype(ref e) => write!(f, "{}", e),
+            Pdf(ref e) => write!(f, "{}", e),
+            Index(ref e) => write!(f, "{}", e),
+        }
+    }
+}
