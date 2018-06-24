@@ -334,11 +334,13 @@ impl PdfLayerReference {
     }
 
     /// Sets the word spacing inside a text block.
-    /// Same as `set_character_spacing`, just for words
-    /// __Note:__ This does currently not work, because PDF does not
-    /// recognize unicode fonts, only builtin fonts done with
-    /// PDFDoc encoding
-    /// However, the function itself is valid
+    /// Same as `set_character_spacing`, just for words.
+    /// __Note:__ This currently does not work for external
+    /// fonts. External fonts are encoded with Unicode, and
+    /// PDF does not recognize unicode fonts. It only
+    /// recognizes builtin fonts done with PDFDoc encoding.
+    /// However, the function itself is valid and _will work_
+    /// with builtin fonts.
     #[inline]
     pub fn set_word_spacing(&self, spacing: i64) {
         self.internal_add_operation(Operation::new("Tw",
