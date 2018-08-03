@@ -172,7 +172,7 @@ impl ExternalFont {
         let font_stream = LoStream::new(
             LoDictionary::from_iter(vec![
                 ("Length1", Integer(font_buf_ref.len() as i64)),
-                ("Subtype", Name("CIDFontType0C".into())),
+                ("Subtype", Name("CidFontType2".into())),
                 ]),
             font_buf_ref.to_vec())
         .with_compression(false); /* important! font stream must not be compressed! */
@@ -321,7 +321,7 @@ impl ExternalFont {
 
         let mut desc_fonts = LoDictionary::from_iter(vec![
             ("Type", Name("Font".into())),
-            ("Subtype", Name("CIDFontType0".into())),
+            ("Subtype", Name("CIDFontType2".into())),
             ("BaseFont", Name(face_name.clone().into())),
             ("CIDSystemInfo", Dictionary(LoDictionary::from_iter(vec![
                     ("Registry", String("Adobe".into(), StringFormat::Literal)),
