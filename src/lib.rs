@@ -344,7 +344,6 @@ pub mod errors;
 pub mod utils;
 mod glob_defines;
 mod indices;
-#[cfg(test)] mod tests;
 
 pub use self::errors::Error;
 pub use self::errors::PdfError;
