@@ -1,5 +1,10 @@
 # Changelog
 
+## `0.2.8`
+
+- Firefox PDF viewer now works correctly due to a bugfix regarding the embedded TTF font type
+- No API changes
+
 ## `0.2.7`
 
 - Fixed a bug (https://github.com/fschutt/printpdf/issues/20#issuecomment-409988462)
