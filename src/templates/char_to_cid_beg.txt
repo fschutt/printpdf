@@ -8,8 +8,7 @@
 /CIDInit /ProcSet findresource begin
 12 dict begin
 begincmap
-/CIDSystemInfo
-3 dict dup begin
+/CIDSystemInfo 3 dict dup begin
 /Registry (Adobe) def
 /Ordering (Identity) def
 /Supplement 0 def
@@ -20,6 +19,6 @@ end def
 /WMode 0 def
 2 begincodespacerange
 <20> <20>
-<0000> <19FF>
+<0000> <FFFF>
 endcodespacerange
 1469 begincidchar

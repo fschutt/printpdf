@@ -1,14 +1,24 @@
 /CIDInit /ProcSet findresource begin
+
 12 dict begin
+
 begincmap
-/CIDSystemInfo
-<< /Registry (FontSpecific)
-/Ordering ({0})
-/Supplement 0
->> def
+
+%!PS-Adobe-3.0 Resource-CMap
+%%DocumentNeededResources: procset CIDInit
+%%IncludeResource: procset CIDInit
+
+/CIDSystemInfo 3 dict dup begin
+    /Registry (FontSpecific) def
+    /Ordering ({0}) def
+    /Supplement 0 def
+end def
+
 /CMapName /FontSpecific-{0} def
+/CMapVersion 1 def
 /CMapType 2 def
+/WMode 0 def
+
 1 begincodespacerange
 <0000> <FFFF>
 endcodespacerange
-1 beginbfchar

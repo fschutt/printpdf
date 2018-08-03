@@ -242,43 +242,41 @@ impl ExternalFont {
             }
         }
 
-        // Maps the character index to a unicode value
-        // Add this to the "ToUnicode" dictionary
+        // Maps the character index to a unicode value - add this to the "ToUnicode" dictionary!
+        //
         // To explain this structure: Glyph IDs have to be in segments where the first byte of the
         // first and last element have to be the same. A range from 0x1000 - 0x10FF is valid
         // but a range from 0x1000 - 0x12FF is not (0x10 != 0x12)
         // Plus, the maximum number of Glyph-IDs in one range is 100
+        //
         // Since the glyph IDs are sequential, all we really have to do is to enumerate the vector
         // and create buckets of 100 / rest to 256 if needed
-        let mut cid_to_unicode_map = format!(include_str!("../../../../templates/gid_to_unicode_beg.txt"),
-                                             face_name.clone());
 
-        let mut cur_block_id: u32 = 0;          // ID of the block, to be used it {} beginbfchar
         let mut cur_first_bit: u16 = 0_u16;     // current first bit of the glyph id (0x10 or 0x12) for example
-        let mut last_block_begin: u32 = 0;      // glyph ID of the start of the current block,
-                                                // to satisfy the "less than 100 entries per block" rule
 
-        for (glyph_id, unicode_width_tuple) in &cmap {
+        let mut all_cmap_blocks = Vec::new();
 
-            if (*glyph_id >> 8) as u16 != cur_first_bit || *glyph_id > last_block_begin + 100 {
-                cid_to_unicode_map.push_str("endbfchar\r\n");
-                cur_block_id += 1;
-                last_block_begin = *glyph_id;
-                cur_first_bit = (*glyph_id >> 8) as u16;
-                cid_to_unicode_map.push_str(format!("{} beginbfchar\r\n", cur_block_id).as_str());
-            }
+        {
+            let mut current_cmap_block = Vec::new();
 
-            let (unicode, width, _) = *unicode_width_tuple;
+            for (glyph_id, unicode_width_tuple) in &cmap {
 
-            cid_to_unicode_map.push_str(format!("<{:04x}> <{:04x}>\n", glyph_id, unicode).as_str());
-            widths.insert(*glyph_id, width);
-        };
+                if (*glyph_id >> 8) as u16 != cur_first_bit || current_cmap_block.len() >= 100 {
+                    // end the current (beginbfchar endbfchar) block
+                    all_cmap_blocks.push(current_cmap_block.clone());
+                    current_cmap_block = Vec::new();
+                    cur_first_bit = (*glyph_id >> 8) as u16;
+                }
 
-        if cmap.len() % 256 != 0 || cmap.len() % 100 != 0 {
-            cid_to_unicode_map.push_str("endbfchar\r\n");
+                let (unicode, width, _) = *unicode_width_tuple;
+                current_cmap_block.push((*glyph_id, unicode));
+                widths.insert(*glyph_id, width);
+            };
+
+            all_cmap_blocks.push(current_cmap_block);
         }
 
-        cid_to_unicode_map.push_str(include_str!("../../../../templates/gid_to_unicode_end.txt"));
+        let cid_to_unicode_map = generate_cid_to_unicode_map(face_name.clone(), all_cmap_blocks);
 
         let cid_to_unicode_map_stream = LoStream::new(LoDictionary::new(), cid_to_unicode_map.as_bytes().to_vec());
         let cid_to_unicode_map_stream_id = doc.add_object(cid_to_unicode_map_stream);
@@ -348,6 +346,27 @@ impl ExternalFont {
 
         LoDictionary::from_iter(font_vec)
     }
+}
+
+type GlyphId = u32;
+type UnicodeCodePoint = u32;
+type CmapBlock = Vec<(GlyphId, UnicodeCodePoint)>;
+
+/// Generates a CMAP (character map) from valid cmap blocks
+fn generate_cid_to_unicode_map(face_name: String, all_cmap_blocks: Vec<CmapBlock>) -> String {
+
+    let mut cid_to_unicode_map = format!(include_str!("../../../../templates/gid_to_unicode_beg.txt"), face_name);
+
+    for cmap_block in all_cmap_blocks.into_iter().filter(|block| !block.is_empty() || block.len() < 100) {
+        cid_to_unicode_map.push_str(format!("{} beginbfchar\r\n", cmap_block.len()).as_str());
+        for (glyph_id, unicode) in cmap_block {
+            cid_to_unicode_map.push_str(format!("<{:04x}> <{:04x}>\n", glyph_id, unicode).as_str());
+        }
+        cid_to_unicode_map.push_str("endbfchar\r\n");
+    }
+
+    cid_to_unicode_map.push_str(include_str!("../../../../templates/gid_to_unicode_end.txt"));
+    cid_to_unicode_map
 }
 
 impl PartialEq for ExternalFont {
