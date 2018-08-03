@@ -1,5 +1,11 @@
 # Changelog
 
+## `0.2.7`
+
+- Fixed a bug (https://github.com/fschutt/printpdf/issues/20#issuecomment-409988462)
+  regarding incorrect generation of character map files for embedding fonts
+- No API changes
+
 ## `0.2.6`
 
 - Updated `image` dependency to 0.19.0
