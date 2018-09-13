@@ -2,10 +2,9 @@
 
 use chrono;
 use lopdf;
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
 
 use PdfConformance;
+use utils::random_character_string_32;
 
 /// Initial struct for Xmp metatdata. This should be expanded later for XML handling, etc.
 /// Right now it just fills out the necessary fields
@@ -25,7 +24,7 @@ impl XmpMetadata {
     pub fn new(rendition_class: Option<String>, document_version: u32)
     -> Self
     {
-        let document_id: String = thread_rng().sample_iter(&Alphanumeric).take(32).collect();
+        let document_id: String = random_character_string_32();
         Self {
             document_id: document_id,
             rendition_class: rendition_class,
@@ -52,7 +51,7 @@ impl XmpMetadata {
         let trapping = if trapping { "True" } else { "False" };
 
         // let xmp_instance_id = "2898d852-f86f-4479-955b-804d81046b19";
-        let instance_id = thread_rng().sample_iter(&Alphanumeric).take(32).collect::<::std::string::String>();
+        let instance_id = random_character_string_32();
         let create_date = to_pdf_xmp_date(creation_date);
         let modification_date = to_pdf_xmp_date(modification_date);
         let metadata_date = to_pdf_xmp_date(metadata_date);

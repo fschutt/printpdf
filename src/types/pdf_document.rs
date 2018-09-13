@@ -4,8 +4,8 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use std::io::Write;
 use std::io::BufWriter;
-use rand::distributions::Alphanumeric;
-use rand::{Rng, thread_rng};
+use utils::random_character_string_32;
+
 use lopdf;
 use chrono;
 
@@ -51,7 +51,7 @@ impl PdfDocument {
     {
         let doc = Self {
             pages: Vec::new(),
-            document_id: thread_rng().sample_iter(&Alphanumeric).take(32).collect(),
+            document_id: random_character_string_32(),
             fonts: FontList::new(),
             icc_profiles: IccProfileList::new(),
             inner_doc: lopdf::Document::with_version("1.3"),
@@ -433,7 +433,7 @@ impl PdfDocumentReference {
 
         // save inner document
         let catalog_id = doc.inner_doc.add_object(catalog);
-        let instance_id = thread_rng().sample_iter(&Alphanumeric).take(32).collect::<::std::string::String>();
+        let instance_id = random_character_string_32();
 
         doc.inner_doc.trailer.set("Root", Reference(catalog_id));
         doc.inner_doc.trailer.set("Info", Reference(document_info_id));
@@ -462,13 +462,3 @@ impl PdfDocumentReference {
         doc.compress();
     }
 }
-
-/*
-impl std::convert::From<lopdf::Doument> for PdfDocument
-{
-    fn from(doc: lopdf::Doument) -> Self
-    {
-
-    }
-}
-*/

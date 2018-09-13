@@ -10,11 +10,14 @@ description = "Rust library for writing PDF files"
 
 [dependencies]
 lopdf = "0.15.1"
-rusttype = "0.6.0"
-chrono = "0.4.0"
-rand = { version = "0.5.0", default-features = false, features = ["std"] }
+rusttype = { version = "0.6.0", default-features = false }
+chrono = "0.3.0"
 log = "0.4.1"
-image = "0.19.0"
+
+[dependencies.image]
+version = "0.19.0"
+default-features = false
+features = ["gif_codec", "jpeg", "png_codec", "pnm", "tiff", "bmp"]
 
 [features]
 clippy = []

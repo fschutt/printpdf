@@ -335,7 +335,6 @@
 pub extern crate lopdf;
 pub extern crate rusttype;
 pub extern crate chrono;
-pub extern crate rand;
 pub extern crate image;
 
 pub mod types;
