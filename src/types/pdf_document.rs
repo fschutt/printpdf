@@ -229,7 +229,10 @@ impl PdfDocumentReference {
     -> ::std::result::Result<(), Error>
     {
         // TODO
-        warn!("Checking PDFs for errors is currently not supported!");
+        #[cfg(feature = "logging")] {
+            warn!("Checking PDFs for errors is currently not supported!");
+        }
+
         Ok(())
     }
 
@@ -239,7 +242,10 @@ impl PdfDocumentReference {
     -> ::std::result::Result<(), Error>
     {
         // TODO
-        warn!("Reparing PDFs is currently not supported!");
+        #[cfg(feature = "logging")] {
+            warn!("Reparing PDFs is currently not supported!");
+        }
+
         Ok(())
     }
 

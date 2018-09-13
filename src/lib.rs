@@ -330,6 +330,7 @@
 #![cfg_attr(feature="clippy", warn(unseparated_literal_suffix))]
 #![cfg_attr(feature="clippy", warn(wrong_pub_self_convention))]
 
+#[cfg(feature = "logging")]
 #[macro_use] pub extern crate log;
 
 pub extern crate lopdf;
