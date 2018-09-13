@@ -75,10 +75,19 @@ static RAND_SEED: AtomicUsize = AtomicUsize::new(2100);
 /// Xorshift-based random number generator. Impure function
 pub(crate) fn rand() -> usize {
     let mut x = RAND_SEED.fetch_add(21, Ordering::SeqCst);
-    x ^= x << 21;
-    x ^= x >> 35;
-    x ^= x << 4;
-    x
+    #[cfg(target_pointer_width = "64")] {
+        x ^= x << 21;
+        x ^= x >> 35;
+        x ^= x << 4;
+        x
+    }
+
+    #[cfg(target_pointer_width = "32")] {
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        x
+    }
 }
 
 /// Returns a string with 32 random characters
