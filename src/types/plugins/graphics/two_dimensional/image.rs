@@ -3,7 +3,7 @@
 
 extern crate image;
 
-use image::ImageDecoder;
+use image::{ImageDecoder, DynamicImage};
 use Mm;
 use {ImageXObject, PdfLayerReference};
 
@@ -31,6 +31,15 @@ impl Image {
     -> Result<Self, image::ImageError>
     {
         let image = ImageXObject::try_from(image)?;
+        Ok(Self {
+            image: image,
+        })
+    }
+
+    pub fn try_from_image(image: &DynamicImage)
+    -> Result<Self, image::ImageError>
+    {
+        let image = ImageXObject::try_from_image(image)?;
         Ok(Self {
             image: image,
         })
