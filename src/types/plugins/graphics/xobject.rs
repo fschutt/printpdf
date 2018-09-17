@@ -3,7 +3,7 @@
 
 use lopdf;
 use std::collections::HashMap;
-use image::{ImageError, ImageDecoder};
+use image::{ImageError, ImageDecoder, DynamicImage, GenericImage};
 use chrono::DateTime;
 use chrono::offset::utc::UTC;
 use {
@@ -193,6 +193,29 @@ impl ImageXObject {
             color_space: color_space,
             bits_per_component: color_bits,
             image_data: cur_data,
+            interpolate: true,
+            image_filter: None,
+            clipping_bbox: None,
+        })
+    }
+
+    pub fn try_from_image(image: &DynamicImage)
+    -> Result<Self, ImageError>
+    {
+        use image::DecodingResult;
+
+        let dim = image.dimensions();
+        let color_type = image.color();
+        let data = image.raw_pixels();
+        let color_bits = ColorBits::from(color_type);
+        let color_space = ColorSpace::from(color_type);
+
+        Ok(Self {
+            width: Px(dim.0 as usize),
+            height: Px(dim.1 as usize),
+            color_space: color_space,
+            bits_per_component: color_bits,
+            image_data: data,
             interpolate: true,
             image_filter: None,
             clipping_bbox: None,
