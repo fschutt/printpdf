@@ -337,7 +337,7 @@ extern crate lopdf;
 extern crate rusttype;
 extern crate time;
 #[cfg(feature = "embedded_images")]
-extern crate image;
+pub extern crate image;
 
 pub mod types;
 pub mod scale;
