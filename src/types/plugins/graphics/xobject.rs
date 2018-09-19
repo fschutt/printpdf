@@ -3,6 +3,7 @@
 
 use lopdf;
 use std::collections::HashMap;
+#[cfg(feature = "embedded_images")]
 use image::{ImageError, ImageDecoder, DynamicImage, GenericImage};
 use chrono::DateTime;
 use chrono::offset::utc::UTC;
@@ -170,6 +171,7 @@ impl ImageXObject {
         }
     }
 
+    #[cfg(feature = "embedded_images")]
     pub fn try_from<T: ImageDecoder>(mut image: T)
     -> Result<Self, ImageError>
     {
@@ -199,11 +201,10 @@ impl ImageXObject {
         })
     }
 
+    #[cfg(feature = "embedded_images")]
     pub fn try_from_image(image: &DynamicImage)
     -> Result<Self, ImageError>
     {
-        use image::DecodingResult;
-
         let dim = image.dimensions();
         let color_type = image.color();
         let data = image.raw_pixels();
@@ -223,7 +224,9 @@ impl ImageXObject {
     }
 }
 
+/// Safely casts a `Vec<u16>` into a `Vec<u8>`
 #[inline]
+#[cfg(feature = "embedded_images")]
 #[cfg_attr(feature = "cargo-clippy", allow(needless_return))]
 fn u16_to_u8(u16_vec: Vec<u16>)
 -> Vec<u8>

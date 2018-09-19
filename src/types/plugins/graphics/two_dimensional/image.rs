@@ -1,9 +1,8 @@
 //! Abstraction class for images.
 //! Please use this class instead of adding `ImageXObjects` yourself
 
-extern crate image;
-
-use image::{ImageDecoder, DynamicImage};
+#[cfg(feature = "embedded_images")]
+use image::{self, ImageDecoder, DynamicImage};
 use Mm;
 use {ImageXObject, PdfLayerReference};
 
@@ -26,6 +25,7 @@ impl From<ImageXObject> for Image {
 
 }
 
+#[cfg(feature = "embedded_images")]
 impl Image {
     pub fn try_from<T: ImageDecoder>(image: T)
     -> Result<Self, image::ImageError>

@@ -333,10 +333,11 @@
 #[cfg(feature = "logging")]
 #[macro_use] pub extern crate log;
 
-pub extern crate lopdf;
-pub extern crate rusttype;
-pub extern crate chrono;
-pub extern crate image;
+extern crate lopdf;
+extern crate rusttype;
+extern crate chrono;
+#[cfg(feature = "embedded_images")]
+extern crate image;
 
 pub mod types;
 pub mod scale;

@@ -18,12 +18,17 @@ log = { version = "0.4.1", optional = true }
 version = "0.19.0"
 default-features = false
 features = ["gif_codec", "jpeg", "png_codec", "pnm", "tiff", "bmp"]
+optional = true
 
 [features]
 clippy = []
 logging = ["log"]
-default = []
+embedded_images = ["image"]
+default = ["embedded_images"]
 
 [badges]
 travis-ci = { repository = "fschutt/printpdf" }
 appveyor = { repository = "fschutt/printpdf" }
+
+[package.metadata.docs.rs]
+all-features = true

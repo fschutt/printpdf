@@ -19,7 +19,9 @@ branches:
     - auto
 
 script:
-  - cargo build --verbose --examples
+  - cargo check --verbose --examples
+  - cargo check --verbose --no-default-features
+  - cargo check --verbose --features="embedded_images"
   - cargo test --verbose
 
 notifications:
