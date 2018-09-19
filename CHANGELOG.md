@@ -1,5 +1,24 @@
 # Changelog
 
+## `0.2.9`
+
+- Upgraded `lopdf` to 0.17, getting rid of large `chrono` dependency
+- Removed unnecessary `rand` dependency
+- Made `image` dependency optional
+- Added function to create images from an `image::DynamicImage`
+- **WARNING**: Image crate has now certain lesser-used image types disabled by default:
+  - .ico (ICO format)
+  - .tga (Targa Image File)
+  - .hdr (High Dynamic Range Image)
+  - .dxt (S3 Texture Compression)
+  - .webp (WEBP format)
+  **If you don't re-enable these features, image decoding might fail at runtime!**
+  The reason they were removed was because of compile-time performance. For extra speed
+  when JPEG decoding, please also turn on `jpeg_rayon`
+- No other API removals or large API changes
+- Notable: `cargo build --no-default-features` has now "only" 33 dependencies and
+  `printpdf` has a debug build time of roughly 20 seconds
+
 ## `0.2.8`
 
 - Firefox PDF viewer now works correctly due to a bugfix regarding the embedded TTF font type
