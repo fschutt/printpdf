@@ -319,11 +319,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "printpdf"
 version = "0.2.8"
 dependencies = [
- "chrono 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "image 0.19.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "lopdf 0.15.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "rusttype 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "time 0.1.40 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

@@ -335,7 +335,7 @@
 
 extern crate lopdf;
 extern crate rusttype;
-extern crate chrono;
+extern crate time;
 #[cfg(feature = "embedded_images")]
 extern crate image;
 

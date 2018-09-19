@@ -1,7 +1,7 @@
 //! Info dictionary of a PDF document
 
-extern crate lopdf;
-extern crate chrono;
+use lopdf;
+use time::Tm;
 
 use PdfConformance;
 
@@ -69,8 +69,8 @@ impl DocumentInfo {
                                  document_title: S,
                                  trapping: bool,
                                  conformance: PdfConformance,
-                                 creation_date: chrono::DateTime<chrono::Local>,
-                                 modification_date: chrono::DateTime<chrono::Local>)
+                                 creation_date: Tm,
+                                 modification_date: Tm)
     -> lopdf::Object where S: Into<String>
     {
         use lopdf::Dictionary as LoDictionary;
@@ -81,7 +81,6 @@ impl DocumentInfo {
         let trapping = if trapping { "True" } else { "False" };
         let gts_pdfx_version = conformance.get_identifier_string();
 
-        // mod_date timestamp format: D:20170505150224+02'00'
         let info_mod_date = to_pdf_time_stamp_metadata(modification_date);
         let info_create_date = to_pdf_time_stamp_metadata(creation_date);
 
@@ -95,12 +94,25 @@ impl DocumentInfo {
     }
 }
 
-fn to_pdf_time_stamp_metadata(date: chrono::DateTime<chrono::Local>)
+// D:20170505150224+02'00'
+fn to_pdf_time_stamp_metadata(date: Tm)
 -> String
 {
-    let time_zone = date.format("%z").to_string();
-    let mod_date = date.format("D:%Y%m%d%H%M%S");
-    format!("{}{}'{}'", mod_date,
-                        time_zone.chars().take(3).collect::<String>(),
-                        time_zone.chars().rev().take(2).collect::<String>())
+    // Converting the date to UTC is definitely the easiest way, this
+    // way we don't have to worry about the time zone difference.
+    //
+    // Drawback is that it's not possible to know which timezone the PDF
+    // was created in.
+    let date = date.to_utc();
+
+    // Since the time is in UTC, we know that the time zone
+    // difference to UTC is 0 min, 0 sec, hence the 00'00
+    format!("D:{:04}{:02}{:02}{:02}{:02}{:02}+00'00'",
+        date.tm_year,
+        date.tm_mon,
+        date.tm_mday,
+        date.tm_hour,
+        date.tm_min,
+        date.tm_sec,
+    )
 }

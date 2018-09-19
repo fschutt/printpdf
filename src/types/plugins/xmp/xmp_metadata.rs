@@ -1,6 +1,6 @@
 //! Stub plugin for XMP Metadata streams, to be expanded later
 
-use chrono;
+use time::Tm;
 use lopdf;
 
 use PdfConformance;
@@ -37,9 +37,9 @@ impl XmpMetadata {
     pub(in types) fn into_obj<S>(self,
                            conformance: PdfConformance,
                            trapping: bool,
-                           creation_date: chrono::DateTime<chrono::Local>,
-                           modification_date: chrono::DateTime<chrono::Local>,
-                           metadata_date: chrono::DateTime<chrono::Local>,
+                           creation_date: Tm,
+                           modification_date: Tm,
+                           metadata_date: Tm,
                            document_title: S)
     -> lopdf::Object where S: Into<String> + ::std::fmt::Display
     {
@@ -76,14 +76,20 @@ impl XmpMetadata {
     }
 }
 
-
-fn to_pdf_xmp_date(date: chrono::DateTime<chrono::Local>)
+// D:2018-09-19T10:05:05+00'00'
+fn to_pdf_xmp_date(date: Tm)
 -> String
 {
-    // 2017-05-16T16:00:05+02:00
-    let time_zone = date.format("%z").to_string();
-    let mod_date = date.format("D:%Y-%m-%dT%H:%M:%S");
-    format!("{}{}'{}'", mod_date,
-                        time_zone.chars().take(3).collect::<String>(),
-                        time_zone.chars().rev().take(2).collect::<String>())
+    let date = date.to_utc();
+
+    // Since the time is in UTC, we know that the time zone
+    // difference to UTC is 0 min, 0 sec, hence the 00'00
+    format!("D:{:04}-{:02}-{:02}T{:02}:{:02}:{:02}+00'00'",
+        date.tm_year,
+        date.tm_mon,
+        date.tm_mday,
+        date.tm_hour,
+        date.tm_min,
+        date.tm_sec,
+    )
 }
