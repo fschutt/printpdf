@@ -36,13 +36,12 @@ impl Image {
         })
     }
 
-    pub fn try_from_image(image: &DynamicImage)
-    -> Result<Self, image::ImageError>
+    pub fn from_dynamic_image(image: &DynamicImage)
+    -> Self
     {
-        let image = ImageXObject::try_from_image(image)?;
-        Ok(Self {
-            image: image,
-        })
+        Self {
+            image: ImageXObject::from_dynamic_image(image),
+        }
     }
 }
 

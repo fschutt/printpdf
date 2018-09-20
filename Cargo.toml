@@ -35,6 +35,3 @@ webp = ["image/webp"]
 [badges]
 travis-ci = { repository = "fschutt/printpdf" }
 appveyor = { repository = "fschutt/printpdf" }
-
-[package.metadata.docs.rs]
-all-features = true

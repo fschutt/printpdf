@@ -179,14 +179,13 @@ impl ImageXObject {
         let dim = image.dimensions()?;
         let color_type = image.colortype()?;
         let data = image.read_image()?;
-        let cur_data;
         let color_bits = ColorBits::from(color_type);
         let color_space = ColorSpace::from(color_type);
 
-        match data {
-            DecodingResult::U8(d) => { cur_data = d; },
-            DecodingResult::U16(d) => { cur_data = u16_to_u8(d); },
-        }
+        let cur_data = match data {
+            DecodingResult::U8(d) => d,
+            DecodingResult::U16(d) => u16_to_u8(d),
+        };
 
         Ok(Self {
             width: Px(dim.0 as usize),
@@ -201,8 +200,8 @@ impl ImageXObject {
     }
 
     #[cfg(feature = "embedded_images")]
-    pub fn try_from_image(image: &DynamicImage)
-    -> Result<Self, ImageError>
+    pub fn from_dynamic_image(image: &DynamicImage)
+    -> Self
     {
         let dim = image.dimensions();
         let color_type = image.color();
@@ -210,7 +209,7 @@ impl ImageXObject {
         let color_bits = ColorBits::from(color_type);
         let color_space = ColorSpace::from(color_type);
 
-        Ok(Self {
+        Self {
             width: Px(dim.0 as usize),
             height: Px(dim.1 as usize),
             color_space: color_space,
@@ -219,7 +218,7 @@ impl ImageXObject {
             interpolate: true,
             image_filter: None,
             clipping_bbox: None,
-        })
+        }
     }
 }
 
