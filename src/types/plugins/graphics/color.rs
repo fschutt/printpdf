@@ -59,8 +59,11 @@ impl Into<Operation> for PdfColor {
 #[derive(Debug, Copy, Clone)]
 pub enum ColorSpace {
     Rgb,
+    Rgba,
+    Palette,
     Cmyk,
     Greyscale,
+    GreyscaleAlpha,
 }
 
 #[cfg(feature = "embedded_images")]
@@ -70,8 +73,11 @@ impl From<image::ColorType> for ColorSpace {
     {
         use image::ColorType::*;
         match color_type {
-            Gray(_) | GrayA(_) => ColorSpace::Greyscale,
-            RGB(_) | RGBA(_) | Palette(_) => ColorSpace::Rgb, /* todo: support indexed colors*/
+            Gray(_) => ColorSpace::Greyscale,
+            GrayA(_) => ColorSpace::GreyscaleAlpha,
+            RGB(_) | BGR(_) => ColorSpace::Rgb,
+            RGBA(_) | BGRA(_) => ColorSpace::Rgba,
+            Palette(_) => ColorSpace::Palette,
         }
     }
 }
@@ -80,10 +86,13 @@ impl Into<&'static str> for ColorSpace {
     fn into(self)
     -> &'static str
     {
+        use self::ColorSpace::*;
         match self {
-            ColorSpace::Rgb => "DeviceRGB",
-            ColorSpace::Cmyk => "DeviceCMYK",
-            ColorSpace::Greyscale => "DeviceGray",
+            Rgb => "DeviceRGB",
+            Cmyk => "DeviceCMYK",
+            Greyscale => "DeviceGray",
+            Palette => "Indexed",
+            Rgba | GreyscaleAlpha => "DeviceN",
         }
     }
 }
@@ -105,8 +114,9 @@ impl From<image::ColorType> for ColorBits {
         use ColorBits::*;
 
         match color_type {
-            Gray(num_bytes) |RGB(num_bytes) | Palette(num_bytes) |
-            GrayA(num_bytes) | RGBA(num_bytes) => match num_bytes {
+            Gray(num_bytes) | RGB(num_bytes) | Palette(num_bytes) |
+            GrayA(num_bytes) | RGBA(num_bytes) | BGR(num_bytes) | BGRA(num_bytes) =>
+            match num_bytes {
                 8 =>  Bit8,
                 16 => Bit16,
                 _ => Bit1,

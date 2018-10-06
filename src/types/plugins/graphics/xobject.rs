@@ -4,7 +4,7 @@
 use lopdf;
 use std::collections::HashMap;
 #[cfg(feature = "embedded_images")]
-use image::{ImageError, ImageDecoder, DynamicImage, GenericImage};
+use image::{ImageError, ImageDecoder, DynamicImage, GenericImageView};
 use time::Tm;
 use {
     ColorSpace, ColorBits, CurTransMat, Px

@@ -1,5 +1,11 @@
 # Changelog
 
+## `0.2.10`
+
+- Upgraded image to `0.20`
+- Added `ColorType::Palette` for indexed colors
+- Creating an image from a Dynamic image can't fail, so no Result is returned
+
 ## `0.2.9`
 
 - Upgraded `lopdf` to 0.17, getting rid of large `chrono` dependency
