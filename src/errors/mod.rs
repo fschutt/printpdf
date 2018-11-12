@@ -96,3 +96,16 @@ impl fmt::Display for Error {
         }
     }
 }
+
+impl IError for Error {
+    fn description(&self) -> &str {
+        use self::Error::*;
+        match self {
+            Io(ref e) => e.description(),
+            Rusttype(ref e) => e.description(),
+            Pdf(ref e) => e.description(),
+            Index(ref e) => e.description(),
+        }
+    }
+}
+
