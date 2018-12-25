@@ -218,10 +218,10 @@
 //!
 //! # Further reading
 //!
-//! The `PDFDocument` is hidden behind a `PDFDocumentReference`, which locks
+//! The `PdfDocument` is hidden behind a `PdfDocumentReference`, which locks
 //! the things you can do behind a facade. Pretty much all functions operate
-//! on a `PDFLayerReference`, so that would be where to look for existing
-//! functions or where to implement new functions. The `PDFDocumentReference`
+//! on a `PdfLayerReference`, so that would be where to look for existing
+//! functions or where to implement new functions. The `PdfDocumentReference`
 //! is a reference-counted document. It uses the pages and layers for inner
 //! mutablility, because
 //! I ran into borrowing issues with the document. __IMPORTANT:__ All functions
