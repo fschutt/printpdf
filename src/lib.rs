@@ -344,7 +344,7 @@ pub mod scale;
 pub mod errors;
 pub mod utils;
 mod glob_defines;
-mod indices;
+pub mod indices;
 
 pub use self::errors::Error;
 pub use self::errors::PdfError;
