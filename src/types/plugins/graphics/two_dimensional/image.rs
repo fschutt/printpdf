@@ -26,8 +26,8 @@ impl From<ImageXObject> for Image {
 }
 
 #[cfg(feature = "embedded_images")]
-impl Image {
-    pub fn try_from<T: ImageDecoder>(image: T)
+impl<'a> Image {
+    pub fn try_from<T: ImageDecoder<'a>>(image: T)
     -> Result<Self, image::ImageError>
     {
         let image = ImageXObject::try_from(image)?;
