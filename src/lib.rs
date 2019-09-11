@@ -134,7 +134,7 @@
 //!     // currently, the only reliable file format is bmp (jpeg works, but not in release mode)
 //!     // this is an issue of the image library, not a fault of printpdf
 //!     let mut image_file = File::open("assets/img/BMP_test.bmp").unwrap();
-//!     let image = Image::try_from(image::bmp::BMPDecoder::new(&mut image_file)).unwrap();
+//!     let image = Image::try_from(image::bmp::BMPDecoder::new(&mut image_file).unwrap()).unwrap();
 //!
 //!     // translate x, translate y, rotate, scale x, scale y
 //!     // by default, an image is optimized to 300 DPI (if scale is None)

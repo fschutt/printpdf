@@ -148,7 +148,7 @@ pub struct ImageXObject {
     pub clipping_bbox: Option<CurTransMat>,
 }
 
-impl ImageXObject {
+impl<'a> ImageXObject {
 
     /// Creates a new ImageXObject
     // #[cfg_attr(feature = "cargo-clippy", allow(needless_lifetimes))]
@@ -171,28 +171,21 @@ impl ImageXObject {
     }
 
     #[cfg(feature = "embedded_images")]
-    pub fn try_from<T: ImageDecoder>(mut image: T)
+    pub fn try_from<T: ImageDecoder<'a>>(image: T)
     -> Result<Self, ImageError>
     {
-        use image::DecodingResult;
-
-        let dim = image.dimensions()?;
-        let color_type = image.colortype()?;
-        let data = image.read_image()?;
+        let dim = image.dimensions();
+        let color_type = image.colortype();
+        let image_data = image.read_image()?;
         let color_bits = ColorBits::from(color_type);
         let color_space = ColorSpace::from(color_type);
-
-        let cur_data = match data {
-            DecodingResult::U8(d) => d,
-            DecodingResult::U16(d) => u16_to_u8(d),
-        };
 
         Ok(Self {
             width: Px(dim.0 as usize),
             height: Px(dim.1 as usize),
             color_space: color_space,
             bits_per_component: color_bits,
-            image_data: cur_data,
+            image_data: image_data,
             interpolate: true,
             image_filter: None,
             clipping_bbox: None,
@@ -220,26 +213,6 @@ impl ImageXObject {
             clipping_bbox: None,
         }
     }
-}
-
-/// Safely casts a `Vec<u16>` into a `Vec<u8>`
-#[inline]
-#[cfg(feature = "embedded_images")]
-#[cfg_attr(feature = "cargo-clippy", allow(needless_return))]
-fn u16_to_u8(u16_vec: Vec<u16>)
--> Vec<u8>
-{
-    let u16_len = u16_vec.len();
-    let mut new_vec = Vec::with_capacity(u16_len * 2);
-
-    for long_byte in u16_vec {
-        let byte1: u8 = (long_byte >> 8) as u8;
-        let byte2: u8 = long_byte as u8;
-        new_vec.push(byte1);
-        new_vec.push(byte2);
-    }
-
-    return new_vec;
 }
 
 impl Into<lopdf::Stream> for ImageXObject {
