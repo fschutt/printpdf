@@ -388,7 +388,6 @@ impl PdfLayerReference {
 
         use lopdf::Object::*;
         use lopdf::StringFormat::Hexadecimal;
-        use lopdf::content::Operation;
 
         let text = text.into();
 
