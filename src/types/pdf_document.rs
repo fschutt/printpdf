@@ -7,7 +7,7 @@ use std::io::BufWriter;
 use utils::random_character_string_32;
 
 use lopdf;
-use time::Tm;
+use time::OffsetDateTime;
 
 use indices::*;
 use {
@@ -164,7 +164,7 @@ impl PdfDocumentReference {
     /// Sets the modification date on the document. Intended to be used when
     /// reading documents that already have a modification date.
     #[inline]
-    pub fn with_mod_date(self, mod_date: Tm)
+    pub fn with_mod_date(self, mod_date: OffsetDateTime)
     -> Self
     {
         self.document.borrow_mut().metadata.modification_date = mod_date;

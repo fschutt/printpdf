@@ -5,7 +5,7 @@ use lopdf;
 use std::collections::HashMap;
 #[cfg(feature = "embedded_images")]
 use image::{ImageError, ImageDecoder, DynamicImage, GenericImageView};
-use time::Tm;
+use time::OffsetDateTime;
 use {
     ColorSpace, ColorBits, CurTransMat, Px
 };
@@ -324,7 +324,7 @@ pub struct FormXObject {
     /// modified. If a page-piece dictionary (PieceInfo) is present, the modification date
     /// is used to ascertain which of the application data dictionaries it contains correspond
     /// to the current content of the form (see Section 10.4, “Page-Piece Dictionaries”).
-    pub last_modified: Option<Tm>,
+    pub last_modified: Option<OffsetDateTime>,
     /* /StructParent integer */
     /// (Required if the form XObject is a structural content item; PDF 1.3) The integer key of
     /// the form XObject’s entry in the structural parent tree (see “Finding Structure Elements

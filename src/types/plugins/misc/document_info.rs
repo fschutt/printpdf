@@ -1,7 +1,7 @@
 //! Info dictionary of a PDF document
 
 use lopdf;
-use time::Tm;
+use time::OffsetDateTime;
 
 use PdfConformance;
 
@@ -69,8 +69,8 @@ impl DocumentInfo {
                                  document_title: S,
                                  trapping: bool,
                                  conformance: PdfConformance,
-                                 creation_date: Tm,
-                                 modification_date: Tm)
+                                 creation_date: OffsetDateTime,
+                                 modification_date: OffsetDateTime)
     -> lopdf::Object where S: Into<String>
     {
         use lopdf::Dictionary as LoDictionary;
@@ -95,24 +95,17 @@ impl DocumentInfo {
 }
 
 // D:20170505150224+02'00'
-fn to_pdf_time_stamp_metadata(date: Tm)
+fn to_pdf_time_stamp_metadata(date: OffsetDateTime)
 -> String
 {
-    // Converting the date to UTC is definitely the easiest way, this
-    // way we don't have to worry about the time zone difference.
-    //
-    // Drawback is that it's not possible to know which timezone the PDF
-    // was created in.
-    let date = date.to_utc();
-
     // Since the time is in UTC, we know that the time zone
     // difference to UTC is 0 min, 0 sec, hence the 00'00
     format!("D:{:04}{:02}{:02}{:02}{:02}{:02}+00'00'",
-        date.tm_year,
-        date.tm_mon,
-        date.tm_mday,
-        date.tm_hour,
-        date.tm_min,
-        date.tm_sec,
+        date.year(),
+        date.month(),
+        date.day(),
+        date.hour(),
+        date.minute(),
+        date.second(),
     )
 }
