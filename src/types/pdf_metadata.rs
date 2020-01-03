@@ -1,7 +1,7 @@
 //! Wapper type for shared metadata between XMP Metadata and the `DocumentInfo` dictionary
 
 use lopdf;
-use time::Tm;
+use time::OffsetDateTime;
 use {
 	IccProfileType, PdfConformance, XmpMetadata, DocumentInfo, IccProfile
 };
@@ -13,11 +13,11 @@ use glob_defines::ICC_PROFILE_ECI_V2;
 #[derive(Debug, Clone)]
 pub struct PdfMetadata {
 	/// Creation date of the document
-	pub creation_date: Tm,
+	pub creation_date: OffsetDateTime,
 	/// Modification date of the document
-	pub modification_date: Tm,
+	pub modification_date: OffsetDateTime,
 	/// Creation date of the metadata
-	pub metadata_date: Tm,
+	pub metadata_date: OffsetDateTime,
 	/// PDF document title
 	pub document_title: String,
 	/// Is the document trapped?
@@ -40,8 +40,7 @@ impl PdfMetadata {
 	pub fn new<S>(title: S, document_version: u32, trapping: bool, conformance: PdfConformance)
 	-> Self where S: Into<String>
 	{
-		use time::now;
-		let current_time = now();
+		let current_time = OffsetDateTime::now();
 
 		Self {
 			creation_date: current_time,

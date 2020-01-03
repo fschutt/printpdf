@@ -7,7 +7,7 @@ use std::io::BufWriter;
 use utils::random_character_string_32;
 
 use lopdf;
-use time::Tm;
+use time::OffsetDateTime;
 
 use indices::*;
 use {
@@ -69,6 +69,20 @@ impl PdfDocument {
         { doc_ref.borrow_mut().pages.push(initial_page); }
 
         (PdfDocumentReference { document: doc_ref }, PdfPageIndex(0), layer_index)
+    }
+
+    pub fn empty<S: Into<String>>(document_title: S) -> PdfDocumentReference {
+        let doc = Self {
+            pages: Vec::new(),
+            document_id: random_character_string_32(),
+            fonts: FontList::new(),
+            icc_profiles: IccProfileList::new(),
+            inner_doc: lopdf::Document::with_version("1.3"),
+            metadata: PdfMetadata::new(document_title, 1, false, PdfConformance::X3_2002_PDF_1_3),
+        };
+
+        let doc_ref = Rc::new(RefCell::new(doc));
+        PdfDocumentReference { document: doc_ref }
     }
 
 }
@@ -150,7 +164,7 @@ impl PdfDocumentReference {
     /// Sets the modification date on the document. Intended to be used when
     /// reading documents that already have a modification date.
     #[inline]
-    pub fn with_mod_date(self, mod_date: Tm)
+    pub fn with_mod_date(self, mod_date: OffsetDateTime)
     -> Self
     {
         self.document.borrow_mut().metadata.modification_date = mod_date;

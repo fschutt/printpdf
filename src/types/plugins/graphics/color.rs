@@ -23,7 +23,6 @@ impl Into<Operation> for PdfColor {
     -> Operation
     {
         use lopdf::Object::*;
-        use lopdf::content::Operation;
 
         // todo: incorporate ICC profile instead of just setting the default device cmyk color space
         let (color_identifier, color_vec) = {
