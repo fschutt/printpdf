@@ -1,5 +1,19 @@
 # Changelog
 
+## `0.3.0`
+
+- Upgrade `rusttype` to `0.8.2` (breaks semver for non-`edition = "2019"` compilers, hence the new version)
+- Upgrade `time` to `0.2.1`
+- Added `PdfDocument::empty`
+
+## `0.2.12`
+
+- Upgrade `image` to `0.22`
+
+## `0.2.11`
+
+- Update `lopdf`, fixes #27
+
 ## `0.2.10`
 
 - Upgraded image to `0.20`
