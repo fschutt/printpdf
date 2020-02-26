@@ -2,7 +2,7 @@ extern crate printpdf;
 
 use printpdf::*;
 use std::io::Cursor;
-use image::bmp::BMPDecoder;
+use image::bmp::BmpDecoder;
 use std::fs::File;
 use std::io::BufWriter;
 
@@ -16,7 +16,7 @@ fn main() {
     let image_bytes = include_bytes!("../assets/img/BMP_test.bmp");
     let mut reader = Cursor::new(image_bytes.as_ref());
 
-    let decoder = BMPDecoder::new(&mut reader).unwrap();
+    let decoder = BmpDecoder::new(&mut reader).unwrap();
     let image2 = Image::try_from(decoder).unwrap();
 
     // layer,     
