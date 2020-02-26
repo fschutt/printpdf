@@ -172,7 +172,6 @@ impl ExternalFont {
         let font_stream = LoStream::new(
             LoDictionary::from_iter(vec![
                 ("Length1", Integer(font_buf_ref.len() as i64)),
-                ("Subtype", Name("CidFontType2".into())),
                 ]),
             font_buf_ref.to_vec())
         .with_compression(false); /* important! font stream must not be compressed! */
@@ -332,7 +331,7 @@ impl ExternalFont {
         ]);
 
         let font_bbox = vec![ Integer(0), Integer(max_height as i64), Integer(total_width as i64), Integer(max_height as i64) ];
-        font_descriptor_vec.push(("FontFile3".into(), Reference(doc.add_object(font_stream))));
+        font_descriptor_vec.push(("FontFile2".into(), Reference(doc.add_object(font_stream))));
 
         // although the following entry is technically not needed, Adobe Reader needs it
         font_descriptor_vec.push(("FontBBox".into(), Array(font_bbox)));
