@@ -1,5 +1,10 @@
 # Changelog
 
+## `0.3.1`
+
+- Fix issue with Fonts on iOS and macOS
+- Updated dependencies
+
 ## `0.3.0`
 
 - Upgrade `rusttype` to `0.8.2` (breaks semver for non-`edition = "2019"` compilers, hence the new version)

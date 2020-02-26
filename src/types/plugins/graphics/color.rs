@@ -72,11 +72,11 @@ impl From<image::ColorType> for ColorSpace {
     {
         use image::ColorType::*;
         match color_type {
-            Gray(_) => ColorSpace::Greyscale,
-            GrayA(_) => ColorSpace::GreyscaleAlpha,
-            RGB(_) | BGR(_) => ColorSpace::Rgb,
-            RGBA(_) | BGRA(_) => ColorSpace::Rgba,
-            Palette(_) => ColorSpace::Palette,
+            L8 | L16 => ColorSpace::Greyscale,
+            La8 | La16 => ColorSpace::GreyscaleAlpha,
+            Rgb8 | Bgr8 | Rgb16 => ColorSpace::Rgb,
+            Rgba8 | Bgra8 | Rgba16 => ColorSpace::Rgba,
+            _ => ColorSpace::Greyscale, // unreachable
         }
     }
 }
@@ -113,13 +113,10 @@ impl From<image::ColorType> for ColorBits {
         use ColorBits::*;
 
         match color_type {
-            Gray(num_bytes) | RGB(num_bytes) | Palette(num_bytes) |
-            GrayA(num_bytes) | RGBA(num_bytes) | BGR(num_bytes) | BGRA(num_bytes) =>
-            match num_bytes {
-                8 =>  Bit8,
-                16 => Bit16,
-                _ => Bit1,
-            }
+            L8 | La8 | Rgb8 | Rgba8 | Bgr8 | Bgra8 => Bit8,
+            L16 | La16 | Rgb16 | Rgba16 => Bit16,
+            _ => Bit8, // unreachable
+
         }
     }
 }

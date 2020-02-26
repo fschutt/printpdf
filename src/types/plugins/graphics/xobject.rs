@@ -174,9 +174,20 @@ impl<'a> ImageXObject {
     pub fn try_from<T: ImageDecoder<'a>>(image: T)
     -> Result<Self, ImageError>
     {
+        use std::usize;
+        use image::error::{LimitError, LimitErrorKind};
+
         let dim = image.dimensions();
-        let color_type = image.colortype();
-        let image_data = image.read_image()?;
+        let color_type = image.color_type();
+        let num_image_bytes = image.total_bytes();
+        
+        if num_image_bytes > usize::MAX as u64{
+            return Err(ImageError::Limits(LimitError::from_kind(LimitErrorKind::InsufficientMemory)));
+        }
+
+        let mut image_data = vec![0;num_image_bytes as usize];
+        image.read_image(&mut image_data)?;
+
         let color_bits = ColorBits::from(color_type);
         let color_space = ColorSpace::from(color_type);
 
@@ -185,7 +196,7 @@ impl<'a> ImageXObject {
             height: Px(dim.1 as usize),
             color_space: color_space,
             bits_per_component: color_bits,
-            image_data: image_data,
+            image_data,
             interpolate: true,
             image_filter: None,
             clipping_bbox: None,
@@ -198,7 +209,7 @@ impl<'a> ImageXObject {
     {
         let dim = image.dimensions();
         let color_type = image.color();
-        let data = image.raw_pixels();
+        let data = image.to_bytes();
         let color_bits = ColorBits::from(color_type);
         let color_space = ColorSpace::from(color_type);
 
