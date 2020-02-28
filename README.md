@@ -185,7 +185,7 @@ let text2 = "unicode: стуфхfцчшщъыьэюя";
 let font = doc.add_external_font(File::open("assets/fonts/RobotoMedium.ttf").unwrap()).unwrap();
 let font2 = doc.add_external_font(File::open("assets/fonts/RobotoMedium.ttf").unwrap()).unwrap();
 
-// text, font size, x from left edge, y from top edge, font
+// text, font size, x from left edge, y from bottom edge, font
 current_layer.use_text(text, 48, Mm(200.0), Mm(200.0), &font);
 
 // For more complex layout of text, you can use functions
