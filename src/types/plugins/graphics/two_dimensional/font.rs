@@ -205,7 +205,7 @@ impl ExternalFont {
         let mut total_width = 0;
         // Widths (or heights, depends on self.vertical_writing)
         // of the individual characters, indexed by glyph id
-        let mut widths = HashMap::<u32, u32>::new();
+        let mut widths = Vec::<(u32, u32)>::new();
 
         // Glyph IDs - (Unicode IDs - character width, character height)
         let mut cmap = BTreeMap::<u32, (u32, u32, u32)>::new();
@@ -269,7 +269,7 @@ impl ExternalFont {
 
                 let (unicode, width, _) = *unicode_width_tuple;
                 current_cmap_block.push((*glyph_id, unicode));
-                widths.insert(*glyph_id, width);
+                widths.push((*glyph_id, width));
             };
 
             all_cmap_blocks.push(current_cmap_block);
@@ -301,11 +301,15 @@ impl ExternalFont {
             } else {
                 widths_list.push(Integer(current_low_gid as i64));
                 widths_list.push(Array(current_width_vec.drain(..).collect()));
+
                 current_width_vec.push(Integer((width as f64 * percentage_font_scaling) as i64));
                 current_low_gid = gid;
                 current_high_gid = gid + 1;
             }
         }
+        // push the last widths, because the loop is delayed by one iteration
+        widths_list.push(Integer(current_low_gid as i64));
+        widths_list.push(Array(current_width_vec.drain(..).collect()));
 
         let w = {
             if self.vertical_writing { ("W2",  Array(widths_list)) }
