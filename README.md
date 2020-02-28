@@ -9,7 +9,7 @@
 
 ```toml,ignore
 [dependencies]
-printpdf = "0.2.8"
+printpdf = "0.3.2"
 ```
 
 ## Features
@@ -139,7 +139,7 @@ fn main() {
     // currently, the only reliable file format is bmp (jpeg works, but not in release mode)
     // this is an issue of the image library, not a fault of printpdf
     let mut image_file = File::open("assets/img/BMP_test.bmp").unwrap();
-    let image = Image::try_from(image::bmp::BMPDecoder::new(&mut image_file)).unwrap();
+    let image = Image::try_from(image::bmp::BmpDecoder::new(&mut image_file).unwrap()).unwrap();
 
     // translate x, translate y, rotate, scale x, scale y
     // by default, an image is optimized to 300 DPI (if scale is None)
@@ -223,10 +223,10 @@ See the CHANGELOG.md file.
 
 ## Further reading
 
-The `PDFDocument` is hidden behind a `PDFDocumentReference`, which locks
+The `PdfDocument` is hidden behind a `PdfDocumentReference`, which locks
 the things you can do behind a facade. Pretty much all functions operate
-on a `PDFLayerReference`, so that would be where to look for existing
-functions or where to implement new functions. The `PDFDocumentReference`
+on a `PdfLayerReference`, so that would be where to look for existing
+functions or where to implement new functions. The `PdfDocumentReference`
 is a reference-counted document. It uses the pages and layers for inner
 mutablility, because
 I ran into borrowing issues with the document. __IMPORTANT:__ All functions
