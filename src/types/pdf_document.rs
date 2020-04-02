@@ -469,11 +469,11 @@ impl PdfDocumentReference {
         Ok(())
     }
 
-    #[cfg(debug_assertions)]
+    #[cfg(any(debug_assertions, feature="less-optimization"))]
     #[inline]
     fn optimize(_: &mut lopdf::Document) { }
 
-    #[cfg(not(debug_assertions))]
+    #[cfg(all(not(debug_assertions), not(feature="less-optimization")))]
     #[inline]
     fn optimize(doc: &mut lopdf::Document)
     {

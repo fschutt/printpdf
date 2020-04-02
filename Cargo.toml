@@ -32,6 +32,7 @@ jpeg_rayon = ["image/jpeg_rayon"]
 dxt = ["image/dxt"]
 dds = ["image/dds"]
 webp = ["image/webp"]
+less-optimization = []
 
 [badges]
 travis-ci = { repository = "fschutt/printpdf" }

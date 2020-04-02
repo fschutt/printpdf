@@ -31,7 +31,7 @@ pub enum XObject {
 
 impl XObject {
 
-    #[cfg(debug_assertions)]
+    #[cfg(any(debug_assertions, feature="less-optimization"))]
     #[inline]
     fn compress_stream(stream: lopdf::Stream)
     -> lopdf::Stream
@@ -39,7 +39,7 @@ impl XObject {
         stream
     }
 
-    #[cfg(not(debug_assertions))]
+    #[cfg(all(not(debug_assertions), not(feature="less-optimization")))]
     #[inline]
     fn compress_stream(mut stream: lopdf::Stream)
     -> lopdf::Stream
