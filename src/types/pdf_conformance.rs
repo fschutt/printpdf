@@ -65,12 +65,12 @@ pub enum PdfConformance {
     Custom(CustomPdfConformance),
 }
 
-/// Allows building custom conformance profiles. This is useful if you want very small documents for example and 
+/// Allows building custom conformance profiles. This is useful if you want very small documents for example and
 /// you don't __need__ conformance with any PDF standard, you just want a PDF file.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct CustomPdfConformance {
     /// Identifier for this conformance
-    /// 
+    ///
     /// Default: __""__
     pub identifier: String,
     /// Does this standard allow 3d content?
@@ -94,21 +94,21 @@ pub struct CustomPdfConformance {
     /// Default: __true__
     pub allows_jpeg_content: bool,
     /// Does this standard require XMP metadata to be set?
-    /// 
+    ///
     /// Default: __true__
     pub requires_xmp_metadata: bool,
     /// Does this standard allow the default PDF fonts (Helvetica, etc.)
-    /// 
+    ///
     /// _(please don't enable this if you do any work that has to be printed accurately)_
-    /// 
+    ///
     /// Default: __false__
     pub allows_default_fonts: bool,
     /// Does this standard require an ICC profile to be embedded for color management?
-    /// 
+    ///
     /// Default: __true__
     pub requires_icc_profile: bool,
     /// Does this standard allow PDF layers?
-    /// 
+    ///
     /// Default: __true__
     pub allows_pdf_layers: bool,
 }
@@ -131,33 +131,30 @@ impl Default for CustomPdfConformance {
 }
 
 impl PdfConformance {
-
     /// Get the identifier string for PDF
-    pub fn get_identifier_string(&self)
-    -> String
-    {
+    pub fn get_identifier_string(&self) -> String {
         // todo: these identifiers might not be correct in all cases
         let identifier = match *self {
-            PdfConformance::A1B_2005_PDF_1_4  => "PDF/A-1b:2005",
-            PdfConformance::A1A_2005_PDF_1_4  => "PDF/A-1a:2005",
-            PdfConformance::A2_2011_PDF_1_7   => "PDF/A-2:2011",
-            PdfConformance::A2A_2011_PDF_1_7  => "PDF/A-2a:2011",
-            PdfConformance::A2B_2011_PDF_1_7  => "PDF/A-2b:2011",
-            PdfConformance::A2U_2011_PDF_1_7  => "PDF/A-2u:2011",
-            PdfConformance::A3_2012_PDF_1_7   => "PDF/A-3:2012",
-            PdfConformance::UA_2014_PDF_1_6   => "PDF/UA",
-            PdfConformance::X1A_2001_PDF_1_3  => "PDF/X-1a:2001",
-            PdfConformance::X3_2002_PDF_1_3   => "PDF/X-3:2002",
-            PdfConformance::X1A_2003_PDF_1_4  => "PDF/X-1a:2003",
-            PdfConformance::X3_2003_PDF_1_4   => "PDF/X-3:2003",
-            PdfConformance::X4_2010_PDF_1_4   => "PDF/X-4",
-            PdfConformance::X4P_2010_PDF_1_6  => "PDF/X-4P",
-            PdfConformance::X5G_2010_PDF_1_6  => "PDF/X-5G",
+            PdfConformance::A1B_2005_PDF_1_4 => "PDF/A-1b:2005",
+            PdfConformance::A1A_2005_PDF_1_4 => "PDF/A-1a:2005",
+            PdfConformance::A2_2011_PDF_1_7 => "PDF/A-2:2011",
+            PdfConformance::A2A_2011_PDF_1_7 => "PDF/A-2a:2011",
+            PdfConformance::A2B_2011_PDF_1_7 => "PDF/A-2b:2011",
+            PdfConformance::A2U_2011_PDF_1_7 => "PDF/A-2u:2011",
+            PdfConformance::A3_2012_PDF_1_7 => "PDF/A-3:2012",
+            PdfConformance::UA_2014_PDF_1_6 => "PDF/UA",
+            PdfConformance::X1A_2001_PDF_1_3 => "PDF/X-1a:2001",
+            PdfConformance::X3_2002_PDF_1_3 => "PDF/X-3:2002",
+            PdfConformance::X1A_2003_PDF_1_4 => "PDF/X-1a:2003",
+            PdfConformance::X3_2003_PDF_1_4 => "PDF/X-3:2003",
+            PdfConformance::X4_2010_PDF_1_4 => "PDF/X-4",
+            PdfConformance::X4P_2010_PDF_1_6 => "PDF/X-4P",
+            PdfConformance::X5G_2010_PDF_1_6 => "PDF/X-5G",
             PdfConformance::X5PG_2010_PDF_1_6 => "PDF/X-5PG",
-            PdfConformance::X5N_2010_PDF_1_6  => "PDF/X-5N",
-            PdfConformance::E1_2008_PDF_1_6   => "PDF/E-1",
-            PdfConformance::VT_2010_PDF_1_4   => "PDF/VT",
-            PdfConformance::Custom(ref c)     => &c.identifier,
+            PdfConformance::X5N_2010_PDF_1_6 => "PDF/X-5N",
+            PdfConformance::E1_2008_PDF_1_6 => "PDF/E-1",
+            PdfConformance::VT_2010_PDF_1_4 => "PDF/VT",
+            PdfConformance::Custom(ref c) => &c.identifier,
         };
 
         identifier.to_string()
@@ -165,108 +162,92 @@ impl PdfConformance {
 
     /// __STUB__: Detects if the PDF has 3D content, but the
     /// conformance to the given PDF standard does not allow it.
-    pub fn is_3d_content_allowed(&self)
-    -> bool
-    {
+    pub fn is_3d_content_allowed(&self) -> bool {
         match *self {
-           PdfConformance::E1_2008_PDF_1_6   => true,
-           PdfConformance::Custom(ref c)     => c.allows_3d_content,
-           _ => false,
+            PdfConformance::E1_2008_PDF_1_6 => true,
+            PdfConformance::Custom(ref c) => c.allows_3d_content,
+            _ => false,
         }
     }
 
     /// Does this conformance level allow video
-    pub fn is_video_content_allowed(&self)
-    -> bool
-    {
+    pub fn is_video_content_allowed(&self) -> bool {
         // todo
         match *self {
             PdfConformance::Custom(ref c) => c.allows_video_content,
-            _                             => false,
+            _ => false,
         }
     }
 
     /// __STUB__: Detects if the PDF has audio content, but the
     /// conformance to the given PDF standard does not allow it.
-    pub fn is_audio_content_allowed(&self)
-    -> bool
-    {
+    pub fn is_audio_content_allowed(&self) -> bool {
         // todo
         match *self {
             PdfConformance::Custom(ref c) => c.allows_audio_content,
-            _                             => false,
+            _ => false,
         }
     }
 
     /// __STUB__: Detects if the PDF has 3D content, but the
     /// conformance to the given PDF standard does not allow it.
-    pub fn is_javascript_content_allowed(&self)
-    -> bool
-    {
+    pub fn is_javascript_content_allowed(&self) -> bool {
         // todo
         match *self {
             PdfConformance::Custom(ref c) => c.allows_embedded_javascript,
-            _                         => false,
+            _ => false,
         }
     }
 
     /// __STUB__: Detects if the PDF has JPEG images, but the
     /// conformance to the given PDF standard does not allow it
-    pub fn is_jpeg_content_allowed(&self)
-    -> bool
-    {
+    pub fn is_jpeg_content_allowed(&self) -> bool {
         // todo
         match *self {
             PdfConformance::Custom(ref c) => c.allows_jpeg_content,
-            _                         => true,
+            _ => true,
         }
     }
 
     /// Detects if the PDF must have XMP metadata
     /// if it has to conform to the given PDF Standard
     #[cfg_attr(feature = "cargo-clippy", allow(match_same_arms))]
-    pub fn must_have_xmp_metadata(&self)
-    -> bool
-    {
+    pub fn must_have_xmp_metadata(&self) -> bool {
         match *self {
-            PdfConformance::X1A_2001_PDF_1_3  => { true },
-            PdfConformance::X3_2002_PDF_1_3   => { true },
-            PdfConformance::X1A_2003_PDF_1_4  => { true },
-            PdfConformance::X3_2003_PDF_1_4   => { true },
-            PdfConformance::X4_2010_PDF_1_4   => { true },
-            PdfConformance::X4P_2010_PDF_1_6  => { true },
-            PdfConformance::X5G_2010_PDF_1_6  => { true },
-            PdfConformance::X5PG_2010_PDF_1_6 => { true },
-            PdfConformance::Custom(ref c)     => { c.requires_xmp_metadata }
-            _                                 => { false },
+            PdfConformance::X1A_2001_PDF_1_3 => true,
+            PdfConformance::X3_2002_PDF_1_3 => true,
+            PdfConformance::X1A_2003_PDF_1_4 => true,
+            PdfConformance::X3_2003_PDF_1_4 => true,
+            PdfConformance::X4_2010_PDF_1_4 => true,
+            PdfConformance::X4P_2010_PDF_1_6 => true,
+            PdfConformance::X5G_2010_PDF_1_6 => true,
+            PdfConformance::X5PG_2010_PDF_1_6 => true,
+            PdfConformance::Custom(ref c) => c.requires_xmp_metadata,
+            _ => false,
         }
     }
 
     /// Check if the conformance level must have an ICC Profile
-    pub fn must_have_icc_profile(&self)
-    -> bool
-    {
+    pub fn must_have_icc_profile(&self) -> bool {
         // todo
         match *self {
-            PdfConformance::X1A_2001_PDF_1_3  => { false },
-            PdfConformance::Custom(ref c)     => { c.requires_icc_profile }
-            _                                 => { true },
+            PdfConformance::X1A_2001_PDF_1_3 => false,
+            PdfConformance::Custom(ref c) => c.requires_icc_profile,
+            _ => true,
         }
     }
 
     /// __STUB__: Detects if the PDF has layering (optional content groups),
     /// but the conformance to the given PDF standard does not allow it.
     #[cfg_attr(feature = "cargo-clippy", allow(match_same_arms))]
-    pub fn is_layering_allowed(&self)
-    -> bool
-    {
+    pub fn is_layering_allowed(&self) -> bool {
         match *self {
-            PdfConformance::X1A_2001_PDF_1_3  => { false },
-            PdfConformance::X3_2002_PDF_1_3   => { false },
-            PdfConformance::X1A_2003_PDF_1_4  => { false },
-            PdfConformance::X3_2003_PDF_1_4   => { false },
-            PdfConformance::Custom(ref c)     => { c.allows_pdf_layers }
-            _                                 => { true },
+            PdfConformance::X1A_2001_PDF_1_3 => false,
+            PdfConformance::X3_2002_PDF_1_3 => false,
+            PdfConformance::X1A_2003_PDF_1_4 => false,
+            PdfConformance::X3_2003_PDF_1_4 => false,
+            PdfConformance::Custom(ref c) => c.allows_pdf_layers,
+            _ => true,
         }
     }
 }

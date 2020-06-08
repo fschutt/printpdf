@@ -37,65 +37,58 @@ pub enum TextMatrix {
 }
 
 impl Into<[f64; 6]> for TextMatrix {
-    fn into(self)
-    -> [f64; 6]
-    {
+    fn into(self) -> [f64; 6] {
         use TextMatrix::*;
         match self {
-            Translate(x, y) => { 
-                // 1 0 0 1 x y cm 
+            Translate(x, y) => {
+                // 1 0 0 1 x y cm
                 let x_pt: Pt = x.into();
                 let y_pt: Pt = y.into();
-                [ 1.0, 0.0, 0.0, 1.0, x_pt.0, y_pt.0 ] 
+                [1.0, 0.0, 0.0, 1.0, x_pt.0, y_pt.0]
             }
-            Rotate(rot) => { let rad = (360.0 - rot).to_radians(); [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), 0.0, 0.0 ] /* cos sin -sin cos 0 0 cm */ }
+            Rotate(rot) => {
+                let rad = (360.0 - rot).to_radians();
+                [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), 0.0, 0.0] /* cos sin -sin cos 0 0 cm */
+            }
         }
     }
 }
 
 impl Into<[f64; 6]> for CurTransMat {
-    fn into(self)
-    -> [f64; 6]
-    {
+    fn into(self) -> [f64; 6] {
         use CurTransMat::*;
         match self {
-            Translate(x, y) => { 
-                // 1 0 0 1 x y cm 
+            Translate(x, y) => {
+                // 1 0 0 1 x y cm
                 let x_pt: Pt = x.into();
                 let y_pt: Pt = y.into();
-                [ 1.0, 0.0, 0.0, 1.0, x_pt.0, y_pt.0 ]   
+                [1.0, 0.0, 0.0, 1.0, x_pt.0, y_pt.0]
             }
-            Rotate(rot) => { 
-                // cos sin -sin cos 0 0 cm 
-                let rad = (360.0 - rot).to_radians(); 
-                [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), 0.0, 0.0 ] 
+            Rotate(rot) => {
+                // cos sin -sin cos 0 0 cm
+                let rad = (360.0 - rot).to_radians();
+                [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), 0.0, 0.0]
             }
-            Scale(x, y) => { 
+            Scale(x, y) => {
                 // x 0 0 y 0 0 cm
-                [ x, 0.0, 0.0, y, 0.0, 0.0 ] 
+                [x, 0.0, 0.0, y, 0.0, 0.0]
             }
-            Identity => { 
-                [ 1.0, 0.0, 0.0, 1.0, 0.0, 0.0 ] 
-            }
+            Identity => [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
         }
     }
 }
 
 impl Into<Operation> for CurTransMat {
-	fn into(self)
-	-> Operation
-	{
-		use lopdf::Object::*;
+    fn into(self) -> Operation {
+        use lopdf::Object::*;
         let matrix_nums: [f64; 6] = self.into();
         let matrix: Vec<lopdf::Object> = matrix_nums.to_vec().into_iter().map(Real).collect();
         Operation::new("cm", matrix)
-	}
+    }
 }
 
 impl Into<Operation> for TextMatrix {
-    fn into(self)
-    -> Operation
-    {
+    fn into(self) -> Operation {
         use lopdf::Object::*;
         let matrix_nums: [f64; 6] = self.into();
         let matrix: Vec<lopdf::Object> = matrix_nums.to_vec().into_iter().map(Real).collect();
@@ -104,9 +97,7 @@ impl Into<Operation> for TextMatrix {
 }
 
 impl Into<lopdf::Object> for CurTransMat {
-    fn into(self)
-    -> lopdf::Object
-    {
+    fn into(self) -> lopdf::Object {
         use lopdf::Object::*;
         let matrix_nums: [f64; 6] = self.into();
         Array(matrix_nums.to_vec().into_iter().map(Real).collect())
@@ -114,8 +105,7 @@ impl Into<lopdf::Object> for CurTransMat {
 }
 
 #[test]
-fn test_ctm_translate()
-{
+fn test_ctm_translate() {
     use self::*;
 
     // test that the translation matrix look like what PDF expects
@@ -129,5 +119,15 @@ fn test_ctm_translate()
 
     let ctm_rot = CurTransMat::Rotate(30.0);
     let ctm_rot_arr: [f64; 6] = ctm_rot.into();
-    assert_eq!([0.8660254037844384, 0.5000000000000004, -0.5000000000000004, 0.8660254037844384, 0.0, 0.0], ctm_rot_arr);
+    assert_eq!(
+        [
+            0.8660254037844384,
+            0.5000000000000004,
+            -0.5000000000000004,
+            0.8660254037844384,
+            0.0,
+            0.0
+        ],
+        ctm_rot_arr
+    );
 }

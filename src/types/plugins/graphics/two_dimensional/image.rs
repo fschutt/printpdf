@@ -2,7 +2,7 @@
 //! Please use this class instead of adding `ImageXObjects` yourself
 
 #[cfg(feature = "embedded_images")]
-use image::{self, ImageDecoder, DynamicImage};
+use image::{self, DynamicImage, ImageDecoder};
 use Mm;
 use {ImageXObject, PdfLayerReference};
 
@@ -15,30 +15,19 @@ pub struct Image {
 }
 
 impl From<ImageXObject> for Image {
-    fn from(image: ImageXObject)
-    -> Self
-    {
-        Self {
-            image: image,
-        }
+    fn from(image: ImageXObject) -> Self {
+        Self { image: image }
     }
-
 }
 
 #[cfg(feature = "embedded_images")]
 impl<'a> Image {
-    pub fn try_from<T: ImageDecoder<'a>>(image: T)
-    -> Result<Self, image::ImageError>
-    {
+    pub fn try_from<T: ImageDecoder<'a>>(image: T) -> Result<Self, image::ImageError> {
         let image = ImageXObject::try_from(image)?;
-        Ok(Self {
-            image: image,
-        })
+        Ok(Self { image: image })
     }
 
-    pub fn from_dynamic_image(image: &DynamicImage)
-    -> Self
-    {
+    pub fn from_dynamic_image(image: &DynamicImage) -> Self {
         Self {
             image: ImageXObject::from_dynamic_image(image),
         }
@@ -46,7 +35,6 @@ impl<'a> Image {
 }
 
 impl Image {
-
     /// Adds the image to a specific layer and consumes it
     /// This is due to a PDF weirdness - images are basically just "names"
     /// and you have to make sure that they are added to the same page
@@ -55,12 +43,16 @@ impl Image {
     /// You can use the "dpi" parameter to specify a scaling - the default is 300dpi
     ///
     #[cfg_attr(feature = "cargo-clippy", allow(too_many_arguments))]
-    pub fn add_to_layer(self, layer: PdfLayerReference,
-                        translate_x: Option<Mm>, translate_y: Option<Mm>,
-                        rotate_cw: Option<f64>,
-                        scale_x: Option<f64>, scale_y: Option<f64>,
-                        dpi: Option<f64>)
-    {
+    pub fn add_to_layer(
+        self,
+        layer: PdfLayerReference,
+        translate_x: Option<Mm>,
+        translate_y: Option<Mm>,
+        rotate_cw: Option<f64>,
+        scale_x: Option<f64>,
+        scale_y: Option<f64>,
+        dpi: Option<f64>,
+    ) {
         // PDF maps an image to a 1x1 square, we have to adjust the transform matrix
         // to fix the distortion
         let dpi = dpi.unwrap_or(300.0);
@@ -73,14 +65,42 @@ impl Image {
 
         if let Some(scale_x) = scale_x {
             if let Some(scale_y) = scale_y {
-                layer.use_xobject(image, translate_x, translate_y, rotate_cw, Some(scale_x * image_w.0), Some(image_h.0 * scale_y));
+                layer.use_xobject(
+                    image,
+                    translate_x,
+                    translate_y,
+                    rotate_cw,
+                    Some(scale_x * image_w.0),
+                    Some(image_h.0 * scale_y),
+                );
             } else {
-                layer.use_xobject(image, translate_x, translate_y, rotate_cw, Some(scale_x * image_w.0), Some(image_h.0));
+                layer.use_xobject(
+                    image,
+                    translate_x,
+                    translate_y,
+                    rotate_cw,
+                    Some(scale_x * image_w.0),
+                    Some(image_h.0),
+                );
             }
         } else if let Some(scale_y) = scale_y {
-            layer.use_xobject(image, translate_x, translate_y, rotate_cw, Some(image_w.0), Some(image_h.0 * scale_y));
+            layer.use_xobject(
+                image,
+                translate_x,
+                translate_y,
+                rotate_cw,
+                Some(image_w.0),
+                Some(image_h.0 * scale_y),
+            );
         } else {
-            layer.use_xobject(image, translate_x, translate_y, rotate_cw, Some(image_w.0), Some(image_h.0));
+            layer.use_xobject(
+                image,
+                translate_x,
+                translate_y,
+                rotate_cw,
+                Some(image_w.0),
+                Some(image_h.0),
+            );
         }
     }
 }

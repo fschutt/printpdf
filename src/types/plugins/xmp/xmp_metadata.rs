@@ -1,10 +1,10 @@
 //! Stub plugin for XMP Metadata streams, to be expanded later
 
-use time::OffsetDateTime;
 use lopdf;
+use time::OffsetDateTime;
 
-use PdfConformance;
 use utils::random_character_string_32;
+use PdfConformance;
 
 /// Initial struct for Xmp metatdata. This should be expanded later for XML handling, etc.
 /// Right now it just fills out the necessary fields
@@ -19,11 +19,8 @@ pub struct XmpMetadata {
 }
 
 impl XmpMetadata {
-
     /// Creates a new XmpMetadata object
-    pub fn new(rendition_class: Option<String>, document_version: u32)
-    -> Self
-    {
+    pub fn new(rendition_class: Option<String>, document_version: u32) -> Self {
         let document_id: String = random_character_string_32();
         Self {
             document_id: document_id,
@@ -34,17 +31,20 @@ impl XmpMetadata {
 
     /// Consumes the XmpMetadata and turns it into a PDF Object.
     /// This is similar to the
-    pub(in types) fn into_obj<S>(self,
-                           conformance: PdfConformance,
-                           trapping: bool,
-                           creation_date: OffsetDateTime,
-                           modification_date: OffsetDateTime,
-                           metadata_date: OffsetDateTime,
-                           document_title: S)
-    -> lopdf::Object where S: Into<String> + ::std::fmt::Display
+    pub(in types) fn into_obj<S>(
+        self,
+        conformance: PdfConformance,
+        trapping: bool,
+        creation_date: OffsetDateTime,
+        modification_date: OffsetDateTime,
+        metadata_date: OffsetDateTime,
+        document_title: S,
+    ) -> lopdf::Object
+    where
+        S: Into<String> + ::std::fmt::Display,
     {
-        use lopdf::{Stream as LoStream, Dictionary as LoDictionary};
         use lopdf::Object::*;
+        use lopdf::{Dictionary as LoDictionary, Stream as LoStream};
         use std::iter::FromIterator;
 
         // Shared between XmpMetadata and DocumentInfo
@@ -65,24 +65,33 @@ impl XmpMetadata {
             None => "".to_string(),
         };
 
-        let xmp_metadata = format!(include_str!("../../../templates/catalog_xmp_metadata.txt"),
-                           create_date, modification_date, metadata_date, document_title, document_id,
-                           instance_id, rendition_class, document_version, pdf_x_version, trapping);
+        let xmp_metadata = format!(
+            include_str!("../../../templates/catalog_xmp_metadata.txt"),
+            create_date,
+            modification_date,
+            metadata_date,
+            document_title,
+            document_id,
+            instance_id,
+            rendition_class,
+            document_version,
+            pdf_x_version,
+            trapping
+        );
 
-        Stream(LoStream::new(LoDictionary::from_iter(vec![
-            ("Type", "Metadata".into()),
-            ("Subtype", "XML".into()), ]),
-            xmp_metadata.as_bytes().to_vec() ))
+        Stream(LoStream::new(
+            LoDictionary::from_iter(vec![("Type", "Metadata".into()), ("Subtype", "XML".into())]),
+            xmp_metadata.as_bytes().to_vec(),
+        ))
     }
 }
 
 // D:2018-09-19T10:05:05+00'00'
-fn to_pdf_xmp_date(date: OffsetDateTime)
--> String
-{
+fn to_pdf_xmp_date(date: OffsetDateTime) -> String {
     // Since the time is in UTC, we know that the time zone
     // difference to UTC is 0 min, 0 sec, hence the 00'00
-    format!("D:{:04}-{:02}-{:02}T{:02}:{:02}:{:02}+00'00'",
+    format!(
+        "D:{:04}-{:02}-{:02}T{:02}:{:02}:{:02}+00'00'",
         date.year(),
         date.month(),
         date.day(),

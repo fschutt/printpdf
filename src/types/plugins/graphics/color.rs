@@ -5,8 +5,9 @@ use image;
 use lopdf::content::Operation;
 
 use glob_defines::{
-    OP_COLOR_SET_FILL_CS_DEVICERGB, OP_COLOR_SET_FILL_CS_DEVICECMYK, OP_COLOR_SET_FILL_CS_DEVICEGRAY,
-    OP_COLOR_SET_STROKE_CS_DEVICERGB, OP_COLOR_SET_STROKE_CS_DEVICECMYK, OP_COLOR_SET_STROKE_CS_DEVICEGRAY,
+    OP_COLOR_SET_FILL_CS_DEVICECMYK, OP_COLOR_SET_FILL_CS_DEVICEGRAY,
+    OP_COLOR_SET_FILL_CS_DEVICERGB, OP_COLOR_SET_STROKE_CS_DEVICECMYK,
+    OP_COLOR_SET_STROKE_CS_DEVICEGRAY, OP_COLOR_SET_STROKE_CS_DEVICERGB,
 };
 use IccProfileRef;
 
@@ -18,10 +19,7 @@ pub enum PdfColor {
 }
 
 impl Into<Operation> for PdfColor {
-
-    fn into(self)
-    -> Operation
-    {
+    fn into(self) -> Operation {
         use lopdf::Object::*;
 
         // todo: incorporate ICC profile instead of just setting the default device cmyk color space
@@ -30,18 +28,18 @@ impl Into<Operation> for PdfColor {
             match self {
                 FillColor(fill) => {
                     let ci = match fill {
-                        Color::Rgb(_) => { OP_COLOR_SET_FILL_CS_DEVICERGB }
-                        Color::Cmyk(_) | Color::SpotColor(_) => { OP_COLOR_SET_FILL_CS_DEVICECMYK }
-                        Color::Greyscale(_) => { OP_COLOR_SET_FILL_CS_DEVICEGRAY }
+                        Color::Rgb(_) => OP_COLOR_SET_FILL_CS_DEVICERGB,
+                        Color::Cmyk(_) | Color::SpotColor(_) => OP_COLOR_SET_FILL_CS_DEVICECMYK,
+                        Color::Greyscale(_) => OP_COLOR_SET_FILL_CS_DEVICEGRAY,
                     };
                     let cvec = fill.into_vec().into_iter().map(Real).collect();
                     (ci, cvec)
-                },
+                }
                 OutlineColor(outline) => {
                     let ci = match outline {
-                        Color::Rgb(_) => { OP_COLOR_SET_STROKE_CS_DEVICERGB }
-                        Color::Cmyk(_) | Color::SpotColor(_) => { OP_COLOR_SET_STROKE_CS_DEVICECMYK }
-                        Color::Greyscale(_) => { OP_COLOR_SET_STROKE_CS_DEVICEGRAY }
+                        Color::Rgb(_) => OP_COLOR_SET_STROKE_CS_DEVICERGB,
+                        Color::Cmyk(_) | Color::SpotColor(_) => OP_COLOR_SET_STROKE_CS_DEVICECMYK,
+                        Color::Greyscale(_) => OP_COLOR_SET_STROKE_CS_DEVICEGRAY,
                     };
 
                     let cvec = outline.into_vec().into_iter().map(Real).collect();
@@ -67,9 +65,7 @@ pub enum ColorSpace {
 
 #[cfg(feature = "embedded_images")]
 impl From<image::ColorType> for ColorSpace {
-    fn from(color_type: image::ColorType)
-    -> Self
-    {
+    fn from(color_type: image::ColorType) -> Self {
         use image::ColorType::*;
         match color_type {
             L8 | L16 => ColorSpace::Greyscale,
@@ -82,9 +78,7 @@ impl From<image::ColorType> for ColorSpace {
 }
 
 impl Into<&'static str> for ColorSpace {
-    fn into(self)
-    -> &'static str
-    {
+    fn into(self) -> &'static str {
         use self::ColorSpace::*;
         match self {
             Rgb => "DeviceRGB",
@@ -106,9 +100,7 @@ pub enum ColorBits {
 
 #[cfg(feature = "embedded_images")]
 impl From<image::ColorType> for ColorBits {
-    fn from(color_type: image::ColorType)
-    -> ColorBits
-    {
+    fn from(color_type: image::ColorType) -> ColorBits {
         use image::ColorType::*;
         use ColorBits::*;
 
@@ -116,15 +108,12 @@ impl From<image::ColorType> for ColorBits {
             L8 | La8 | Rgb8 | Rgba8 | Bgr8 | Bgra8 => Bit8,
             L16 | La16 | Rgb16 | Rgba16 => Bit16,
             _ => Bit8, // unreachable
-
         }
     }
 }
 
 impl Into<i64> for ColorBits {
-    fn into(self)
-    -> i64
-    {
+    fn into(self) -> i64 {
         match self {
             ColorBits::Bit1 => 1,
             ColorBits::Bit8 => 8,
@@ -139,27 +128,22 @@ pub enum Color {
     Rgb(Rgb),
     Cmyk(Cmyk),
     Greyscale(Greyscale),
-    SpotColor(SpotColor)
+    SpotColor(SpotColor),
 }
 
 impl Color {
-
     /// Consumes the color and converts into into a vector of numbers
-    pub fn into_vec(self)
-    -> Vec<f64>
-    {
+    pub fn into_vec(self) -> Vec<f64> {
         match self {
-            Color::Rgb(rgb) => { vec![rgb.r, rgb.g, rgb.b ]},
-            Color::Cmyk(cmyk) => { vec![cmyk.c, cmyk.m, cmyk.y, cmyk.k ]},
-            Color::Greyscale(gs) => { vec![gs.percent]},
-            Color::SpotColor(spot) => { vec![spot.c, spot.m, spot.y, spot.k ]},
+            Color::Rgb(rgb) => vec![rgb.r, rgb.g, rgb.b],
+            Color::Cmyk(cmyk) => vec![cmyk.c, cmyk.m, cmyk.y, cmyk.k],
+            Color::Greyscale(gs) => vec![gs.percent],
+            Color::SpotColor(spot) => vec![spot.c, spot.m, spot.y, spot.k],
         }
     }
 
     /// Returns if the color has an icc profile attached
-    pub fn get_icc_profile(&self)
-    -> Option<&Option<IccProfileRef>>
-    {
+    pub fn get_icc_profile(&self) -> Option<&Option<IccProfileRef>> {
         match *self {
             Color::Rgb(ref rgb) => Some(&rgb.icc_profile),
             Color::Cmyk(ref cmyk) => Some(&cmyk.icc_profile),
@@ -179,14 +163,15 @@ pub struct Rgb {
 }
 
 impl Rgb {
-
-    pub fn new(r: f64, g: f64, b: f64, icc_profile: Option<IccProfileRef>)
-    -> Self
-    {
-        Self { r, g, b, icc_profile }
+    pub fn new(r: f64, g: f64, b: f64, icc_profile: Option<IccProfileRef>) -> Self {
+        Self {
+            r,
+            g,
+            b,
+            icc_profile,
+        }
     }
 }
-
 
 /// CMYK color
 #[derive(Debug, Clone, PartialEq)]
@@ -200,10 +185,14 @@ pub struct Cmyk {
 
 impl Cmyk {
     /// Creates a new CMYK color
-    pub fn new(c: f64, m: f64, y: f64, k: f64, icc_profile: Option<IccProfileRef>)
-    -> Self
-    {
-        Self { c, m, y, k, icc_profile }
+    pub fn new(c: f64, m: f64, y: f64, k: f64, icc_profile: Option<IccProfileRef>) -> Self {
+        Self {
+            c,
+            m,
+            y,
+            k,
+            icc_profile,
+        }
     }
 }
 
@@ -215,13 +204,13 @@ pub struct Greyscale {
 }
 
 impl Greyscale {
-    pub fn new(percent: f64, icc_profile: Option<IccProfileRef>)
-    -> Self
-    {
-        Self { percent, icc_profile }
+    pub fn new(percent: f64, icc_profile: Option<IccProfileRef>) -> Self {
+        Self {
+            percent,
+            icc_profile,
+        }
     }
 }
-
 
 /// Spot color
 /// Spot colors are like Cmyk, but without color space
@@ -236,9 +225,7 @@ pub struct SpotColor {
 }
 
 impl SpotColor {
-    pub fn new(c: f64, m: f64, y: f64, k: f64)
-    -> Self
-    {
+    pub fn new(c: f64, m: f64, y: f64, k: f64) -> Self {
         Self { c, m, y, k }
     }
 }

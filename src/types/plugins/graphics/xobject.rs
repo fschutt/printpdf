@@ -1,14 +1,12 @@
 // clippy lints when serializing PDF strings, in this case its wrong
 #![cfg_attr(feature = "cargo-clippy", allow(string_lit_as_bytes))]
 
+#[cfg(feature = "embedded_images")]
+use image::{DynamicImage, GenericImageView, ImageDecoder, ImageError};
 use lopdf;
 use std::collections::HashMap;
-#[cfg(feature = "embedded_images")]
-use image::{ImageError, ImageDecoder, DynamicImage, GenericImageView};
 use time::OffsetDateTime;
-use {
-    ColorSpace, ColorBits, CurTransMat, Px
-};
+use {ColorBits, ColorSpace, CurTransMat, Px};
 
 /* Parent: Resources dictionary of the page */
 /// External object that gets reference outside the PDF content stream
@@ -30,33 +28,29 @@ pub enum XObject {
 }
 
 impl XObject {
-
-    #[cfg(any(debug_assertions, feature="less-optimization"))]
+    #[cfg(any(debug_assertions, feature = "less-optimization"))]
     #[inline]
-    fn compress_stream(stream: lopdf::Stream)
-    -> lopdf::Stream
-    {
+    fn compress_stream(stream: lopdf::Stream) -> lopdf::Stream {
         stream
     }
 
-    #[cfg(all(not(debug_assertions), not(feature="less-optimization")))]
+    #[cfg(all(not(debug_assertions), not(feature = "less-optimization")))]
     #[inline]
-    fn compress_stream(mut stream: lopdf::Stream)
-    -> lopdf::Stream
-    {
+    fn compress_stream(mut stream: lopdf::Stream) -> lopdf::Stream {
         stream.compress();
         stream
     }
 }
 
 impl Into<lopdf::Object> for XObject {
-    fn into(self)
-    -> lopdf::Object
-    {
+    fn into(self) -> lopdf::Object {
         match self {
-            XObject::Image(image) => { lopdf::Object::Stream(Self::compress_stream(image.into())) }
-            XObject::Form(form) => { let cur_form: FormXObject = *form; lopdf::Object::Stream(Self::compress_stream(cur_form.into())) }
-            XObject::PostScript(ps) => { lopdf::Object::Stream(Self::compress_stream(ps.into())) }
+            XObject::Image(image) => lopdf::Object::Stream(Self::compress_stream(image.into())),
+            XObject::Form(form) => {
+                let cur_form: FormXObject = *form;
+                lopdf::Object::Stream(Self::compress_stream(cur_form.into()))
+            }
+            XObject::PostScript(ps) => lopdf::Object::Stream(Self::compress_stream(ps.into())),
         }
     }
 }
@@ -68,18 +62,13 @@ pub struct XObjectList {
 }
 
 impl XObjectList {
-
     /// Creates a new XObjectList
-    pub fn new()
-    -> Self
-    {
+    pub fn new() -> Self {
         Self::default()
     }
 
     /// Adds a new XObject to the list
-    pub fn add_xobject(&mut self, xobj: XObject)
-    -> XObjectRef
-    {
+    pub fn add_xobject(&mut self, xobj: XObject) -> XObjectRef {
         let len = self.objects.len();
         let xobj_ref = XObjectRef::new(len);
         self.objects.insert(xobj_ref.name.clone(), xobj);
@@ -92,14 +81,15 @@ impl XObjectList {
     /// access to the PDF document so that we can add the streams first and
     /// then track the references to them.
     #[cfg_attr(feature = "cargo-clippy", allow(needless_return))]
-    pub fn into_with_document(self, doc: &mut lopdf::Document)
-    -> lopdf::Dictionary
-    {
-        self.objects.into_iter().map(|(name, object)| {
-            let obj: lopdf::Object = object.into();
-            let obj_ref =  doc.add_object(obj);
-            (name.to_string(), lopdf::Object::Reference(obj_ref))
-        }).collect()
+    pub fn into_with_document(self, doc: &mut lopdf::Document) -> lopdf::Dictionary {
+        self.objects
+            .into_iter()
+            .map(|(name, object)| {
+                let obj: lopdf::Object = object.into();
+                let obj_ref = doc.add_object(obj);
+                (name.to_string(), lopdf::Object::Reference(obj_ref))
+            })
+            .collect()
     }
 }
 
@@ -110,11 +100,8 @@ pub struct XObjectRef {
 }
 
 impl XObjectRef {
-
     /// Creates a new reference from a number
-    pub fn new(index: usize)
-    -> Self
-    {
+    pub fn new(index: usize) -> Self {
         Self {
             name: format!("X{}", index),
         }
@@ -149,15 +136,19 @@ pub struct ImageXObject {
 }
 
 impl<'a> ImageXObject {
-
     /// Creates a new ImageXObject
     // #[cfg_attr(feature = "cargo-clippy", allow(needless_lifetimes))]
     #[cfg_attr(feature = "cargo-clippy", allow(too_many_arguments))]
-    pub fn new(width: Px, height: Px, color_space: ColorSpace,
-               bits: ColorBits, interpolate: bool, image_filter: Option<ImageFilter>,
-               bbox: Option<CurTransMat>, data: Vec<u8>)
-    -> Self
-    {
+    pub fn new(
+        width: Px,
+        height: Px,
+        color_space: ColorSpace,
+        bits: ColorBits,
+        interpolate: bool,
+        image_filter: Option<ImageFilter>,
+        bbox: Option<CurTransMat>,
+        data: Vec<u8>,
+    ) -> Self {
         Self {
             width: width,
             height: height,
@@ -171,21 +162,21 @@ impl<'a> ImageXObject {
     }
 
     #[cfg(feature = "embedded_images")]
-    pub fn try_from<T: ImageDecoder<'a>>(image: T)
-    -> Result<Self, ImageError>
-    {
-        use std::usize;
+    pub fn try_from<T: ImageDecoder<'a>>(image: T) -> Result<Self, ImageError> {
         use image::error::{LimitError, LimitErrorKind};
+        use std::usize;
 
         let dim = image.dimensions();
         let color_type = image.color_type();
         let num_image_bytes = image.total_bytes();
-        
-        if num_image_bytes > usize::MAX as u64{
-            return Err(ImageError::Limits(LimitError::from_kind(LimitErrorKind::InsufficientMemory)));
+
+        if num_image_bytes > usize::MAX as u64 {
+            return Err(ImageError::Limits(LimitError::from_kind(
+                LimitErrorKind::InsufficientMemory,
+            )));
         }
 
-        let mut image_data = vec![0;num_image_bytes as usize];
+        let mut image_data = vec![0; num_image_bytes as usize];
         image.read_image(&mut image_data)?;
 
         let color_bits = ColorBits::from(color_type);
@@ -204,9 +195,7 @@ impl<'a> ImageXObject {
     }
 
     #[cfg(feature = "embedded_images")]
-    pub fn from_dynamic_image(image: &DynamicImage)
-    -> Self
-    {
+    pub fn from_dynamic_image(image: &DynamicImage) -> Self {
         let dim = image.dimensions();
         let color_type = image.color();
         let data = image.to_bytes();
@@ -227,16 +216,12 @@ impl<'a> ImageXObject {
 }
 
 impl Into<lopdf::Stream> for ImageXObject {
-    fn into(self)
-    -> lopdf::Stream
-    {
+    fn into(self) -> lopdf::Stream {
         use lopdf::Object::*;
         use std::iter::FromIterator;
 
         let cs: &'static str = self.color_space.into();
-        let bbox: lopdf::Object = self.clipping_bbox
-            .unwrap_or(CurTransMat::Identity)
-            .into();
+        let bbox: lopdf::Object = self.clipping_bbox.unwrap_or(CurTransMat::Identity).into();
 
         let dict = lopdf::Dictionary::from_iter(vec![
             ("Type", Name("XObject".as_bytes().to_vec())),
@@ -249,9 +234,7 @@ impl Into<lopdf::Stream> for ImageXObject {
             ("BBox", bbox),
         ]);
 
-        if self.image_filter.is_some() {
-            /* todo: add filter */
-        }
+        if self.image_filter.is_some() { /* todo: add filter */ }
 
         lopdf::Stream::new(dict, self.image_data)
     }
@@ -370,11 +353,9 @@ pub struct FormXObject {
 }
 
 impl Into<lopdf::Stream> for FormXObject {
-    fn into(self)
-    -> lopdf::Stream
-    {
-        use std::iter::FromIterator;
+    fn into(self) -> lopdf::Stream {
         use lopdf::Object::*;
+        use std::iter::FromIterator;
 
         let dict = lopdf::Dictionary::from_iter(vec![
             ("Type", Name("XObject".as_bytes().to_vec())),
@@ -411,9 +392,7 @@ pub enum FormType {
 }
 
 impl Into<i64> for FormType {
-    fn into(self)
-    -> i64
-    {
+    fn into(self) -> i64 {
         match self {
             FormType::Type1 => 1,
         }
@@ -459,7 +438,6 @@ impl Into<i64> for FormType {
 /// that is used to mask another image
 #[derive(Debug)]
 pub struct SMask {
-
     /* /Type /XObject */
     /* /Subtype /Image */
     /* /ColorSpace /DeviceGray */
@@ -474,7 +452,6 @@ pub struct SMask {
     /* /StructParent (ignored, don't set) */
     /* /ID (ignored, don't set) */
     /* /OPI (ignored, don't set) */
-
     /// If `self.matte` is set to true, this entry must be the same
     /// width as the parent image. If not, the `SMask` is resampled to the parent unit square
     pub width: i64,
@@ -502,8 +479,7 @@ pub struct SMask {
 #[derive(Debug, Copy, Clone)]
 pub struct GroupXObject {
     /* /Type /Group */
-    /* /S /Transparency */ /* currently the only valid GroupXObject */
-}
+/* /S /Transparency */ /* currently the only valid GroupXObject */}
 
 #[derive(Debug, Copy, Clone)]
 pub enum GroupXObjectType {
@@ -567,9 +543,7 @@ pub struct PostScriptXObject {
 }
 
 impl Into<lopdf::Stream> for PostScriptXObject {
-    fn into(self)
-    -> lopdf::Stream
-    {
+    fn into(self) -> lopdf::Stream {
         // todo!
         lopdf::Stream::new(lopdf::Dictionary::new(), Vec::new())
     }
