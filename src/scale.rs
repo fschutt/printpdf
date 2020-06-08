@@ -126,7 +126,7 @@ macro_rules! impl_mul_assign_f64 {
     };
 }
 
-macro_rules! impl_div_f64 {
+macro_rules! impl_div {
     ($type:ident) => {
         impl Div<$type> for $type {
             type Output = f64;
@@ -175,8 +175,8 @@ impl_mul_f64!(Pt);
 impl_mul_assign_f64!(Mm);
 impl_mul_assign_f64!(Pt);
 
-impl_div_f64!(Mm);
-impl_div_f64!(Pt);
+impl_div!(Mm);
+impl_div!(Pt);
 
 impl_div_assign_f64!(Mm);
 impl_div_assign_f64!(Pt);
