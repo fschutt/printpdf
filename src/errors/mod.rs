@@ -1,9 +1,9 @@
 //! Errors for printpdf
 
-use rusttype::Error as RusttypeError;
 use std::error::Error as IError;
-use std::fmt;
 use std::io::Error as IoError;
+use rusttype::Error as RusttypeError;
+use std::fmt;
 
 /// error_chain and failure are certainly nice, but completely overengineered
 /// for this use-case. For example, neither of them allow error localization.
@@ -15,13 +15,13 @@ use std::io::Error as IoError;
 ///
 /// What this macro does is (simplified): `impl From<$a> for $b { $b::$variant(error) }`
 macro_rules! impl_from {
-    ($from:ident, $to:ident::$variant:ident) => {
+    ($from:ident, $to:ident::$variant:ident) => (
         impl From<$from> for $to {
             fn from(err: $from) -> Self {
                 $to::$variant(err.into())
             }
         }
-    };
+    )
 }
 
 #[derive(Debug)]
@@ -108,3 +108,4 @@ impl IError for Error {
         }
     }
 }
+

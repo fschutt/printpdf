@@ -80,69 +80,72 @@ pub(crate) const PDF_TAG_3BEZIER_CURVE_V2: &'static str       = "y";
 pub(crate) const PDF_TAG_4BEZIER_CURVE: &'static str          = "c";
 */
 
+
 /// ## General graphics state
 
 /// Set line width
-pub(crate) const OP_PATH_STATE_SET_LINE_WIDTH: &str = "w";
+pub(crate) const OP_PATH_STATE_SET_LINE_WIDTH: &str                 = "w";
 /// Set line join
-pub(crate) const OP_PATH_STATE_SET_LINE_JOIN: &str = "J";
+pub(crate) const OP_PATH_STATE_SET_LINE_JOIN: &str                  = "J";
 /// Set line cap
-pub(crate) const OP_PATH_STATE_SET_LINE_CAP: &str = "j";
+pub(crate) const OP_PATH_STATE_SET_LINE_CAP: &str                   = "j";
 /// Set miter limit
-pub(crate) const OP_PATH_STATE_SET_MITER_LIMIT: &str = "M";
+pub(crate) const OP_PATH_STATE_SET_MITER_LIMIT: &str                = "M";
 /// Set line dash pattern
-pub(crate) const OP_PATH_STATE_SET_LINE_DASH: &str = "d";
+pub(crate) const OP_PATH_STATE_SET_LINE_DASH: &str                  = "d";
 /// Set rendering intent
-pub(crate) const OP_PATH_STATE_SET_RENDERING_INTENT: &str = "ri";
+pub(crate) const OP_PATH_STATE_SET_RENDERING_INTENT: &str           = "ri";
 /// Set flatness tolerance
-pub(crate) const OP_PATH_STATE_SET_FLATNESS_TOLERANCE: &str = "i";
+pub(crate) const OP_PATH_STATE_SET_FLATNESS_TOLERANCE: &str         = "i";
 /// (PDF 1.2) Set graphics state from parameter dictionary
-pub(crate) const OP_PATH_STATE_SET_GS_FROM_PARAM_DICT: &str = "gs";
+pub(crate) const OP_PATH_STATE_SET_GS_FROM_PARAM_DICT: &str         = "gs";
+
 
 /// ## Color
 
 /// stroking color space (PDF 1.1)
-pub(crate) const OP_COLOR_SET_STROKE_CS: &str = "CS";
+pub(crate) const OP_COLOR_SET_STROKE_CS: &str                       = "CS";
 /// non-stroking color space (PDF 1.1)
-pub(crate) const OP_COLOR_SET_FILL_CS: &str = "cs";
+pub(crate) const OP_COLOR_SET_FILL_CS: &str                         = "cs";
 /// set stroking color (PDF 1.1)
-pub(crate) const OP_COLOR_SET_STROKE_COLOR: &str = "SC";
+pub(crate) const OP_COLOR_SET_STROKE_COLOR: &str                    = "SC";
 /// set stroking color (PDF 1.2) with support for ICC, etc.
-pub(crate) const OP_COLOR_SET_STROKE_COLOR_ICC: &str = "SCN";
+pub(crate) const OP_COLOR_SET_STROKE_COLOR_ICC: &str                = "SCN";
 /// set fill color (PDF 1.1)
-pub(crate) const OP_COLOR_SET_FILL_COLOR: &str = "sc";
+pub(crate) const OP_COLOR_SET_FILL_COLOR: &str                      = "sc";
 /// set fill color (PDF 1.2) with support for Icc, etc.
-pub(crate) const OP_COLOR_SET_FILL_COLOR_ICC: &str = "scn";
+pub(crate) const OP_COLOR_SET_FILL_COLOR_ICC: &str                  = "scn";
 
 /// Set the stroking color space to DeviceGray
-pub(crate) const OP_COLOR_SET_STROKE_CS_DEVICEGRAY: &str = "G";
+pub(crate) const OP_COLOR_SET_STROKE_CS_DEVICEGRAY: &str            = "G";
 /// Set the fill color space to DeviceGray
-pub(crate) const OP_COLOR_SET_FILL_CS_DEVICEGRAY: &str = "g";
+pub(crate) const OP_COLOR_SET_FILL_CS_DEVICEGRAY: &str              = "g";
 /// Set the stroking color space to DeviceRGB
-pub(crate) const OP_COLOR_SET_STROKE_CS_DEVICERGB: &str = "RG";
+pub(crate) const OP_COLOR_SET_STROKE_CS_DEVICERGB: &str             = "RG";
 /// Set the fill color space to DeviceRGB
-pub(crate) const OP_COLOR_SET_FILL_CS_DEVICERGB: &str = "rg";
+pub(crate) const OP_COLOR_SET_FILL_CS_DEVICERGB: &str               = "rg";
 /// Set the stroking color space to DeviceCMYK
-pub(crate) const OP_COLOR_SET_STROKE_CS_DEVICECMYK: &str = "K";
+pub(crate) const OP_COLOR_SET_STROKE_CS_DEVICECMYK: &str            = "K";
 /// Set the fill color to DeviceCMYK
-pub(crate) const OP_COLOR_SET_FILL_CS_DEVICECMYK: &str = "k";
+pub(crate) const OP_COLOR_SET_FILL_CS_DEVICECMYK: &str              = "k";
+
 
 /// Path construction
 
 /// Move to point
-pub(crate) const OP_PATH_CONST_MOVE_TO: &str = "m";
+pub(crate) const OP_PATH_CONST_MOVE_TO: &str                        = "m";
 /// Straight line to the two following points
-pub(crate) const OP_PATH_CONST_LINE_TO: &str = "l";
+pub(crate) const OP_PATH_CONST_LINE_TO: &str                        = "l";
 /// Cubic bezier over four following points
-pub(crate) const OP_PATH_CONST_4BEZIER: &str = "c";
+pub(crate) const OP_PATH_CONST_4BEZIER: &str                        = "c";
 /// Cubic bezier with two points in v1
-pub(crate) const OP_PATH_CONST_3BEZIER_V1: &str = "v";
+pub(crate) const OP_PATH_CONST_3BEZIER_V1: &str                     = "v";
 /// Cubic bezier with two points in v2
-pub(crate) const OP_PATH_CONST_3BEZIER_V2: &str = "y";
+pub(crate) const OP_PATH_CONST_3BEZIER_V2: &str                     = "y";
 /// Add rectangle to the path (width / height): x y width height re
-pub(crate) const OP_PATH_CONST_RECT: &str = "re";
+pub(crate) const OP_PATH_CONST_RECT: &str                           = "re";
 /// Close current sub-path (for appending custom patterns along line)
-pub(crate) const OP_PATH_CONST_CLOSE_SUBPATH: &str = "h";
+pub(crate) const OP_PATH_CONST_CLOSE_SUBPATH: &str                  = "h";
 /// Current path is a clip path, non-zero winding order (usually in like `h W S`)
 pub(crate) const OP_PATH_CONST_CLIP_NZ: &str = "W";
 /// Current path is a clip path, non-zero winding order
@@ -151,25 +154,25 @@ pub(crate) const OP_PATH_CONST_CLIP_EO: &str = "W*";
 /// Path painting
 
 /// Stroke path
-pub(crate) const OP_PATH_PAINT_STROKE: &str = "S";
+pub(crate) const OP_PATH_PAINT_STROKE: &str                         = "S";
 /// Close and stroke path
-pub(crate) const OP_PATH_PAINT_STROKE_CLOSE: &str = "s";
+pub(crate) const OP_PATH_PAINT_STROKE_CLOSE: &str                   = "s";
 /// Fill path using nonzero winding number rule
-pub(crate) const OP_PATH_PAINT_FILL_NZ: &str = "f";
+pub(crate) const OP_PATH_PAINT_FILL_NZ: &str                        = "f";
 /// Fill path using nonzero winding number rule (obsolete)
-pub(crate) const OP_PATH_PAINT_FILL_NZ_OLD: &str = "F";
+pub(crate) const OP_PATH_PAINT_FILL_NZ_OLD: &str                    = "F";
 /// Fill path using even-odd rule
-pub(crate) const OP_PATH_PAINT_FILL_EO: &str = "f*";
+pub(crate) const OP_PATH_PAINT_FILL_EO: &str                        = "f*";
 /// Fill and stroke path using nonzero winding number rule
-pub(crate) const OP_PATH_PAINT_FILL_STROKE_NZ: &str = "B";
+pub(crate) const OP_PATH_PAINT_FILL_STROKE_NZ: &str                 = "B";
 /// Close, fill and stroke path using nonzero winding number rule
-pub(crate) const OP_PATH_PAINT_FILL_STROKE_CLOSE_NZ: &str = "b";
+pub(crate) const OP_PATH_PAINT_FILL_STROKE_CLOSE_NZ: &str           = "b";
 /// Fill and stroke path using even-odd rule
-pub(crate) const OP_PATH_PAINT_FILL_STROKE_EO: &str = "B*";
+pub(crate) const OP_PATH_PAINT_FILL_STROKE_EO: &str                 = "B*";
 /// Close, fill and stroke path using even odd rule
-pub(crate) const OP_PATH_PAINT_FILL_STROKE_CLOSE_EO: &str = "b*";
+pub(crate) const OP_PATH_PAINT_FILL_STROKE_CLOSE_EO: &str           = "b*";
 /// End path without filling or stroking
-pub(crate) const OP_PATH_PAINT_END: &str = "n";
+pub(crate) const OP_PATH_PAINT_END: &str                            = "n";
 
 /// These color profiles are included in the binary
 pub const ICC_PROFILE_ECI_V2: &[u8] = include_bytes!("templates/CoatedFOGRA39.icc");
