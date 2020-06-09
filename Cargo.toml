@@ -41,6 +41,3 @@ js-sys = "0.3.40"
 [badges]
 travis-ci = { repository = "fschutt/printpdf" }
 appveyor = { repository = "fschutt/printpdf" }
-
-[patch.crates-io]
-lopdf = { git='https://github.com/uuhan/lopdf', branch='feature/wasm' }
