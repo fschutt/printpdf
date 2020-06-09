@@ -37,3 +37,6 @@ less-optimization = []
 [badges]
 travis-ci = { repository = "fschutt/printpdf" }
 appveyor = { repository = "fschutt/printpdf" }
+
+[patch.crates-io]
+lopdf = { git='https://github.com/uuhan/lopdf', branch='feature/wasm' }
