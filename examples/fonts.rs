@@ -4,15 +4,13 @@ use std::fs::File;
 use std::io::BufWriter;
 
 fn main() {
-    let (doc, page1, layer1) =
-        PdfDocument::new("PDF_Document_title", Mm(500.0), Mm(300.0), "Layer 1");
+    let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", Mm(500.0), Mm(300.0), "Layer 1");
     let current_layer = doc.get_page(page1).get_layer(layer1);
 
     let text = "Lorem ipsum";
     let text2 = "dolor sit amet";
 
-    let mut font_reader =
-        std::io::Cursor::new(include_bytes!("../assets/fonts/RobotoMedium.ttf").as_ref());
+    let mut font_reader = std::io::Cursor::new(include_bytes!("../assets/fonts/RobotoMedium.ttf").as_ref());
 
     let font = doc.add_external_font(&mut font_reader).unwrap();
 
@@ -30,34 +28,33 @@ fn main() {
     // Make sure to wrap your commands
     // in a `begin_text_section()` and `end_text_section()` wrapper
     current_layer.begin_text_section();
+ 
+        // setup the general fonts.
+        // see the docs for these functions for details
+        current_layer.set_font(&font, 33);
+        current_layer.set_text_cursor(Mm(10.0), Mm(100.0));
+        current_layer.set_line_height(33);
+        current_layer.set_word_spacing(3000);
+        current_layer.set_character_spacing(10);
 
-    // setup the general fonts.
-    // see the docs for these functions for details
-    current_layer.set_font(&font, 33);
-    current_layer.set_text_cursor(Mm(10.0), Mm(100.0));
-    current_layer.set_line_height(33);
-    current_layer.set_word_spacing(3000);
-    current_layer.set_character_spacing(10);
+        // write two lines (one line break)
+        current_layer.write_text(text, &font);
+        current_layer.add_line_break();
+        current_layer.write_text(text2, &font);
+        current_layer.add_line_break();
 
-    // write two lines (one line break)
-    current_layer.write_text(text, &font);
-    current_layer.add_line_break();
-    current_layer.write_text(text2, &font);
-    current_layer.add_line_break();
+        current_layer.set_text_rendering_mode(TextRenderingMode::FillStroke);
+        current_layer.set_character_spacing(0);
+        current_layer.set_text_matrix(TextMatrix::Rotate(10.0));
 
-    current_layer.set_text_rendering_mode(TextRenderingMode::FillStroke);
-    current_layer.set_character_spacing(0);
-    current_layer.set_text_matrix(TextMatrix::Rotate(10.0));
-
-    // write one line, but write text2 in superscript
-    current_layer.write_text(text, &font);
-    current_layer.set_line_offset(10);
-    current_layer.set_text_rendering_mode(TextRenderingMode::Stroke);
-    current_layer.set_font(&font, 18);
-    current_layer.write_text(text2, &font);
+        // write one line, but write text2 in superscript
+        current_layer.write_text(text, &font);
+        current_layer.set_line_offset(10);
+        current_layer.set_text_rendering_mode(TextRenderingMode::Stroke);
+        current_layer.set_font(&font, 18);
+        current_layer.write_text(text2, &font);
 
     current_layer.end_text_section();
 
-    doc.save(&mut BufWriter::new(File::create("test_fonts.pdf").unwrap()))
-        .unwrap();
+    doc.save(&mut BufWriter::new(File::create("test_fonts.pdf").unwrap())).unwrap();
 }

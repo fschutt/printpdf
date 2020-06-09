@@ -305,35 +305,34 @@
 //! [PDF X/3 technical notes](http://www.pdfxreport.com/lib/exe/fetch.php?media=en:technote_pdfx_checks.pdf)
 
 // Enable clippy if our Cargo.toml file asked us to do so.
-#![cfg_attr(feature = "clippy", feature(plugin))]
-#![cfg_attr(feature = "clippy", plugin(clippy))]
-#![warn(
-    missing_copy_implementations,
-    trivial_numeric_casts,
-    trivial_casts,
-    unused_extern_crates,
-    unused_import_braces,
-    unused_qualifications
-)]
-#![cfg_attr(feature = "clippy", warn(cast_possible_truncation))]
-#![cfg_attr(feature = "clippy", warn(cast_possible_truncation))]
-#![cfg_attr(feature = "clippy", warn(cast_precision_loss))]
-#![cfg_attr(feature = "clippy", warn(cast_sign_loss))]
-#![cfg_attr(feature = "clippy", warn(missing_docs_in_private_items))]
-#![cfg_attr(feature = "clippy", warn(mut_mut))]
+#![cfg_attr(feature="clippy", feature(plugin))]
+#![cfg_attr(feature="clippy", plugin(clippy))]
+
+#![warn(missing_copy_implementations,
+        trivial_numeric_casts,
+        trivial_casts,
+        unused_extern_crates,
+        unused_import_braces,
+        unused_qualifications)]
+
+#![cfg_attr(feature="clippy", warn(cast_possible_truncation))]
+#![cfg_attr(feature="clippy", warn(cast_possible_truncation))]
+#![cfg_attr(feature="clippy", warn(cast_precision_loss))]
+#![cfg_attr(feature="clippy", warn(cast_sign_loss))]
+#![cfg_attr(feature="clippy", warn(missing_docs_in_private_items))]
+#![cfg_attr(feature="clippy", warn(mut_mut))]
+
 // Disallow `println!`. Use `debug!` for debug output
 // (which is provided by the `log` crate).
-#![cfg_attr(feature = "clippy", warn(print_stdout))]
-#![cfg_attr(all(not(test), feature = "clippy"), warn(result_unwrap_used))]
-#![cfg_attr(feature = "clippy", warn(unseparated_literal_suffix))]
-#![cfg_attr(feature = "clippy", warn(wrong_pub_self_convention))]
+#![cfg_attr(feature="clippy", warn(print_stdout))]
+
+#![cfg_attr(all(not(test), feature="clippy"), warn(result_unwrap_used))]
+#![cfg_attr(feature="clippy", warn(unseparated_literal_suffix))]
+#![cfg_attr(feature="clippy", warn(wrong_pub_self_convention))]
 
 #[cfg(feature = "logging")]
-#[macro_use]
-pub extern crate log;
+#[macro_use] pub extern crate log;
 
-#[cfg(feature = "embedded_images")]
-pub extern crate image;
 extern crate lopdf;
 extern crate rusttype;
 extern crate time;
@@ -343,67 +342,69 @@ extern crate cfg_if;
 extern crate js_sys;
 
 pub mod date;
+#[cfg(feature = "embedded_images")]
+pub extern crate image;
+
+pub mod types;
+pub mod scale;
 pub mod errors;
+pub mod utils;
 mod glob_defines;
 pub mod indices;
-pub mod scale;
-pub mod types;
-pub mod utils;
 
 pub use self::errors::Error;
-pub use self::errors::IndexError;
 pub use self::errors::PdfError;
 pub use date::*;
+pub use self::errors::IndexError;
 pub use rusttype::Error as RusttypeError;
 
 pub use self::scale::{Mm, Pt, Px};
 pub use self::types::pdf_conformance::{CustomPdfConformance, PdfConformance};
-pub use self::types::pdf_document::{PdfDocument, PdfDocumentReference};
-pub use self::types::pdf_layer::{PdfLayer, PdfLayerReference};
+pub use self::types::pdf_document::{PdfDocumentReference, PdfDocument};
 pub use self::types::pdf_metadata::PdfMetadata;
 pub use self::types::pdf_page::{PdfPage, PdfPageReference};
+pub use self::types::pdf_layer::{PdfLayer, PdfLayerReference};
 
-pub use self::types::plugins::misc::document_info::DocumentInfo;
 pub use self::types::plugins::xmp::xmp_metadata::XmpMetadata;
+pub use self::types::plugins::misc::document_info::DocumentInfo;
 
 /// Stub module for 3D content in a PDF
 pub use self::types::plugins::graphics::three_dimensional;
 pub use self::types::plugins::graphics::two_dimensional::font::{
-    BuiltinFont, DirectFontRef, ExternalFont, Font, FontList, IndirectFontRef, TextRenderingMode,
+    Font, BuiltinFont, ExternalFont, TextRenderingMode, IndirectFontRef, DirectFontRef, FontList
 };
 pub use self::types::plugins::graphics::two_dimensional::image::Image;
 pub use self::types::plugins::graphics::two_dimensional::line::Line;
 pub use self::types::plugins::graphics::two_dimensional::point::Point;
 
 pub use self::types::plugins::graphics::color::{
-    Cmyk, Color, ColorBits, ColorSpace, Greyscale, PdfColor, Rgb, SpotColor,
+    Color, Rgb, Cmyk, Greyscale, SpotColor, PdfColor, ColorSpace, ColorBits
 };
 pub use self::types::plugins::graphics::ctm::{CurTransMat, TextMatrix};
 pub use self::types::plugins::graphics::extgstate::{
-    BlackGenerationExtraFunction, BlackGenerationFunction, BlendMode, ExtendedGraphicsState,
-    ExtendedGraphicsStateBuilder, ExtendedGraphicsStateList, ExtendedGraphicsStateRef,
-    HalftoneType, LineCapStyle, LineDashPattern, LineJoinStyle, NonSeperableBlendMode,
-    OverprintMode, RenderingIntent, SeperableBlendMode, SoftMask, SoftMaskFunction, SpotFunction,
-    TransferExtraFunction, TransferFunction, UnderColorRemovalExtraFunction,
-    UnderColorRemovalFunction,
+    ExtendedGraphicsState, ExtendedGraphicsStateList, ExtendedGraphicsStateRef, ExtendedGraphicsStateBuilder,
+    OverprintMode, BlackGenerationFunction, BlackGenerationExtraFunction, UnderColorRemovalFunction,
+    UnderColorRemovalExtraFunction, TransferFunction, TransferExtraFunction, HalftoneType,
+    SpotFunction, BlendMode, SeperableBlendMode, NonSeperableBlendMode, RenderingIntent, SoftMask,
+    SoftMaskFunction, LineJoinStyle, LineCapStyle, LineDashPattern,
 };
 pub use self::types::plugins::graphics::icc_profile::{
-    IccProfile, IccProfileList, IccProfileRef, IccProfileType,
+    IccProfileType, IccProfile, IccProfileRef, IccProfileList
 };
 pub use self::types::plugins::graphics::ocg::{OCGList, OCGRef};
-pub use self::types::plugins::graphics::pattern::{Pattern, PatternList, PatternRef};
+pub use self::types::plugins::graphics::pattern::{Pattern, PatternRef, PatternList};
 pub use self::types::plugins::graphics::pdf_resources::PdfResources;
 pub use self::types::plugins::graphics::xobject::{
-    FormType, FormXObject, FormXObjectRef, GroupXObject, GroupXObjectType, ImageFilter,
-    ImageXObject, ImageXObjectRef, OCGIntent, OptionalContentGroup, PostScriptXObject,
-    ReferenceXObject, SMask, XObject, XObjectList, XObjectRef,
+    XObject, XObjectList, XObjectRef, ImageXObject, ImageXObjectRef,
+    ImageFilter, FormXObject, FormXObjectRef, FormType, SMask, GroupXObject,
+    GroupXObjectType, ReferenceXObject, OptionalContentGroup, OCGIntent, PostScriptXObject,
 };
 
-/// Stub module for interactive (JavaScript) content, embedded in PDF files
-pub use self::types::plugins::interactive;
 /// Stub module for future audio embedding implementation
 pub use self::types::plugins::media::audio;
 /// Stub module for future video embedding implementation
 pub use self::types::plugins::media::video;
+/// Stub module for interactive (JavaScript) content, embedded in PDF files
+pub use self::types::plugins::interactive;
 /// Stub module for encryption (passwords). Not implemented yet.
 pub use self::types::plugins::security;

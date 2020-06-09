@@ -3,11 +3,15 @@ use std::collections::HashMap;
 
 /// __STUB__
 #[derive(Default, Debug, Copy, Clone)]
-pub struct Pattern {}
+pub struct Pattern {
+
+}
 
 impl Pattern {
     /// Creates a new Pattern
-    pub fn new() -> Self {
+    pub fn new()
+    -> Self
+    {
         Self::default()
     }
 }
@@ -19,7 +23,9 @@ pub struct PatternRef {
 }
 
 impl PatternRef {
-    pub fn new(index: usize) -> Self {
+    pub fn new(index: usize)
+    -> Self
+    {
         Self {
             name: format!("PT{}", index),
         }
@@ -33,14 +39,18 @@ pub struct PatternList {
 
 impl PatternList {
     /// Creates a new pattern list
-    pub fn new() -> Self {
+    pub fn new()
+    -> Self
+    {
         Self {
             patterns: HashMap::new(),
         }
     }
 
     /// Adds a new pattern to the pattern list
-    pub fn add_pattern(&mut self, pattern: Pattern) -> PatternRef {
+    pub fn add_pattern(&mut self, pattern: Pattern)
+    -> PatternRef
+    {
         let len = self.patterns.len();
         let pattern_ref = PatternRef::new(len);
         self.patterns.insert(pattern_ref.name.clone(), pattern);
@@ -49,7 +59,9 @@ impl PatternList {
 }
 
 impl Into<lopdf::Dictionary> for PatternList {
-    fn into(self) -> lopdf::Dictionary {
+    fn into(self)
+    -> lopdf::Dictionary
+    {
         // todo
         lopdf::Dictionary::new()
     }

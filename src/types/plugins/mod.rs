@@ -9,8 +9,8 @@
 //! may consist of sub-plugins (for example stream objects).
 
 pub mod graphics;
-pub mod interactive;
 pub mod media;
+pub mod interactive;
+pub mod xmp;
 pub mod misc;
 pub mod security;
-pub mod xmp;
