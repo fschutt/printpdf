@@ -337,7 +337,12 @@ pub extern crate image;
 extern crate lopdf;
 extern crate rusttype;
 extern crate time;
+#[macro_use]
+extern crate cfg_if;
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+extern crate js_sys;
 
+pub mod date;
 pub mod errors;
 mod glob_defines;
 pub mod indices;
@@ -348,6 +353,7 @@ pub mod utils;
 pub use self::errors::Error;
 pub use self::errors::IndexError;
 pub use self::errors::PdfError;
+pub use date::*;
 pub use rusttype::Error as RusttypeError;
 
 pub use self::scale::{Mm, Pt, Px};

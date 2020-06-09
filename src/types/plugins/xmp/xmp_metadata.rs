@@ -1,7 +1,7 @@
 //! Stub plugin for XMP Metadata streams, to be expanded later
 
+use crate::OffsetDateTime;
 use lopdf;
-use time::OffsetDateTime;
 
 use utils::random_character_string_32;
 use PdfConformance;

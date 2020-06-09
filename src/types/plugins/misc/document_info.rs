@@ -1,7 +1,7 @@
 //! Info dictionary of a PDF document
 
+use crate::OffsetDateTime;
 use lopdf;
-use time::OffsetDateTime;
 
 use PdfConformance;
 
