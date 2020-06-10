@@ -223,7 +223,7 @@ current_layer.end_text_section();
 
 - By default, the PDF adherese to a "PDF conformance level", usually the PDF-X 1.4 Standard. 
   This means that the PDF includes a full ICC profile file (which is around 500KB large). To turn it off,
-  see the [no_icc example]():
+  see the [no_icc example](https://github.com/fschutt/printpdf/blob/a6fa46dad0f273cfd181eeebec7dc61e02559b4f/examples/no_icc.rs):
 
 ```rust
 let (mut doc, _page1, _layer1) = PdfDocument::new("printpdf no_icc test", Mm(297.0), Mm(210.0), "Layer 1");
