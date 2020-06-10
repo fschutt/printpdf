@@ -217,7 +217,27 @@ current_layer.begin_text_section();
 current_layer.end_text_section();
 ```
 
-### Changelog
+## Optimiziation
+
+### Minimizing the size of generated PDFs
+
+- By default, the PDF adherese to a "PDF conformance level", usually the PDF-X 1.4 Standard. 
+  This means that the PDF includes a full ICC profile file (which is around 500KB large). To turn it off,
+  see the [no_icc example]():
+
+```rust
+let (mut doc, _page1, _layer1) = PdfDocument::new("printpdf no_icc test", Mm(297.0), Mm(210.0), "Layer 1");
+doc = doc.with_conformance(PdfConformance::Custom(CustomPdfConformance {
+  requires_icc_profile: false,
+  requires_xmp_metadata: false,
+    .. Default::default()
+}));
+```
+
+- In debug mode, the images, streams and fonts are not compressed for easier debugging. Try building
+  in release mode to optimize the size further.
+
+## Changelog
 
 See the CHANGELOG.md file.
 
