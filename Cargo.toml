@@ -13,7 +13,6 @@ lopdf = { version = "0.24.0", default-features = false }
 rusttype = { version = "0.8.2", default-features = false, features = ["std"] }
 time = { version = "0.2.1", default-features = false, features = ["std"] }
 log = { version = "0.4.8", optional = true }
-cfg-if = "0.1.10"
 
 [dependencies.image]
 version = "0.23.0"

@@ -336,8 +336,6 @@
 extern crate lopdf;
 extern crate rusttype;
 extern crate time;
-#[macro_use]
-extern crate cfg_if;
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 extern crate js_sys;
 
