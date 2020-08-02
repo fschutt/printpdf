@@ -26,6 +26,14 @@ impl Into<Pt> for Mm {
     }
 }
 
+impl Div<Mm> for Mm {
+    type Output = f64;
+
+    fn div(self, rhs: Mm) -> f64 {
+        self.0 / rhs.0
+    }
+}
+
 impl_partialeq!(Mm);
 
 /// Scale in point
@@ -41,6 +49,14 @@ impl Into<Mm> for Pt {
 impl Into<::lopdf::Object> for Pt {
     fn into(self) -> ::lopdf::Object {
         ::lopdf::Object::Real(self.0)
+    }
+}
+
+impl Div<Pt> for Pt {
+    type Output = f64;
+
+    fn div(self, rhs: Pt) -> f64 {
+        self.0 / rhs.0
     }
 }
 
