@@ -378,7 +378,7 @@ impl PdfLayerReference {
         ));
     }
 
-    /// Sets the position where the text should appear (in mm)
+    /// Add text to the file at the current position
     #[inline]
     pub fn write_text<S>(&self, text: S, font: &IndirectFontRef)
     -> () where S: Into<String>
