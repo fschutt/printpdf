@@ -378,7 +378,32 @@ impl PdfLayerReference {
         ));
     }
 
-    /// Sets the position where the text should appear (in mm)
+    /// Add text to the file at the current position by specifying font codepoints for an
+    /// ExternalFont
+    pub fn write_codepoints<I>(&self, codepoints: I)
+    where I: IntoIterator<Item = u16>
+    {
+        use lopdf::Object::*;
+        use lopdf::StringFormat::Hexadecimal;
+
+        let bytes = codepoints
+            .into_iter()
+            .flat_map(|x| {
+                let [b0, b1] = x.to_be_bytes();
+                std::iter::once(b0).chain(std::iter::once(b1))
+            })
+            .collect::<Vec<u8>>();
+
+        let doc = self.document.upgrade().unwrap();
+        let mut doc = doc.borrow_mut();
+        doc.pages[self.page.0]
+            .layers[self.layer.0]
+                .operations.push(Operation::new("Tj",
+                    vec![String(bytes, Hexadecimal)]
+            ));
+    }
+
+    /// Add text to the file at the current position
     #[inline]
     pub fn write_text<S>(&self, text: S, font: &IndirectFontRef)
     -> () where S: Into<String>
