@@ -20,9 +20,9 @@ macro_rules! impl_partialeq {
 #[derive(Debug, Copy, Clone, PartialOrd)]
 pub struct Mm(pub f64);
 
-impl Into<Pt> for Mm {
-    fn into(self) -> Pt {
-        Pt(self.0 * 2.834_646_f64)
+impl From<Pt> for Mm {
+    fn from(value: Pt) -> Mm {
+        Mm(value.0 * 0.352_778_f64)
     }
 }
 
@@ -32,15 +32,15 @@ impl_partialeq!(Mm);
 #[derive(Debug, Copy, Clone, PartialOrd)]
 pub struct Pt(pub f64);
 
-impl Into<Mm> for Pt {
-    fn into(self) -> Mm {
-        Mm(self.0 * 0.352_778_f64)
+impl From<Mm> for Pt {
+    fn from(value: Mm) -> Pt {
+        Pt(value.0 * 2.834_646_f64)
     }
 }
 
-impl Into<::lopdf::Object> for Pt {
-    fn into(self) -> ::lopdf::Object {
-        ::lopdf::Object::Real(self.0)
+impl From<Pt> for ::lopdf::Object {
+    fn from(value: Pt) -> Self {
+        Self::Real(value.0)
     }
 }
 
