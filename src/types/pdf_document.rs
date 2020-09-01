@@ -46,8 +46,13 @@ impl PdfDocument {
     /// Creates a new PDF document
     #[inline]
     #[cfg_attr(feature = "cargo-clippy", allow(new_ret_no_self))]
-    pub fn new<S>(document_title: S, initial_page_width: Mm, initial_page_height: Mm, initial_layer_name: S)
-    -> (PdfDocumentReference, PdfPageIndex, PdfLayerIndex) where S: Into<String>
+    pub fn new<S1, S2>(
+        document_title: S1,
+        initial_page_width: Mm,
+        initial_page_height: Mm,
+        initial_layer_name: S2,
+    ) -> (PdfDocumentReference, PdfPageIndex, PdfLayerIndex)
+    where S1: Into<String>, S2: Into<String>
     {
         let doc = Self {
             pages: Vec::new(),
