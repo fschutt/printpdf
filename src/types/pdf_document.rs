@@ -6,8 +6,8 @@ use std::io::Write;
 use std::io::BufWriter;
 use utils::random_character_string_32;
 
+use crate::OffsetDateTime;
 use lopdf;
-use time::OffsetDateTime;
 
 use indices::*;
 use {

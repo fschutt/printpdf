@@ -34,6 +34,9 @@ dds = ["image/dds"]
 webp = ["image/webp"]
 less-optimization = []
 
+[target.'cfg(all(target_arch="wasm32",target_os="unknown"))'.dependencies]
+js-sys = "0.3.40"
+
 [badges]
 travis-ci = { repository = "fschutt/printpdf" }
 appveyor = { repository = "fschutt/printpdf" }

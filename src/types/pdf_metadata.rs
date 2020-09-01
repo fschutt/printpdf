@@ -1,7 +1,7 @@
 //! Wapper type for shared metadata between XMP Metadata and the `DocumentInfo` dictionary
 
 use lopdf;
-use time::OffsetDateTime;
+use crate::OffsetDateTime;
 use {
 	IccProfileType, PdfConformance, XmpMetadata, DocumentInfo, IccProfile
 };
@@ -43,9 +43,9 @@ impl PdfMetadata {
 		let current_time = OffsetDateTime::now();
 
 		Self {
-			creation_date: current_time,
-			modification_date: current_time,
-			metadata_date: current_time,
+			creation_date: current_time.clone(),
+			modification_date: current_time.clone(),
+			metadata_date: current_time.clone(),
 			document_title: title.into(),
 			trapping: trapping,
 			document_version: document_version,
@@ -65,8 +65,8 @@ impl PdfMetadata {
 				Some(self.xmp_metadata.into_obj(
 					 	self.conformance.clone(),
 						self.trapping,
-						self.creation_date,
-						self.modification_date,
+						self.creation_date.clone(),
+						self.modification_date.clone(),
 						self.metadata_date,
 						self.document_title.clone()))
 			} else {
@@ -77,8 +77,8 @@ impl PdfMetadata {
 		let doc_info_obj = self.document_info.into_obj(self.document_title,
 													   self.trapping,
 													   self.conformance.clone(),
-													   self.creation_date,
-													   self.modification_date);
+													   self.creation_date.clone(),
+													   self.modification_date.clone());
 		// add icc profile if necessary
 		let icc_profile = {
 		    if self.conformance.must_have_icc_profile() {

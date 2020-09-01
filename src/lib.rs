@@ -336,6 +336,10 @@
 extern crate lopdf;
 extern crate rusttype;
 extern crate time;
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+extern crate js_sys;
+
+pub mod date;
 #[cfg(feature = "embedded_images")]
 pub extern crate image;
 
@@ -348,6 +352,7 @@ pub mod indices;
 
 pub use self::errors::Error;
 pub use self::errors::PdfError;
+pub use date::*;
 pub use self::errors::IndexError;
 pub use rusttype::Error as RusttypeError;
 

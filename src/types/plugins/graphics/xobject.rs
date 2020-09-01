@@ -1,14 +1,12 @@
 // clippy lints when serializing PDF strings, in this case its wrong
 #![cfg_attr(feature = "cargo-clippy", allow(string_lit_as_bytes))]
 
+use crate::OffsetDateTime;
+#[cfg(feature = "embedded_images")]
+use image::{DynamicImage, GenericImageView, ImageDecoder, ImageError};
 use lopdf;
 use std::collections::HashMap;
-#[cfg(feature = "embedded_images")]
-use image::{ImageError, ImageDecoder, DynamicImage, GenericImageView};
-use time::OffsetDateTime;
-use {
-    ColorSpace, ColorBits, CurTransMat, Px
-};
+use {ColorBits, ColorSpace, CurTransMat, Px};
 
 /* Parent: Resources dictionary of the page */
 /// External object that gets reference outside the PDF content stream
