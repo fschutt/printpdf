@@ -13,7 +13,7 @@ printpdf = "0.3.2"
 
 ## Features
 
-Currently, printpdf can only write documents, not read them.
+Currently, printpdf can only create new documents and write them, it cannot load existing documents yet.
 
 - Page generation
 - Layers (Illustrator like layers)
