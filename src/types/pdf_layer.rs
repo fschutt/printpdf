@@ -403,6 +403,31 @@ impl PdfLayerReference {
             ));
     }
 
+    /// Add text to the file at the current position by specifying
+    /// font codepoints with additional kerning offset
+    pub fn write_positioned_codepoints<I>(&self, codepoints: I)
+    where I: IntoIterator<Item = (i64, u16)>
+    {
+        use lopdf::Object::*;
+        use lopdf::StringFormat::Hexadecimal;
+
+        let mut list = Vec::new();
+
+        for (pos, codepoint) in codepoints {
+            if pos != 0 {
+                list.push(Integer(pos));
+            }
+            let bytes = codepoint.to_be_bytes().to_vec();
+            list.push(String(bytes, Hexadecimal));
+        }
+
+        let doc = self.document.upgrade().unwrap();
+        let mut doc = doc.borrow_mut();
+        doc.pages[self.page.0]
+            .layers[self.layer.0]
+                .operations.push(Operation::new("TJ", vec![Array(list)]));
+    }
+
     /// Add text to the file at the current position
     #[inline]
     pub fn write_text<S>(&self, text: S, font: &IndirectFontRef)
