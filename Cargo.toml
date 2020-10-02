@@ -9,15 +9,15 @@ readme = "README.md"
 description = "Rust library for writing PDF files"
 
 [dependencies]
-lopdf = { version = "0.24.0", default-features = false }
+lopdf = { version = "0.26", default-features = false }
 rusttype = { version = "0.8.2", default-features = false, features = ["std"] }
 time = { version = "0.2.1", default-features = false, features = ["std"] }
 log = { version = "0.4.8", optional = true }
 
 [dependencies.image]
-version = "0.23.0"
+version = "0.23"
 default-features = false
-features = ["gif", "jpeg", "png", "pnm", "tiff", "bmp"] # missing:
+features = ["gif", "jpeg", "png", "pnm", "tiff", "bmp"]
 optional = true
 
 [features]
