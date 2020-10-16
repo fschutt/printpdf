@@ -19,7 +19,7 @@ impl From<ImageXObject> for Image {
     -> Self
     {
         Self {
-            image: image,
+            image,
         }
     }
 
@@ -32,7 +32,7 @@ impl<'a> Image {
     {
         let image = ImageXObject::try_from(image)?;
         Ok(Self {
-            image: image,
+            image,
         })
     }
 

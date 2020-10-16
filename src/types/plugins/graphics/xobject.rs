@@ -137,7 +137,7 @@ pub struct ImageXObject {
     pub interpolate: bool,
     /// The actual data from the image
     pub image_data: Vec<u8>,
-    /// Compression filter used for this image
+    /// Decompression filter for `image_data`, if `None` assumes uncompressed raw pixels in the expected color format.
     pub image_filter: Option<ImageFilter>,
     /* /BBox << dictionary >> */
     /* todo: find out if this is really required */
@@ -157,13 +157,13 @@ impl<'a> ImageXObject {
     -> Self
     {
         Self {
-            width: width,
-            height: height,
-            color_space: color_space,
+            width,
+            height,
+            color_space,
             bits_per_component: bits,
-            interpolate: interpolate,
+            interpolate,
             image_data: data,
-            image_filter: image_filter,
+            image_filter,
             clipping_bbox: bbox,
         }
     }
@@ -261,12 +261,17 @@ pub struct ImageXObjectRef {
     name: String,
 }
 
-/// todo: they don't work yet
+/// Describes the format the image bytes are compressed with.
 #[derive(Debug, Copy, Clone)]
 pub enum ImageFilter {
-    Ascii85Decode,
-    LzwDecode,
-    JPXDecode,
+    /// ???
+    Ascii85,
+    /// Lempel Ziv Welch compression, i.e. zip
+    Lzw,
+    /// Discrete Cosinus Transform, JPEG Baseline.
+    DCT,
+    /// JPEG2000 aka JPX wavelet based compression.
+    JPX,
 }
 
 /// __THIS IS NOT A PDF FORM!__ A form `XObject` can be nearly everything.
