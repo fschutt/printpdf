@@ -236,7 +236,7 @@ impl Into<lopdf::Stream> for ImageXObject {
             .unwrap_or(CurTransMat::Identity)
             .into();
 
-        let dict = lopdf::Dictionary::from_iter(vec![
+        let mut dict = lopdf::Dictionary::from_iter(vec![
             ("Type", Name("XObject".as_bytes().to_vec())),
             ("Subtype", Name("Image".as_bytes().to_vec())),
             ("Width", Integer(self.width.0 as i64)),
@@ -247,8 +247,21 @@ impl Into<lopdf::Stream> for ImageXObject {
             ("BBox", bbox),
         ]);
 
-        if self.image_filter.is_some() {
-            /* todo: add filter */
+        if let Some(filter) = self.image_filter {
+            let params = match filter {
+                // TODO technically we could use multiple filters,
+                // DCT as an exception!
+                ImageFilter::DCT => {
+                    vec![
+                        ("Filter", Array(vec![Name("DCTDecode".as_bytes().to_vec())])),
+                        // not necessary, unless missing in the jpeg header
+                        ("DecodeParams", Dictionary(lopdf::dictionary!("ColorTransform" => Integer(0)))),
+                    ]
+                },
+                _ => unimplemented!("Encountered filter type is not supported"),
+            };
+
+            params.into_iter().for_each(|param| dict.set(param.0, param.1));
         }
 
         lopdf::Stream::new(dict, self.image_data)
