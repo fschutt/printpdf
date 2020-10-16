@@ -19,7 +19,7 @@ impl From<ImageXObject> for Image {
     -> Self
     {
         Self {
-            image: image,
+            image,
         }
     }
 
@@ -32,7 +32,7 @@ impl<'a> Image {
     {
         let image = ImageXObject::try_from(image)?;
         Ok(Self {
-            image: image,
+            image,
         })
     }
 
@@ -71,16 +71,11 @@ impl Image {
 
         let image = layer.add_image(self.image);
 
-        if let Some(scale_x) = scale_x {
-            if let Some(scale_y) = scale_y {
-                layer.use_xobject(image, translate_x, translate_y, rotate_cw, Some(scale_x * image_w.0), Some(image_h.0 * scale_y));
-            } else {
-                layer.use_xobject(image, translate_x, translate_y, rotate_cw, Some(scale_x * image_w.0), Some(image_h.0));
-            }
-        } else if let Some(scale_y) = scale_y {
-            layer.use_xobject(image, translate_x, translate_y, rotate_cw, Some(image_w.0), Some(image_h.0 * scale_y));
-        } else {
-            layer.use_xobject(image, translate_x, translate_y, rotate_cw, Some(image_w.0), Some(image_h.0));
-        }
+        let scale_x = scale_x.unwrap_or(1.);
+        let scale_y = scale_y.unwrap_or(1.);
+        let image_w = Some(image_w.0 * scale_x);
+        let image_h = Some(image_h.0 * scale_y);
+
+        layer.use_xobject(image, translate_x, translate_y, rotate_cw, image_w, image_h);
     }
 }

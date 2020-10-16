@@ -137,7 +137,7 @@ pub struct ImageXObject {
     pub interpolate: bool,
     /// The actual data from the image
     pub image_data: Vec<u8>,
-    /// Compression filter used for this image
+    /// Decompression filter for `image_data`, if `None` assumes uncompressed raw pixels in the expected color format.
     pub image_filter: Option<ImageFilter>,
     /* /BBox << dictionary >> */
     /* todo: find out if this is really required */
@@ -157,13 +157,13 @@ impl<'a> ImageXObject {
     -> Self
     {
         Self {
-            width: width,
-            height: height,
-            color_space: color_space,
+            width,
+            height,
+            color_space,
             bits_per_component: bits,
-            interpolate: interpolate,
+            interpolate,
             image_data: data,
-            image_filter: image_filter,
+            image_filter,
             clipping_bbox: bbox,
         }
     }
@@ -236,7 +236,7 @@ impl Into<lopdf::Stream> for ImageXObject {
             .unwrap_or(CurTransMat::Identity)
             .into();
 
-        let dict = lopdf::Dictionary::from_iter(vec![
+        let mut dict = lopdf::Dictionary::from_iter(vec![
             ("Type", Name("XObject".as_bytes().to_vec())),
             ("Subtype", Name("Image".as_bytes().to_vec())),
             ("Width", Integer(self.width.0 as i64)),
@@ -247,8 +247,21 @@ impl Into<lopdf::Stream> for ImageXObject {
             ("BBox", bbox),
         ]);
 
-        if self.image_filter.is_some() {
-            /* todo: add filter */
+        if let Some(filter) = self.image_filter {
+            let params = match filter {
+                // TODO technically we could use multiple filters,
+                // DCT as an exception!
+                ImageFilter::DCT => {
+                    vec![
+                        ("Filter", Array(vec![Name("DCTDecode".as_bytes().to_vec())])),
+                        // not necessary, unless missing in the jpeg header
+                        ("DecodeParams", Dictionary(lopdf::dictionary!("ColorTransform" => Integer(0)))),
+                    ]
+                },
+                _ => unimplemented!("Encountered filter type is not supported"),
+            };
+
+            params.into_iter().for_each(|param| dict.set(param.0, param.1));
         }
 
         lopdf::Stream::new(dict, self.image_data)
@@ -261,12 +274,17 @@ pub struct ImageXObjectRef {
     name: String,
 }
 
-/// todo: they don't work yet
+/// Describes the format the image bytes are compressed with.
 #[derive(Debug, Copy, Clone)]
 pub enum ImageFilter {
-    Ascii85Decode,
-    LzwDecode,
-    JPXDecode,
+    /// ???
+    Ascii85,
+    /// Lempel Ziv Welch compression, i.e. zip
+    Lzw,
+    /// Discrete Cosinus Transform, JPEG Baseline.
+    DCT,
+    /// JPEG2000 aka JPX wavelet based compression.
+    JPX,
 }
 
 /// __THIS IS NOT A PDF FORM!__ A form `XObject` can be nearly everything.
