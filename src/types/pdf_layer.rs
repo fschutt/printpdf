@@ -429,6 +429,11 @@ impl PdfLayerReference {
     }
 
     /// Add text to the file at the current position
+    ///
+    /// If the given font is a built-in font and the given text contains characters that are not
+    /// supported by the [Windows-1252][] encoding, these characters will be ignored.
+    ///
+    /// [Windows-1252]: https://en.wikipedia.org/wiki/Windows-1252
     #[inline]
     pub fn write_text<S>(&self, text: S, font: &IndirectFontRef)
     -> () where S: Into<String>
@@ -478,7 +483,9 @@ impl PdfLayerReference {
                     .flat_map(|x| vec!((x >> 8) as u8, (x & 255) as u8))
                     .collect::<Vec<u8>>()
             } else {
-                text.as_bytes().to_vec()
+                // For built-in fonts, we selected the WinAnsiEncoding, see the Into<LoDictionary>
+                // implementation for BuiltinFont.
+                lopdf::Document::encode_text(Some("WinAnsiEncoding"), &text)
             }
         };
 
@@ -502,6 +509,11 @@ impl PdfLayerReference {
     }
 
     /// Add text to the file, x and y are measure in millimeter from the bottom left corner
+    ///
+    /// If the given font is a built-in font and the given text contains characters that are not
+    /// supported by the [Windows-1252][] encoding, these characters will be ignored.
+    ///
+    /// [Windows-1252]: https://en.wikipedia.org/wiki/Windows-1252
     #[inline]
     pub fn use_text<S>(&self, text: S, font_size: i64,
                        x: Mm, y: Mm, font: &IndirectFontRef)
