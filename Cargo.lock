@@ -402,7 +402,7 @@ dependencies = [
 
 [[package]]
 name = "printpdf"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "image 0.23.10 (registry+https://github.com/rust-lang/crates.io-index)",
  "js-sys 0.3.45 (registry+https://github.com/rust-lang/crates.io-index)",
