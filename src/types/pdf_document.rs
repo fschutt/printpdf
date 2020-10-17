@@ -202,6 +202,11 @@ impl PdfDocumentReference {
     }
 
     /// Add a built-in font to the document
+    ///
+    /// Built-in fonts can only be used to print characters that are supported by the
+    /// [Windows-1252][] encoding.  All other characters will be ignored.
+    ///
+    /// [Windows-1252]: https://en.wikipedia.org/wiki/Windows-1252
     pub fn add_builtin_font(&self, builtin_font: BuiltinFont)
     -> ::std::result::Result<IndirectFontRef, Error>
     {
