@@ -18,7 +18,7 @@ Currently, printpdf can only create new documents and write them, it cannot load
 - Page generation
 - Layers (Illustrator like layers)
 - Graphics (lines, shapes, bezier curves)
-- Images (currently BMP only or generate your own images)
+- Images (currently BMP/JPG/PNG only or generate your own images)
 - Embedded fonts (TTF and OTF) with Unicode support
 - Advanced graphics - overprint control, blending modes, etc.
 - Advanced typography - character scaling, character spacing, superscript, subscript, outlining, etc.
@@ -135,15 +135,25 @@ fn main() {
     let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", Mm(247.0), Mm(210.0), "Layer 1");
     let current_layer = doc.get_page(page1).get_layer(layer1);
 
-    // currently, the only reliable file format is bmp (jpeg works, but not in release mode)
+    // currently, the only reliable file format is bmp/jpeg/png.
     // this is an issue of the image library, not a fault of printpdf
     let mut image_file = File::open("assets/img/BMP_test.bmp").unwrap();
-    let image = Image::try_from(image::bmp::BmpDecoder::new(&mut image_file).unwrap()).unwrap();
+    let bmp_image = Image::try_from(image::bmp::BmpDecoder::new(&mut image_file).unwrap()).unwrap();
 
     // translate x, translate y, rotate, scale x, scale y
     // by default, an image is optimized to 300 DPI (if scale is None)
     // rotations and translations are always in relation to the lower left corner
-    image.add_to_layer(current_layer.clone(), None, None, None, None, None, None);
+    bmp_image.add_to_layer(current_layer.clone(), Some(Mm(10.0)), Some(Mm(10.0)), None, None, None, None);
+
+    let mut image_file = File::open("assets/img/JPG_test.jpg").unwrap();
+    let jpg_image = Image::try_from(image::jpeg::JpegDecoder::new(&mut image_file).unwrap()).unwrap();
+
+    jpg_image.add_to_layer(current_layer.clone(), Some(Mm(10.0)), Some(Mm(150.0)), None, None, None, None);
+
+    let mut image_file = File::open("assets/img/PNG_test.png").unwrap();
+    let png_image = Image::try_from(image::png::PngDecoder::new(&mut image_file).unwrap()).unwrap();
+
+    png_image.add_to_layer(current_layer.clone(), Some(Mm(10.0)), Some(Mm(300.0)), None, None, None, None);
 
     // you can also construct images manually from your data:
     let mut image_file_2 = ImageXObject {
