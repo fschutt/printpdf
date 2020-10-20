@@ -4,7 +4,7 @@
 use lopdf;
 use lopdf::{Stream as LoStream, Dictionary as LoDictionary};
 use lopdf::StringFormat;
-use std::collections::{HashMap, BTreeMap};
+use std::collections::BTreeMap;
 use std::iter::FromIterator;
 use Error;
 
@@ -381,7 +381,7 @@ impl PartialEq for ExternalFont {
 
 /// Indexed reference to a font that was added to the document
 /// This is a "reference by postscript name"
-#[derive(Debug, Hash, Eq, Clone, PartialEq)]
+#[derive(Debug, Hash, Eq, Ord, Clone, PartialEq, PartialOrd)]
 pub struct IndirectFontRef {
     /// Name of the font (postscript name)
     pub(crate) name: String,
@@ -411,7 +411,7 @@ impl IndirectFontRef {
 /// Font list for tracking fonts within a single PDF document
 #[derive(Default, Debug, Clone)]
 pub struct FontList {
-    fonts: HashMap<IndirectFontRef, DirectFontRef>,
+    fonts: BTreeMap<IndirectFontRef, DirectFontRef>,
 }
 
 impl FontList {
