@@ -166,6 +166,17 @@ impl PdfDocumentReference {
         self
     }
 
+    /// Sets the creation date on the document.
+    ///
+    /// Per default, the creation date is set to the current time.
+    #[inline]
+    pub fn with_creation_date(self, creation_date: OffsetDateTime)
+    -> Self
+    {
+        self.document.borrow_mut().metadata.creation_date = creation_date;
+        self
+    }
+
     /// Sets the modification date on the document. Intended to be used when
     /// reading documents that already have a modification date.
     #[inline]
