@@ -18,6 +18,6 @@ fn main() {
     let text = "Lorem ipsum";
 
     let font = doc.add_builtin_font(BuiltinFont::TimesBoldItalic).unwrap();
-    current_layer.use_text(text, 48, Mm(10.0), Mm(200.0), &font);
+    current_layer.use_text(text, 48.0, Mm(10.0), Mm(200.0), &font);
     doc.save(&mut BufWriter::new(File::create("test_builtin_fonts.pdf").unwrap())).unwrap();
 }

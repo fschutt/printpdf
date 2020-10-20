@@ -124,7 +124,7 @@ impl PdfLayerReference {
     /// Set the current font, only valid in a `begin_text_section` to
     /// `end_text_section` block
     #[inline]
-    pub fn set_font(&self, font: &IndirectFontRef, font_size: i64)
+    pub fn set_font(&self, font: &IndirectFontRef, font_size: f64)
     -> ()
     {
         self.internal_add_operation(Operation::new("Tf",
@@ -317,9 +317,9 @@ impl PdfLayerReference {
     /// Sets the text line height inside a text block
     /// (must be called within `begin_text_block` and `end_text_block`)
     #[inline]
-    pub fn set_line_height(&self, height: i64) {
+    pub fn set_line_height(&self, height: f64) {
         self.internal_add_operation(Operation::new("TL",
-            vec![lopdf::Object::Integer(height)]
+            vec![lopdf::Object::Real(height)]
         ));
     }
 
@@ -327,9 +327,9 @@ impl PdfLayerReference {
     /// Values are given in points. A value of 3 (pt) will increase
     /// the spacing inside a word by 3pt.
     #[inline]
-    pub fn set_character_spacing(&self, spacing: i64) {
+    pub fn set_character_spacing(&self, spacing: f64) {
         self.internal_add_operation(Operation::new("Tc",
-            vec![lopdf::Object::Integer(spacing)]
+            vec![lopdf::Object::Real(spacing)]
         ));
     }
 
@@ -342,9 +342,9 @@ impl PdfLayerReference {
     /// However, the function itself is valid and _will work_
     /// with builtin fonts.
     #[inline]
-    pub fn set_word_spacing(&self, spacing: i64) {
+    pub fn set_word_spacing(&self, spacing: f64) {
         self.internal_add_operation(Operation::new("Tw",
-            vec![lopdf::Object::Integer(spacing)]
+            vec![lopdf::Object::Real(spacing)]
         ));
     }
 
@@ -353,9 +353,9 @@ impl PdfLayerReference {
     /// 50 will reduce the width of the written text by half,
     /// but stretch the text
     #[inline]
-    pub fn set_text_scaling(&self, scaling: i64) {
+    pub fn set_text_scaling(&self, scaling: f64) {
         self.internal_add_operation(Operation::new("Tz",
-            vec![lopdf::Object::Integer(scaling)]
+            vec![lopdf::Object::Real(scaling)]
         ));
     }
 
@@ -365,9 +365,9 @@ impl PdfLayerReference {
     /// number, for subscript, use a negative number. This does not
     /// change the size of the font
     #[inline]
-    pub fn set_line_offset(&self, offset: i64) {
+    pub fn set_line_offset(&self, offset: f64) {
         self.internal_add_operation(Operation::new("Ts",
-            vec![lopdf::Object::Integer(offset)]
+            vec![lopdf::Object::Real(offset)]
         ));
     }
 
@@ -515,7 +515,7 @@ impl PdfLayerReference {
     ///
     /// [Windows-1252]: https://en.wikipedia.org/wiki/Windows-1252
     #[inline]
-    pub fn use_text<S>(&self, text: S, font_size: i64,
+    pub fn use_text<S>(&self, text: S, font_size: f64,
                        x: Mm, y: Mm, font: &IndirectFontRef)
     -> () where S: Into<String>
     {
