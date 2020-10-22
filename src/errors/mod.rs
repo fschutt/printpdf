@@ -43,18 +43,11 @@ pub enum PdfError {
 
 impl fmt::Display for PdfError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.description())
+        write!(f, "Invalid or corrupt font face")
     }
 }
 
-impl IError for PdfError {
-    fn description(&self) -> &str {
-        use self::PdfError::*;
-        match *self {
-            FontFaceError => "Invalid or corrupt font face",
-        }
-    }
-}
+impl IError for PdfError {}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum IndexError {
@@ -65,20 +58,16 @@ pub enum IndexError {
 
 impl fmt::Display for IndexError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.description())
-    }
-}
-
-impl IError for IndexError {
-    fn description(&self) -> &str {
         use self::IndexError::*;
-        match *self {
+        write!(f, "{}", match *self {
             PdfPageIndexError => "Page index out of bounds",
             PdfLayerIndexError => "PDF layer index out of bounds",
             PdfMarkerIndexError => "PDF layer index out of bounds",
-        }
+        })
     }
 }
+
+impl IError for IndexError {}
 
 impl_from!(IoError, Error::Io);
 impl_from!(RusttypeError, Error::Rusttype);
@@ -97,15 +86,4 @@ impl fmt::Display for Error {
     }
 }
 
-impl IError for Error {
-    fn description(&self) -> &str {
-        use self::Error::*;
-        match self {
-            Io(ref e) => e.description(),
-            Rusttype(ref e) => e.description(),
-            Pdf(ref e) => e.description(),
-            Index(ref e) => e.description(),
-        }
-    }
-}
-
+impl IError for Error {}
