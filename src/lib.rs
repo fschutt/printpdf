@@ -369,7 +369,7 @@ pub use self::types::plugins::misc::document_info::DocumentInfo;
 /// Stub module for 3D content in a PDF
 pub use self::types::plugins::graphics::three_dimensional;
 pub use self::types::plugins::graphics::two_dimensional::font::{
-    Font, BuiltinFont, ExternalFont, TextRenderingMode, IndirectFontRef, DirectFontRef, FontList
+    Font, FontData, BuiltinFont, ExternalFont, TextRenderingMode, IndirectFontRef, DirectFontRef, FontList
 };
 pub use self::types::plugins::graphics::two_dimensional::image::Image;
 pub use self::types::plugins::graphics::two_dimensional::line::Line;
