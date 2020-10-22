@@ -131,6 +131,12 @@ impl Into<i64> for TextRenderingMode {
 impl ExternalFont {
 
     /// Creates a new font. The `index` is used for naming / identifying the font
+    ///
+    /// This method uses [`rusttype`][] to parse the font data.  If you want to use a different
+    /// font backend, use the [`with_font_data`][] method instead.
+    ///
+    /// [`rusttype`]: https://docs.rs/rusttype/latest/rusttype/
+    /// [`with_font_data`]: #method.with_font_data
     pub fn new<R>(mut font_stream: R, font_index: usize)
     -> Result<Self, Error> where R: ::std::io::Read
     {
@@ -140,14 +146,19 @@ impl ExternalFont {
 
         let collection = FontCollection::from_bytes(buf.clone())?;
         let font = collection.clone().into_font().or_else(|_| collection.font_at(0))?;
-        let face_name = format!("F{}", font_index);
 
-        Ok(Self {
-            font_bytes: buf,
-            font_data: Box::new(font),
-            face_name: face_name,
+        Ok(Self::with_font_data(buf, font_index, Box::new(font)))
+    }
+
+    /// Creates a new font. The `index` is used for naming / identifying the font
+    pub fn with_font_data(bytes: Vec<u8>, font_index: usize, font_data: Box<dyn FontData>) -> Self {
+        let face_name = format!("F{}", font_index);
+        Self {
+            font_bytes: bytes,
+            font_data,
+            face_name,
             vertical_writing: false,
-        })
+        }
     }
 
     /// Takes the font and adds it to the document and consumes the font

@@ -12,7 +12,7 @@ use lopdf;
 use indices::*;
 use {
     ExternalFont, Font, PdfPage, FontList, IccProfileList, PdfMetadata, PdfConformance, IndirectFontRef,
-    DirectFontRef, BuiltinFont, PdfPageReference, Error, Mm
+    DirectFontRef, BuiltinFont, PdfPageReference, Error, Mm, FontData
 };
 
 /// PDF document
@@ -207,6 +207,19 @@ impl PdfDocumentReference {
     {
         let last_font_index = { let doc = self.document.borrow(); doc.fonts.len() };
         let external_font = ExternalFont::new(font_stream, last_font_index)?;
+        let external_font_name = external_font.face_name.clone();
+        let font = Font::ExternalFont(external_font);
+        implement_adding_fonts!(&self, external_font_name, font)
+    }
+
+    /// Add a font from a custom font backend
+    pub fn add_external_font_data<F>(&self, bytes: Vec<u8>, data: F)
+    -> ::std::result::Result<IndirectFontRef, Error>
+    where
+        F: FontData + 'static,
+    {
+        let last_font_index = { let doc = self.document.borrow(); doc.fonts.len() };
+        let external_font = ExternalFont::with_font_data(bytes, last_font_index, Box::new(data));
         let external_font_name = external_font.face_name.clone();
         let font = Font::ExternalFont(external_font);
         implement_adding_fonts!(&self, external_font_name, font)
