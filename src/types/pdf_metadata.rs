@@ -40,7 +40,7 @@ impl PdfMetadata {
 	pub fn new<S>(title: S, document_version: u32, trapping: bool, conformance: PdfConformance)
 	-> Self where S: Into<String>
 	{
-		let current_time = OffsetDateTime::now();
+		let current_time = OffsetDateTime::now_utc();
 
 		Self {
 			creation_date: current_time.clone(),
