@@ -11,7 +11,7 @@ description = "Rust library for writing PDF files"
 [dependencies]
 lopdf = { version = "0.26", default-features = false }
 rusttype = { version = "0.8.2", default-features = false, features = ["std"] }
-time = { version = "0.2.1", default-features = false, features = ["std"] }
+time = { version = "0.2.11", default-features = false, features = ["std"] }
 log = { version = "0.4.8", optional = true }
 
 [dependencies.image]
