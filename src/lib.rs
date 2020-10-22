@@ -14,7 +14,7 @@
 //! - Page generation
 //! - Layers (Illustrator like layers)
 //! - Graphics (lines, shapes, bezier curves)
-//! - Images (currently BMP only or generate your own images)
+//! - Images (currently BMP/PNG/JPG only or generate your own images)
 //! - Embedded fonts (TTF and OTF) with Unicode support
 //! - Advanced graphics - overprint control, blending modes, etc.
 //! - Advanced typography - character scaling, character spacing, superscript, subscript, outlining, etc.
@@ -131,7 +131,7 @@
 //!     let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", Mm(247.0), Mm(210.0), "Layer 1");
 //!     let current_layer = doc.get_page(page1).get_layer(layer1);
 //!
-//!     // currently, the only reliable file format is bmp (jpeg works, but not in release mode)
+//!     // currently, the only reliable file formats are bmp/jpeg/png
 //!     // this is an issue of the image library, not a fault of printpdf
 //!     let mut image_file = File::open("assets/img/BMP_test.bmp").unwrap();
 //!     let image = Image::try_from(image::bmp::BmpDecoder::new(&mut image_file).unwrap()).unwrap();
