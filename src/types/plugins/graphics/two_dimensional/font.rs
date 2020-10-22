@@ -84,8 +84,10 @@ impl Into<LoDictionary> for BuiltinFont {
 
 #[derive(Debug, Clone)]
 pub struct ExternalFont {
-    /// Font data
+    /// Raw font data
     pub(crate) font_bytes: Vec<u8>,
+    /// Parsed font data
+    pub(crate) font_data: rusttype::Font<'static>,
     /// Font name, for adding as a resource on the document
     pub(crate) face_name: String,
     /// Is the font written vertically? Default: false
@@ -138,14 +140,13 @@ impl ExternalFont {
         let mut buf = Vec::<u8>::new();
         font_stream.read_to_end(&mut buf)?;
 
-        let face_name = {
-            let collection = FontCollection::from_bytes(buf.clone())?;
-            collection.clone().into_font().unwrap_or(collection.font_at(0)?);
-            format!("F{}", font_index)
-        };
+        let collection = FontCollection::from_bytes(buf.clone())?;
+        let font = collection.font_at(0)?;
+        let face_name = format!("F{}", font_index);
 
         Ok(Self {
             font_bytes: buf,
+            font_data: font,
             face_name: face_name,
             vertical_writing: false,
         })

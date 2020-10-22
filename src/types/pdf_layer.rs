@@ -457,14 +457,12 @@ impl PdfLayerReference {
         // let mut kerning_data = Vec::<freetype::Vector>::new();
 
         let bytes: Vec<u8> = {
-            use rusttype::FontCollection;
             use rusttype::Codepoint as Cp;
 
             if let Font::ExternalFont(face_direct_ref) = doc.fonts.get_font(font).unwrap().data {
 
                 let mut list_gid = Vec::<u16>::new();
-                let collection = FontCollection::from_bytes(&*face_direct_ref.font_bytes).unwrap();
-                let font = collection.clone().into_font().unwrap_or(collection.font_at(0).unwrap());
+                let font = &face_direct_ref.font_data;
 
                 // convert into list of glyph ids - unicode magic
                 let char_iter = text.chars();
