@@ -2,7 +2,7 @@ use lopdf;
 use glob_defines::{
     OP_PATH_CONST_MOVE_TO, OP_PATH_CONST_3BEZIER_V1, OP_PATH_CONST_3BEZIER_V2, OP_PATH_CONST_4BEZIER,
     OP_PATH_CONST_LINE_TO, OP_PATH_PAINT_FILL_STROKE_CLOSE_NZ, OP_PATH_PAINT_FILL_NZ,
-    OP_PATH_PAINT_STROKE_CLOSE, OP_PATH_PAINT_STROKE, OP_PATH_PAINT_END,
+    OP_PATH_PAINT_STROKE_CLOSE, OP_PATH_PAINT_STROKE, OP_PATH_PAINT_END, OP_PATH_CONST_CLIP_NZ,
 };
 use Point;
 use std::iter::{FromIterator, IntoIterator};
@@ -142,6 +142,10 @@ impl Line {
             // is not stroked, only filled
             // closed-ness doesn't matter in this case, an area is always closed
             operations.push(Operation::new(OP_PATH_PAINT_FILL_NZ, vec![]));
+        } else if self.is_clipping_path {
+            // set the path as a clipping path
+            operations.push(Operation::new(OP_PATH_CONST_CLIP_NZ, vec![]));
+            operations.push(Operation::new(OP_PATH_PAINT_END, vec![]));
         } else {
             // no painting operation nothing, path is invisible, only end the path
             operations.push(Operation::new(OP_PATH_PAINT_END, vec![]));
