@@ -1,9 +1,10 @@
 //! A `PDFDocument` represents the whole content of the file
 
-use std::rc::Rc;
 use std::cell::RefCell;
-use std::io::Write;
+use std::collections::HashMap;
 use std::io::BufWriter;
+use std::io::Write;
+use std::rc::Rc;
 use utils::random_character_string_32;
 
 use crate::OffsetDateTime;
@@ -120,7 +121,7 @@ macro_rules! implement_adding_fonts {
             doc.fonts.add_font(font_ref.clone(), direct_ref);
             Ok(font_ref)
         }
-    })
+    }}
 }
 
 impl PdfDocumentReference {
