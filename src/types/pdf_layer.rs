@@ -457,26 +457,15 @@ impl PdfLayerReference {
         // let mut kerning_data = Vec::<freetype::Vector>::new();
 
         let bytes: Vec<u8> = {
-            use rusttype::FontCollection;
-            use rusttype::Codepoint as Cp;
-
             if let Font::ExternalFont(face_direct_ref) = doc.fonts.get_font(font).unwrap().data {
 
                 let mut list_gid = Vec::<u16>::new();
-                let collection = FontCollection::from_bytes(&*face_direct_ref.font_bytes).unwrap();
-                let font = collection.clone().into_font().unwrap_or(collection.font_at(0).unwrap());
+                let font = &face_direct_ref.font_data;
 
-                // convert into list of glyph ids - unicode magic
-                let char_iter = text.chars();
-
-                for ch in char_iter {
-                    // note: font.glyph will panic if the character is \0
-                    // since that can't happen in Rust, I think we're safe here
-                    let glyph = font.glyph(Cp(ch as u32));
-                    list_gid.push(glyph.id().0 as u16);
-
-                    // todo - kerning !!
-                    // font.pair_kerning(scale, id, base_glyph.id());
+                for ch in text.chars() {
+                    if let Some(glyph_id) = font.glyph_id(ch) {
+                        list_gid.push(glyph_id);
+                    }
                 }
 
                 list_gid.iter()

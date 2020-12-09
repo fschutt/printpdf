@@ -9,8 +9,6 @@ use std::iter::FromIterator;
 use Error;
 
 use rusttype::FontCollection;
-use rusttype::Codepoint as Cp;
-use rusttype::GlyphId as Gid;
 
 /// The font
 #[derive(Debug, Clone, PartialEq)]
@@ -84,8 +82,10 @@ impl Into<LoDictionary> for BuiltinFont {
 
 #[derive(Debug, Clone)]
 pub struct ExternalFont {
-    /// Font data
+    /// Raw font data
     pub(crate) font_bytes: Vec<u8>,
+    /// Parsed font data
+    pub(crate) font_data: Box<dyn FontData>,
     /// Font name, for adding as a resource on the document
     pub(crate) face_name: String,
     /// Is the font written vertically? Default: false
@@ -131,6 +131,12 @@ impl Into<i64> for TextRenderingMode {
 impl ExternalFont {
 
     /// Creates a new font. The `index` is used for naming / identifying the font
+    ///
+    /// This method uses [`rusttype`][] to parse the font data.  If you want to use a different
+    /// font backend, use the [`with_font_data`][] method instead.
+    ///
+    /// [`rusttype`]: https://docs.rs/rusttype/latest/rusttype/
+    /// [`with_font_data`]: #method.with_font_data
     pub fn new<R>(mut font_stream: R, font_index: usize)
     -> Result<Self, Error> where R: ::std::io::Read
     {
@@ -138,17 +144,21 @@ impl ExternalFont {
         let mut buf = Vec::<u8>::new();
         font_stream.read_to_end(&mut buf)?;
 
-        let face_name = {
-            let collection = FontCollection::from_bytes(buf.clone())?;
-            collection.clone().into_font().unwrap_or(collection.font_at(0)?);
-            format!("F{}", font_index)
-        };
+        let collection = FontCollection::from_bytes(buf.clone())?;
+        let font = collection.clone().into_font().or_else(|_| collection.font_at(0))?;
 
-        Ok(Self {
-            font_bytes: buf,
-            face_name: face_name,
+        Ok(Self::with_font_data(buf, font_index, Box::new(font)))
+    }
+
+    /// Creates a new font. The `index` is used for naming / identifying the font
+    pub fn with_font_data(bytes: Vec<u8>, font_index: usize, font_data: Box<dyn FontData>) -> Self {
+        let face_name = format!("F{}", font_index);
+        Self {
+            font_bytes: bytes,
+            font_data,
+            face_name,
             vertical_writing: false,
-        })
+        }
     }
 
     /// Takes the font and adds it to the document and consumes the font
@@ -160,20 +170,14 @@ impl ExternalFont {
 
         let face_name = self.face_name.clone();
 
-        let font_buf_ref: Box<[u8]> = self.font_bytes.into_boxed_slice();
-        let collection = FontCollection::from_bytes(font_buf_ref.clone()).unwrap();
-        let font = collection.clone().into_font().unwrap_or_else(|_| {
-            collection.font_at(0).unwrap()
-        });
-
         // Extract basic font information
-        let face_metrics = font.v_metrics_unscaled();
+        let face_metrics = self.font_data.font_metrics();
 
         let font_stream = LoStream::new(
             LoDictionary::from_iter(vec![
-                ("Length1", Integer(font_buf_ref.len() as i64)),
+                ("Length1", Integer(self.font_bytes.len() as i64)),
                 ]),
-            font_buf_ref.to_vec())
+            self.font_bytes)
         .with_compression(false); /* important! font stream must not be compressed! */
 
         // Begin setting required font attributes
@@ -189,9 +193,9 @@ impl ExternalFont {
         let mut font_descriptor_vec: Vec<(::std::string::String, Object)> = vec![
             ("Type".into(), Name("FontDescriptor".into())),
             ("FontName".into(), Name(face_name.clone().into_bytes())),
-            ("Ascent".into(), Integer(face_metrics.ascent as i64)),
-            ("Descent".into(), Integer(face_metrics.descent as i64)),
-            ("CapHeight".into(), Integer(face_metrics.ascent as i64)),
+            ("Ascent".into(), Integer(i64::from(face_metrics.ascent))),
+            ("Descent".into(), Integer(i64::from(face_metrics.descent))),
+            ("CapHeight".into(), Integer(i64::from(face_metrics.ascent))),
             ("ItalicAngle".into(), Integer(0)),
             ("Flags".into(), Integer(32)),
             ("StemV".into(), Integer(80)),
@@ -211,33 +215,15 @@ impl ExternalFont {
         let mut cmap = BTreeMap::<u32, (u32, u32, u32)>::new();
         cmap.insert(0, (0, 1000, 1000));
 
-        for unicode in 0x0000..0xffff {
+        for (glyph_id, c) in self.font_data.glyph_ids() {
+            if let Some(glyph_metrics) = self.font_data.glyph_metrics(glyph_id) {
+                if glyph_metrics.height > max_height {
+                    max_height = glyph_metrics.height;
+                }
 
-            let glyph = font.glyph(Cp(unicode));
-
-            if glyph.id().0 == 0 {
-                continue;
-            }
-
-            let glyph_id = glyph.id().0;
-            let glyph = font.glyph(Gid(glyph_id));
-
-            if let Some(glyph_metrics) = glyph.standalone().get_data() {
-
-                let w = glyph_metrics.unit_h_metrics.advance_width;
-
-                // Note: extents can be None, but then the character may still have a
-                // horizontal advance!
-                let h = glyph_metrics.extents.and_then(|extents| {
-                    Some(extents.max.y - extents.min.y - face_metrics.descent as i32)
-                }).unwrap_or(1000);
-
-                if h > max_height {
-                    max_height = h;
-                };
-
-                total_width += w as u32;
-                cmap.insert(glyph_id, (unicode as u32, w as u32, h as u32));
+                total_width += glyph_metrics.width;
+                cmap.insert(glyph_id as u32,
+                            (c as u32, glyph_metrics.width as u32, glyph_metrics.height as u32));
             }
         }
 
@@ -292,7 +278,7 @@ impl ExternalFont {
         let mut current_width_vec = Vec::<Object>::new();
 
         // scale the font width so that it sort-of fits into an 1000 unit square
-        let percentage_font_scaling = 1000.0 / (font.units_per_em() as f64);
+        let percentage_font_scaling = 1000.0 / (face_metrics.units_per_em as f64);
 
         for (gid, width) in widths {
             if gid == current_high_gid {
@@ -478,5 +464,108 @@ impl FontList {
         }
 
         font_dict
+    }
+}
+
+/// The unscaled base metrics for a font provided by a [`FontData`](trait.FontData.html)
+/// implementation.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FontMetrics {
+    /// The ascent of the font.
+    pub ascent: i16,
+    /// The descent of the font.
+    pub descent: i16,
+    /// The units per em square for this font.
+    pub units_per_em: u16,
+}
+
+/// The metrics for a glyph provided by a [`FontData`](trait.FontData.html) implementation.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct GlyphMetrics {
+    /// The width of the glyph, typically the horizontal advance.
+    pub width: u32,
+    /// The height of the glyph, typically the difference between the ascent and the descent.
+    pub height: u32,
+}
+
+/// Provides access to font metrics.
+///
+/// Per default, printpdf uses [`rusttype`][] to extract the font data.  You can implement this
+/// trait for other types if you want to use a different font backend.
+///
+/// [`rusttype`]: https://docs.rs/rusttype/latest/rusttype/
+pub trait FontData: FontDataClone + std::fmt::Debug {
+    /// Returns the unscaled metrics for this font.
+    fn font_metrics(&self) -> FontMetrics;
+
+    /// Returns the glyph id for a Unicode character if it is present in this font.
+    fn glyph_id(&self, c: char) -> Option<u16>;
+
+    /// Returns a mapping from glyph IDs to Unicode characters for all supported characters.
+    fn glyph_ids(&self) -> std::collections::HashMap<u16, char>;
+
+    /// Returns the glyph metrics for a glyph of this font, if available.
+    fn glyph_metrics(&self, glyph_id: u16) -> Option<GlyphMetrics>;
+}
+
+impl FontData for rusttype::Font<'static> {
+    fn font_metrics(&self) -> FontMetrics {
+        let metrics = self.v_metrics_unscaled();
+        FontMetrics {
+            ascent: metrics.ascent as i16,
+            descent: metrics.descent as i16,
+            units_per_em: self.units_per_em(),
+        }
+    }
+
+    fn glyph_id(&self, c: char) -> Option<u16> {
+        let glyph_id = self.glyph(c).id().0;
+        if glyph_id == 0 {
+            None
+        } else {
+            Some(glyph_id as u16)
+        }
+    }
+
+    fn glyph_ids(&self) -> std::collections::HashMap<u16, char> {
+        let mut map = std::collections::HashMap::with_capacity(self.glyph_count());
+        for c in char::default()..std::char::MAX {
+            if let Some(glyph_id) = self.glyph_id(c) {
+                map.insert(glyph_id, c);
+            }
+        }
+        map
+    }
+
+    fn glyph_metrics(&self, glyph_id: u16) -> Option<GlyphMetrics> {
+        let glyph_id = rusttype::GlyphId(u32::from(glyph_id));
+        if let Some(glyph_metrics) = self.glyph(glyph_id).standalone().get_data() {
+            let width = glyph_metrics.unit_h_metrics.advance_width as u32;
+            let height = glyph_metrics.extents.and_then(|extents| {
+                let descent = self.v_metrics_unscaled().descent as i32;
+                Some((extents.max.y - extents.min.y - descent) as u32)
+            }).unwrap_or(1000);
+            Some(GlyphMetrics { width, height })
+        } else {
+            None
+        }
+    }
+}
+
+/// Helper trait for cloning boxed [`FontData`](trait.FontData.html) implementors.
+pub trait FontDataClone {
+    /// Clones this font data and returns a box with the cloned data.
+    fn clone_font_data(&self) -> Box<dyn FontData>;
+}
+
+impl<T: FontData + Clone + 'static> FontDataClone for T {
+    fn clone_font_data(&self) -> Box<dyn FontData> {
+        Box::new(self.clone())
+    }
+}
+
+impl Clone for Box<dyn FontData> {
+    fn clone(&self) -> Box<dyn FontData> {
+        self.clone_font_data()
     }
 }
