@@ -340,6 +340,7 @@ impl PdfDocumentReference {
         let pages_id = doc.inner_doc.new_object_id();
         let bookmarks_id = doc.inner_doc.new_object_id();
         let mut bookmarks_list = LoDictionary::from_iter(vec![
+            ("Type", "Outlines".into()),
             ("Count", Integer(doc.bookmarks.len() as i64)),
             /* First and Last will be filled in once they are created from the pages */
         ]);
@@ -552,12 +553,15 @@ impl PdfDocumentReference {
                     .inner_doc
                     .add_object(Dictionary(LoDictionary::from_iter(vec![
                         ("Parent", Reference(bookmarks_id)),
-                        ("Title", title.into()),
+                        ("Title", String(title.into(), Literal)),
                         (
                             "Dest",
                             Array(vec![
                                 Reference(page_id_to_obj.get(&page_index).unwrap().to_owned()),
-                                "Fit".into(),
+                                "XYZ".into(),
+                                Null,
+                                Null,
+                                Null,
                             ]),
                         ),
                     ])));
@@ -569,34 +573,37 @@ impl PdfDocumentReference {
                         "Dest",
                         Array(vec![
                             Reference(page_id_to_obj.get(page_index).unwrap().to_owned()),
-                            "Fit".into(),
+                                "XYZ".into(),
+                                Null,
+                                Null,
+                                Null,
                         ]),
                     );
                     dbg!(i, len);
                     doc.inner_doc
                         .add_object(Dictionary(LoDictionary::from_iter(if i == 0 {
-                            bookmarks_list.set("First", Reference((doc.inner_doc.max_id, 0)));
+                            bookmarks_list.set("First", Reference((doc.inner_doc.max_id + 1, 0)));
                             vec![
                                 ("Parent", Reference(bookmarks_id)),
-                                ("Title", b_name.to_owned().into()),
+                                ("Title", String(b_name.to_owned().into(), Literal)),
+                                ("Next", Reference((doc.inner_doc.max_id + 2, 0))),
                                 dest,
-                                ("Next", Reference((doc.inner_doc.max_id + 1, 0))),
                             ]
                         } else if i == len - 1 {
                             bookmarks_list.set("Last", Reference((doc.inner_doc.max_id + 1, 0)));
                             vec![
                                 ("Parent", Reference(bookmarks_id)),
-                                ("Title", b_name.to_owned().into()),
+                                ("Title", String(b_name.to_owned().into(), Literal)),
+                                ("Prev", Reference((doc.inner_doc.max_id, 0))),
                                 dest,
-                                ("Prev", Reference((doc.inner_doc.max_id - 1, 0))),
                             ]
                         } else {
                             vec![
                                 ("Parent", Reference(bookmarks_id)),
-                                ("Title", b_name.to_owned().into()),
+                                ("Title", String(b_name.to_owned().into(), Literal)),
+                                ("Prev", Reference((doc.inner_doc.max_id, 0))),
+                                ("Next", Reference((doc.inner_doc.max_id + 2, 0))),
                                 dest,
-                                ("Prev", Reference((doc.inner_doc.max_id - 1, 0))),
-                                ("Next", Reference((doc.inner_doc.max_id + 1, 0))),
                             ]
                         })));
                 }
