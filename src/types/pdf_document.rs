@@ -569,7 +569,9 @@ impl PdfDocumentReference {
                 bookmarks_list.set("First", Reference(obj_ref));
                 bookmarks_list.set("Last", Reference(obj_ref));
             } else {
-                for (i, (page_index, b_name)) in doc.bookmarks.iter().enumerate() {
+                let mut sorted_bmarks: Vec<(&usize, &std::string::String)> = doc.bookmarks.iter().collect();
+                sorted_bmarks.sort();
+                for (i, (page_index, b_name)) in sorted_bmarks.iter().enumerate() {
                     let dest = (
                         "Dest",
                         Array(vec![
@@ -585,7 +587,7 @@ impl PdfDocumentReference {
                             bookmarks_list.set("First", Reference((doc.inner_doc.max_id + 1, 0)));
                             vec![
                                 ("Parent", Reference(bookmarks_id)),
-                                ("Title", String(b_name.to_owned().into(), Literal)),
+                                ("Title", String(b_name.to_owned().to_owned().into(), Literal)),
                                 ("Next", Reference((doc.inner_doc.max_id + 2, 0))),
                                 dest,
                             ]
@@ -593,14 +595,14 @@ impl PdfDocumentReference {
                             bookmarks_list.set("Last", Reference((doc.inner_doc.max_id + 1, 0)));
                             vec![
                                 ("Parent", Reference(bookmarks_id)),
-                                ("Title", String(b_name.to_owned().into(), Literal)),
+                                ("Title", String(b_name.to_owned().to_owned().into(), Literal)),
                                 ("Prev", Reference((doc.inner_doc.max_id, 0))),
                                 dest,
                             ]
                         } else {
                             vec![
                                 ("Parent", Reference(bookmarks_id)),
-                                ("Title", String(b_name.to_owned().into(), Literal)),
+                                ("Title", String(b_name.to_owned().to_owned().into(), Literal)),
                                 ("Prev", Reference((doc.inner_doc.max_id, 0))),
                                 ("Next", Reference((doc.inner_doc.max_id + 2, 0))),
                                 dest,
