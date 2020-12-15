@@ -534,14 +534,15 @@ impl PdfDocumentReference {
                 lopdf::Stream::new(lopdf::Dictionary::new(), layer_streams_merged_vec)
                     .with_compression(false);
             let page_content_id = doc.inner_doc.add_object(merged_layer_stream);
-            if doc.bookmarks.len() > 0 {
-                if let Some(_) = doc.bookmarks.get(&idx) {
-                    page_id_to_obj.insert(idx, page_content_id);
-                }
-            }
 
             p.set("Contents", Reference(page_content_id));
-            page_ids.push(Reference(doc.inner_doc.add_object(p)))
+            let page_obj = doc.inner_doc.add_object(p);
+            if doc.bookmarks.len() > 0 {
+                if let Some(_) = doc.bookmarks.get(&idx) {
+                    page_id_to_obj.insert(idx, page_obj);
+                }
+            }
+            page_ids.push(Reference(page_obj))
         }
 
         if doc.bookmarks.len() > 0 {
@@ -579,7 +580,6 @@ impl PdfDocumentReference {
                                 Null,
                         ]),
                     );
-                    dbg!(i, len);
                     doc.inner_doc
                         .add_object(Dictionary(LoDictionary::from_iter(if i == 0 {
                             bookmarks_list.set("First", Reference((doc.inner_doc.max_id + 1, 0)));
