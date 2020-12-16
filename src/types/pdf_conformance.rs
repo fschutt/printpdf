@@ -122,9 +122,9 @@ impl Default for CustomPdfConformance {
             allows_audio_content: false,
             allows_embedded_javascript: false,
             allows_jpeg_content: true,
-            requires_xmp_metadata: true,
+            requires_xmp_metadata: false,
             allows_default_fonts: false,
-            requires_icc_profile: true,
+            requires_icc_profile: false,
             allows_pdf_layers: true,
         }
     }
