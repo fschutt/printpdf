@@ -1,5 +1,10 @@
 # Changelog
 
+## `0.3.4`
+
+- Added bookmarks and clipping path support
+- *Breaking*: PDFConformance default changed to not require XMP Metadata and embedded ICC profile by default
+
 ## `0.3.1`
 
 - Fix issue with Fonts on iOS and macOS
