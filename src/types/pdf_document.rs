@@ -184,6 +184,17 @@ impl PdfDocumentReference {
         self
     }
 
+    /// Sets the metadata date on the document.
+    ///
+    /// By default, the metadata date is set to the current time.
+    #[inline]
+    pub fn with_metadata_date(self, metadata_date: OffsetDateTime)
+    -> Self
+    {
+        self.document.borrow_mut().metadata.metadata_date = metadata_date;
+        self
+    }
+
     /// Sets the modification date on the document. Intended to be used when
     /// reading documents that already have a modification date.
     #[inline]
