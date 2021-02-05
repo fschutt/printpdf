@@ -966,7 +966,7 @@ pub enum SpotFunction {
     /// `y`
     LineY,
     /// ```rust,ignore
-    /// if (abs(x) + abs(y) <= 1 {
+    /// if abs(x) + abs(y) <= 1 {
     ///     1 - (pow(x, 2) + pow(y, 2))
     /// } else {
     ///     pow((abs(x) - 1), 2) + pow((abs(y) - 1), 2) - 1
@@ -1130,7 +1130,7 @@ pub enum SeperableBlendMode {
     ///
     /// ```rust,ignore
     /// if color_new > 0 {
-    ///     1 - min(1, (1 - color_old) / color_new))
+    ///     1 - min(1, (1 - color_old) / color_new)
     /// } else {
     ///     0
     /// }
