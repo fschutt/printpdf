@@ -1,7 +1,5 @@
 //! PDF layer management. Layers can contain referenced or real content.
 
-use lopdf;
-
 use indices::{PdfPageIndex, PdfLayerIndex};
 use std::rc::Weak;
 use std::cell::RefCell;
@@ -67,7 +65,7 @@ impl PdfLayerReference {
     {
         let line_ops = line.into_stream_op();
         for op in line_ops {
-            self.internal_add_operation(op);
+            self.add_operation(op);
         }
     }
 
@@ -101,7 +99,7 @@ impl PdfLayerReference {
     pub fn begin_text_section(&self)
     -> ()
     {
-        self.internal_add_operation(Operation::new("BT", vec![] ));
+        self.add_operation(Operation::new("BT", vec![] ));
     }
 
     /// Ends a new text section
@@ -110,7 +108,7 @@ impl PdfLayerReference {
     pub fn end_text_section(&self)
     -> ()
     {
-        self.internal_add_operation(Operation::new("ET", vec![] ));
+        self.add_operation(Operation::new("ET", vec![] ));
     }
 
     /// Set the current fill color for the layer
@@ -118,7 +116,7 @@ impl PdfLayerReference {
     pub fn set_fill_color(&self, fill_color: Color)
     -> ()
     {
-        self.internal_add_operation(PdfColor::FillColor(fill_color));
+        self.add_operation(PdfColor::FillColor(fill_color));
     }
 
     /// Set the current font, only valid in a `begin_text_section` to
@@ -127,7 +125,7 @@ impl PdfLayerReference {
     pub fn set_font(&self, font: &IndirectFontRef, font_size: f64)
     -> ()
     {
-        self.internal_add_operation(Operation::new("Tf",
+        self.add_operation(Operation::new("Tf",
             vec![font.name.clone().into(), (font_size).into()]
         ));
     }
@@ -136,7 +134,7 @@ impl PdfLayerReference {
     #[inline]
     pub fn set_outline_color(&self, color: Color)
     {
-        self.internal_add_operation(PdfColor::OutlineColor(color));
+        self.add_operation(PdfColor::OutlineColor(color));
     }
     /// Instantiate layers, forms and postscript items on the page
     /// __WARNING__: Object must be added to the same page, since the XObjectRef is just a
@@ -167,17 +165,17 @@ impl PdfLayerReference {
 
         if t_x != Mm(0.0) || t_y != Mm(0.0) {
             let translate_ctm = CurTransMat::Translate(t_x, t_y);
-            self.internal_add_operation(translate_ctm);
+            self.add_operation(translate_ctm);
         }
 
         if let Some(rot) = rotate_cw {
             let rotate_ctm = CurTransMat::Rotate(rot);
-            self.internal_add_operation(rotate_ctm);
+            self.add_operation(rotate_ctm);
         }
 
         if s_x != 0.0 || s_y != 0.0 {
             let scale_ctm = CurTransMat::Scale(s_x, s_y);
-            self.internal_add_operation(scale_ctm);
+            self.add_operation(scale_ctm);
         }
 
         // invoke object
@@ -256,25 +254,25 @@ impl PdfLayerReference {
     pub fn set_outline_thickness(&self, outline_thickness: f64)
     {
         use lopdf::Object::*;
-        self.internal_add_operation(Operation::new(OP_PATH_STATE_SET_LINE_WIDTH, vec![Real(outline_thickness)]));
+        self.add_operation(Operation::new(OP_PATH_STATE_SET_LINE_WIDTH, vec![Real(outline_thickness)]));
     }
 
     /// Set the current line join style for outlines
     #[inline]
     pub fn set_line_join_style(&self, line_join: LineJoinStyle) {
-        self.internal_add_operation(line_join);
+        self.add_operation(line_join);
     }
 
     /// Set the current line join style for outlines
     #[inline]
     pub fn set_line_cap_style(&self, line_cap: LineCapStyle) {
-        self.internal_add_operation(line_cap);
+        self.add_operation(line_cap);
     }
 
     /// Set the current line join style for outlines
     #[inline]
     pub fn set_line_dash_pattern(&self, dash_pattern: LineDashPattern) {
-        self.internal_add_operation(dash_pattern);
+        self.add_operation(dash_pattern);
     }
 
     /// Sets (adds to) the current transformation matrix
@@ -282,7 +280,7 @@ impl PdfLayerReference {
     /// to "scope" the transformation matrix to a specific function
     #[inline]
     pub fn set_ctm(&self, ctm: CurTransMat) {
-        self.internal_add_operation(ctm);
+        self.add_operation(ctm);
     }
 
     /// Sets (replaces) the current text matrix
@@ -292,7 +290,7 @@ impl PdfLayerReference {
     /// `begin_text_section()` and `end_text_section()`
     #[inline]
     pub fn set_text_matrix(&self, tm: TextMatrix) {
-        self.internal_add_operation(tm);
+        self.add_operation(tm);
     }
 
     /// Sets the position where the text should appear
@@ -300,7 +298,7 @@ impl PdfLayerReference {
     pub fn set_text_cursor(&self, x:Mm, y:Mm) {
         let x_in_pt: Pt = x.into();
         let y_in_pt: Pt = y.into();
-        self.internal_add_operation(Operation::new("Td",
+        self.add_operation(Operation::new("Td",
                 vec![x_in_pt.into(), y_in_pt.into()]
         ));
     }
@@ -311,14 +309,14 @@ impl PdfLayerReference {
     /// __Note:__ Use `set_line_height` earlier to set the line height first
     #[inline]
     pub fn add_line_break(&self) {
-        self.internal_add_operation(Operation::new("T*", Vec::new()));
+        self.add_operation(Operation::new("T*", Vec::new()));
     }
 
     /// Sets the text line height inside a text block
     /// (must be called within `begin_text_block` and `end_text_block`)
     #[inline]
     pub fn set_line_height(&self, height: f64) {
-        self.internal_add_operation(Operation::new("TL",
+        self.add_operation(Operation::new("TL",
             vec![lopdf::Object::Real(height)]
         ));
     }
@@ -328,7 +326,7 @@ impl PdfLayerReference {
     /// the spacing inside a word by 3pt.
     #[inline]
     pub fn set_character_spacing(&self, spacing: f64) {
-        self.internal_add_operation(Operation::new("Tc",
+        self.add_operation(Operation::new("Tc",
             vec![lopdf::Object::Real(spacing)]
         ));
     }
@@ -343,7 +341,7 @@ impl PdfLayerReference {
     /// with builtin fonts.
     #[inline]
     pub fn set_word_spacing(&self, spacing: f64) {
-        self.internal_add_operation(Operation::new("Tw",
+        self.add_operation(Operation::new("Tw",
             vec![lopdf::Object::Real(spacing)]
         ));
     }
@@ -354,7 +352,7 @@ impl PdfLayerReference {
     /// but stretch the text
     #[inline]
     pub fn set_text_scaling(&self, scaling: f64) {
-        self.internal_add_operation(Operation::new("Tz",
+        self.add_operation(Operation::new("Tz",
             vec![lopdf::Object::Real(scaling)]
         ));
     }
@@ -366,14 +364,14 @@ impl PdfLayerReference {
     /// change the size of the font
     #[inline]
     pub fn set_line_offset(&self, offset: f64) {
-        self.internal_add_operation(Operation::new("Ts",
+        self.add_operation(Operation::new("Ts",
             vec![lopdf::Object::Real(offset)]
         ));
     }
 
     #[inline]
     pub fn set_text_rendering_mode(&self, mode: TextRenderingMode) {
-        self.internal_add_operation(Operation::new("Tr",
+        self.add_operation(Operation::new("Tr",
             vec![lopdf::Object::Integer(mode.into())]
         ));
     }
@@ -488,13 +486,13 @@ impl PdfLayerReference {
     /// Saves the current graphic state
     #[inline]
     pub fn save_graphics_state(&self) {
-        self.internal_add_operation(Operation::new("q", Vec::new()));
+        self.add_operation(Operation::new("q", Vec::new()));
     }
 
     /// Restores the previous graphic state
     #[inline]
     pub fn restore_graphics_state(&self) {
-        self.internal_add_operation(Operation::new("Q", Vec::new()));
+        self.add_operation(Operation::new("Q", Vec::new()));
     }
 
     /// Add text to the file, x and y are measure in millimeter from the bottom left corner
@@ -513,6 +511,20 @@ impl PdfLayerReference {
             self.set_text_cursor(x, y);
             self.write_text(text, font);
             self.end_text_section();
+    }
+
+    /// Add an operation
+    ///
+    /// This is the low level function used by other function in this struct.
+    /// Notice that [Operation](crate::lopdf::content::Operation) is part of the
+    /// `lopdf` crate, which is re-exported by this crate.
+    pub fn add_operation<T>(&self, op: T)
+    -> () where T: Into<Operation>
+    {
+        let doc = self.document.upgrade().unwrap();
+        let mut doc = doc.borrow_mut();
+        let layer = &mut doc.pages[self.page.0].layers[self.layer.0];
+        layer.operations.push(op.into());
     }
 
 /*
@@ -549,15 +561,5 @@ impl PdfLayerReference {
           .operations.push(lopdf::content::Operation::new(
               "Do", vec![lopdf::Object::Name(name.as_bytes().to_vec())]
         ));
-    }
-
-    // internal function to add an operation (prevents locking)
-    fn internal_add_operation<T>(&self, op: T)
-    -> () where T: Into<Operation>
-    {
-        let doc = self.document.upgrade().unwrap();
-        let mut doc = doc.borrow_mut();
-        let layer = &mut doc.pages[self.page.0].layers[self.layer.0];
-        layer.operations.push(op.into());
     }
 }

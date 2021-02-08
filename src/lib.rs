@@ -333,7 +333,7 @@
 #[cfg(feature = "logging")]
 #[macro_use] pub extern crate log;
 
-extern crate lopdf;
+pub extern crate lopdf;
 extern crate rusttype;
 extern crate time;
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
@@ -349,6 +349,8 @@ pub mod errors;
 pub mod utils;
 mod glob_defines;
 pub mod indices;
+
+pub use glob_defines::*;
 
 pub use self::errors::Error;
 pub use self::errors::PdfError;
