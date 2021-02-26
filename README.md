@@ -2,7 +2,7 @@
 
 [![Travis CI](https://travis-ci.org/fschutt/printpdf.svg?branch=master)](https://travis-ci.org/fschutt/printpdf) [![Appveyor](https://ci.appveyor.com/api/projects/status/2ioc0wopm5a8ixgm?svg=true)](https://ci.appveyor.com/project/fschutt/printpdf)
 
-`printpdf` is a library designed for creating printable PDF documents.
+`printpdf` is a library designed for creating printable PDF documents. 
 
 [Crates.io](https://crates.io/crates/printpdf) | [Documentation](https://docs.rs/printpdf)
 
@@ -23,6 +23,9 @@ Currently, printpdf can only create new documents and write them, it cannot load
 - Advanced graphics - overprint control, blending modes, etc.
 - Advanced typography - character scaling, character spacing, superscript, subscript, outlining, etc.
 - PDF layers (you should be able to open the PDF in Illustrator and have the layers appear)
+
+Note: `printpdf` only implements the PDF spec, nothing more. If you more high-level PDF generation, 
+take a look at [`genpdf`](https://crates.io/crates/genpdf), which is built on top of `printpdf`
 
 ## Getting started
 
@@ -327,3 +330,9 @@ Here are some resources I found while working on this library:
 [PDF X/1-a Validator](https://www.pdf-online.com/osa/validate.aspx)
 
 [PDF X/3 technical notes](http://www.pdfxreport.com/lib/exe/fetch.php?media=en:technote_pdfx_checks.pdf)
+
+## Donate
+
+- Bitcoin: 3DkYz32P77Bfv93wPgV66vs1vrUwgStcZU
+- Bitcoin Cash: 1QAi8xVB4nRtkaxTAXbzGHmg6nxuuezuYk
+- Ethereum: 0xb9960F9970b659056B03CB0241490aDA83A73CEa
