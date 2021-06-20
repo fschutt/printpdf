@@ -334,7 +334,7 @@
 #[macro_use] pub extern crate log;
 
 pub extern crate lopdf;
-extern crate rusttype;
+extern crate owned_ttf_parser;
 extern crate time;
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 extern crate js_sys;
@@ -356,7 +356,6 @@ pub use self::errors::Error;
 pub use self::errors::PdfError;
 pub use date::*;
 pub use self::errors::IndexError;
-pub use rusttype::Error as RusttypeError;
 
 pub use self::scale::{Mm, Pt, Px};
 pub use self::types::pdf_conformance::{CustomPdfConformance, PdfConformance};

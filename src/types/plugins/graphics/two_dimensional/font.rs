@@ -4,11 +4,10 @@
 use lopdf;
 use lopdf::{Stream as LoStream, Dictionary as LoDictionary};
 use lopdf::StringFormat;
+use owned_ttf_parser::{AsFaceRef as _, Face, OwnedFace};
 use std::collections::BTreeMap;
 use std::iter::FromIterator;
-use Error;
-
-use rusttype::FontCollection;
+use {Error, PdfError};
 
 /// The font
 #[derive(Debug, Clone, PartialEq)]
@@ -132,10 +131,10 @@ impl ExternalFont {
 
     /// Creates a new font. The `index` is used for naming / identifying the font
     ///
-    /// This method uses [`rusttype`][] to parse the font data.  If you want to use a different
+    /// This method uses [`owned_ttf_parser`][] to parse the font data.  If you want to use a different
     /// font backend, use the [`with_font_data`][] method instead.
     ///
-    /// [`rusttype`]: https://docs.rs/rusttype/latest/rusttype/
+    /// [`owned_ttf_parser`]: https://docs.rs/owned_ttf_parser/latest/owned_ttf_parser/
     /// [`with_font_data`]: #method.with_font_data
     pub fn new<R>(mut font_stream: R, font_index: usize)
     -> Result<Self, Error> where R: ::std::io::Read
@@ -144,8 +143,7 @@ impl ExternalFont {
         let mut buf = Vec::<u8>::new();
         font_stream.read_to_end(&mut buf)?;
 
-        let collection = FontCollection::from_bytes(buf.clone())?;
-        let font = collection.clone().into_font().or_else(|_| collection.font_at(0))?;
+        let font = TtfFace::from_vec(buf.clone())?;
 
         Ok(Self::with_font_data(buf, font_index, Box::new(font)))
     }
@@ -490,10 +488,10 @@ pub struct GlyphMetrics {
 
 /// Provides access to font metrics.
 ///
-/// Per default, printpdf uses [`rusttype`][] to extract the font data.  You can implement this
-/// trait for other types if you want to use a different font backend.
+/// Per default, printpdf uses [`owned_ttf_parser`][] to extract the font data.  You can implement
+/// this trait for other types if you want to use a different font backend.
 ///
-/// [`rusttype`]: https://docs.rs/rusttype/latest/rusttype/
+/// [`owned_ttf_parser`]: https://docs.rs/owned_ttf_parser/latest/owned_ttf_parser/
 pub trait FontData: FontDataClone + std::fmt::Debug {
     /// Returns the unscaled metrics for this font.
     fn font_metrics(&self) -> FontMetrics;
@@ -508,43 +506,74 @@ pub trait FontData: FontDataClone + std::fmt::Debug {
     fn glyph_metrics(&self, glyph_id: u16) -> Option<GlyphMetrics>;
 }
 
-impl FontData for rusttype::Font<'static> {
+/// Wrapper struct for `owned_ttf_parser::OwnedFace` that implements `Clone` and that makes sure
+/// that the font is scalable.
+#[derive(Clone, Debug)]
+struct TtfFace {
+    inner: std::sync::Arc<OwnedFace>,
+    units_per_em: u16,
+}
+
+impl TtfFace {
+    pub fn from_vec(v: Vec<u8>) -> Result<Self, Error> {
+        let face = OwnedFace::from_vec(v, 0)?;
+        if let Some(units_per_em) = face.as_face_ref().units_per_em() {
+            Ok(Self {
+                inner: std::sync::Arc::new(face),
+                units_per_em,
+            })
+        } else {
+            Err(PdfError::FontFaceError.into())
+        }
+    }
+
+    fn face(&self) -> &Face<'_> {
+        self.inner.as_face_ref()
+    }
+}
+
+impl FontData for TtfFace {
     fn font_metrics(&self) -> FontMetrics {
-        let metrics = self.v_metrics_unscaled();
         FontMetrics {
-            ascent: metrics.ascent as i16,
-            descent: metrics.descent as i16,
-            units_per_em: self.units_per_em(),
+            ascent: self.face().ascender(),
+            descent: self.face().descender(),
+            units_per_em: self.units_per_em,
         }
     }
 
     fn glyph_id(&self, c: char) -> Option<u16> {
-        let glyph_id = self.glyph(c).id().0;
-        if glyph_id == 0 {
-            None
-        } else {
-            Some(glyph_id as u16)
-        }
+        self.face()
+            .glyph_index(c)
+            .map(|id| id.0)
     }
 
     fn glyph_ids(&self) -> std::collections::HashMap<u16, char> {
-        let mut map = std::collections::HashMap::with_capacity(self.glyph_count());
-        for c in char::default()..std::char::MAX {
-            if let Some(glyph_id) = self.glyph_id(c) {
-                map.insert(glyph_id, c);
-            }
+        let subtables = self
+            .face()
+            .character_mapping_subtables()
+            .filter(|s| s.is_unicode());
+        let mut map = std::collections::HashMap::with_capacity(self.face().number_of_glyphs().into());
+        for subtable in subtables {
+            subtable.codepoints(|c| {
+                use std::convert::TryFrom as _;
+
+                if let Ok(ch) = char::try_from(c) {
+                    if let Some(idx) = subtable.glyph_index(c).filter(|idx| idx.0 > 0) {
+                        map.entry(idx.0).or_insert(ch);
+                    }
+                }
+            })
         }
         map
     }
 
     fn glyph_metrics(&self, glyph_id: u16) -> Option<GlyphMetrics> {
-        let glyph_id = rusttype::GlyphId(u32::from(glyph_id));
-        if let Some(glyph_metrics) = self.glyph(glyph_id).standalone().get_data() {
-            let width = glyph_metrics.unit_h_metrics.advance_width as u32;
-            let height = glyph_metrics.extents.and_then(|extents| {
-                let descent = self.v_metrics_unscaled().descent as i32;
-                Some((extents.max.y - extents.min.y - descent) as u32)
-            }).unwrap_or(1000);
+        let glyph_id = owned_ttf_parser::GlyphId(glyph_id);
+        if let Some(width) = self.face().glyph_hor_advance(glyph_id) {
+            let width = width as u32;
+            let height = self.face().glyph_bounding_box(glyph_id).map(|bbox| {
+                bbox.y_max - bbox.y_min - self.face().descender()
+            }).unwrap_or(1000) as u32;
             Some(GlyphMetrics { width, height })
         } else {
             None
