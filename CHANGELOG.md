@@ -1,5 +1,9 @@
 # Changelog
 
+## `0.4.0`
+
+- no actual changes, just a re-release of 0.3.4 to fix semver breakage
+
 ## `0.3.4`
 
 - Added bookmarks and clipping path support
