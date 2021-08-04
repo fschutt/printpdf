@@ -1,6 +1,7 @@
-﻿# printpdf
+# printpdf
 
 [![Travis CI](https://travis-ci.org/fschutt/printpdf.svg?branch=master)](https://travis-ci.org/fschutt/printpdf) [![Appveyor](https://ci.appveyor.com/api/projects/status/2ioc0wopm5a8ixgm?svg=true)](https://ci.appveyor.com/project/fschutt/printpdf)
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Ffschutt%2Fprintpdf.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Ffschutt%2Fprintpdf?ref=badge_shield)
 
 `printpdf` is a library designed for creating printable PDF documents. 
 
@@ -336,3 +337,7 @@ Here are some resources I found while working on this library:
 - Bitcoin: 3DkYz32P77Bfv93wPgV66vs1vrUwgStcZU
 - Bitcoin Cash: 1QAi8xVB4nRtkaxTAXbzGHmg6nxuuezuYk
 - Ethereum: 0xb9960F9970b659056B03CB0241490aDA83A73CEa
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Ffschutt%2Fprintpdf.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Ffschutt%2Fprintpdf?ref=badge_large)
