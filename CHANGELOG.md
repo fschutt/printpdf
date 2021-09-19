@@ -1,5 +1,9 @@
 # Changelog
 
+## `0.4.1`
+
+- added `PdfDocument::save_to_bytes()` to save the PDF document directly to a `Vec<u8>` (see #101)
+
 ## `0.4.0`
 
 - no actual changes, just a re-release of 0.3.4 to fix semver breakage
