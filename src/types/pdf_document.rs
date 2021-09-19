@@ -339,12 +339,14 @@ impl PdfDocumentReference {
         Ok(())
     }
 
-    /// Save PDF Document, writing the contents to the target
-    pub fn save<W: Write>(self, target: &mut BufWriter<W>) -> ::std::result::Result<(), Error> {
+    /// Save PDF document to bytes
+    pub fn save_to_bytes(self) -> Result<Vec<u8>, Error> {
+
         use lopdf::Object::*;
         use lopdf::StringFormat::Literal;
         use lopdf::{Dictionary as LoDictionary, Object as LoObject};
         use std::iter::FromIterator;
+        use std::mem;
 
         // todo: remove unwrap, handle error
         let mut doc = Rc::try_unwrap(self.document).unwrap().into_inner();
@@ -650,8 +652,19 @@ impl PdfDocumentReference {
 
         // does nothing in debug mode, optimized in release mode
         Self::optimize(&mut doc.inner_doc);
-        doc.inner_doc.save_to(target)?;
+        let mut bytes = Vec::new();
+        let mut writer = BufWriter::new(&mut bytes);
+        doc.inner_doc.save_to(&mut writer)?;
+        mem::drop(writer);
 
+        Ok(bytes)
+    }
+
+
+    /// Save PDF Document, writing the contents to the target
+    pub fn save<W: Write>(self, target: &mut BufWriter<W>) -> Result<(), Error> {
+        let pdf_as_bytes = self.save_to_bytes()?;
+        target.write(&pdf_as_bytes)?;
         Ok(())
     }
 
