@@ -374,6 +374,7 @@ dependencies = [
  "linked-hash-map",
  "log",
  "lzw",
+ "pom",
  "time",
 ]
 
@@ -514,6 +515,12 @@ dependencies = [
  "deflate",
  "miniz_oxide 0.3.7",
 ]
+
+[[package]]
+name = "pom"
+version = "3.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07e2192780e9f8e282049ff9bffcaa28171e1cb0844f49ed5374e518ae6024ec"
 
 [[package]]
 name = "printpdf"

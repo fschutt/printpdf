@@ -375,9 +375,9 @@ pub use self::types::plugins::graphics::two_dimensional::font::{
 pub use self::types::plugins::graphics::two_dimensional::image::Image;
 pub use self::types::plugins::graphics::two_dimensional::image::ImageTransform;
 #[cfg(feature = "svg")]
-pub use self::types::plugins::graphics::two_dimensional::svg::SvgTransform;
-#[cfg(feature = "svg")]
 pub use self::types::plugins::graphics::two_dimensional::svg::Svg;
+#[cfg(feature = "svg")]
+pub use self::types::plugins::graphics::two_dimensional::svg::SvgTransform;
 pub use self::types::plugins::graphics::two_dimensional::line::Line;
 pub use self::types::plugins::graphics::two_dimensional::point::Point;
 

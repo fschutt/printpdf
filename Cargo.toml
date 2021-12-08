@@ -10,9 +10,10 @@ description = "Rust library for writing PDF files"
 keywords = ["pdf", "gui", "graphics", "wkhtmltopdf"]
 categories = ["gui"]
 exclude = ["./assets/*", "./doc/*", "./examples/*"]
+autoexamples = false
 
 [dependencies]
-lopdf = { version = "0.26", default-features = false }
+lopdf = { version = "0.26", default-features = false, features = ["pom_parser"] }
 owned_ttf_parser = "0.12"
 time = { version = "0.2.11", default-features = false, features = ["std"] }
 log = { version = "0.4.8", optional = true }
@@ -45,3 +46,13 @@ js-sys = "0.3.40"
 [badges]
 travis-ci = { repository = "fschutt/printpdf" }
 appveyor = { repository = "fschutt/printpdf" }
+
+[[example]]
+name = "svg"
+default-features = false
+required-features = ["svg"]
+
+[[example]]
+name = "bookmarks"
+default-features = false
+required-features = []
