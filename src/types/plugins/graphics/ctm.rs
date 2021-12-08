@@ -34,6 +34,8 @@ pub enum TextMatrix {
     /// Text translate matrix, used for indenting (transforming) text
     /// (different to regular text placement)
     Translate(Mm, Mm),
+    /// Combined translate + rotate matrix
+    TranslateRotate(Mm, Mm, f64),
 }
 
 impl Into<[f64; 6]> for TextMatrix {
@@ -48,7 +50,16 @@ impl Into<[f64; 6]> for TextMatrix {
                 let y_pt: Pt = y.into();
                 [ 1.0, 0.0, 0.0, 1.0, x_pt.0, y_pt.0 ] 
             }
-            Rotate(rot) => { let rad = (360.0 - rot).to_radians(); [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), 0.0, 0.0 ] /* cos sin -sin cos 0 0 cm */ }
+            Rotate(rot) => {
+                let rad = (360.0 - rot).to_radians();
+                [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), 0.0, 0.0 ] /* cos sin -sin cos 0 0 cm */
+            },
+            TranslateRotate(x, y, rot) => {
+                let rad = (360.0 - rot).to_radians();
+                let x_pt: Pt = x.into();
+                let y_pt: Pt = y.into();
+                [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), x_pt.0, y_pt.0 ] /* cos sin -sin cos x y cm */
+            }
         }
     }
 }

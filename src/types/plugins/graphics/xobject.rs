@@ -264,7 +264,9 @@ impl Into<lopdf::Stream> for ImageXObject {
             params.into_iter().for_each(|param| dict.set(param.0, param.1));
         }
 
-        lopdf::Stream::new(dict, self.image_data)
+        let mut stream = lopdf::Stream::new(dict, self.image_data);
+        stream.compress();
+        stream
     }
 }
 
