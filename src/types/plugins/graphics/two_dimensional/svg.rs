@@ -1,178 +1,100 @@
-extern crate lopdf;
-extern crate svg;
+//! Abstraction class for images. Please use this class
+//! instead of adding `ImageXObjects` yourself
 
+use crate::{Mm, XObject, PdfLayerReference};
 
-/// Unit for SVG elements. Uses uom crate for normalization
-/// Since this library is designed to output PDFs, the only measurement
-/// that PDF understands is point, so eventually everything is converted into point.
-#[derive(Debug, Copy, Clone)]
-pub enum SvgUnit {
-    /// Multiple of the total height of the first seen font (usually 16px)
-    /// Not yet supported, will be 16px
-    Em(f64),
-    /// Multiple of the x-height of the first seen font
-    /// Not yet supported, will be interpreted as x-height of the Arial font
-    Ex(f64),
-    /// Pixel
-    Px(f64),
-    /// Inch
-    In(f64),
-    /// Centimeter
-    Cm(f64),
-    /// Millimeter
-    Mm(f64),
-    /// Point
-    Pt(f64),
-    /// Percent (todo: of what?)
-    /// Not supported, will be interpreted as Point
-    Pc(f64),
-}
-
-// Should convert to points. For now, only returns the inner number
-impl Into<f64> for SvgUnit {
-    fn into(self)
-    -> f64
-    {
-        use self::SvgUnit::*;
-
-        // todo!!!!!
-
-        match self {
-            Em(em) => 16.0 * em,
-            Ex(ex) => 16.0 * ex,
-            Px(px) => 300.0 * px,
-            In(inch) => 254.0 * inch,
-            Cm(cm) => 10.0 * 254.0 * cm,
-            Mm(mm) => 254.0 * mm,
-            Pt(pt) => pt,
-            Pc(pc) => pc,
-        }
-    }
-}
-
-/// SVG data
-#[derive(Debug, Clone)]
+/// SVG - wrapper around an `XObject` to allow for more
+/// control within the library
+#[derive(Debug)]
 pub struct Svg {
-    /// The actual line drawing, etc. operations, in order
-    operations: Vec<lopdf::content::Operation>,
-    /// Width of this SVG file, is None if not found
-    width: Option<SvgUnit>,
-    /// Height of this SVG file, is None if not found
-    height: Option<SvgUnit>,
+    /// The PDF document, converted from SVG using svg2pdf
+    svg_xobject: Stream,
 }
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum SvgParseError {
+    Svg2PdfConversionError,
+    PdfParsingError,
+    NoContentStream,
+}
+
+/// Transform that is applied immediately before the
+/// image gets painted. Does not affect anything other
+/// than the image.
+#[derive(Debug, Copy, Clone, PartialEq, Default)]
+pub struct SvgTransform {
+    pub translate_x: Option<Mm>,
+    pub translate_y: Option<Mm>,
+    /// Rotate (clockwise), in degree angles
+    pub rotate_cw: Option<f64>,
+    pub scale_x: Option<f64>,
+    pub scale_y: Option<f64>,
+    /// If set to None, will be set to 300.0 for images
+    pub dpi: Option<f64>,
+}
+
 
 impl Svg {
 
-    pub fn new<R>(svg_data: R)
-    -> std::result::Result<Self, ::std::io::Error> where R: ::std::io::Read
-    {
-        // use svg::node::element::path::{Command, Data};
-        // use svg::node::element::tag::Path;
-        use svg::parser::Event;
+    /// Internally parses the SVG string, converts it to a PDF
+    /// document using the svg2pdf crate, parses the resulting PDF again
+    /// (using lopdf), then extracts the SVG XObject.
+    ///
+    /// I wish there was a more direct way, but handling SVG is very tricky.
+    pub fn parse(svg_string: &str) -> Result<Self, SvgParseError> {
 
-        let mut initial_width = None;
-        let mut initial_height = None;
+        // SVG -> PDF bytes
+        let pdf_bytes = svg2pdf::convert_str(&svg, svg2pdf::Options::default()).ok()
+        .ok_or(SvgParseError::Svg2PdfConversionError)?;
 
-        let parser = svg::read(svg_data)?;
+        // DEBUG
+        std::fs::write("./svg.pdf", &pdf_bytes).unwrap();
 
-        // get width and height
-        for event in parser {
-            if let Event::Tag(_, _, attributes) = event {
-                let mut mark_break = false;
-                if let Some(w) = attributes.get("width") {
-                    if let Ok(parsed_w) = w.parse::<f64>() {
-                        initial_width = Some(SvgUnit::Pt(parsed_w));
-                        mark_break = true;
-                    }
-                }
+        // PDF bytes -> lopdf::Document
+        let pdf_parsed = lopdf::Document::load_mem(pdf_bytes).ok()
+        .ok_or(SvgParseError::PdfParsingError)?;
 
-                if let Some(h) = attributes.get("height") {
-                    if let Ok(parsed_h) = h.parse::<f64>() {
-                        initial_height = Some(SvgUnit::Pt(parsed_h));
-                        mark_break = true;
-                    }
-                }
+        // now extract the main /Page stream
+        let svg_xobject = document.objects.values().find_map(|s| match s {
+            Object::Stream(s) => Some(s.clone()),
+            _ => None,
+        }).ok_or(SvgParseError::NoContentStream)?;
 
-                if mark_break { break; }
-            }
-        }
-
-        Ok( Svg {
-            operations: Vec::new(),
-            width: initial_width,
-            height: initial_height,
+        // TODO: wrong, but whatever
+        Ok(Self {
+            svg_xobject,
         })
     }
 
-    /// This is similar to the `image.add_to_layer` method, the only difference being
-    /// that it calls a different function
-    /// This should be seperated out into a macro
-    pub fn add_to_layer(self, layer: PdfLayerReference,
-                        translate_x: Option<f64>, translate_y: Option<f64>,
-                        rotate_cw: Option<f64>,
-                        scale_x: Option<f64>, scale_y: Option<f64>)
-    -> std::result::Result<(), std::io::Error>
+    /// Adds the image to a specific layer and consumes it.
+    ///
+    /// This is due to a PDF weirdness - images are basically just "names"
+    /// and you have to make sure that they are added to resources of the
+    /// same page as they are used on.
+    ///
+    /// You can use the "transform.dpi" parameter to specify a scaling -
+    /// the default is 300dpi
+    pub fn add_to_layer(self, layer: PdfLayerReference, transform: SvgTransform)
     {
-        let svg_w: f64 = self.width.unwrap_or(SvgUnit::Pt(10.0)).into();
-        let svg_h: f64 = self.height.unwrap_or(SvgUnit::Pt(10.0)).into();
+        // PDF maps an image to a 1x1 square, we have to adjust the transform matrix
+        // to fix the distortion
+        let dpi = transform.dpi.unwrap_or(300.0);
 
-        // add svg as XObject to page
-        let svg_ref = layer.add_svg(self)?;
+        //Image at the given dpi should 1px = 1pt
+        let image_w = self.image.width.into_pt(dpi);
+        let image_h = self.image.height.into_pt(dpi);
 
-        // add reference of XObject to layer stream
-        if let Some(scale_x) = scale_x {
-            if let Some(scale_y) = scale_y {
-                layer.use_xobject(svg_ref, translate_x, translate_y, rotate_cw, Some(scale_x * svg_w), Some(svg_h * scale_y));
-            } else {
-                layer.use_xobject(svg_ref, translate_x, translate_y, rotate_cw, Some(scale_x * svg_w), Some(svg_h));
-            }
-        } else if let Some(scale_y) = scale_y {
-            layer.use_xobject(svg_ref, translate_x, translate_y, rotate_cw, Some(svg_w), Some(svg_h * scale_y));
-        } else {
-            layer.use_xobject(svg_ref, translate_x, translate_y, rotate_cw, Some(svg_w), Some(svg_h));
-        }
+        let svg_xobject_ref = layer.add_xobject(XObject::External(self.svg_xobject));
 
-        Ok(())
-    }
+        let scale_x = transform.scale_x.unwrap_or(1.);
+        let scale_y = transform.scale_y.unwrap_or(1.);
+        let image_w = Some(image_w.0 * scale_x);
+        let image_h = Some(image_h.0 * scale_y);
 
-    pub fn try_into(self)
-    -> std::result::Result<FormXObject, std::io::Error>
-    {
-        let content = lopdf::content::Content{ operations: self.operations };
-        let vec_u8 = content.encode()?;
-
-        Ok(FormXObject {
-            form_type: FormType::Type1,
-            bytes: vec_u8,
-            matrix: Some(CurTransMat::Identity),
-            resources: None,
-            group: None,
-            ref_dict: None,
-            metadata: None,
-            piece_info: None,
-            last_modified: None,
-            struct_parent: None,
-            struct_parents: None,
-            opi: None,
-            oc: None,
-            name: None, /* todo */
-        })
-    }
-}
-
-/// SVG `XObject`, identified by its name
-#[derive(Debug)]
-pub struct SvgRef {
-    pub(super) name: String
-}
-
-impl SvgRef {
-    /// Creates a new SvgRef from an index
-    pub fn new(index: usize)
-    -> Self
-    {
-        Self {
-            name: format!("SVG{}", index),
-        }
+        layer.use_xobject(svg_xobject_ref, &[
+            CurTransMat::Translate(transform.translate_x, transform.translate_y),
+            CurTransMat::Rotate(rotate_cw),
+            CurTransMat::Scale(image_w, image_h)
+        ]);
     }
 }

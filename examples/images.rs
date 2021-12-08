@@ -20,7 +20,7 @@ fn main() {
     let image2 = Image::try_from(decoder).unwrap();
 
     // layer,     
-    image2.add_to_layer(current_layer.clone(), None, None, None, None, None, None);
+    image2.add_to_layer(current_layer.clone(), ImageTransform::default());
 
     doc.save(&mut BufWriter::new(File::create("test_image.pdf").unwrap())).unwrap();
 }

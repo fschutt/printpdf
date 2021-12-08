@@ -1,5 +1,5 @@
-//! Abstraction class for images.
-//! Please use this class instead of adding `ImageXObjects` yourself
+//! Abstraction class for images. Please use this class
+//! instead of adding `ImageXObjects` yourself
 
 #[cfg(feature = "embedded_images")]
 use image::{self, ImageDecoder, DynamicImage};
@@ -45,25 +45,38 @@ impl<'a> Image {
     }
 }
 
+/// Transform that is applied immediately before the
+/// image gets painted. Does not affect anything other
+/// than the image.
+#[derive(Debug, Copy, Clone, PartialEq, Default)]
+pub struct ImageTransform {
+    pub translate_x: Option<Mm>,
+    pub translate_y: Option<Mm>,
+    /// Rotate (clockwise), in degree angles
+    pub rotate_cw: Option<f64>,
+    pub scale_x: Option<f64>,
+    pub scale_y: Option<f64>,
+    /// If set to None, will be set to 300.0 for images
+    pub dpi: Option<f64>,
+}
+
 impl Image {
 
-    /// Adds the image to a specific layer and consumes it
+    /// Adds the image to a specific layer and consumes it.
+    ///
     /// This is due to a PDF weirdness - images are basically just "names"
-    /// and you have to make sure that they are added to the same page
-    /// as they are used on.
+    /// and you have to make sure that they are added to resources of the
+    /// same page as they are used on.
     ///
-    /// You can use the "dpi" parameter to specify a scaling - the default is 300dpi
-    ///
-    #[cfg_attr(feature = "cargo-clippy", allow(too_many_arguments))]
-    pub fn add_to_layer(self, layer: PdfLayerReference,
-                        translate_x: Option<Mm>, translate_y: Option<Mm>,
-                        rotate_cw: Option<f64>,
-                        scale_x: Option<f64>, scale_y: Option<f64>,
-                        dpi: Option<f64>)
+    /// You can use the "transform.dpi" parameter to specify a scaling -
+    /// the default is 300dpi
+    pub fn add_to_layer(self, layer: PdfLayerReference, transform: ImageTransform)
     {
+        use crate::CurTransMat;
+
         // PDF maps an image to a 1x1 square, we have to adjust the transform matrix
         // to fix the distortion
-        let dpi = dpi.unwrap_or(300.0);
+        let dpi = transform.dpi.unwrap_or(300.0);
 
         //Image at the given dpi should 1px = 1pt
         let image_w = self.image.width.into_pt(dpi);
@@ -71,11 +84,15 @@ impl Image {
 
         let image = layer.add_image(self.image);
 
-        let scale_x = scale_x.unwrap_or(1.);
-        let scale_y = scale_y.unwrap_or(1.);
-        let image_w = Some(image_w.0 * scale_x);
-        let image_h = Some(image_h.0 * scale_y);
+        let scale_x = transform.scale_x.unwrap_or(1.0);
+        let scale_y = transform.scale_y.unwrap_or(1.0);
+        let image_w = image_w.0 * scale_x;
+        let image_h = image_h.0 * scale_y;
 
-        layer.use_xobject(image, translate_x, translate_y, rotate_cw, image_w, image_h);
+        layer.use_xobject(image, &[
+            CurTransMat::Translate(transform.translate_x.unwrap_or(Mm(0.0)), transform.translate_y.unwrap_or(Mm(0.0))),
+            CurTransMat::Rotate(transform.rotate_cw.unwrap_or(0.0)),
+            CurTransMat::Scale(image_w, image_h)
+        ]);
     }
 }

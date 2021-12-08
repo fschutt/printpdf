@@ -16,6 +16,7 @@ lopdf = { version = "0.26", default-features = false }
 owned_ttf_parser = "0.12"
 time = { version = "0.2.11", default-features = false, features = ["std"] }
 log = { version = "0.4.8", optional = true }
+svg2pdf = { version = "0.1.0", optional = true }
 
 [dependencies.image]
 version = "0.23"
@@ -36,6 +37,7 @@ dxt = ["image/dxt"]
 dds = ["image/dds"]
 webp = ["image/webp"]
 less-optimization = []
+svg = ["svg2pdf"]
 
 [target.'cfg(all(target_arch="wasm32",target_os="unknown"))'.dependencies]
 js-sys = "0.3.40"

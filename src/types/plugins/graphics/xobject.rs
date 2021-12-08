@@ -5,6 +5,7 @@ use crate::OffsetDateTime;
 #[cfg(feature = "embedded_images")]
 use image::{DynamicImage, GenericImageView, ImageDecoder, ImageError};
 use lopdf;
+use lopdf::Stream as LoPdfStream;
 use std::collections::HashMap;
 use {ColorBits, ColorSpace, CurTransMat, Px};
 
@@ -25,6 +26,22 @@ pub enum XObject {
     /// Embedded PostScript XObject, for legacy applications
     /// You can embed PostScript in a PDF, it is not recommended
     PostScript(PostScriptXObject),
+    /// XObject embedded from an external stream
+    ///
+    /// This is mainly used to add XObjects to the resources that the library
+    /// doesn't support natively (such as gradients, patterns, etc).
+    ///
+    /// The only thing this does is to ensure that this stream is set on
+    /// the /Resources dictionary of the page. The `XObjectRef` returned
+    /// by `add_xobject()` is the unique name that can be used to invoke
+    /// the `/Do` operator (by the `use_xobject`)
+    External(LoPdfStream),
+}
+
+impl From<ImageXObject> for XObject {
+    fn from(i: ImageXObject) -> XObject {
+        XObject::Image(i)
+    }
 }
 
 impl XObject {
@@ -52,9 +69,10 @@ impl Into<lopdf::Object> for XObject {
     -> lopdf::Object
     {
         match self {
-            XObject::Image(image) => { lopdf::Object::Stream(Self::compress_stream(image.into())) }
-            XObject::Form(form) => { let cur_form: FormXObject = *form; lopdf::Object::Stream(Self::compress_stream(cur_form.into())) }
-            XObject::PostScript(ps) => { lopdf::Object::Stream(Self::compress_stream(ps.into())) }
+            XObject::Image(image) => { lopdf::Object::Stream(Self::compress_stream(image.into())) },
+            XObject::Form(form) => { let cur_form: FormXObject = *form; lopdf::Object::Stream(Self::compress_stream(cur_form.into())) },
+            XObject::PostScript(ps) => { lopdf::Object::Stream(Self::compress_stream(ps.into())) },
+            XObject::External(stream) => { lopdf::Object::Stream(Self::compress_stream(stream)) },
         }
     }
 }
@@ -264,9 +282,7 @@ impl Into<lopdf::Stream> for ImageXObject {
             params.into_iter().for_each(|param| dict.set(param.0, param.1));
         }
 
-        let mut stream = lopdf::Stream::new(dict, self.image_data);
-        stream.compress();
-        stream
+        lopdf::Stream::new(dict, self.image_data)
     }
 }
 

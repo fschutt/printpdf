@@ -69,30 +69,27 @@ impl PdfLayerReference {
         }
     }
 
-    /// Add an image to the layer
-    /// To be called from the `image.add_to_layer()` class (see `use_xobject` documentation)
+    /// Add an image to the layer. To be called from the
+    /// `image.add_to_layer()` class (see `use_xobject` documentation)
     pub(crate) fn add_image<T>(&self, image: T)
     -> XObjectRef where T: Into<ImageXObject>
+    {
+        self.add_xobject(image.into())
+    }
+
+    /// Adds a general XObject to the layer, similar to `add_image`,
+    /// but allows for other types of XObjects to be added to the
+    /// page, not just images
+    pub(crate) fn add_xobject<T>(&self, xobject: T)
+    -> XObjectRef where T: Into<XObject>
     {
         let doc = self.document.upgrade().unwrap();
         let mut doc = doc.borrow_mut();
         let page_mut = &mut doc.pages[self.page.0];
 
-        page_mut.add_xobject(XObject::Image(image.into()))
+        page_mut.add_xobject(xobject.into())
     }
-/*
-    /// Add an svg element to the layer
-    /// To be called from the `svg.add_to_layer()` class (see `use_xobject` documentation)
-    pub(crate) fn add_svg(&self, svg: Svg)
-    -> std::result::Result<XObjectRef, ::std::io::Error>
-    {
-        let doc = self.document.upgrade().unwrap();
-        let mut doc = doc.borrow_mut();
-        let page_mut = &mut doc.pages[self.page.0];
-        let form_data = svg.try_into()?;
-        Ok(page_mut.add_xobject(XObject::Form(Box::new(form_data))))
-    }
-*/
+
     /// Begins a new text section
     /// You have to make sure to call `end_text_section` afterwards
     #[inline]
@@ -144,41 +141,16 @@ impl PdfLayerReference {
     /// that the image is referenced correctly
     ///
     /// Function is limited to this library to ensure that outside code cannot call it
-    pub(crate) fn use_xobject(&self, xobj: XObjectRef,
-                        translate_x: Option<Mm>, translate_y: Option<Mm>,
-                        rotate_cw: Option<f64>,
-                        scale_x: Option<f64>, scale_y: Option<f64>)
-    {
+    pub(crate) fn use_xobject(&self, xobj: XObjectRef, transformations: &[CurTransMat]) {
         // save graphics state
         self.save_graphics_state();
 
-        // apply ctm if any
-        let (mut t_x, mut t_y) = (Mm(0.0), Mm(0.0));
-        let (mut s_x, mut s_y) = (0.0, 0.0);
-
-        if let Some(tr_x) = translate_x { t_x = tr_x; }
-        if let Some(tr_y) = translate_y { t_y = tr_y; }
-        if let Some(sc_x) = scale_x { s_x = sc_x; }
-        if let Some(sc_y) = scale_y { s_y = sc_y; }
-
-        // translate, rotate, scale - order does not matter
-
-        if t_x != Mm(0.0) || t_y != Mm(0.0) {
-            let translate_ctm = CurTransMat::Translate(t_x, t_y);
-            self.add_operation(translate_ctm);
+        // do transformations to XObject
+        for t in transformations {
+            self.add_operation(t.clone());
         }
 
-        if let Some(rot) = rotate_cw {
-            let rotate_ctm = CurTransMat::Rotate(rot);
-            self.add_operation(rotate_ctm);
-        }
-
-        if s_x != 0.0 || s_y != 0.0 {
-            let scale_ctm = CurTransMat::Scale(s_x, s_y);
-            self.add_operation(scale_ctm);
-        }
-
-        // invoke object
+        // invoke object (/Do)
         self.internal_invoke_xobject(xobj.name);
 
         // restore graphics state

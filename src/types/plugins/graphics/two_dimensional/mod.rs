@@ -3,11 +3,13 @@
 pub mod point;
 pub mod line;
 pub mod font;
-// pub mod svg;
+#[cfg(feature = "svg")]
+pub mod svg;
 pub mod image;
 
 pub use self::point::Point;
 pub use self::line::Line;
 pub use self::font::*;
-// pub use self::svg::Svg;
-pub use self::image::Image;
+#[cfg(feature = "svg")]
+pub use self::svg::{Svg, SvgTransform};
+pub use self::image::{Image, ImageTransform};
