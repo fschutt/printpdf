@@ -34,7 +34,7 @@ impl XmpMetadata {
 
     /// Consumes the XmpMetadata and turns it into a PDF Object.
     /// This is similar to the
-    pub(in types) fn into_obj<S>(self,
+    pub(in crate) fn into_obj<S>(self,
                            conformance: PdfConformance,
                            trapping: bool,
                            creation_date: OffsetDateTime,
@@ -65,7 +65,7 @@ impl XmpMetadata {
             None => "".to_string(),
         };
 
-        let xmp_metadata = format!(include_str!("../../../templates/catalog_xmp_metadata.txt"),
+        let xmp_metadata = format!(include_str!("../assets/catalog_xmp_metadata.txt"),
                            create_date, modification_date, metadata_date, document_title, document_id,
                            instance_id, rendition_class, document_version, pdf_x_version, trapping);
 

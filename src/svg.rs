@@ -17,6 +17,8 @@ pub enum SvgParseError {
     Svg2PdfConversionError,
     PdfParsingError,
     NoContentStream,
+    // PDF returned by pdf2svg is not in the expected form
+    InternalError,
 }
 
 /// Transform that is applied immediately before the
@@ -50,12 +52,12 @@ impl Svg {
         let pdf_bytes = svg2pdf::convert_str(svg_string, svg2pdf::Options::default()).ok()
         .ok_or(SvgParseError::Svg2PdfConversionError)?;
 
-        // DEBUG
-        std::fs::write("./svg-debug.pdf", &pdf_bytes).unwrap();
-
         // PDF bytes -> lopdf::Document
         let pdf_parsed = lopdf::Document::load_mem(&pdf_bytes).ok()
         .ok_or(SvgParseError::PdfParsingError)?;
+
+        // Analyze the file and split out all resources
+
 
         // now extract the main /Page stream
         let svg_xobject = pdf_parsed.objects.values().find_map(|s| match s {

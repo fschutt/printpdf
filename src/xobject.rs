@@ -3,7 +3,7 @@
 
 use crate::OffsetDateTime;
 #[cfg(feature = "embedded_images")]
-use image::{DynamicImage, GenericImageView, ImageDecoder, ImageError};
+use image_crate::{DynamicImage, GenericImageView, ImageDecoder, ImageError};
 use lopdf;
 use lopdf::Stream as LoPdfStream;
 use std::collections::HashMap;
@@ -191,7 +191,7 @@ impl<'a> ImageXObject {
     -> Result<Self, ImageError>
     {
         use std::usize;
-        use image::error::{LimitError, LimitErrorKind};
+        use image_crate::error::{LimitError, LimitErrorKind};
 
         let dim = image.dimensions();
         let color_type = image.color_type();

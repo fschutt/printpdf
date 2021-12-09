@@ -2,7 +2,7 @@
 //! instead of adding `ImageXObjects` yourself
 
 #[cfg(feature = "embedded_images")]
-use image::{self, ImageDecoder, DynamicImage};
+use image_crate::{self, ImageDecoder, DynamicImage};
 use Mm;
 use {ImageXObject, PdfLayerReference};
 
@@ -28,7 +28,7 @@ impl From<ImageXObject> for Image {
 #[cfg(feature = "embedded_images")]
 impl<'a> Image {
     pub fn try_from<T: ImageDecoder<'a>>(image: T)
-    -> Result<Self, image::ImageError>
+    -> Result<Self, image_crate::ImageError>
     {
         let image = ImageXObject::try_from(image)?;
         Ok(Self {

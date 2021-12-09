@@ -342,7 +342,7 @@ type CmapBlock = Vec<(GlyphId, UnicodeCodePoint)>;
 /// Generates a CMAP (character map) from valid cmap blocks
 fn generate_cid_to_unicode_map(face_name: String, all_cmap_blocks: Vec<CmapBlock>) -> String {
 
-    let mut cid_to_unicode_map = format!(include_str!("../../../../templates/gid_to_unicode_beg.txt"), face_name);
+    let mut cid_to_unicode_map = format!(include_str!("../assets/gid_to_unicode_beg.txt"), face_name);
 
     for cmap_block in all_cmap_blocks.into_iter().filter(|block| !block.is_empty() || block.len() < 100) {
         cid_to_unicode_map.push_str(format!("{} beginbfchar\r\n", cmap_block.len()).as_str());
@@ -352,7 +352,7 @@ fn generate_cid_to_unicode_map(face_name: String, all_cmap_blocks: Vec<CmapBlock
         cid_to_unicode_map.push_str("endbfchar\r\n");
     }
 
-    cid_to_unicode_map.push_str(include_str!("../../../../templates/gid_to_unicode_end.txt"));
+    cid_to_unicode_map.push_str(include_str!("../assets/gid_to_unicode_end.txt"));
     cid_to_unicode_map
 }
 

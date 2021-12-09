@@ -1,7 +1,7 @@
 //! Color module (CMYK or RGB). Shared between 2D and 3D module.
 
 #[cfg(feature = "embedded_images")]
-use image;
+use image_crate;
 use lopdf::content::Operation;
 
 use glob_defines::{
@@ -66,11 +66,11 @@ pub enum ColorSpace {
 }
 
 #[cfg(feature = "embedded_images")]
-impl From<image::ColorType> for ColorSpace {
-    fn from(color_type: image::ColorType)
+impl From<image_crate::ColorType> for ColorSpace {
+    fn from(color_type: image_crate::ColorType)
     -> Self
     {
-        use image::ColorType::*;
+        use image_crate::ColorType::*;
         match color_type {
             L8 | L16 => ColorSpace::Greyscale,
             La8 | La16 => ColorSpace::GreyscaleAlpha,
@@ -105,11 +105,11 @@ pub enum ColorBits {
 }
 
 #[cfg(feature = "embedded_images")]
-impl From<image::ColorType> for ColorBits {
-    fn from(color_type: image::ColorType)
+impl From<image_crate::ColorType> for ColorBits {
+    fn from(color_type: image_crate::ColorType)
     -> ColorBits
     {
-        use image::ColorType::*;
+        use image_crate::ColorType::*;
         use ColorBits::*;
 
         match color_type {
