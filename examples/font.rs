@@ -29,32 +29,37 @@ fn main() {
     // in a `begin_text_section()` and `end_text_section()` wrapper
     current_layer.begin_text_section();
  
-        // setup the general fonts.
-        // see the docs for these functions for details
-        current_layer.set_font(&font, 33.0);
-        current_layer.set_text_cursor(Mm(10.0), Mm(100.0));
-        current_layer.set_line_height(33.0);
-        current_layer.set_word_spacing(3000.0);
-        current_layer.set_character_spacing(10.0);
+    // setup the general fonts.
+    // see the docs for these functions for details
+    current_layer.set_font(&font, 33.0);
+    current_layer.set_text_cursor(Mm(10.0), Mm(100.0));
+    current_layer.set_line_height(33.0);
+    current_layer.set_word_spacing(3000.0);
+    current_layer.set_character_spacing(10.0);
 
-        // write two lines (one line break)
-        current_layer.write_text(text, &font);
-        current_layer.add_line_break();
-        current_layer.write_text(text2, &font);
-        current_layer.add_line_break();
+    // write two lines (one line break)
+    current_layer.write_text(text, &font);
+    current_layer.add_line_break();
+    current_layer.write_text(text2, &font);
+    current_layer.add_line_break();
 
-        current_layer.set_text_rendering_mode(TextRenderingMode::FillStroke);
-        current_layer.set_character_spacing(0.0);
-        current_layer.set_text_matrix(TextMatrix::Rotate(10.0));
+    current_layer.set_text_rendering_mode(TextRenderingMode::FillStroke);
+    current_layer.set_character_spacing(0.0);
+    current_layer.set_text_matrix(TextMatrix::Rotate(10.0));
 
-        // write one line, but write text2 in superscript
-        current_layer.write_text(text, &font);
-        current_layer.set_line_offset(10.0);
-        current_layer.set_text_rendering_mode(TextRenderingMode::Stroke);
-        current_layer.set_font(&font, 18.0);
-        current_layer.write_text(text2, &font);
+    // write one line, but write text2 in superscript
+    current_layer.write_text(text, &font);
+    current_layer.set_line_offset(10.0);
+    current_layer.set_text_rendering_mode(TextRenderingMode::Stroke);
+    current_layer.set_font(&font, 18.0);
+    current_layer.write_text(text2, &font);
 
     current_layer.end_text_section();
+
+    // Use text from a built-in font (no external resource needed)
+    let text = "Lorem ipsum";
+    let font = doc.add_builtin_font(BuiltinFont::TimesBoldItalic).unwrap();
+    current_layer.use_text(text, 48.0, Mm(10.0), Mm(200.0), &font);
 
     doc.save(&mut BufWriter::new(File::create("test_fonts.pdf").unwrap())).unwrap();
 }

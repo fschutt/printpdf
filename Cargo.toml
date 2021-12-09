@@ -48,11 +48,41 @@ travis-ci = { repository = "fschutt/printpdf" }
 appveyor = { repository = "fschutt/printpdf" }
 
 [[example]]
+name = "bookmark"
+default-features = false
+required-features = []
+
+[[example]]
+name = "circle"
+default-features = false
+required-features = []
+
+[[example]]
+name = "font"
+default-features = false
+required-features = []
+
+[[example]]
+name = "image"
+default-features = false
+required-features = ["embedded_images"]
+
+[[example]]
+name = "no_icc"
+default-features = false
+required-features = []
+
+[[example]]
+name = "page"
+default-features = false
+required-features = []
+
+[[example]]
+name = "shape"
+default-features = false
+required-features = []
+
+[[example]]
 name = "svg"
 default-features = false
 required-features = ["svg"]
-
-[[example]]
-name = "bookmarks"
-default-features = false
-required-features = []

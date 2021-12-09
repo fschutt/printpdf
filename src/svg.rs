@@ -57,7 +57,7 @@ impl Svg {
         .ok_or(SvgParseError::PdfParsingError)?;
 
         // Analyze the file and split out all resources
-
+        let _ = std::fs::write("../test.pdf", &pdf_bytes);
 
         // now extract the main /Page stream
         let svg_xobject = pdf_parsed.objects.values().find_map(|s| match s {
