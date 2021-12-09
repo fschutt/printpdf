@@ -4,7 +4,7 @@
 //!
 //! ```toml,ignore
 //! [dependencies]
-//! printpdf = "0.3.2"
+//! printpdf = "0.4.1"
 //! ```
 //!
 //! # Features
@@ -139,7 +139,7 @@
 //!     // translate x, translate y, rotate, scale x, scale y
 //!     // by default, an image is optimized to 300 DPI (if scale is None)
 //!     // rotations and translations are always in relation to the lower left corner
-//!     image.add_to_layer(current_layer.clone(), None, None, None, None, None, None);
+//!     image.add_to_layer(current_layer.clone(), ImageTransform::default());
 //!
 //!     // you can also construct images manually from your data:
 //!     let mut image_file_2 = ImageXObject {

@@ -1,31 +1,29 @@
 ﻿# printpdf
 
 [![Travis CI](https://travis-ci.org/fschutt/printpdf.svg?branch=master)](https://travis-ci.org/fschutt/printpdf) [![Appveyor](https://ci.appveyor.com/api/projects/status/2ioc0wopm5a8ixgm?svg=true)](https://ci.appveyor.com/project/fschutt/printpdf)
+[![Dependencies](https://deps.rs/repo/github/fschutt/printpdf/status.svg)](https://deps.rs/repo/github/fschutt/printpdf)
 
-`printpdf` is a library designed for creating printable PDF documents. 
+`printpdf` is a library designed for creating printable PDF documents.
 
 [Crates.io](https://crates.io/crates/printpdf) | [Documentation](https://docs.rs/printpdf)
 
 ```toml,ignore
 [dependencies]
-printpdf = "0.3.2"
+printpdf = "0.4.1"
 ```
 
 ## Features
 
-Currently, printpdf can only create new documents and write them, it cannot load existing documents yet.
+Currently, printpdf can only write documents, not read them.
 
 - Page generation
 - Layers (Illustrator like layers)
 - Graphics (lines, shapes, bezier curves)
-- Images (currently BMP/JPG/PNG only or generate your own images)
+- Images (currently BMP/PNG/JPG only or generate your own images)
 - Embedded fonts (TTF and OTF) with Unicode support
 - Advanced graphics - overprint control, blending modes, etc.
 - Advanced typography - character scaling, character spacing, superscript, subscript, outlining, etc.
 - PDF layers (you should be able to open the PDF in Illustrator and have the layers appear)
-
-Note: `printpdf` only implements the PDF spec, nothing more. If you more high-level PDF generation, 
-take a look at [`genpdf`](https://crates.io/crates/genpdf), which is built on top of `printpdf`
 
 ## Getting started
 
@@ -146,7 +144,7 @@ fn main() {
     // translate x, translate y, rotate, scale x, scale y
     // by default, an image is optimized to 300 DPI (if scale is None)
     // rotations and translations are always in relation to the lower left corner
-    image.add_to_layer(current_layer.clone(), None, None, None, None, None, None);
+    image.add_to_layer(current_layer.clone(), ImageTransform::default());
 
     // you can also construct images manually from your data:
     let mut image_file_2 = ImageXObject {
@@ -188,7 +186,7 @@ let font = doc.add_external_font(File::open("assets/fonts/RobotoMedium.ttf").unw
 let font2 = doc.add_external_font(File::open("assets/fonts/RobotoMedium.ttf").unwrap()).unwrap();
 
 // text, font size, x from left edge, y from bottom edge, font
-current_layer.use_text(text, 48, Mm(200.0), Mm(200.0), &font);
+current_layer.use_text(text, 48.0, Mm(200.0), Mm(200.0), &font);
 
 // For more complex layout of text, you can use functions
 // defined on the PdfLayerReference
@@ -198,11 +196,11 @@ current_layer.begin_text_section();
 
     // setup the general fonts.
     // see the docs for these functions for details
-    current_layer.set_font(&font2, 33);
+    current_layer.set_font(&font2, 33.0);
     current_layer.set_text_cursor(Mm(10.0), Mm(10.0));
-    current_layer.set_line_height(33);
-    current_layer.set_word_spacing(3000);
-    current_layer.set_character_spacing(10);
+    current_layer.set_line_height(33.0);
+    current_layer.set_word_spacing(3000.0);
+    current_layer.set_character_spacing(10.0);
     current_layer.set_text_rendering_mode(TextRenderingMode::Stroke);
 
     // write two lines (one line break)
@@ -213,33 +211,13 @@ current_layer.begin_text_section();
 
     // write one line, but write text2 in superscript
     current_layer.write_text(text.clone(), &font2);
-    current_layer.set_line_offset(10);
+    current_layer.set_line_offset(10.0);
     current_layer.write_text(text2.clone(), &font2);
 
 current_layer.end_text_section();
 ```
 
-## Optimiziation
-
-### Minimizing the size of generated PDFs
-
-- By default, the PDF adherese to a "PDF conformance level", usually the PDF-X 1.4 Standard. 
-  This means that the PDF includes a full ICC profile file (which is around 500KB large). To turn it off,
-  see the [no_icc example](https://github.com/fschutt/printpdf/blob/a6fa46dad0f273cfd181eeebec7dc61e02559b4f/examples/no_icc.rs):
-
-```rust
-let (mut doc, _page1, _layer1) = PdfDocument::new("printpdf no_icc test", Mm(297.0), Mm(210.0), "Layer 1");
-doc = doc.with_conformance(PdfConformance::Custom(CustomPdfConformance {
-  requires_icc_profile: false,
-  requires_xmp_metadata: false,
-    .. Default::default()
-}));
-```
-
-- In debug mode, the images, streams and fonts are not compressed for easier debugging. Try building
-  in release mode to optimize the size further.
-
-## Changelog
+### Changelog
 
 See the CHANGELOG.md file.
 
@@ -325,14 +303,8 @@ Here are some resources I found while working on this library:
 
 [Official PDF 1.7 reference](http://www.adobe.com/content/dam/Adobe/en/devnet/acrobat/pdfs/pdf_reference_1-7.pdf)
 
-[[GERMAN] How to embed unicode fonts in PDF](http://www.p2501.ch/pdf-howto/typographie/vollzugriff/direkt)
+[\[GERMAN\] How to embed unicode fonts in PDF](http://www.p2501.ch/pdf-howto/typographie/vollzugriff/direkt)
 
 [PDF X/1-a Validator](https://www.pdf-online.com/osa/validate.aspx)
 
 [PDF X/3 technical notes](http://www.pdfxreport.com/lib/exe/fetch.php?media=en:technote_pdfx_checks.pdf)
-
-## Donate
-
-- Bitcoin: 3DkYz32P77Bfv93wPgV66vs1vrUwgStcZU
-- Bitcoin Cash: 1QAi8xVB4nRtkaxTAXbzGHmg6nxuuezuYk
-- Ethereum: 0xb9960F9970b659056B03CB0241490aDA83A73CEa
