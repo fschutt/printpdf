@@ -120,7 +120,7 @@ impl XObjectList {
 }
 
 /// Named reference to an `XObject`
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct XObjectRef {
     pub(crate) name: String,
 }

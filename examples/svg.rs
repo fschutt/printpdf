@@ -13,16 +13,22 @@ fn main() {
     let rotation_center_x = Px((svg.width.0 as f64 / 2.0) as usize);
     let rotation_center_y = Px((svg.height.0 as f64 / 2.0) as usize);
 
-    svg.add_to_layer(current_layer.clone(), SvgTransform {
-        rotate: Some(SvgRotation {
-            angle_ccw_degrees: 45.0,
-            rotation_center_x,
-            rotation_center_y,
-        }),
-        translate_x: Some(Mm(10.0)),
-        translate_y: Some(Mm(10.0)),
-        .. Default::default()
-    });
+    let reference = svg.into_xobject(&current_layer);
+
+    for i in 0..10 {
+        reference
+        .clone()
+        .add_to_layer(&current_layer, SvgTransform {
+            rotate: Some(SvgRotation {
+                angle_ccw_degrees: i as f64 * 36.0,
+                rotation_center_x,
+                rotation_center_y,
+            }),
+            translate_x: Some(Mm(i as f64 * 20.0 % 50.0)),
+            translate_y: Some(Mm(i as f64 * 30.0)),
+            .. Default::default()
+        });
+    }
 
     let pdf_bytes = doc.save_to_bytes().unwrap();
     std::fs::write("test_svg.pdf", &pdf_bytes).unwrap();

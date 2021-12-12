@@ -1,7 +1,7 @@
 //! Abstraction class for images. Please use this class
 //! instead of adding `ImageXObjects` yourself
 
-use crate::{Mm, Px, XObject, PdfLayerReference};
+use crate::{Mm, Px, XObject, XObjectRef, PdfLayerReference};
 use lopdf::Stream;
 
 /// SVG - wrapper around an `XObject` to allow for more
@@ -101,6 +101,64 @@ fn export_svg_to_xobject_pdf(svg: &str) -> Option<lopdf::Stream> {
     Some(object.clone())
 }
 
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub struct SvgXObjectRef {
+    xobject_ref: XObjectRef,
+    /// Width of the rendered SVG content
+    pub width: Px,
+    /// Height of the rendered SVG content
+    pub height: Px,
+}
+
+impl SvgXObjectRef {
+    pub fn add_to_layer(self, layer: &PdfLayerReference, transform: SvgTransform) {
+
+        use crate::CurTransMat;
+        use crate::scale::Pt;
+
+        // PDF maps an image to a 1x1 square, we have to adjust the transform matrix
+        // to fix the distortion
+
+        let width = self.width.clone();
+        let height = self.height.clone();
+        let dpi = transform.dpi.unwrap_or(300.0);
+        let scale_x = transform.scale_x.unwrap_or(1.0);
+        let scale_y = transform.scale_y.unwrap_or(1.0);
+
+        // Image at the given dpi should 1px = 1pt
+        let image_w = width.into_pt(dpi).0 * scale_x;
+        let image_h = height.into_pt(dpi).0 * scale_y;
+
+        let mut transforms = Vec::new();
+
+        transforms.push(CurTransMat::Scale(image_w, image_h));
+
+        if let Some(rotate) = transform.rotate.as_ref() {
+            transforms.push(CurTransMat::Translate(
+                Pt(-rotate.rotation_center_x.into_pt(dpi).0),
+                Pt(-rotate.rotation_center_y.into_pt(dpi).0),
+            ));
+            transforms.push(CurTransMat::Rotate(
+                rotate.angle_ccw_degrees,
+            ));
+            transforms.push(CurTransMat::Translate(
+               rotate.rotation_center_x.into_pt(dpi),
+               rotate.rotation_center_y.into_pt(dpi),
+            ));
+        }
+
+        if transform.translate_x.is_some() ||
+           transform.translate_y.is_some() {
+            transforms.push(CurTransMat::Translate(
+                transform.translate_x.unwrap_or(Mm(0.0)).into_pt(),
+                transform.translate_y.unwrap_or(Mm(0.0)).into_pt(),
+            ));
+        }
+
+        layer.use_xobject(self.xobject_ref, &transforms);
+    }
+}
+
 impl Svg {
 
     /// Internally parses the SVG string, converts it to a PDF
@@ -136,6 +194,22 @@ impl Svg {
         })
     }
 
+    /// Adds the SVG to the pages /Resources, returns the name of
+    /// the reference to the SVG, so that one SVG can be used more
+    /// than once on a page
+    pub fn into_xobject(self, layer: &PdfLayerReference) -> SvgXObjectRef {
+
+        let width = self.width.clone();
+        let height = self.height.clone();
+        let xobject_ref = layer.add_xobject(XObject::External(self.svg_xobject));
+
+        SvgXObjectRef {
+            xobject_ref,
+            width,
+            height,
+        }
+    }
+
     /// Adds the image to a specific layer and consumes it.
     ///
     /// This is due to a PDF weirdness - images are basically just "names"
@@ -144,50 +218,8 @@ impl Svg {
     ///
     /// You can use the "transform.dpi" parameter to specify a scaling -
     /// the default is 300dpi
-    pub fn add_to_layer(self, layer: PdfLayerReference, transform: SvgTransform)
-    {
-        use crate::CurTransMat;
-        use crate::scale::Pt;
-
-        // PDF maps an image to a 1x1 square, we have to adjust the transform matrix
-        // to fix the distortion
-        let width = self.width.clone();
-        let height = self.height.clone();
-        let dpi = transform.dpi.unwrap_or(300.0);
-        let scale_x = transform.scale_x.unwrap_or(1.0);
-        let scale_y = transform.scale_y.unwrap_or(1.0);
-        let image_w = width.into_pt(dpi).0 * scale_x;
-        let image_h = height.into_pt(dpi).0 * scale_y;
-
-        // Image at the given dpi should 1px = 1pt
-        let image = layer.add_xobject(XObject::External(self.svg_xobject));
-
-        let mut transforms = Vec::new();
-
-        transforms.push(CurTransMat::Scale(image_w, image_h));
-
-        if let Some(rotate) = transform.rotate.as_ref() {
-            transforms.push(CurTransMat::Translate(
-                Pt(-rotate.rotation_center_x.into_pt(dpi).0),
-                Pt(-rotate.rotation_center_y.into_pt(dpi).0),
-            ));
-            transforms.push(CurTransMat::Rotate(
-                rotate.angle_ccw_degrees,
-            ));
-            transforms.push(CurTransMat::Translate(
-               rotate.rotation_center_x.into_pt(dpi),
-               rotate.rotation_center_y.into_pt(dpi),
-            ));
-        }
-
-        if transform.translate_x.is_some() ||
-           transform.translate_y.is_some() {
-            transforms.push(CurTransMat::Translate(
-                transform.translate_x.unwrap_or(Mm(0.0)).into_pt(),
-                transform.translate_y.unwrap_or(Mm(0.0)).into_pt(),
-            ));
-        }
-
-        layer.use_xobject(image, &transforms);
+    pub fn add_to_layer(self, layer: &PdfLayerReference, transform: SvgTransform) {
+        let xobject = self.into_xobject(layer);
+        xobject.add_to_layer(layer, transform);
     }
 }
