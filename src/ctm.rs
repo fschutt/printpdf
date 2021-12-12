@@ -187,9 +187,9 @@ fn test_ctm_translate()
     use self::*;
 
     // test that the translation matrix look like what PDF expects
-    let ctm_trans = CurTransMat::Translate(Mm(150.0), Mm(50.0));
+    let ctm_trans = CurTransMat::Translate(Pt(150.0), Pt(50.0));
     let ctm_trans_arr: [f64; 6] = ctm_trans.into();
-    assert_eq!([1.0_f64, 0.0, 0.0, 1.0, 425.1969, 141.7323], ctm_trans_arr);
+    assert_eq!([1.0_f64, 0.0, 0.0, 1.0, 150.0, 50.0], ctm_trans_arr);
 
     let ctm_scale = CurTransMat::Scale(2.0, 4.0);
     let ctm_scale_arr: [f64; 6] = ctm_scale.into();
