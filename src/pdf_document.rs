@@ -63,7 +63,7 @@ impl PdfDocument {
             fonts: FontList::new(),
             icc_profiles: IccProfileList::new(),
             inner_doc: lopdf::Document::with_version("1.3"),
-            metadata: PdfMetadata::new(document_title, 1, false, PdfConformance::X3_2002_PDF_1_3),
+            metadata: PdfMetadata::new(document_title, 1, false, PdfConformance::default()),
             bookmarks: HashMap::new(),
         };
 
@@ -543,9 +543,7 @@ impl PdfDocumentReference {
                 layer_streams_merged_vec.append(&mut stream.content);
             }
 
-            let merged_layer_stream =
-                lopdf::Stream::new(lopdf::Dictionary::new(), layer_streams_merged_vec)
-                    .with_compression(false);
+            let merged_layer_stream = lopdf::Stream::new(lopdf::Dictionary::new(), layer_streams_merged_vec);
             let page_content_id = doc.inner_doc.add_object(merged_layer_stream);
 
             p.set("Contents", Reference(page_content_id));

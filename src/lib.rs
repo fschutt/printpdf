@@ -337,6 +337,8 @@ pub extern crate log;
 pub extern crate image as image_crate;
 pub extern crate lopdf;
 extern crate owned_ttf_parser;
+#[cfg(feature = "svg")]
+extern crate pdf_writer;
 extern crate time;
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 extern crate js_sys;

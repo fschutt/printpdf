@@ -17,8 +17,15 @@ macro_rules! impl_partialeq {
 }
 
 /// Scale in millimeter
-#[derive(Debug, Copy, Clone, PartialOrd)]
+#[derive(Debug, Default, Copy, Clone, PartialOrd)]
 pub struct Mm(pub f64);
+
+impl Mm {
+    pub fn into_pt(&self) -> Pt {
+        let pt: Pt = (*self).into();
+        pt
+    }
+}
 
 impl From<Pt> for Mm {
     fn from(value: Pt) -> Mm {
@@ -29,7 +36,7 @@ impl From<Pt> for Mm {
 impl_partialeq!(Mm);
 
 /// Scale in point
-#[derive(Debug, Copy, Clone, PartialOrd)]
+#[derive(Debug, Default, Copy, Clone, PartialOrd)]
 pub struct Pt(pub f64);
 
 impl From<Mm> for Pt {
@@ -47,7 +54,7 @@ impl From<Pt> for ::lopdf::Object {
 impl_partialeq!(Pt);
 
 /// Scale in pixels
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Px(pub usize);
 
 impl Px {

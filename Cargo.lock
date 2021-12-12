@@ -364,25 +364,19 @@ dependencies = [
 [[package]]
 name = "lopdf"
 version = "0.26.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b49a0272112719d0037ab63d4bb67f73ba659e1e90bc38f235f163a457ac16f3"
+source = "git+https://github.com/fschutt/lopdf?rev=2dd8a431708ea5fd13af0fedbac2479d03ddc9fe#2dd8a431708ea5fd13af0fedbac2479d03ddc9fe"
 dependencies = [
  "dtoa",
  "encoding",
  "flate2",
  "itoa",
+ "lazy_static",
  "linked-hash-map",
  "log",
- "lzw",
  "pom",
  "time",
+ "weezl",
 ]
-
-[[package]]
-name = "lzw"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d947cbb889ed21c2a84be6ffbaebf5b4e0f4340638cba0444907e38b56be084"
 
 [[package]]
 name = "matches"
@@ -531,8 +525,10 @@ dependencies = [
  "log",
  "lopdf",
  "owned_ttf_parser",
+ "pdf-writer",
  "svg2pdf",
  "time",
+ "usvg",
 ]
 
 [[package]]
@@ -923,6 +919,7 @@ dependencies = [
  "unicode-bidi",
  "unicode-script",
  "unicode-vo",
+ "xmlwriter",
 ]
 
 [[package]]
@@ -1018,3 +1015,9 @@ name = "xmlparser"
 version = "0.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "114ba2b24d2167ef6d67d7d04c8cc86522b87f490025f39f0303b7db5bf5e3d8"
+
+[[package]]
+name = "xmlwriter"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"

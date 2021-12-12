@@ -13,11 +13,13 @@ exclude = ["./assets/*", "./doc/*", "./examples/*"]
 autoexamples = false
 
 [dependencies]
-lopdf = { version = "0.26", default-features = false, features = ["pom_parser"] }
+lopdf = { git = "https://github.com/fschutt/lopdf", rev = "2dd8a431708ea5fd13af0fedbac2479d03ddc9fe", default-features = false, features = ["pom_parser"] }
 owned_ttf_parser = "0.12"
 time = { version = "0.2.11", default-features = false, features = ["std"] }
 log = { version = "0.4.8", optional = true }
 svg2pdf = { version = "0.1.0", optional = true }
+pdf-writer = { version = "0.4.1", optional = true }
+usvg = { version = "0.19.0", optional = true }
 
 [dependencies.image]
 version = "0.23"
@@ -38,7 +40,7 @@ dxt = ["image/dxt"]
 dds = ["image/dds"]
 webp = ["image/webp"]
 less-optimization = []
-svg = ["svg2pdf"]
+svg = ["svg2pdf", "usvg", "pdf-writer"]
 
 [target.'cfg(all(target_arch="wasm32",target_os="unknown"))'.dependencies]
 js-sys = "0.3.40"

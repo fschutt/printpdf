@@ -11,14 +11,69 @@ use {Mm, Pt};
 pub enum CurTransMat {
     /// Translation matrix (in points from bottom left corner)
     /// X and Y can have different values
-    Translate(Mm, Mm),
+    Translate(Pt, Pt),
     /// Rotation matrix (clockwise, in degrees)
     Rotate(f64),
+    /// Combined rotate + translate matrix
+    TranslateRotate(Pt, Pt, f64),
     /// Scale matrix (1.0 = 100% scale, no change)
     /// X and Y can have different values
     Scale(f64, f64),
+    /// Raw (PDF-internal) PDF matrix
+    Raw([f64;6]),
     /// Identity matrix
     Identity,
+}
+
+impl CurTransMat {
+    pub fn combine_matrix(a: [f64;6], b: [f64;6]) -> [f64;6] {
+
+        let a = [
+            [a[0], a[1], 0.0,  0.0],
+            [a[2], a[3], 0.0,  0.0],
+            [0.0,  0.0,  1.0,  0.0],
+            [a[4], a[5], 0.0,  1.0],
+        ];
+
+        let b = [
+            [b[0], b[1], 0.0,  0.0],
+            [b[2], b[3], 0.0,  0.0],
+            [0.0,  0.0,  1.0,  0.0],
+            [b[4], b[5], 0.0,  1.0],
+        ];
+
+        let result = [
+
+            [
+            a[0][0].mul_add(b[0][0], a[0][1].mul_add(b[1][0], a[0][2].mul_add(b[2][0], a[0][3] * b[3][0]))),
+            a[0][0].mul_add(b[0][1], a[0][1].mul_add(b[1][1], a[0][2].mul_add(b[2][1], a[0][3] * b[3][1]))),
+            a[0][0].mul_add(b[0][2], a[0][1].mul_add(b[1][2], a[0][2].mul_add(b[2][2], a[0][3] * b[3][2]))),
+            a[0][0].mul_add(b[0][3], a[0][1].mul_add(b[1][3], a[0][2].mul_add(b[2][3], a[0][3] * b[3][3]))),
+            ],
+            [
+            a[1][0].mul_add(b[0][0], a[1][1].mul_add(b[1][0], a[1][2].mul_add(b[2][0], a[1][3] * b[3][0]))),
+            a[1][0].mul_add(b[0][1], a[1][1].mul_add(b[1][1], a[1][2].mul_add(b[2][1], a[1][3] * b[3][1]))),
+            a[1][0].mul_add(b[0][2], a[1][1].mul_add(b[1][2], a[1][2].mul_add(b[2][2], a[1][3] * b[3][2]))),
+            a[1][0].mul_add(b[0][3], a[1][1].mul_add(b[1][3], a[1][2].mul_add(b[2][3], a[1][3] * b[3][3]))),
+            ],
+
+            [
+            a[2][0].mul_add(b[0][0], a[2][1].mul_add(b[1][0], a[2][2].mul_add(b[2][0], a[2][3] * b[3][0]))),
+            a[2][0].mul_add(b[0][1], a[2][1].mul_add(b[1][1], a[2][2].mul_add(b[2][1], a[2][3] * b[3][1]))),
+            a[2][0].mul_add(b[0][2], a[2][1].mul_add(b[1][2], a[2][2].mul_add(b[2][2], a[2][3] * b[3][2]))),
+            a[2][0].mul_add(b[0][3], a[2][1].mul_add(b[1][3], a[2][2].mul_add(b[2][3], a[2][3] * b[3][3]))),
+            ],
+
+            [
+            a[3][0].mul_add(b[0][0], a[3][1].mul_add(b[1][0], a[3][2].mul_add(b[2][0], a[3][3] * b[3][0]))),
+            a[3][0].mul_add(b[0][1], a[3][1].mul_add(b[1][1], a[3][2].mul_add(b[2][1], a[3][3] * b[3][1]))),
+            a[3][0].mul_add(b[0][2], a[3][1].mul_add(b[1][2], a[3][2].mul_add(b[2][2], a[3][3] * b[3][2]))),
+            a[3][0].mul_add(b[0][3], a[3][1].mul_add(b[1][3], a[3][2].mul_add(b[2][3], a[3][3] * b[3][3]))),
+            ],
+        ];
+
+        [result[0][0], result[0][1], result[1][0], result[1][1], result[3][0], result[3][1]]
+    }
 }
 
 /// Text matrix. Text placement is a bit different, but uses the same
@@ -33,9 +88,11 @@ pub enum TextMatrix {
     Rotate(f64),
     /// Text translate matrix, used for indenting (transforming) text
     /// (different to regular text placement)
-    Translate(Mm, Mm),
+    Translate(Pt, Pt),
     /// Combined translate + rotate matrix
-    TranslateRotate(Mm, Mm, f64),
+    TranslateRotate(Pt, Pt, f64),
+    /// Raw matrix (/tm operator)
+    Raw([f64;6]),
 }
 
 impl Into<[f64; 6]> for TextMatrix {
@@ -46,19 +103,16 @@ impl Into<[f64; 6]> for TextMatrix {
         match self {
             Translate(x, y) => { 
                 // 1 0 0 1 x y cm 
-                let x_pt: Pt = x.into();
-                let y_pt: Pt = y.into();
-                [ 1.0, 0.0, 0.0, 1.0, x_pt.0, y_pt.0 ] 
+                [ 1.0, 0.0, 0.0, 1.0, x.0, y.0 ]
             }
             Rotate(rot) => {
                 let rad = (360.0 - rot).to_radians();
                 [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), 0.0, 0.0 ] /* cos sin -sin cos 0 0 cm */
             },
+            Raw(r) => r.clone(),
             TranslateRotate(x, y, rot) => {
                 let rad = (360.0 - rot).to_radians();
-                let x_pt: Pt = x.into();
-                let y_pt: Pt = y.into();
-                [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), x_pt.0, y_pt.0 ] /* cos sin -sin cos x y cm */
+                [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), x.0, y.0 ] /* cos sin -sin cos x y cm */
             }
         }
     }
@@ -72,15 +126,18 @@ impl Into<[f64; 6]> for CurTransMat {
         match self {
             Translate(x, y) => { 
                 // 1 0 0 1 x y cm 
-                let x_pt: Pt = x.into();
-                let y_pt: Pt = y.into();
-                [ 1.0, 0.0, 0.0, 1.0, x_pt.0, y_pt.0 ]   
+                [ 1.0, 0.0, 0.0, 1.0, x.0, y.0 ]
+            }
+            TranslateRotate(x, y, rot) => {
+                let rad = (360.0 - rot).to_radians();
+                [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), x.0, y.0 ] /* cos sin -sin cos x y cm */
             }
             Rotate(rot) => { 
                 // cos sin -sin cos 0 0 cm 
                 let rad = (360.0 - rot).to_radians(); 
                 [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), 0.0, 0.0 ] 
-            }
+            },
+            Raw(r) => r.clone(),
             Scale(x, y) => { 
                 // x 0 0 y 0 0 cm
                 [ x, 0.0, 0.0, y, 0.0, 0.0 ] 

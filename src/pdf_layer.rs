@@ -146,8 +146,12 @@ impl PdfLayerReference {
         self.save_graphics_state();
 
         // do transformations to XObject
-        for t in transformations {
-            self.add_operation(t.clone());
+        if transformations.len() > 0 {
+            let mut t = CurTransMat::Identity;
+            for q in transformations {
+                t = CurTransMat::Raw(CurTransMat::combine_matrix(t.into(), q.clone().into()));
+            }
+            self.add_operation(t);
         }
 
         // invoke object (/Do)

@@ -1,7 +1,7 @@
 //! Abstraction class for images. Please use this class
 //! instead of adding `ImageXObjects` yourself
 
-use crate::{Mm, XObject, PdfLayerReference};
+use crate::{Mm, Px, XObject, PdfLayerReference};
 use lopdf::Stream;
 
 /// SVG - wrapper around an `XObject` to allow for more
@@ -10,6 +10,10 @@ use lopdf::Stream;
 pub struct Svg {
     /// The PDF document, converted from SVG using svg2pdf
     svg_xobject: Stream,
+    /// Width of the rendered SVG content
+    pub width: Px,
+    /// Height of the rendered SVG content
+    pub height: Px,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -29,13 +33,73 @@ pub struct SvgTransform {
     pub translate_x: Option<Mm>,
     pub translate_y: Option<Mm>,
     /// Rotate (clockwise), in degree angles
-    pub rotate_cw: Option<f64>,
+    pub rotate: Option<SvgRotation>,
     pub scale_x: Option<f64>,
     pub scale_y: Option<f64>,
     /// If set to None, will be set to 300.0 for images
     pub dpi: Option<f64>,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Default)]
+pub struct SvgRotation {
+    pub angle_ccw_degrees: f64,
+    pub rotation_center_x: Px,
+    pub rotation_center_y: Px,
+}
+
+fn export_svg_to_xobject_pdf(svg: &str) -> Option<lopdf::Stream> {
+
+    use pdf_writer::{Content, Finish, Name, PdfWriter, Rect, Ref, Str};
+    use lopdf::Object;
+
+    // Allocate the indirect reference IDs and names.
+    let catalog_id = Ref::new(1);
+    let page_tree_id = Ref::new(2);
+    let page_id = Ref::new(3);
+    let content_id = Ref::new(4);
+    let svg_id = Ref::new(5);
+    let svg_name = Name(b"S1");
+
+    // Start writing a PDF.
+    let mut writer = PdfWriter::new();
+    writer.catalog(catalog_id).pages(page_tree_id);
+    writer.pages(page_tree_id).kids([page_id]).count(1);
+
+    // Set up a simple A4 page.
+    let mut page = writer.page(page_id);
+    page.media_box(Rect::new(0.0, 0.0, 595.0, 842.0));
+    page.parent(page_tree_id);
+    page.contents(content_id);
+
+    // Add the font and, more importantly, the SVG to the resource dictionary
+    // so that it can be referenced in the content stream.
+    let mut resources = page.resources();
+    resources.x_objects().pair(svg_name, svg_id);
+    resources.finish();
+    page.finish();
+
+    // Let's add an SVG graphic to this file.
+    // We need to load its source first and manually parse it into a usvg Tree.
+    let tree = usvg::Tree::from_str(&svg, &usvg::Options::default().to_ref()).ok()?;
+
+    // Then, we will write it to the page as the 6th indirect object.
+    //
+    // This call allocates some indirect object reference IDs for itself. If we
+    // wanted to write some more indirect objects afterwards, we could use the
+    // return value as the next unused reference ID.
+    svg2pdf::convert_tree_into(&tree, svg2pdf::Options::default(), &mut writer, svg_id);
+
+    // Write a content stream
+    let mut content = Content::new();
+    writer.stream(content_id, &content.finish());
+
+    let bytes = writer.finish();
+    let document = lopdf::Document::load_mem(&bytes).ok()?;
+    let svg_xobject = document.get_object((5, 0)).ok()?;
+    let object = svg_xobject.as_stream().unwrap();
+
+    Some(object.clone())
+}
 
 impl Svg {
 
@@ -46,28 +110,29 @@ impl Svg {
     /// I wish there was a more direct way, but handling SVG is very tricky.
     pub fn parse(svg_string: &str) -> Result<Self, SvgParseError> {
 
-        use lopdf::Object;
-
         // SVG -> PDF bytes
-        let pdf_bytes = svg2pdf::convert_str(svg_string, svg2pdf::Options::default()).ok()
+        let svg_xobject = export_svg_to_xobject_pdf(svg_string)
+            .ok_or(SvgParseError::Svg2PdfConversionError)?;
+
+        let bbox = svg_xobject.dict.get(b"BBox").ok()
+        .ok_or(SvgParseError::Svg2PdfConversionError)?
+        .as_array().ok()
         .ok_or(SvgParseError::Svg2PdfConversionError)?;
 
-        // PDF bytes -> lopdf::Document
-        let pdf_parsed = lopdf::Document::load_mem(&pdf_bytes).ok()
-        .ok_or(SvgParseError::PdfParsingError)?;
+        let width_px = bbox.get(2)
+        .ok_or(SvgParseError::Svg2PdfConversionError)?
+        .as_i64().ok()
+        .ok_or(SvgParseError::Svg2PdfConversionError)?;
 
-        // Analyze the file and split out all resources
-        let _ = std::fs::write("../test.pdf", &pdf_bytes);
+        let height_px = bbox.get(2)
+        .ok_or(SvgParseError::Svg2PdfConversionError)?
+        .as_i64().ok()
+        .ok_or(SvgParseError::Svg2PdfConversionError)?;
 
-        // now extract the main /Page stream
-        let svg_xobject = pdf_parsed.objects.values().find_map(|s| match s {
-            Object::Stream(s) => Some(s.clone()),
-            _ => None,
-        }).ok_or(SvgParseError::NoContentStream)?;
-
-        // TODO: wrong, but whatever
         Ok(Self {
             svg_xobject,
+            width: Px(width_px.max(0) as usize),
+            height: Px(height_px.max(0) as usize),
         })
     }
 
@@ -81,29 +146,48 @@ impl Svg {
     /// the default is 300dpi
     pub fn add_to_layer(self, layer: PdfLayerReference, transform: SvgTransform)
     {
-        use crate::{Px, CurTransMat};
+        use crate::CurTransMat;
+        use crate::scale::Pt;
 
         // PDF maps an image to a 1x1 square, we have to adjust the transform matrix
         // to fix the distortion
+        let width = self.width.clone();
+        let height = self.height.clone();
         let dpi = transform.dpi.unwrap_or(300.0);
-
-        // Image at the given dpi should 1px = 1pt
-        let image_w = Px(100).into_pt(dpi);
-        let image_h = Px(100).into_pt(dpi);
-        // let image_w = self.image.width.into_pt(dpi);
-        // let image_h = self.image.height.into_pt(dpi);
-
-        let image = layer.add_xobject(XObject::External(self.svg_xobject));
-
         let scale_x = transform.scale_x.unwrap_or(1.0);
         let scale_y = transform.scale_y.unwrap_or(1.0);
-        let image_w = image_w.0 * scale_x;
-        let image_h = image_h.0 * scale_y;
+        let image_w = width.into_pt(dpi).0 * scale_x;
+        let image_h = height.into_pt(dpi).0 * scale_y;
 
-        layer.use_xobject(image, &[
-            CurTransMat::Translate(transform.translate_x.unwrap_or(Mm(0.0)), transform.translate_y.unwrap_or(Mm(0.0))),
-            CurTransMat::Rotate(transform.rotate_cw.unwrap_or(0.0)),
-            CurTransMat::Scale(image_w, image_h)
-        ]);
+        // Image at the given dpi should 1px = 1pt
+        let image = layer.add_xobject(XObject::External(self.svg_xobject));
+
+        let mut transforms = Vec::new();
+
+        transforms.push(CurTransMat::Scale(image_w, image_h));
+
+        if let Some(rotate) = transform.rotate.as_ref() {
+            transforms.push(CurTransMat::Translate(
+                Pt(-rotate.rotation_center_x.into_pt(dpi).0),
+                Pt(-rotate.rotation_center_y.into_pt(dpi).0),
+            ));
+            transforms.push(CurTransMat::Rotate(
+                rotate.angle_ccw_degrees,
+            ));
+            transforms.push(CurTransMat::Translate(
+               rotate.rotation_center_x.into_pt(dpi),
+               rotate.rotation_center_y.into_pt(dpi),
+            ));
+        }
+
+        if transform.translate_x.is_some() ||
+           transform.translate_y.is_some() {
+            transforms.push(CurTransMat::Translate(
+                transform.translate_x.unwrap_or(Mm(0.0)).into_pt(),
+                transform.translate_y.unwrap_or(Mm(0.0)).into_pt(),
+            ));
+        }
+
+        layer.use_xobject(image, &transforms);
     }
 }

@@ -17,10 +17,22 @@ fn main() {
     let mut reader = Cursor::new(image_bytes.as_ref());
 
     let decoder = BmpDecoder::new(&mut reader).unwrap();
-    let image2 = Image::try_from(decoder).unwrap();
+    let image = Image::try_from(decoder).unwrap();
+
+    let rotation_center_x = Px((image.image.width.0 as f64 / 2.0) as usize);
+    let rotation_center_y = Px((image.image.height.0 as f64 / 2.0) as usize);
 
     // layer,     
-    image2.add_to_layer(current_layer.clone(), ImageTransform::default());
+    image.add_to_layer(current_layer.clone(), ImageTransform {
+        rotate: Some(ImageRotation {
+            angle_ccw_degrees: 45.0,
+            rotation_center_x,
+            rotation_center_y,
+        }),
+        translate_x: Some(Mm(10.0)),
+        translate_y: Some(Mm(10.0)),
+        .. Default::default()
+    });
 
     doc.save(&mut BufWriter::new(File::create("test_image.pdf").unwrap())).unwrap();
 }

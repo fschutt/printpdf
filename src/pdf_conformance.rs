@@ -65,6 +65,13 @@ pub enum PdfConformance {
     Custom(CustomPdfConformance),
 }
 
+// default: save on file size
+impl Default for PdfConformance {
+    fn default() -> Self {
+        Self::Custom(CustomPdfConformance::default())
+    }
+}
+
 /// Allows building custom conformance profiles. This is useful if you want very small documents for example and 
 /// you don't __need__ conformance with any PDF standard, you just want a PDF file.
 #[derive(Debug, PartialEq, Eq, Clone)]

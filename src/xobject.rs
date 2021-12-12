@@ -59,7 +59,7 @@ impl XObject {
     fn compress_stream(mut stream: lopdf::Stream)
     -> lopdf::Stream
     {
-        stream.compress();
+        // stream.compress();
         stream
     }
 }
