@@ -1,5 +1,11 @@
 # Changelog
 
+## `0.5.0`
+
+- added `Svg` class to directly add SVG files to the PDF and instantiate them on the page
+- remove `embedded_images` feature from default features
+- change default PDF conformance to not embed an entire ICC color profile in the PDF (save on file size)
+
 ## `0.4.1`
 
 - added `PdfDocument::save_to_bytes()` to save the PDF document directly to a `Vec<u8>` (see #101)

@@ -363,8 +363,9 @@ dependencies = [
 
 [[package]]
 name = "lopdf"
-version = "0.26.0"
-source = "git+https://github.com/fschutt/lopdf?rev=2dd8a431708ea5fd13af0fedbac2479d03ddc9fe#2dd8a431708ea5fd13af0fedbac2479d03ddc9fe"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8146695b97752d9c66da0092c6364f8f3ca683f5ea34341db21e5550c3b8c4f4"
 dependencies = [
  "dtoa",
  "encoding",
@@ -518,7 +519,7 @@ checksum = "07e2192780e9f8e282049ff9bffcaa28171e1cb0844f49ed5374e518ae6024ec"
 
 [[package]]
 name = "printpdf"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "image",
  "js-sys",
