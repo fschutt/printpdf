@@ -16,9 +16,9 @@ pub struct Svg {
     pub height: Px,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum SvgParseError {
-    Svg2PdfConversionError,
+    Svg2PdfConversionError(String),
     PdfParsingError,
     NoContentStream,
     // PDF returned by pdf2svg is not in the expected form
@@ -47,10 +47,9 @@ pub struct SvgRotation {
     pub rotation_center_y: Px,
 }
 
-fn export_svg_to_xobject_pdf(svg: &str) -> Option<lopdf::Stream> {
-
-    use pdf_writer::{Content, Finish, Name, PdfWriter, Rect, Ref, Str};
+fn export_svg_to_xobject_pdf(svg: &str) -> Result<lopdf::Stream, String> {
     use lopdf::Object;
+    use pdf_writer::{Content, Finish, Name, PdfWriter, Rect, Ref, Str};
 
     // Allocate the indirect reference IDs and names.
     let catalog_id = Ref::new(1);
@@ -80,7 +79,8 @@ fn export_svg_to_xobject_pdf(svg: &str) -> Option<lopdf::Stream> {
 
     // Let's add an SVG graphic to this file.
     // We need to load its source first and manually parse it into a usvg Tree.
-    let tree = usvg::Tree::from_str(&svg, &usvg::Options::default().to_ref()).ok()?;
+    let tree = usvg::Tree::from_str(&svg, &usvg::Options::default().to_ref())
+        .map_err(|err| format!("usvg parse: {}", err))?;
 
     // Then, we will write it to the page as the 6th indirect object.
     //
@@ -94,11 +94,14 @@ fn export_svg_to_xobject_pdf(svg: &str) -> Option<lopdf::Stream> {
     writer.stream(content_id, &content.finish());
 
     let bytes = writer.finish();
-    let document = lopdf::Document::load_mem(&bytes).ok()?;
-    let svg_xobject = document.get_object((5, 0)).ok()?;
+    let document = lopdf::Document::load_mem(&bytes)
+        .map_err(|err| format!("lopdf load generated pdf: {}", err))?;
+    let svg_xobject = document
+        .get_object((5, 0))
+        .map_err(|err| format!("grab xobject from generated pdf: {}", err))?;
     let object = svg_xobject.as_stream().unwrap();
 
-    Some(object.clone())
+    Ok(object.clone())
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -168,27 +171,46 @@ impl Svg {
     /// I wish there was a more direct way, but handling SVG is very tricky.
     pub fn parse(svg_string: &str) -> Result<Self, SvgParseError> {
         // SVG -> PDF bytes
-        let svg_xobject =
-            export_svg_to_xobject_pdf(svg_string).ok_or(SvgParseError::Svg2PdfConversionError)?;
+        let svg_xobject = export_svg_to_xobject_pdf(svg_string).map_err(|err| {
+            SvgParseError::Svg2PdfConversionError(format!("create xobject from svg: {}", err))
+        })?;
 
         let bbox = svg_xobject
             .dict
             .get(b"BBox")
-            .or(Err(SvgParseError::Svg2PdfConversionError))?
+            .map_err(|err| {
+                SvgParseError::Svg2PdfConversionError(format!("extract xobject bbox: {}", err))
+            })?
             .as_array()
-            .or(Err(SvgParseError::Svg2PdfConversionError))?;
+            .map_err(|err| {
+                SvgParseError::Svg2PdfConversionError(format!("xobject bbox not an array: {}", err))
+            })?;
 
-        let width_px = match bbox.get(2).ok_or(SvgParseError::Svg2PdfConversionError)? {
-            Object::Integer(px) => Ok(*px),
-            Object::Real(px) => Ok(px.ceil() as i64),
-            _ => Err(SvgParseError::Svg2PdfConversionError),
-        }?;
+        let width_px = bbox
+            .get(2)
+            .ok_or(SvgParseError::Svg2PdfConversionError(
+                "xobject bbox has no width".to_string(),
+            ))?
+            .as_i64()
+            .map_err(|err| {
+                SvgParseError::Svg2PdfConversionError(format!(
+                    "xobject bbox width not i64: {}",
+                    err
+                ))
+            })?;
 
-        let height_px = match bbox.get(3).ok_or(SvgParseError::Svg2PdfConversionError)? {
-            Object::Integer(px) => Ok(*px),
-            Object::Real(px) => Ok(px.ceil() as i64),
-            _ => Err(SvgParseError::Svg2PdfConversionError),
-        }?;
+        let height_px = bbox
+            .get(2)
+            .ok_or(SvgParseError::Svg2PdfConversionError(
+                "xobject bbox has no height".to_string(),
+            ))?
+            .as_i64()
+            .map_err(|err| {
+                SvgParseError::Svg2PdfConversionError(format!(
+                    "xobject bbox height not i64: {}",
+                    err
+                ))
+            })?;
 
         Ok(Self {
             svg_xobject,
