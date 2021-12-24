@@ -8,7 +8,7 @@ use Point;
 const C: f64 = 0.551915024494;
 
 /// Calculates and returns the points for an approximated circle, given a radius and an
-/// offset into the page from the lower left corner.
+/// offset into the centre of circle (starting from bottom left corner of page).
 #[inline]
 pub fn calculate_points_for_circle<P: Into<Pt>>(
     radius: P,
@@ -52,8 +52,8 @@ pub fn calculate_points_for_circle<P: Into<Pt>>(
     pts
 }
 
-/// Calculates and returns the points for a rectangle, given a horizontal and vertical scale,
-/// and an offset into the page from the lower left corner.
+/// Calculates and returns the points for a rectangle, given a horizontal and vertical scale.
+/// and an offset into the centre of rectangle (starting from bottom left corner of page).
 #[inline]
 pub fn calculate_points_for_rect<P: Into<Pt>>(
     scale_x: P,
