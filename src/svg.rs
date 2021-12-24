@@ -1,8 +1,8 @@
 //! Abstraction class for images. Please use this class
 //! instead of adding `ImageXObjects` yourself
 
-use crate::{Mm, Px, XObject, XObjectRef, PdfLayerReference};
-use lopdf::Stream;
+use crate::{Mm, PdfLayerReference, Px, XObject, XObjectRef};
+use lopdf::{Object, Stream};
 
 /// SVG - wrapper around an `XObject` to allow for more
 /// control within the library
@@ -167,25 +167,28 @@ impl Svg {
     ///
     /// I wish there was a more direct way, but handling SVG is very tricky.
     pub fn parse(svg_string: &str) -> Result<Self, SvgParseError> {
-
         // SVG -> PDF bytes
-        let svg_xobject = export_svg_to_xobject_pdf(svg_string)
-            .ok_or(SvgParseError::Svg2PdfConversionError)?;
+        let svg_xobject =
+            export_svg_to_xobject_pdf(svg_string).ok_or(SvgParseError::Svg2PdfConversionError)?;
 
-        let bbox = svg_xobject.dict.get(b"BBox").ok()
-        .ok_or(SvgParseError::Svg2PdfConversionError)?
-        .as_array().ok()
-        .ok_or(SvgParseError::Svg2PdfConversionError)?;
+        let bbox = svg_xobject
+            .dict
+            .get(b"BBox")
+            .or(Err(SvgParseError::Svg2PdfConversionError))?
+            .as_array()
+            .or(Err(SvgParseError::Svg2PdfConversionError))?;
 
-        let width_px = bbox.get(2)
-        .ok_or(SvgParseError::Svg2PdfConversionError)?
-        .as_i64().ok()
-        .ok_or(SvgParseError::Svg2PdfConversionError)?;
+        let width_px = match bbox.get(2).ok_or(SvgParseError::Svg2PdfConversionError)? {
+            Object::Integer(px) => Ok(*px),
+            Object::Real(px) => Ok(px.ceil() as i64),
+            _ => Err(SvgParseError::Svg2PdfConversionError),
+        }?;
 
-        let height_px = bbox.get(2)
-        .ok_or(SvgParseError::Svg2PdfConversionError)?
-        .as_i64().ok()
-        .ok_or(SvgParseError::Svg2PdfConversionError)?;
+        let height_px = match bbox.get(3).ok_or(SvgParseError::Svg2PdfConversionError)? {
+            Object::Integer(px) => Ok(*px),
+            Object::Real(px) => Ok(px.ceil() as i64),
+            _ => Err(SvgParseError::Svg2PdfConversionError),
+        }?;
 
         Ok(Self {
             svg_xobject,
