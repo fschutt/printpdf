@@ -3,6 +3,7 @@
 
 use crate::{Mm, PdfLayerReference, Px, XObject, XObjectRef};
 use lopdf::{Object, Stream};
+use std::{error, fmt};
 
 /// SVG - wrapper around an `XObject` to allow for more
 /// control within the library
@@ -24,6 +25,19 @@ pub enum SvgParseError {
     // PDF returned by pdf2svg is not in the expected form
     InternalError,
 }
+
+impl fmt::Display for SvgParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Svg2PdfConversionError(inner) => write!(f, "svg2pdf conversion error: {}", inner),
+            Self::PdfParsingError => write!(f, "error parsing svg2pdf pdf data"),
+            Self::NoContentStream => write!(f, "svg2pdf returned no content stream"),
+            Self::InternalError => write!(f, "pdf returned by pdf2svg in unexpected form"),
+        }
+    }
+}
+
+impl error::Error for SvgParseError {}
 
 /// Transform that is applied immediately before the
 /// image gets painted. Does not affect anything other
