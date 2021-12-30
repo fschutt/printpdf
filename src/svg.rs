@@ -3,6 +3,7 @@
 
 use crate::{Mm, PdfLayerReference, Px, XObject, XObjectRef};
 use lopdf::{Object, Stream};
+use std::{error, fmt};
 
 /// SVG - wrapper around an `XObject` to allow for more
 /// control within the library
@@ -24,6 +25,19 @@ pub enum SvgParseError {
     // PDF returned by pdf2svg is not in the expected form
     InternalError,
 }
+
+impl fmt::Display for SvgParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Svg2PdfConversionError(inner) => write!(f, "svg2pdf conversion error: {}", inner),
+            Self::PdfParsingError => write!(f, "error parsing svg2pdf pdf data"),
+            Self::NoContentStream => write!(f, "svg2pdf returned no content stream"),
+            Self::InternalError => write!(f, "pdf returned by pdf2svg in unexpected form"),
+        }
+    }
+}
+
+impl error::Error for SvgParseError {}
 
 /// Transform that is applied immediately before the
 /// image gets painted. Does not affect anything other
@@ -163,7 +177,6 @@ impl SvgXObjectRef {
 }
 
 impl Svg {
-
     /// Internally parses the SVG string, converts it to a PDF
     /// document using the svg2pdf crate, parses the resulting PDF again
     /// (using lopdf), then extracts the SVG XObject.
@@ -186,31 +199,29 @@ impl Svg {
                 SvgParseError::Svg2PdfConversionError(format!("xobject bbox not an array: {}", err))
             })?;
 
-        let width_px = bbox
-            .get(2)
-            .ok_or(SvgParseError::Svg2PdfConversionError(
-                "xobject bbox has no width".to_string(),
-            ))?
-            .as_i64()
-            .map_err(|err| {
-                SvgParseError::Svg2PdfConversionError(format!(
-                    "xobject bbox width not i64: {}",
-                    err
-                ))
-            })?;
+        let width_px = match bbox.get(2) {
+            Some(Object::Integer(px)) => Ok(*px),
+            Some(Object::Real(px)) => Ok(px.ceil() as i64),
+            Some(obj) => Err(SvgParseError::Svg2PdfConversionError(format!(
+                "xobject bbox width not a number: {:?}",
+                obj
+            ))),
+            None => Err(SvgParseError::Svg2PdfConversionError(
+                "xobject bbox missing width field".to_string(),
+            )),
+        }?;
 
-        let height_px = bbox
-            .get(2)
-            .ok_or(SvgParseError::Svg2PdfConversionError(
-                "xobject bbox has no height".to_string(),
-            ))?
-            .as_i64()
-            .map_err(|err| {
-                SvgParseError::Svg2PdfConversionError(format!(
-                    "xobject bbox height not i64: {}",
-                    err
-                ))
-            })?;
+        let height_px = match bbox.get(3) {
+            Some(Object::Integer(px)) => Ok(*px),
+            Some(Object::Real(px)) => Ok(px.ceil() as i64),
+            Some(obj) => Err(SvgParseError::Svg2PdfConversionError(format!(
+                "xobject bbox height not a number: {:?}",
+                obj
+            ))),
+            None => Err(SvgParseError::Svg2PdfConversionError(
+                "xobject bbox missing height field".to_string(),
+            )),
+        }?;
 
         Ok(Self {
             svg_xobject,
