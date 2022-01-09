@@ -340,6 +340,7 @@ impl PdfDocumentReference {
     }
 
     /// Save PDF document to bytes
+    #[allow(unused_qualifications)]
     pub fn save_to_bytes(self) -> Result<Vec<u8>, Error> {
 
         use lopdf::Object::*;

@@ -2,7 +2,7 @@
 
 use lopdf;
 use lopdf::content::Operation;
-use {Mm, Pt};
+use crate::Pt;
 
 /// PDF "current transformation matrix". Once set, will operate on all following shapes,
 /// until the `layer.restore_graphics_state()` is called. It is important to

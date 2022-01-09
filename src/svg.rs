@@ -1,8 +1,8 @@
 //! Abstraction class for images. Please use this class
 //! instead of adding `ImageXObjects` yourself
 
-use crate::{Mm, PdfLayerReference, Px, XObject, XObjectRef};
-use lopdf::{Object, Stream};
+use crate::{Pt, PdfLayerReference, Px, XObject, XObjectRef};
+use lopdf::{Stream, Object};
 use std::{error, fmt};
 
 /// SVG - wrapper around an `XObject` to allow for more
@@ -44,8 +44,8 @@ impl error::Error for SvgParseError {}
 /// than the image.
 #[derive(Debug, Copy, Clone, PartialEq, Default)]
 pub struct SvgTransform {
-    pub translate_x: Option<Mm>,
-    pub translate_y: Option<Mm>,
+    pub translate_x: Option<Pt>,
+    pub translate_y: Option<Pt>,
     /// Rotate (clockwise), in degree angles
     pub rotate: Option<SvgRotation>,
     pub scale_x: Option<f64>,
@@ -57,13 +57,13 @@ pub struct SvgTransform {
 #[derive(Debug, Copy, Clone, PartialEq, Default)]
 pub struct SvgRotation {
     pub angle_ccw_degrees: f64,
-    pub rotation_center_x: Px,
-    pub rotation_center_y: Px,
+    pub rotation_center_x: Pt,
+    pub rotation_center_y: Pt,
 }
 
-fn export_svg_to_xobject_pdf(svg: &str) -> Result<lopdf::Stream, String> {
-    use lopdf::Object;
-    use pdf_writer::{Content, Finish, Name, PdfWriter, Rect, Ref, Str};
+fn export_svg_to_xobject_pdf(svg: &str) -> Result<Stream, String> {
+
+    use pdf_writer::{Content, Finish, Name, PdfWriter, Rect, Ref};
 
     // Allocate the indirect reference IDs and names.
     let catalog_id = Ref::new(1);
@@ -104,7 +104,7 @@ fn export_svg_to_xobject_pdf(svg: &str) -> Result<lopdf::Stream, String> {
     svg2pdf::convert_tree_into(&tree, svg2pdf::Options::default(), &mut writer, svg_id);
 
     // Write a content stream
-    let mut content = Content::new();
+    let content = Content::new();
     writer.stream(content_id, &content.finish());
 
     let bytes = writer.finish();
@@ -131,7 +131,6 @@ impl SvgXObjectRef {
     pub fn add_to_layer(self, layer: &PdfLayerReference, transform: SvgTransform) {
 
         use crate::CurTransMat;
-        use crate::scale::Pt;
 
         // PDF maps an image to a 1x1 square, we have to adjust the transform matrix
         // to fix the distortion
@@ -152,23 +151,23 @@ impl SvgXObjectRef {
 
         if let Some(rotate) = transform.rotate.as_ref() {
             transforms.push(CurTransMat::Translate(
-                Pt(-rotate.rotation_center_x.into_pt(dpi).0),
-                Pt(-rotate.rotation_center_y.into_pt(dpi).0),
+                Pt(-rotate.rotation_center_x.0),
+                Pt(-rotate.rotation_center_y.0),
             ));
             transforms.push(CurTransMat::Rotate(
                 rotate.angle_ccw_degrees,
             ));
             transforms.push(CurTransMat::Translate(
-               rotate.rotation_center_x.into_pt(dpi),
-               rotate.rotation_center_y.into_pt(dpi),
+               rotate.rotation_center_x,
+               rotate.rotation_center_y,
             ));
         }
 
         if transform.translate_x.is_some() ||
            transform.translate_y.is_some() {
             transforms.push(CurTransMat::Translate(
-                transform.translate_x.unwrap_or(Mm(0.0)).into_pt(),
-                transform.translate_y.unwrap_or(Mm(0.0)).into_pt(),
+                transform.translate_x.unwrap_or(Pt(0.0)),
+                transform.translate_y.unwrap_or(Pt(0.0)),
             ));
         }
 
