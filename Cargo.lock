@@ -525,7 +525,7 @@ checksum = "07e2192780e9f8e282049ff9bffcaa28171e1cb0844f49ed5374e518ae6024ec"
 
 [[package]]
 name = "printpdf"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "image",
  "js-sys",
