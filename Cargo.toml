@@ -1,6 +1,6 @@
 [package]
 name = "printpdf"
-version = "0.5.1"
+version = "0.5.2"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 repository = "https://github.com/fschutt/printpdf"
 homepage = "https://github.com/fschutt/printpdf"
@@ -46,6 +46,11 @@ dds = ["image/dds", "embedded_images"]
 webp = ["image/webp", "embedded_images"]
 # enables svg
 svg = ["svg2pdf", "usvg", "pdf-writer"]
+
+
+[package.metadata.docs.rs]
+all-features = true
+
 
 [target.'cfg(all(target_arch="wasm32",target_os="unknown"))'.dependencies]
 js-sys = "0.3.40"

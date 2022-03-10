@@ -1,5 +1,9 @@
 # Changelog
 
+## `0.5.2`
+
+- enable all features on docs.rs
+
 ## `0.5.0`
 
 - added `Svg` class to directly add SVG files to the PDF and instantiate them on the page
