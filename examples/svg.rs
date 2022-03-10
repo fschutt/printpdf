@@ -21,11 +21,11 @@ fn main() {
         .add_to_layer(&current_layer, SvgTransform {
             rotate: Some(SvgRotation {
                 angle_ccw_degrees: i as f64 * 36.0,
-                rotation_center_x,
-                rotation_center_y,
+                rotation_center_x: rotation_center_x.into_pt(300.0),
+                rotation_center_y: rotation_center_y.into_pt(300.0),
             }),
-            translate_x: Some(Mm(i as f64 * 20.0 % 50.0)),
-            translate_y: Some(Mm(i as f64 * 30.0)),
+            translate_x: Some(Mm(i as f64 * 20.0 % 50.0).into()),
+            translate_y: Some(Mm(i as f64 * 30.0).into()),
             .. Default::default()
         });
     }

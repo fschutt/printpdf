@@ -119,12 +119,14 @@
 //! Scaling of images is implicitly done to fit one pixel = one dot at 300 dpi.
 //!
 //! ```rust
+//! // Compile with --feature="embedded_images"
 //! extern crate printpdf;
 //!
 //! // imports the `image` library with the exact version that we are using
 //! use printpdf::*;
 //!
 //! use std::convert::From;
+//! use std::convert::TryFrom;
 //! use std::fs::File;
 //!
 //! fn main() {
@@ -303,10 +305,6 @@
 //! [PDF X/1-a Validator](https://www.pdf-online.com/osa/validate.aspx)
 //!
 //! [PDF X/3 technical notes](http://www.pdfxreport.com/lib/exe/fetch.php?media=en:technote_pdfx_checks.pdf)
-
-// Enable clippy if our Cargo.toml file asked us to do so.
-#![cfg_attr(feature="clippy", feature(plugin))]
-#![cfg_attr(feature="clippy", plugin(clippy))]
 
 #![warn(missing_copy_implementations,
         trivial_numeric_casts,

@@ -40,4 +40,4 @@ build: false
 # TODO modify this phase as you see fit
 test_script:
   - cargo check --verbose --examples
-  - cargo test --verbose
+  - cargo test --all-features --verbose
