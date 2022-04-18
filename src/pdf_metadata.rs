@@ -63,13 +63,7 @@ impl PdfMetadata {
 		let metadata = self.clone();
 		let xmp_obj = {
 			if self.conformance.must_have_xmp_metadata() {
-				Some(self.xmp_metadata.into_obj(
-					 	self.conformance.clone(),
-						self.trapping,
-						self.creation_date.clone(),
-						self.modification_date.clone(),
-						self.metadata_date,
-						self.document_title.clone()))
+				Some(self.xmp_metadata.into_obj(&metadata))
 			} else {
 				None
 			}

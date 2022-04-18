@@ -3,7 +3,7 @@
 use crate::OffsetDateTime;
 use lopdf;
 
-use PdfConformance;
+use PdfMetadata;
 use utils::random_character_string_32;
 
 /// Initial struct for Xmp metatdata. This should be expanded later for XML handling, etc.
@@ -34,29 +34,23 @@ impl XmpMetadata {
 
     /// Consumes the XmpMetadata and turns it into a PDF Object.
     /// This is similar to the
-    pub(in crate) fn into_obj<S>(self,
-                           conformance: PdfConformance,
-                           trapping: bool,
-                           creation_date: OffsetDateTime,
-                           modification_date: OffsetDateTime,
-                           metadata_date: OffsetDateTime,
-                           document_title: S)
-    -> lopdf::Object where S: Into<String> + ::std::fmt::Display
+    pub(in crate) fn into_obj(self, m: &PdfMetadata)
+    -> lopdf::Object
     {
         use lopdf::{Stream as LoStream, Dictionary as LoDictionary};
         use lopdf::Object::*;
         use std::iter::FromIterator;
 
         // Shared between XmpMetadata and DocumentInfo
-        let trapping = if trapping { "True" } else { "False" };
+        let trapping = if m.trapping { "True" } else { "False" };
 
         // let xmp_instance_id = "2898d852-f86f-4479-955b-804d81046b19";
         let instance_id = random_character_string_32();
-        let create_date = to_pdf_xmp_date(creation_date);
-        let modification_date = to_pdf_xmp_date(modification_date);
-        let metadata_date = to_pdf_xmp_date(metadata_date);
+        let create_date = to_pdf_xmp_date(m.creation_date);
+        let modification_date = to_pdf_xmp_date(m.modification_date);
+        let metadata_date = to_pdf_xmp_date(m.metadata_date);
 
-        let pdf_x_version = conformance.get_identifier_string();
+        let pdf_x_version = m.conformance.get_identifier_string();
         let document_version = self.document_version.to_string();
         let document_id = self.document_id.to_string();
 
@@ -66,7 +60,7 @@ impl XmpMetadata {
         };
 
         let xmp_metadata = format!(include_str!("../assets/catalog_xmp_metadata.txt"),
-                           create_date, modification_date, metadata_date, document_title, document_id,
+                           create_date, modification_date, metadata_date, m.document_title, document_id,
                            instance_id, rendition_class, document_version, pdf_x_version, trapping);
 
         Stream(LoStream::new(LoDictionary::from_iter(vec![
