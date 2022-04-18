@@ -60,8 +60,24 @@ impl XmpMetadata {
         };
 
         let xmp_metadata = format!(include_str!("../assets/catalog_xmp_metadata.txt"),
-                           create_date, modification_date, metadata_date, m.document_title, document_id,
-                           instance_id, rendition_class, document_version, pdf_x_version, trapping);
+                           create = create_date, 
+                           modify = modification_date, 
+                           mdate = metadata_date, 
+                           title = m.document_title, 
+                           id = document_id,
+                           instance = instance_id, 
+                           class = rendition_class, 
+                           version = document_version, 
+                           pdfx = pdf_x_version, 
+                           trapping = trapping, 
+                           creator = m.creator,
+                           subject = m.subject,
+                           keywords = m.keywords.join(","),
+                           identifier = m.identifier,
+                           producer = m.producer);
+
+
+
 
         Stream(LoStream::new(LoDictionary::from_iter(vec![
             ("Type", "Metadata".into()),
