@@ -131,9 +131,64 @@ impl PdfDocumentReference {
     /// Changes the title on both the document info dictionary as well as the metadata
     #[inline]
     pub fn with_title<S>(self, new_title: S)
-    -> () where S: Into<String>
+    -> Self where S: Into<String>
     {
         self.document.borrow_mut().metadata.document_title = new_title.into();
+        self
+    }
+    
+    /// Changes the author metadata property on both the document info dictionary as well as the metadata
+    #[inline]
+    pub fn with_author<S>(self, author: S)
+    -> Self where S: Into<String>
+    {
+        self.document.borrow_mut().metadata.author = author.into();
+        self
+    }
+    
+    /// Changes the creator metadata property on both the document info dictionary as well as the metadata
+    #[inline]
+    pub fn with_creator<S>(self, creator: S)
+    -> Self where S: Into<String>
+    {
+        self.document.borrow_mut().metadata.creator = creator.into();
+        self
+    }
+     
+    /// Changes the producer/publisher metadata property on both the document info dictionary as well as the metadata
+    #[inline]
+    pub fn with_producer<S>(self, producer: S)
+    -> Self where S: Into<String>
+    {
+        self.document.borrow_mut().metadata.producer = producer.into();
+        self
+    }
+    
+    /// Changes the keywords metadata property on both the document info dictionary as well as the metadata
+    #[inline]
+    pub fn with_keywords<S>(self, keywords: Vec<S>)
+    -> Self where S: Into<String>
+    {
+        self.document.borrow_mut().metadata.keywords = keywords.into_iter().map(|s| s.into()).collect();
+        self
+    }
+
+    /// Changes the subject metadata property on both the document info dictionary as well as the metadata
+    #[inline]
+    pub fn with_subject<S>(self, subject: S)
+    -> Self where S: Into<String>
+    {
+        self.document.borrow_mut().metadata.subject = subject.into();
+        self
+    }
+    
+    /// Changes the subject metadata property on both the document info dictionary as well as the metadata
+    #[inline]
+    pub fn with_identifier<S>(self, identifier: S)
+    -> Self where S: Into<String>
+    {
+        self.document.borrow_mut().metadata.identifier = identifier.into();
+        self
     }
 
     /// Set the trapping of the document
