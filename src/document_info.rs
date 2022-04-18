@@ -82,7 +82,13 @@ impl DocumentInfo {
             ("CreationDate", String(info_create_date.into_bytes(), Literal)),
             ("ModDate", String(info_mod_date.into_bytes(), Literal)),
             ("GTS_PDFXVersion", String(gts_pdfx_version.into(), Literal)),
-            ("Title", String(m.document_title.to_string().as_bytes().to_vec(), Literal))
+            ("Title", String(m.document_title.to_string().as_bytes().to_vec(), Literal)),
+            ("Author", String(m.author.as_bytes().to_vec(), Literal)),
+            ("Creator", String(m.creator.as_bytes().to_vec(), Literal)),
+            ("Producer", String(m.producer.as_bytes().to_vec(), Literal)),
+            ("Subject", String(m.subject.as_bytes().to_vec(), Literal)),
+            ("Identifier", String(m.identifier.as_bytes().to_vec(), Literal)),
+            ("Keywords", String(m.keywords.join(",").as_bytes().to_vec(), Literal))
         ]))
     }
 }
