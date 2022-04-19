@@ -20,6 +20,18 @@ pub struct PdfMetadata {
 	pub metadata_date: OffsetDateTime,
 	/// PDF document title
 	pub document_title: String,
+	/// PDF document author
+	pub author: String,
+	/// The creator of the document
+	pub creator: String,
+	/// The producer of the document
+	pub producer: String,
+	/// Keywords associated with the document
+	pub keywords: Vec<String>,
+	/// The subject of the document
+	pub subject: String,
+	/// Identifier associated with the document
+	pub identifier: String,
 	/// Is the document trapped?
 	pub trapping: bool,
 	/// PDF document version
@@ -36,7 +48,7 @@ pub struct PdfMetadata {
 
 impl PdfMetadata {
 
-	/// Creates a new metadat object
+	/// Creates a new metadata object
 	pub fn new<S>(title: S, document_version: u32, trapping: bool, conformance: PdfConformance)
 	-> Self where S: Into<String>
 	{
@@ -47,6 +59,12 @@ impl PdfMetadata {
 			modification_date: current_time.clone(),
 			metadata_date: current_time.clone(),
 			document_title: title.into(),
+			author: String::new(),
+			creator: String::new(),
+			producer: String::new(),	
+			keywords: Vec::new(),
+			subject: String::new(),
+			identifier: String::new(),
 			trapping: trapping,
 			document_version: document_version,
 			conformance: conformance,
@@ -60,25 +78,16 @@ impl PdfMetadata {
 	pub fn into_obj(self)
 	-> (Option<lopdf::Object>, lopdf::Object, Option<IccProfile>)
 	{
+		let metadata = self.clone();
 		let xmp_obj = {
 			if self.conformance.must_have_xmp_metadata() {
-				Some(self.xmp_metadata.into_obj(
-					 	self.conformance.clone(),
-						self.trapping,
-						self.creation_date.clone(),
-						self.modification_date.clone(),
-						self.metadata_date,
-						self.document_title.clone()))
+				Some(self.xmp_metadata.into_obj(&metadata))
 			} else {
 				None
 			}
 		};
 
-		let doc_info_obj = self.document_info.into_obj(self.document_title,
-													   self.trapping,
-													   self.conformance.clone(),
-													   self.creation_date.clone(),
-													   self.modification_date.clone());
+		let doc_info_obj = self.document_info.into_obj(&metadata);
 		// add icc profile if necessary
 		let icc_profile = {
 		    if self.conformance.must_have_icc_profile() {

@@ -2,9 +2,7 @@
 
 use crate::OffsetDateTime;
 use lopdf;
-
-use PdfConformance;
-
+use PdfMetadata;
 /// "Info" dictionary of a PDF document.
 /// Actual data is contained in `DocumentMetadata`, to keep it in sync with the `XmpMetadata`
 /// (if the timestamps / settings are not in sync, Preflight will complain)
@@ -65,31 +63,32 @@ impl DocumentInfo {
 
     /// This functions is similar to the IntoPdfObject trait method,
     /// but takes additional arguments in order to delay the setting
-    pub(in crate) fn into_obj<S>(self,
-                                 document_title: S,
-                                 trapping: bool,
-                                 conformance: PdfConformance,
-                                 creation_date: OffsetDateTime,
-                                 modification_date: OffsetDateTime)
-    -> lopdf::Object where S: Into<String>
+    pub(in crate) fn into_obj(self, m: &PdfMetadata)
+    -> lopdf::Object
     {
         use lopdf::Dictionary as LoDictionary;
         use lopdf::Object::*;
         use lopdf::StringFormat::Literal;
         use std::iter::FromIterator;
 
-        let trapping = if trapping { "True" } else { "False" };
-        let gts_pdfx_version = conformance.get_identifier_string();
+        let trapping = if m.trapping { "True" } else { "False" };
+        let gts_pdfx_version = m.conformance.get_identifier_string();
 
-        let info_mod_date = to_pdf_time_stamp_metadata(modification_date);
-        let info_create_date = to_pdf_time_stamp_metadata(creation_date);
+        let info_mod_date = to_pdf_time_stamp_metadata(m.modification_date);
+        let info_create_date = to_pdf_time_stamp_metadata(m.creation_date);
 
         Dictionary(LoDictionary::from_iter(vec![
             ("Trapped", trapping.into()),
             ("CreationDate", String(info_create_date.into_bytes(), Literal)),
             ("ModDate", String(info_mod_date.into_bytes(), Literal)),
             ("GTS_PDFXVersion", String(gts_pdfx_version.into(), Literal)),
-            ("Title", String(document_title.into().as_bytes().to_vec(), Literal))
+            ("Title", String(m.document_title.to_string().as_bytes().to_vec(), Literal)),
+            ("Author", String(m.author.as_bytes().to_vec(), Literal)),
+            ("Creator", String(m.creator.as_bytes().to_vec(), Literal)),
+            ("Producer", String(m.producer.as_bytes().to_vec(), Literal)),
+            ("Subject", String(m.subject.as_bytes().to_vec(), Literal)),
+            ("Identifier", String(m.identifier.as_bytes().to_vec(), Literal)),
+            ("Keywords", String(m.keywords.join(",").as_bytes().to_vec(), Literal))
         ]))
     }
 }
