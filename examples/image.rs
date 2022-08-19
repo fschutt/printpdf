@@ -2,7 +2,7 @@ extern crate printpdf;
 
 use printpdf::*;
 use std::io::Cursor;
-use image_crate::bmp::BmpDecoder;
+use image_crate::codecs::bmp::BmpDecoder;
 use std::fs::File;
 use std::io::BufWriter;
 

@@ -74,8 +74,8 @@ impl From<image_crate::ColorType> for ColorSpace {
         match color_type {
             L8 | L16 => ColorSpace::Greyscale,
             La8 | La16 => ColorSpace::GreyscaleAlpha,
-            Rgb8 | Bgr8 | Rgb16 => ColorSpace::Rgb,
-            Rgba8 | Bgra8 | Rgba16 => ColorSpace::Rgba,
+            Rgb8 | Rgb16 => ColorSpace::Rgb,
+            Rgba8 | Rgba16 => ColorSpace::Rgba,
             _ => ColorSpace::Greyscale, // unreachable
         }
     }
@@ -113,7 +113,7 @@ impl From<image_crate::ColorType> for ColorBits {
         use ColorBits::*;
 
         match color_type {
-            L8 | La8 | Rgb8 | Rgba8 | Bgr8 | Bgra8 => Bit8,
+            L8 | La8 | Rgb8 | Rgba8 => Bit8,
             L16 | La16 | Rgb16 | Rgba16 => Bit16,
             _ => Bit8, // unreachable
 
