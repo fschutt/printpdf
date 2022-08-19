@@ -139,7 +139,7 @@ fn main() {
     // currently, the only reliable file formats are bmp/jpeg/png
     // this is an issue of the image library, not a fault of printpdf
     let mut image_file = File::open("assets/img/BMP_test.bmp").unwrap();
-    let image = Image::try_from(image_crate::bmp::BmpDecoder::new(&mut image_file).unwrap()).unwrap();
+    let image = Image::try_from(image_crate::codecs::bmp::BmpDecoder::new(&mut image_file).unwrap()).unwrap();
 
     // translate x, translate y, rotate, scale x, scale y
     // by default, an image is optimized to 300 DPI (if scale is None)
