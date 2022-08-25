@@ -46,9 +46,9 @@ impl XmpMetadata {
 
         // let xmp_instance_id = "2898d852-f86f-4479-955b-804d81046b19";
         let instance_id = random_character_string_32();
-        let create_date = to_pdf_xmp_date(m.creation_date);
-        let modification_date = to_pdf_xmp_date(m.modification_date);
-        let metadata_date = to_pdf_xmp_date(m.metadata_date);
+        let create_date = to_pdf_xmp_date(&m.creation_date);
+        let modification_date = to_pdf_xmp_date(&m.modification_date);
+        let metadata_date = to_pdf_xmp_date(&m.metadata_date);
 
         let pdf_x_version = m.conformance.get_identifier_string();
         let document_version = self.document_version.to_string();
@@ -87,7 +87,7 @@ impl XmpMetadata {
 }
 
 // D:2018-09-19T10:05:05+00'00'
-fn to_pdf_xmp_date(date: OffsetDateTime)
+fn to_pdf_xmp_date(date: &OffsetDateTime)
 -> String
 {
     // Since the time is in UTC, we know that the time zone
