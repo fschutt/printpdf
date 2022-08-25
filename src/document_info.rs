@@ -74,8 +74,8 @@ impl DocumentInfo {
         let trapping = if m.trapping { "True" } else { "False" };
         let gts_pdfx_version = m.conformance.get_identifier_string();
 
-        let info_mod_date = to_pdf_time_stamp_metadata(m.modification_date);
-        let info_create_date = to_pdf_time_stamp_metadata(m.creation_date);
+        let info_mod_date = to_pdf_time_stamp_metadata(&m.modification_date);
+        let info_create_date = to_pdf_time_stamp_metadata(&m.creation_date);
 
         Dictionary(LoDictionary::from_iter(vec![
             ("Trapped", trapping.into()),
@@ -94,7 +94,7 @@ impl DocumentInfo {
 }
 
 // D:20170505150224+02'00'
-fn to_pdf_time_stamp_metadata(date: OffsetDateTime)
+fn to_pdf_time_stamp_metadata(date: &OffsetDateTime)
 -> String
 {
     // Since the time is in UTC, we know that the time zone
