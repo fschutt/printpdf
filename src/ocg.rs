@@ -1,4 +1,4 @@
-extern crate lopdf;
+use lopdf;
 
 #[derive(Default, Debug, Clone)]
 pub struct OCGList {
@@ -9,16 +9,12 @@ pub struct OCGList {
 
 impl OCGList {
     /// Creates a new OCG list
-    pub fn new()
-    -> Self
-    {
+    pub fn new() -> Self {
         Self::default()
     }
 
     /// Adds a new OCG List from a reference
-    pub fn add_ocg(&mut self, obj: lopdf::Object)
-    -> OCGRef
-    {
+    pub fn add_ocg(&mut self, obj: lopdf::Object) -> OCGRef {
         let len = self.layers.len();
         let ocg_ref = OCGRef::new(len);
         self.layers.push((ocg_ref.clone(), obj));
@@ -26,18 +22,15 @@ impl OCGList {
     }
 }
 
-impl Into<lopdf::Dictionary> for OCGList {
-    #[cfg_attr(feature = "cargo-clippy", allow(needless_return))]
-    fn into(self)
-    -> lopdf::Dictionary
-    {
+impl From<OCGList> for lopdf::Dictionary {
+    fn from(val: OCGList) -> Self {
         let mut dict = lopdf::Dictionary::new();
 
-        for entry in self.layers {
+        for entry in val.layers {
             dict.set(entry.0.name, entry.1);
         }
 
-        return dict;
+        dict
     }
 }
 
@@ -49,11 +42,9 @@ pub struct OCGRef {
 
 impl OCGRef {
     /// Creates a new OCG reference from an index
-    pub fn new(index: usize)
-    -> Self
-    {
+    pub fn new(index: usize) -> Self {
         Self {
-            name: format!("MC{}", index),
+            name: format!("MC{index}"),
         }
     }
 }

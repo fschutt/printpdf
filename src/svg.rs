@@ -1,8 +1,8 @@
 //! Abstraction class for images. Please use this class
 //! instead of adding `ImageXObjects` yourself
 
-use crate::{Pt, PdfLayerReference, Px, XObject, XObjectRef};
-use lopdf::{Stream, Object};
+use crate::{PdfLayerReference, Pt, Px, XObject, XObjectRef};
+use lopdf::{Object, Stream};
 use std::{error, fmt};
 
 /// SVG - wrapper around an `XObject` to allow for more
@@ -29,7 +29,7 @@ pub enum SvgParseError {
 impl fmt::Display for SvgParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Svg2PdfConversionError(inner) => write!(f, "svg2pdf conversion error: {}", inner),
+            Self::Svg2PdfConversionError(inner) => write!(f, "svg2pdf conversion error: {inner}"),
             Self::PdfParsingError => write!(f, "error parsing svg2pdf pdf data"),
             Self::NoContentStream => write!(f, "svg2pdf returned no content stream"),
             Self::InternalError => write!(f, "pdf returned by pdf2svg in unexpected form"),
@@ -62,7 +62,6 @@ pub struct SvgRotation {
 }
 
 fn export_svg_to_xobject_pdf(svg: &str) -> Result<Stream, String> {
-
     use pdf_writer::{Content, Finish, Name, PdfWriter, Rect, Ref};
 
     // Allocate the indirect reference IDs and names.
@@ -93,8 +92,8 @@ fn export_svg_to_xobject_pdf(svg: &str) -> Result<Stream, String> {
 
     // Let's add an SVG graphic to this file.
     // We need to load its source first and manually parse it into a usvg Tree.
-    let tree = usvg::Tree::from_str(&svg, &usvg::Options::default().to_ref())
-        .map_err(|err| format!("usvg parse: {}", err))?;
+    let tree = usvg::Tree::from_str(svg, &usvg::Options::default().to_ref())
+        .map_err(|err| format!("usvg parse: {err}"))?;
 
     // Then, we will write it to the page as the 6th indirect object.
     //
@@ -109,10 +108,10 @@ fn export_svg_to_xobject_pdf(svg: &str) -> Result<Stream, String> {
 
     let bytes = writer.finish();
     let document = lopdf::Document::load_mem(&bytes)
-        .map_err(|err| format!("lopdf load generated pdf: {}", err))?;
+        .map_err(|err| format!("lopdf load generated pdf: {err}"))?;
     let svg_xobject = document
         .get_object((5, 0))
-        .map_err(|err| format!("grab xobject from generated pdf: {}", err))?;
+        .map_err(|err| format!("grab xobject from generated pdf: {err}"))?;
     let object = svg_xobject.as_stream().unwrap();
 
     Ok(object.clone())
@@ -129,14 +128,13 @@ pub struct SvgXObjectRef {
 
 impl SvgXObjectRef {
     pub fn add_to_layer(self, layer: &PdfLayerReference, transform: SvgTransform) {
-
         use crate::CurTransMat;
 
         // PDF maps an image to a 1x1 square, we have to adjust the transform matrix
         // to fix the distortion
 
-        let width = self.width.clone();
-        let height = self.height.clone();
+        let width = self.width;
+        let height = self.height;
         let dpi = transform.dpi.unwrap_or(300.0);
         let scale_x = transform.scale_x.unwrap_or(1.0);
         let scale_y = transform.scale_y.unwrap_or(1.0);
@@ -154,17 +152,14 @@ impl SvgXObjectRef {
                 Pt(-rotate.rotation_center_x.0),
                 Pt(-rotate.rotation_center_y.0),
             ));
-            transforms.push(CurTransMat::Rotate(
-                rotate.angle_ccw_degrees,
-            ));
+            transforms.push(CurTransMat::Rotate(rotate.angle_ccw_degrees));
             transforms.push(CurTransMat::Translate(
-               rotate.rotation_center_x,
-               rotate.rotation_center_y,
+                rotate.rotation_center_x,
+                rotate.rotation_center_y,
             ));
         }
 
-        if transform.translate_x.is_some() ||
-           transform.translate_y.is_some() {
+        if transform.translate_x.is_some() || transform.translate_y.is_some() {
             transforms.push(CurTransMat::Translate(
                 transform.translate_x.unwrap_or(Pt(0.0)),
                 transform.translate_y.unwrap_or(Pt(0.0)),
@@ -184,26 +179,25 @@ impl Svg {
     pub fn parse(svg_string: &str) -> Result<Self, SvgParseError> {
         // SVG -> PDF bytes
         let svg_xobject = export_svg_to_xobject_pdf(svg_string).map_err(|err| {
-            SvgParseError::Svg2PdfConversionError(format!("create xobject from svg: {}", err))
+            SvgParseError::Svg2PdfConversionError(format!("create xobject from svg: {err}"))
         })?;
 
         let bbox = svg_xobject
             .dict
             .get(b"BBox")
             .map_err(|err| {
-                SvgParseError::Svg2PdfConversionError(format!("extract xobject bbox: {}", err))
+                SvgParseError::Svg2PdfConversionError(format!("extract xobject bbox: {err}"))
             })?
             .as_array()
             .map_err(|err| {
-                SvgParseError::Svg2PdfConversionError(format!("xobject bbox not an array: {}", err))
+                SvgParseError::Svg2PdfConversionError(format!("xobject bbox not an array: {err}"))
             })?;
 
         let width_px = match bbox.get(2) {
             Some(Object::Integer(px)) => Ok(*px),
             Some(Object::Real(px)) => Ok(px.ceil() as i64),
             Some(obj) => Err(SvgParseError::Svg2PdfConversionError(format!(
-                "xobject bbox width not a number: {:?}",
-                obj
+                "xobject bbox width not a number: {obj:?}"
             ))),
             None => Err(SvgParseError::Svg2PdfConversionError(
                 "xobject bbox missing width field".to_string(),
@@ -214,8 +208,7 @@ impl Svg {
             Some(Object::Integer(px)) => Ok(*px),
             Some(Object::Real(px)) => Ok(px.ceil() as i64),
             Some(obj) => Err(SvgParseError::Svg2PdfConversionError(format!(
-                "xobject bbox height not a number: {:?}",
-                obj
+                "xobject bbox height not a number: {obj:?}"
             ))),
             None => Err(SvgParseError::Svg2PdfConversionError(
                 "xobject bbox missing height field".to_string(),
@@ -233,9 +226,8 @@ impl Svg {
     /// the reference to the SVG, so that one SVG can be used more
     /// than once on a page
     pub fn into_xobject(self, layer: &PdfLayerReference) -> SvgXObjectRef {
-
-        let width = self.width.clone();
-        let height = self.height.clone();
+        let width = self.width;
+        let height = self.height;
         let xobject_ref = layer.add_xobject(XObject::External(self.svg_xobject));
 
         SvgXObjectRef {

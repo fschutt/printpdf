@@ -34,44 +34,44 @@
 //! }
 //! ```
 
+use crate::indices::FontIndex;
 use lopdf;
 use lopdf::content::Operation;
 use lopdf::Object::*;
-use std::string::String;
-use indices::FontIndex;
-use std::collections::HashSet;
 use std::collections::HashMap;
+use std::collections::HashSet;
+use std::string::String;
 
 // identifiers for tracking the changed fields
-pub (crate) const LINE_WIDTH: &'static str = "line_width";
-pub (crate) const LINE_CAP: &'static str = "line_cap";
-pub (crate) const LINE_JOIN: &'static str = "line_join";
-pub (crate) const MITER_LIMIT: &'static str = "miter_limit";
-pub (crate) const LINE_DASH_PATTERN: &'static str = "line_dash_pattern";
-pub (crate) const RENDERING_INTENT: &'static str = "rendering_intent";
-pub (crate) const OVERPRINT_STROKE: &'static str = "overprint_stroke";
-pub (crate) const OVERPRINT_FILL: &'static str = "overprint_fill";
-pub (crate) const OVERPRINT_MODE: &'static str = "overprint_mode";
-pub (crate) const FONT: &'static str = "font";
-pub (crate) const BLACK_GENERATION: &'static str = "black_generation";
-pub (crate) const BLACK_GENERATION_EXTRA: &'static str = "black_generation_extra";
-pub (crate) const UNDERCOLOR_REMOVAL: &'static str = "under_color_removal";
-pub (crate) const UNDERCOLOR_REMOVAL_EXTRA: &'static str = "undercolor_removal_extra";
-pub (crate) const TRANSFER_FUNCTION: &'static str = "transfer_function";
-pub (crate) const TRANSFER_FUNCTION_EXTRA: &'static str = "transfer_function_extra";
-pub (crate) const HALFTONE_DICTIONARY: &'static str = "halftone_dictionary";
-pub (crate) const FLATNESS_TOLERANCE: &'static str = "flatness_tolerance";
-pub (crate) const SMOOTHNESS_TOLERANCE: &'static str = "smoothness_tolerance";
-pub (crate) const STROKE_ADJUSTMENT: &'static str = "stroke_adjustment";
-pub (crate) const BLEND_MODE: &'static str = "blend_mode";
-pub (crate) const SOFT_MASK: &'static str = "soft_mask";
-pub (crate) const CURRENT_STROKE_ALPHA: &'static str = "current_stroke_alpha";
-pub (crate) const CURRENT_FILL_ALPHA: &'static str = "current_fill_alpha";
-pub (crate) const ALPHA_IS_SHAPE: &'static str = "alpha_is_shape";
-pub (crate) const TEXT_KNOCKOUT: &'static str = "text_knockout";
+pub(crate) const LINE_WIDTH: &str = "line_width";
+pub(crate) const LINE_CAP: &str = "line_cap";
+pub(crate) const LINE_JOIN: &str = "line_join";
+pub(crate) const MITER_LIMIT: &str = "miter_limit";
+pub(crate) const LINE_DASH_PATTERN: &str = "line_dash_pattern";
+pub(crate) const RENDERING_INTENT: &str = "rendering_intent";
+pub(crate) const OVERPRINT_STROKE: &str = "overprint_stroke";
+pub(crate) const OVERPRINT_FILL: &str = "overprint_fill";
+pub(crate) const OVERPRINT_MODE: &str = "overprint_mode";
+pub(crate) const FONT: &str = "font";
+pub(crate) const BLACK_GENERATION: &str = "black_generation";
+pub(crate) const BLACK_GENERATION_EXTRA: &str = "black_generation_extra";
+pub(crate) const UNDERCOLOR_REMOVAL: &str = "under_color_removal";
+pub(crate) const UNDERCOLOR_REMOVAL_EXTRA: &str = "undercolor_removal_extra";
+pub(crate) const TRANSFER_FUNCTION: &str = "transfer_function";
+pub(crate) const TRANSFER_FUNCTION_EXTRA: &str = "transfer_function_extra";
+pub(crate) const HALFTONE_DICTIONARY: &str = "halftone_dictionary";
+pub(crate) const FLATNESS_TOLERANCE: &str = "flatness_tolerance";
+pub(crate) const SMOOTHNESS_TOLERANCE: &str = "smoothness_tolerance";
+pub(crate) const STROKE_ADJUSTMENT: &str = "stroke_adjustment";
+pub(crate) const BLEND_MODE: &str = "blend_mode";
+pub(crate) const SOFT_MASK: &str = "soft_mask";
+pub(crate) const CURRENT_STROKE_ALPHA: &str = "current_stroke_alpha";
+pub(crate) const CURRENT_FILL_ALPHA: &str = "current_fill_alpha";
+pub(crate) const ALPHA_IS_SHAPE: &str = "alpha_is_shape";
+pub(crate) const TEXT_KNOCKOUT: &str = "text_knockout";
 
 /// List of many `ExtendedGraphicsState`
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ExtendedGraphicsStateList {
     /// Current indent level + current graphics state
     pub(crate) latest_graphics_state: (usize, ExtendedGraphicsState),
@@ -80,50 +80,37 @@ pub struct ExtendedGraphicsStateList {
     pub(crate) all_graphics_states: HashMap<String, (usize, ExtendedGraphicsState)>,
 }
 
-impl Default for ExtendedGraphicsStateList {
-    fn default()
-    -> Self
-    {
-        Self {
-            latest_graphics_state: (0, ExtendedGraphicsState::default()),
-            all_graphics_states: HashMap::new(),
-        }
-    }
-}
-
 impl ExtendedGraphicsStateList {
     /// Creates a new ExtendedGraphicsStateList
-    pub fn new()
-    -> Self
-    {
+    pub fn new() -> Self {
         Self::default()
     }
 
     /// Adds a graphics state
-    pub fn add_graphics_state(&mut self, added_state: ExtendedGraphicsState)
-    -> ExtendedGraphicsStateRef
-    {
+    pub fn add_graphics_state(
+        &mut self,
+        added_state: ExtendedGraphicsState,
+    ) -> ExtendedGraphicsStateRef {
         let gs_ref = ExtendedGraphicsStateRef::new(self.all_graphics_states.len());
-        self.all_graphics_states.insert(gs_ref.gs_name.clone(), (self.latest_graphics_state.0, added_state.clone()));
+        self.all_graphics_states.insert(
+            gs_ref.gs_name.clone(),
+            (self.latest_graphics_state.0, added_state.clone()),
+        );
         self.latest_graphics_state = (self.latest_graphics_state.0, added_state);
         gs_ref
     }
 }
 
-impl Into<lopdf::Dictionary> for ExtendedGraphicsStateList {
-
-    #[cfg_attr(feature = "cargo-clippy", allow(needless_return))]
-    fn into(self)
-    -> lopdf::Dictionary
-    {
+impl From<ExtendedGraphicsStateList> for lopdf::Dictionary {
+    fn from(val: ExtendedGraphicsStateList) -> Self {
         let mut ext_g_state_resources = lopdf::Dictionary::new();
 
-        for (name, (_, graphics_state)) in self.all_graphics_states {
+        for (name, (_, graphics_state)) in val.all_graphics_states {
             let gs: lopdf::Object = graphics_state.into();
             ext_g_state_resources.set(name.to_string(), gs);
         }
 
-        return ext_g_state_resources;
+        ext_g_state_resources
     }
 }
 
@@ -131,7 +118,6 @@ impl Into<lopdf::Dictionary> for ExtendedGraphicsStateList {
 #[derive(Debug, PartialEq, Clone)]
 pub struct ExtendedGraphicsState {
     /* /Type ExtGState */
-
     /// NOTE: We need to track which fields have changed in relation to the default() method.
     /// This is because we want to optimize out the fields that haven't changed in relation
     /// to the last graphics state. Please use only the constants defined in this module for
@@ -309,19 +295,14 @@ pub struct ExtendedGraphicsStateBuilder {
 }
 
 impl ExtendedGraphicsStateBuilder {
-
     /// Creates a new graphics state builder
-    pub fn new()
-    -> Self
-    {
+    pub fn new() -> Self {
         Self::default()
     }
 
     /// Sets the line width
     #[inline]
-    pub fn with_line_width(mut self, line_width: f64)
-    -> Self
-    {
+    pub fn with_line_width(mut self, line_width: f64) -> Self {
         self.gs.line_width = line_width;
         self.gs.changed_fields.insert(LINE_WIDTH);
         self
@@ -329,9 +310,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the line cap
     #[inline]
-    pub fn with_line_cap(mut self, line_cap: LineCapStyle)
-    -> Self
-    {
+    pub fn with_line_cap(mut self, line_cap: LineCapStyle) -> Self {
         self.gs.line_cap = line_cap;
         self.gs.changed_fields.insert(LINE_CAP);
         self
@@ -339,9 +318,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the line join
     #[inline]
-    pub fn with_line_join(mut self, line_join: LineJoinStyle)
-    -> Self
-    {
+    pub fn with_line_join(mut self, line_join: LineJoinStyle) -> Self {
         self.gs.line_join = line_join;
         self.gs.changed_fields.insert(LINE_JOIN);
         self
@@ -349,9 +326,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the miter limit
     #[inline]
-    pub fn with_miter_limit(mut self, miter_limit: f64)
-    -> Self
-    {
+    pub fn with_miter_limit(mut self, miter_limit: f64) -> Self {
         self.gs.miter_limit = miter_limit;
         self.gs.changed_fields.insert(MITER_LIMIT);
         self
@@ -359,9 +334,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the rendering intent
     #[inline]
-    pub fn with_rendering_intent(mut self, rendering_intent: RenderingIntent)
-    -> Self
-    {
+    pub fn with_rendering_intent(mut self, rendering_intent: RenderingIntent) -> Self {
         self.gs.rendering_intent = rendering_intent;
         self.gs.changed_fields.insert(RENDERING_INTENT);
         self
@@ -369,9 +342,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the stroke overprint
     #[inline]
-    pub fn with_overprint_stroke(mut self, overprint_stroke: bool)
-    -> Self
-    {
+    pub fn with_overprint_stroke(mut self, overprint_stroke: bool) -> Self {
         self.gs.overprint_stroke = overprint_stroke;
         self.gs.changed_fields.insert(OVERPRINT_STROKE);
         self
@@ -379,9 +350,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the fill overprint
     #[inline]
-    pub fn with_overprint_fill(mut self, overprint_fill: bool)
-    -> Self
-    {
+    pub fn with_overprint_fill(mut self, overprint_fill: bool) -> Self {
         self.gs.overprint_fill = overprint_fill;
         self.gs.changed_fields.insert(OVERPRINT_FILL);
         self
@@ -389,9 +358,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the overprint mode
     #[inline]
-    pub fn with_overprint_mode(mut self, overprint_mode: OverprintMode)
-    -> Self
-    {
+    pub fn with_overprint_mode(mut self, overprint_mode: OverprintMode) -> Self {
         self.gs.overprint_mode = overprint_mode;
         self.gs.changed_fields.insert(OVERPRINT_MODE);
         self
@@ -400,9 +367,7 @@ impl ExtendedGraphicsStateBuilder {
     /// Sets the font
     /// __WARNING:__ Use `layer.add_font()` instead if you are not absolutely sure.
     #[inline]
-    pub fn with_font(mut self, font: Option<FontIndex>)
-    -> Self
-    {
+    pub fn with_font(mut self, font: Option<FontIndex>) -> Self {
         self.gs.font = font;
         self.gs.changed_fields.insert(FONT);
         self
@@ -410,9 +375,10 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the black generation
     #[inline]
-    pub fn with_black_generation(mut self, black_generation: Option<BlackGenerationFunction>)
-    -> Self
-    {
+    pub fn with_black_generation(
+        mut self,
+        black_generation: Option<BlackGenerationFunction>,
+    ) -> Self {
         self.gs.black_generation = black_generation;
         self.gs.changed_fields.insert(BLACK_GENERATION);
         self
@@ -420,9 +386,10 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the black generation extra function
     #[inline]
-    pub fn with_black_generation_extra(mut self, black_generation_extra: Option<BlackGenerationExtraFunction>)
-    -> Self
-    {
+    pub fn with_black_generation_extra(
+        mut self,
+        black_generation_extra: Option<BlackGenerationExtraFunction>,
+    ) -> Self {
         self.gs.black_generation_extra = black_generation_extra;
         self.gs.changed_fields.insert(BLACK_GENERATION_EXTRA);
         self
@@ -430,9 +397,10 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the undercolor removal function
     #[inline]
-    pub fn with_undercolor_removal(mut self, under_color_removal: Option<UnderColorRemovalFunction>)
-    -> Self
-    {
+    pub fn with_undercolor_removal(
+        mut self,
+        under_color_removal: Option<UnderColorRemovalFunction>,
+    ) -> Self {
         self.gs.under_color_removal = under_color_removal;
         self.gs.changed_fields.insert(UNDERCOLOR_REMOVAL);
         self
@@ -440,9 +408,10 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the undercolor removal extra function
     #[inline]
-    pub fn with_undercolor_removal_extra(mut self, under_color_removal_extra: Option<UnderColorRemovalExtraFunction>)
-    -> Self
-    {
+    pub fn with_undercolor_removal_extra(
+        mut self,
+        under_color_removal_extra: Option<UnderColorRemovalExtraFunction>,
+    ) -> Self {
         self.gs.under_color_removal_extra = under_color_removal_extra;
         self.gs.changed_fields.insert(UNDERCOLOR_REMOVAL_EXTRA);
         self
@@ -450,9 +419,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the transfer function
     #[inline]
-    pub fn with_transfer(mut self, transfer_function: Option<TransferFunction>)
-    -> Self
-    {
+    pub fn with_transfer(mut self, transfer_function: Option<TransferFunction>) -> Self {
         self.gs.transfer_function = transfer_function;
         self.gs.changed_fields.insert(TRANSFER_FUNCTION);
         self
@@ -460,9 +427,10 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the transfer extra function
     #[inline]
-    pub fn with_transfer_extra(mut self, transfer_extra_function: Option<TransferExtraFunction>)
-    -> Self
-    {
+    pub fn with_transfer_extra(
+        mut self,
+        transfer_extra_function: Option<TransferExtraFunction>,
+    ) -> Self {
         self.gs.transfer_extra_function = transfer_extra_function;
         self.gs.changed_fields.insert(TRANSFER_FUNCTION_EXTRA);
         self
@@ -470,9 +438,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the halftone dictionary
     #[inline]
-    pub fn with_halftone(mut self, halftone_type: Option<HalftoneType>)
-    -> Self
-    {
+    pub fn with_halftone(mut self, halftone_type: Option<HalftoneType>) -> Self {
         self.gs.halftone_dictionary = halftone_type;
         self.gs.changed_fields.insert(HALFTONE_DICTIONARY);
         self
@@ -480,9 +446,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the flatness tolerance
     #[inline]
-    pub fn with_flatness_tolerance(mut self, flatness_tolerance: f64)
-    -> Self
-    {
+    pub fn with_flatness_tolerance(mut self, flatness_tolerance: f64) -> Self {
         self.gs.flatness_tolerance = flatness_tolerance;
         self.gs.changed_fields.insert(FLATNESS_TOLERANCE);
         self
@@ -490,9 +454,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the smoothness tolerance
     #[inline]
-    pub fn with_smoothness_tolerance(mut self, smoothness_tolerance: f64)
-    -> Self
-    {
+    pub fn with_smoothness_tolerance(mut self, smoothness_tolerance: f64) -> Self {
         self.gs.smoothness_tolerance = smoothness_tolerance;
         self.gs.changed_fields.insert(SMOOTHNESS_TOLERANCE);
         self
@@ -500,9 +462,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the stroke adjustment
     #[inline]
-    pub fn with_stroke_adjustment(mut self, stroke_adjustment: bool)
-    -> Self
-    {
+    pub fn with_stroke_adjustment(mut self, stroke_adjustment: bool) -> Self {
         self.gs.stroke_adjustment = stroke_adjustment;
         self.gs.changed_fields.insert(STROKE_ADJUSTMENT);
         self
@@ -510,9 +470,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the blend mode
     #[inline]
-    pub fn with_blend_mode(mut self, blend_mode: BlendMode)
-    -> Self
-    {
+    pub fn with_blend_mode(mut self, blend_mode: BlendMode) -> Self {
         self.gs.blend_mode = blend_mode;
         self.gs.changed_fields.insert(BLEND_MODE);
         self
@@ -520,9 +478,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the soft mask
     #[inline]
-    pub fn with_soft_mask(mut self, soft_mask: Option<SoftMask>)
-    -> Self
-    {
+    pub fn with_soft_mask(mut self, soft_mask: Option<SoftMask>) -> Self {
         self.gs.soft_mask = soft_mask;
         self.gs.changed_fields.insert(SOFT_MASK);
         self
@@ -530,9 +486,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the current alpha for strokes
     #[inline]
-    pub fn with_current_stroke_alpha(mut self, current_stroke_alpha: f64)
-    -> Self
-    {
+    pub fn with_current_stroke_alpha(mut self, current_stroke_alpha: f64) -> Self {
         self.gs.current_stroke_alpha = current_stroke_alpha;
         self.gs.changed_fields.insert(CURRENT_STROKE_ALPHA);
         self
@@ -540,9 +494,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the current alpha for fills
     #[inline]
-    pub fn with_current_fill_alpha(mut self, current_fill_alpha: f64)
-    -> Self
-    {
+    pub fn with_current_fill_alpha(mut self, current_fill_alpha: f64) -> Self {
         self.gs.current_fill_alpha = current_fill_alpha;
         self.gs.changed_fields.insert(CURRENT_FILL_ALPHA);
         self
@@ -550,9 +502,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the current "alpha is shape"
     #[inline]
-    pub fn with_alpha_is_shape(mut self, alpha_is_shape: bool)
-    -> Self
-    {
+    pub fn with_alpha_is_shape(mut self, alpha_is_shape: bool) -> Self {
         self.gs.alpha_is_shape = alpha_is_shape;
         self.gs.changed_fields.insert(ALPHA_IS_SHAPE);
         self
@@ -560,9 +510,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the current text knockout
     #[inline]
-    pub fn with_text_knockout(mut self, text_knockout: bool)
-    -> Self
-    {
+    pub fn with_text_knockout(mut self, text_knockout: bool) -> Self {
         self.gs.text_knockout = text_knockout;
         self.gs.changed_fields.insert(TEXT_KNOCKOUT);
         self
@@ -570,19 +518,15 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Consumes the builder and returns an actual ExtendedGraphicsState
     #[inline]
-    #[cfg_attr(feature = "cargo-clippy", allow(needless_return))]
-    pub fn build(self)
-    -> ExtendedGraphicsState
-    {
-        return self.gs;
+
+    pub fn build(self) -> ExtendedGraphicsState {
+        self.gs
     }
 }
 
 impl Default for ExtendedGraphicsState {
     /// Creates a default ExtGState dictionary. Useful for resetting
-    fn default()
-    -> Self
-    {
+    fn default() -> Self {
         Self {
             changed_fields: HashSet::new(),
             line_width: 1.0,
@@ -615,91 +559,86 @@ impl Default for ExtendedGraphicsState {
     }
 }
 
-impl Into<lopdf::Object> for ExtendedGraphicsState {
-
+impl From<ExtendedGraphicsState> for lopdf::Object {
     /// Compares the current graphics state with the previous one and returns an
     /// "optimized" graphics state, meaning only the fields that have changed in
     /// comparison to the previous one are returned.
-    #[cfg_attr(feature = "cargo-clippy", allow(needless_return))]
-    #[cfg_attr(feature = "cargo-clippy", allow(cyclomatic_complexity))]
-    #[cfg_attr(feature = "cargo-clippy", allow(string_lit_as_bytes))]
-    fn into(self)
-    -> lopdf::Object
-    {
+
+    fn from(val: ExtendedGraphicsState) -> Self {
         use std::iter::FromIterator;
         let mut gs_operations = Vec::<(String, lopdf::Object)>::new();
 
         // for each field, look if it was contained in the "changed fields"
-        if self.changed_fields.contains(LINE_WIDTH) {
-            gs_operations.push(("LW".to_string(), self.line_width.into()));
+        if val.changed_fields.contains(LINE_WIDTH) {
+            gs_operations.push(("LW".to_string(), val.line_width.into()));
         }
 
-        if self.changed_fields.contains(LINE_CAP) {
-            gs_operations.push(("LC".to_string(), self.line_cap.into()));
+        if val.changed_fields.contains(LINE_CAP) {
+            gs_operations.push(("LC".to_string(), val.line_cap.into()));
         }
 
-        if self.changed_fields.contains(LINE_JOIN) {
-            gs_operations.push(("LJ".to_string(), self.line_join.into()));
+        if val.changed_fields.contains(LINE_JOIN) {
+            gs_operations.push(("LJ".to_string(), val.line_join.into()));
         }
 
-        if self.changed_fields.contains(MITER_LIMIT) {
-            gs_operations.push(("ML".to_string(), self.miter_limit.into()));
+        if val.changed_fields.contains(MITER_LIMIT) {
+            gs_operations.push(("ML".to_string(), val.miter_limit.into()));
         }
 
-        if self.changed_fields.contains(FLATNESS_TOLERANCE) {
-            gs_operations.push(("FL".to_string(), self.flatness_tolerance.into()));
+        if val.changed_fields.contains(FLATNESS_TOLERANCE) {
+            gs_operations.push(("FL".to_string(), val.flatness_tolerance.into()));
         }
 
-        if self.changed_fields.contains(RENDERING_INTENT) {
-            gs_operations.push(("RI".to_string(), self.rendering_intent.into()));
+        if val.changed_fields.contains(RENDERING_INTENT) {
+            gs_operations.push(("RI".to_string(), val.rendering_intent.into()));
         }
 
-        if self.changed_fields.contains(STROKE_ADJUSTMENT) {
-            gs_operations.push(("SA".to_string(), self.stroke_adjustment.into()));
+        if val.changed_fields.contains(STROKE_ADJUSTMENT) {
+            gs_operations.push(("SA".to_string(), val.stroke_adjustment.into()));
         }
 
-        if self.changed_fields.contains(OVERPRINT_FILL) {
-            gs_operations.push(("OP".to_string(), self.overprint_fill.into()));
+        if val.changed_fields.contains(OVERPRINT_FILL) {
+            gs_operations.push(("OP".to_string(), val.overprint_fill.into()));
         }
 
-        if self.changed_fields.contains(OVERPRINT_STROKE) {
-            gs_operations.push(("op".to_string(), self.overprint_stroke.into()));
+        if val.changed_fields.contains(OVERPRINT_STROKE) {
+            gs_operations.push(("op".to_string(), val.overprint_stroke.into()));
         }
 
-        if self.changed_fields.contains(OVERPRINT_MODE) {
-            gs_operations.push(("OPM".to_string(), self.overprint_mode.into()));
+        if val.changed_fields.contains(OVERPRINT_MODE) {
+            gs_operations.push(("OPM".to_string(), val.overprint_mode.into()));
         }
 
-        if self.changed_fields.contains(CURRENT_FILL_ALPHA) {
-            gs_operations.push(("CA".to_string(), self.current_fill_alpha.into()));
+        if val.changed_fields.contains(CURRENT_FILL_ALPHA) {
+            gs_operations.push(("CA".to_string(), val.current_fill_alpha.into()));
         }
 
-        if self.changed_fields.contains(CURRENT_STROKE_ALPHA) {
-            gs_operations.push(("ca".to_string(), self.current_stroke_alpha.into()));
+        if val.changed_fields.contains(CURRENT_STROKE_ALPHA) {
+            gs_operations.push(("ca".to_string(), val.current_stroke_alpha.into()));
         }
 
-        if self.changed_fields.contains(BLEND_MODE) {
-            gs_operations.push(("BM".to_string(), self.blend_mode.into()));
+        if val.changed_fields.contains(BLEND_MODE) {
+            gs_operations.push(("BM".to_string(), val.blend_mode.into()));
         }
 
-        if self.changed_fields.contains(ALPHA_IS_SHAPE) {
-            gs_operations.push(("AIS".to_string(), self.alpha_is_shape.into()));
+        if val.changed_fields.contains(ALPHA_IS_SHAPE) {
+            gs_operations.push(("AIS".to_string(), val.alpha_is_shape.into()));
         }
 
-        if self.changed_fields.contains(TEXT_KNOCKOUT) {
-            gs_operations.push(("TK".to_string(), self.text_knockout.into()));
+        if val.changed_fields.contains(TEXT_KNOCKOUT) {
+            gs_operations.push(("TK".to_string(), val.text_knockout.into()));
         }
 
         // set optional parameters
-        if let Some(ldp) = self.line_dash_pattern {
-            if self.changed_fields.contains(LINE_DASH_PATTERN) {
+        if let Some(ldp) = val.line_dash_pattern {
+            if val.changed_fields.contains(LINE_DASH_PATTERN) {
                 let pattern: lopdf::Object = ldp.into();
                 gs_operations.push(("D".to_string(), pattern));
             }
         }
 
-        if let Some(ref font) = self.font {
-            if self.changed_fields.contains(FONT) {
+        if let Some(ref font) = val.font {
+            if val.changed_fields.contains(FONT) {
                 // let font_ref: lopdf::Object = font.into(); /* should be a reference to a font dictionary later on*/
                 // gs_operations.push(("Font".to_string(), font_ref));
             }
@@ -710,51 +649,36 @@ impl Into<lopdf::Object> for ExtendedGraphicsState {
         // these types cannot yet be converted into lopdf::Objects,
         // need to implement Into<Object> for them
 
-        if self.changed_fields.contains(BLACK_GENERATION) {
-            if let Some(ref black_generation) = self.black_generation {
-
-            }
+        if val.changed_fields.contains(BLACK_GENERATION) {
+            if let Some(ref black_generation) = val.black_generation {}
         }
 
-        if self.changed_fields.contains(BLACK_GENERATION_EXTRA) {
-            if let Some(ref black_generation_extra) = self.black_generation_extra {
-
-            }
+        if val.changed_fields.contains(BLACK_GENERATION_EXTRA) {
+            if let Some(ref black_generation_extra) = val.black_generation_extra {}
         }
 
-        if self.changed_fields.contains(UNDERCOLOR_REMOVAL) {
-            if let Some(ref under_color_removal) = self.under_color_removal {
-
-            }
+        if val.changed_fields.contains(UNDERCOLOR_REMOVAL) {
+            if let Some(ref under_color_removal) = val.under_color_removal {}
         }
 
-        if self.changed_fields.contains(UNDERCOLOR_REMOVAL_EXTRA) {
-            if let Some(ref under_color_removal_extra) = self.under_color_removal_extra {
-
-           }
+        if val.changed_fields.contains(UNDERCOLOR_REMOVAL_EXTRA) {
+            if let Some(ref under_color_removal_extra) = val.under_color_removal_extra {}
         }
 
-        if self.changed_fields.contains(TRANSFER_FUNCTION) {
-            if let Some(ref transfer_function) = self.transfer_function {
-
-            }
+        if val.changed_fields.contains(TRANSFER_FUNCTION) {
+            if let Some(ref transfer_function) = val.transfer_function {}
         }
 
-        if self.changed_fields.contains(TRANSFER_FUNCTION_EXTRA) {
-            if let Some(ref transfer_extra_function) = self.transfer_extra_function {
-
-            }
+        if val.changed_fields.contains(TRANSFER_FUNCTION_EXTRA) {
+            if let Some(ref transfer_extra_function) = val.transfer_extra_function {}
         }
 
-        if self.changed_fields.contains(HALFTONE_DICTIONARY) {
-            if let Some(ref halftone_dictionary) = self.halftone_dictionary {
-
-            }
+        if val.changed_fields.contains(HALFTONE_DICTIONARY) {
+            if let Some(ref halftone_dictionary) = val.halftone_dictionary {}
         }
 
-        if self.changed_fields.contains(SOFT_MASK) {
-            if let Some(ref soft_mask) = self.soft_mask {
-
+        if val.changed_fields.contains(SOFT_MASK) {
+            if let Some(ref soft_mask) = val.soft_mask {
             } else {
                 gs_operations.push(("SM".to_string(), Name("None".as_bytes().to_vec())));
             }
@@ -768,7 +692,7 @@ impl Into<lopdf::Object> for ExtendedGraphicsState {
 
         let graphics_state = lopdf::Dictionary::from_iter(gs_operations);
 
-        return Dictionary(graphics_state);
+        Dictionary(graphics_state)
     }
 }
 
@@ -782,11 +706,9 @@ pub struct ExtendedGraphicsStateRef {
 impl ExtendedGraphicsStateRef {
     /// Creates a new graphics state reference (in order to be unique inside a page)
     #[inline]
-    pub fn new(index: usize)
-    -> Self
-    {
+    pub fn new(index: usize) -> Self {
         Self {
-            gs_name: format!("GS{:?}", index)
+            gs_name: format!("GS{index:?}"),
         }
     }
 }
@@ -800,17 +722,15 @@ pub enum OverprintMode {
     /// Erase underlying color when overprinting
     EraseUnderlying, /* 0, default */
     /// Keep underlying color when overprinting
-    KeepUnderlying,  /* 1 */
+    KeepUnderlying, /* 1 */
 }
 
-impl Into<lopdf::Object> for OverprintMode {
-    fn into(self)
-    -> lopdf::Object
-    {
+impl From<OverprintMode> for lopdf::Object {
+    fn from(val: OverprintMode) -> Self {
         use self::OverprintMode::*;
-        match self {
-            EraseUnderlying     => Integer(0),
-            KeepUnderlying      => Integer(1),
+        match val {
+            EraseUnderlying => Integer(0),
+            KeepUnderlying => Integer(1),
         }
     }
 }
@@ -841,9 +761,7 @@ pub enum BlackGenerationFunction {
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
-pub enum BlackGenerationExtraFunction {
-
-}
+pub enum BlackGenerationExtraFunction {}
 
 /// See `BlackGenerationFunction`, too. Undercolor removal reduces the amounts
 /// of the cyan, magenta, and yellow components to compensate for the amount of
@@ -860,19 +778,13 @@ pub enum UnderColorRemovalFunction {
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
-pub enum UnderColorRemovalExtraFunction {
-
-}
+pub enum UnderColorRemovalExtraFunction {}
 
 #[derive(Debug, PartialEq, Copy, Clone)]
-pub enum TransferFunction {
-
-}
+pub enum TransferFunction {}
 
 #[derive(Debug, PartialEq, Copy, Clone)]
-pub enum TransferExtraFunction {
-
-}
+pub enum TransferExtraFunction {}
 
 /// In PDF 1.2, the graphics state includes a current halftone parameter,
 /// which determines the halftoning process to be used by the painting operators.
@@ -917,9 +829,7 @@ pub enum HalftoneType {
 
 impl HalftoneType {
     /// Get the identifer integer of the HalftoneType
-    pub fn get_type(&self)
-    -> i64
-    {
+    pub fn get_type(&self) -> i64 {
         use self::HalftoneType::*;
         match *self {
             Type1(_, _, _) => 1,
@@ -930,14 +840,12 @@ impl HalftoneType {
         }
     }
 
-    pub fn into_obj(self)
-    -> Vec<lopdf::Object>
-    {
+    pub fn into_obj(self) -> Vec<lopdf::Object> {
         use std::iter::FromIterator;
         vec![Dictionary(lopdf::Dictionary::from_iter(vec![
-                    ("Type", "Halftone".into()),
-                    ("HalftoneType", self.get_type().into())
-            ]))]
+            ("Type", "Halftone".into()),
+            ("HalftoneType", self.get_type().into()),
+        ]))]
     }
 }
 
@@ -1020,38 +928,33 @@ pub enum BlendMode {
     NonSeperable(NonSeperableBlendMode),
 }
 
-impl Into<lopdf::Object> for BlendMode {
-    fn into(self)
-    -> lopdf::Object {
+impl From<BlendMode> for lopdf::Object {
+    fn from(val: BlendMode) -> Self {
         use self::BlendMode::*;
-        use self::SeperableBlendMode::*;
         use self::NonSeperableBlendMode::*;
+        use self::SeperableBlendMode::*;
 
-        let blend_mode_str = match self {
-            Seperable(s) => {
-                match s {
-                    Normal => "Normal",
-                    Multiply => "Multiply",
-                    Screen => "Screen",
-                    Overlay => "Overlay",
-                    Darken => "Darken",
-                    Lighten => "Lighten",
-                    ColorDodge => "ColorDodge",
-                    ColorBurn => "ColorBurn",
-                    HardLight => "HardLight",
-                    SoftLight => "SoftLight",
-                    Difference => "Difference",
-                    Exclusion => "Exclusion",
-                }
+        let blend_mode_str = match val {
+            Seperable(s) => match s {
+                Normal => "Normal",
+                Multiply => "Multiply",
+                Screen => "Screen",
+                Overlay => "Overlay",
+                Darken => "Darken",
+                Lighten => "Lighten",
+                ColorDodge => "ColorDodge",
+                ColorBurn => "ColorBurn",
+                HardLight => "HardLight",
+                SoftLight => "SoftLight",
+                Difference => "Difference",
+                Exclusion => "Exclusion",
             },
-            NonSeperable(n) => {
-                match n {
-                    Hue => "Hue",
-                    Saturation => "Saturation",
-                    Color => "Color",
-                    Luminosity => "Luminosity",
-                }
-            }
+            NonSeperable(n) => match n {
+                Hue => "Hue",
+                Saturation => "Saturation",
+                Color => "Color",
+                Luminosity => "Luminosity",
+            },
         };
 
         Name(blend_mode_str.as_bytes().to_vec())
@@ -1323,9 +1226,7 @@ pub enum RenderingIntent {
 
 /* ri name */
 impl RenderingIntent {
-    pub fn into_stream_op(self)
-    -> Vec<Operation>
-    {
+    pub fn into_stream_op(self) -> Vec<Operation> {
         use self::RenderingIntent::*;
         let rendering_intent_string = match self {
             AbsoluteColorimetric => "AbsoluteColorimetric",
@@ -1334,18 +1235,19 @@ impl RenderingIntent {
             Perceptual => "Perceptual",
         };
 
-        vec![ Operation::new("ri", vec![ Name(rendering_intent_string.as_bytes().to_vec()) ]) ]
+        vec![Operation::new(
+            "ri",
+            vec![Name(rendering_intent_string.as_bytes().to_vec())],
+        )]
     }
 }
 
 /* RI name , only to be used in graphics state dictionary */
-impl Into<lopdf::Object> for RenderingIntent {
+impl From<RenderingIntent> for lopdf::Object {
     /// Consumes the object and converts it to an PDF object
-    fn into(self)
-    -> lopdf::Object
-    {
+    fn from(val: RenderingIntent) -> Self {
         use self::RenderingIntent::*;
-        let rendering_intent_string = match self {
+        let rendering_intent_string = match val {
             AbsoluteColorimetric => "AbsoluteColorimetric",
             RelativeColorimetric => "RelativeColorimetric",
             Saturation => "Saturation",
@@ -1378,7 +1280,6 @@ pub enum SoftMaskFunction {
     GroupAlpha,
     //
     GroupLuminosity,
-
 }
 /// __See PDF Reference Page 216__ - Line join style
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -1399,12 +1300,10 @@ pub enum LineJoinStyle {
     Limit,
 }
 
-impl Into<i64> for LineJoinStyle {
-    fn into(self)
-    -> i64
-    {
+impl From<LineJoinStyle> for i64 {
+    fn from(val: LineJoinStyle) -> Self {
         use self::LineJoinStyle::*;
-        match self {
+        match val {
             Miter => 0,
             Round => 1,
             Limit => 2,
@@ -1412,20 +1311,16 @@ impl Into<i64> for LineJoinStyle {
     }
 }
 
-impl Into<Operation> for LineJoinStyle {
-    fn into(self)
-    -> Operation
-    {
-        let line_join_num: i64 = self.into();
+impl From<LineJoinStyle> for Operation {
+    fn from(val: LineJoinStyle) -> Self {
+        let line_join_num: i64 = val.into();
         Operation::new("j", vec![Integer(line_join_num)])
     }
 }
 
-impl Into<lopdf::Object> for LineJoinStyle {
-    fn into(self)
-    -> lopdf::Object
-    {
-        Integer(self.into())
+impl From<LineJoinStyle> for lopdf::Object {
+    fn from(val: LineJoinStyle) -> Self {
+        Integer(val.into())
     }
 }
 
@@ -1443,12 +1338,10 @@ pub enum LineCapStyle {
     ProjectingSquare,
 }
 
-impl Into<i64> for LineCapStyle {
-    fn into(self)
-    -> i64
-    {
+impl From<LineCapStyle> for i64 {
+    fn from(val: LineCapStyle) -> Self {
         use self::LineCapStyle::*;
-        match self {
+        match val {
             Butt => 0,
             Round => 1,
             ProjectingSquare => 2,
@@ -1456,24 +1349,20 @@ impl Into<i64> for LineCapStyle {
     }
 }
 
-impl Into<Operation> for LineCapStyle {
-    fn into(self)
-    -> Operation
-    {
-        Operation::new("J", vec![Integer(self.into())])
+impl From<LineCapStyle> for Operation {
+    fn from(val: LineCapStyle) -> Self {
+        Operation::new("J", vec![Integer(val.into())])
     }
 }
 
-impl Into<lopdf::Object> for LineCapStyle {
-    fn into(self)
-    -> lopdf::Object
-    {
-        Integer(self.into())
+impl From<LineCapStyle> for lopdf::Object {
+    fn from(val: LineCapStyle) -> Self {
+        Integer(val.into())
     }
 }
 
 /// Line dash pattern is made up of a total width
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Default)]
 pub struct LineDashPattern {
     /// Offset at which the dashing pattern should start, measured from the beginning ot the line
     /// Default: 0 (start directly where the line starts)
@@ -1493,86 +1382,58 @@ pub struct LineDashPattern {
     pub gap_3: Option<i64>,
 }
 
-impl LineDashPattern {
-    /// Creates a new dash pattern
-    pub fn new(offset: i64, dash_1: Option<i64>, gap_1: Option<i64>, dash_2: Option<i64>, gap_2: Option<i64>, dash_3: Option<i64>, gap_3: Option<i64>)
-    -> Self
-    {
-        Self { offset, dash_1, gap_1, dash_2, gap_2, dash_3, gap_3 }
-    }
-
-    /// Creates a new dash pattern
-    pub fn default()
-    -> Self
-    {
-        Self { offset: 0, dash_1: None, gap_1: None, dash_2: None, gap_2: None, dash_3: None, gap_3: None }
-    }
-}
+// impl LineDashPattern {
+//     /// Creates a new dash pattern
+//     pub fn new(
+//         offset: i64,
+//         dash_1: Option<i64>,
+//         gap_1: Option<i64>,
+//         dash_2: Option<i64>,
+//         gap_2: Option<i64>,
+//         dash_3: Option<i64>,
+//         gap_3: Option<i64>,
+//     ) -> Self {
+//         Self {
+//             offset,
+//             dash_1,
+//             gap_1,
+//             dash_2,
+//             gap_2,
+//             dash_3,
+//             gap_3,
+//         }
+//     }
+// }
 
 // conversion into a dash array for reuse in operation / gs dictionary
-impl Into<(Vec<i64>, i64)> for LineDashPattern {
-    #[cfg_attr(feature = "cargo-clippy", allow(never_loop))]
-    #[cfg_attr(feature = "cargo-clippy", allow(while_let_loop))]
-    #[cfg_attr(feature = "cargo-clippy", allow(needless_return))]
-    fn into(self)
-    -> (Vec<i64>, i64)
-    {
-        let mut dash_array = Vec::<i64>::new();
-
-        // note: it may be that PDF allows more than 6 operators.
-        // I've not seen it in practise, though
-
-        // break as soon as we encounter a None
-        loop {
-
-            if let Some(d1) = self.dash_1 {
-                dash_array.push(d1);
-            } else { break; }
-
-            if let Some(g1) = self.gap_1 {
-                dash_array.push(g1);
-            } else { break; }
-
-            if let Some(d2) = self.dash_2 {
-                dash_array.push(d2);
-            } else { break; }
-
-            if let Some(g2) = self.gap_2 {
-                dash_array.push(g2);
-            } else { break; }
-
-            if let Some(d3) = self.dash_3 {
-                dash_array.push(d3);
-            } else { break; }
-
-            if let Some(g3) = self.gap_3 {
-                dash_array.push(g3);
-            } else { break; }
-
-            break;
-        }
-
-        return (dash_array, self.offset);
+impl From<LineDashPattern> for (Vec<i64>, i64) {
+    fn from(val: LineDashPattern) -> Self {
+        (
+            [
+                val.dash_1, val.gap_1, val.dash_2, val.gap_2, val.dash_3, val.gap_3,
+            ]
+            .iter()
+            .copied()
+            .take_while(Option::is_some)
+            .flatten()
+            .collect(),
+            val.offset,
+        )
     }
-
 }
 
-impl Into<Operation> for LineDashPattern {
-    fn into(self)
-    -> Operation
-    {
-        let (dash_array, offset) = self.into();
+impl From<LineDashPattern> for Operation {
+    fn from(val: LineDashPattern) -> Self {
+        let (dash_array, offset) = val.into();
         let dash_array_ints = dash_array.into_iter().map(Integer).collect();
         Operation::new("d", vec![Array(dash_array_ints), Integer(offset)])
     }
 }
 
-impl Into<lopdf::Object> for LineDashPattern {
-    fn into(self)
-    -> lopdf::Object
-    {
+impl From<LineDashPattern> for lopdf::Object {
+    fn from(val: LineDashPattern) -> Self {
         use lopdf::Object::*;
-        let (dash_array, offset) = self.into();
+        let (dash_array, offset) = val.into();
         let mut dash_array_ints: Vec<lopdf::Object> = dash_array.into_iter().map(Integer).collect();
         dash_array_ints.push(Integer(offset));
         Array(dash_array_ints)
