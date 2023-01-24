@@ -275,17 +275,23 @@ impl ExternalFont {
         // scale the font width so that it sort-of fits into an 1000 unit square
         let percentage_font_scaling = 1000.0 / (face_metrics.units_per_em as f64);
 
-        for (gid, width) in widths {
-            if gid == current_high_gid {
-                current_width_vec.push(Integer((width as f64 * percentage_font_scaling) as i64));
-                current_high_gid += 1;
-            } else {
-                widths_list.push(Integer(current_low_gid as i64));
-                widths_list.push(Array(current_width_vec.drain(..).collect()));
+        for gid in 0..self.font_data.glyph_count() {
+            if let Some(GlyphMetrics { width, .. }) = self.font_data.glyph_metrics(gid) {
+                if gid == current_high_gid {
+                    current_width_vec
+                        .push(Integer((width as f64 * percentage_font_scaling) as i64));
+                    current_high_gid += 1;
+                } else {
+                    widths_list.push(Integer(current_low_gid as i64));
+                    widths_list.push(Array(current_width_vec.drain(..).collect()));
 
-                current_width_vec.push(Integer((width as f64 * percentage_font_scaling) as i64));
-                current_low_gid = gid;
-                current_high_gid = gid + 1;
+                    current_width_vec
+                        .push(Integer((width as f64 * percentage_font_scaling) as i64));
+                    current_low_gid = gid;
+                    current_high_gid = gid + 1;
+                }
+            } else {
+                continue;
             }
         }
         // push the last widths, because the loop is delayed by one iteration
@@ -507,6 +513,9 @@ pub trait FontData: FontDataClone + std::fmt::Debug {
     /// Returns a mapping from glyph IDs to Unicode characters for all supported characters.
     fn glyph_ids(&self) -> std::collections::HashMap<u16, char>;
 
+    /// Returns the number of glyphs in this font.
+    fn glyph_count(&self) -> u16;
+
     /// Returns the glyph metrics for a glyph of this font, if available.
     fn glyph_metrics(&self, glyph_id: u16) -> Option<GlyphMetrics>;
 }
@@ -569,6 +578,10 @@ impl FontData for TtfFace {
             })
         }
         map
+    }
+
+    fn glyph_count(&self) -> u16 {
+        self.face().number_of_glyphs()
     }
 
     fn glyph_metrics(&self, glyph_id: u16) -> Option<GlyphMetrics> {
