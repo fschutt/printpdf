@@ -404,7 +404,6 @@ impl PdfDocumentReference {
         use lopdf::Object::*;
         use lopdf::StringFormat::Literal;
         use lopdf::{Dictionary as LoDictionary, Object as LoObject};
-        use std::iter::FromIterator;
         use std::mem;
 
         // todo: remove unwrap, handle error

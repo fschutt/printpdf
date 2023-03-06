@@ -565,7 +565,6 @@ impl From<ExtendedGraphicsState> for lopdf::Object {
     /// comparison to the previous one are returned.
 
     fn from(val: ExtendedGraphicsState) -> Self {
-        use std::iter::FromIterator;
         let mut gs_operations = Vec::<(String, lopdf::Object)>::new();
 
         // for each field, look if it was contained in the "changed fields"
@@ -841,7 +840,6 @@ impl HalftoneType {
     }
 
     pub fn into_obj(self) -> Vec<lopdf::Object> {
-        use std::iter::FromIterator;
         vec![Dictionary(lopdf::Dictionary::from_iter(vec![
             ("Type", "Halftone".into()),
             ("HalftoneType", self.get_type().into()),

@@ -64,7 +64,6 @@ impl DocumentInfo {
         use lopdf::Dictionary as LoDictionary;
         use lopdf::Object::*;
         use lopdf::StringFormat::Literal;
-        use std::iter::FromIterator;
 
         let trapping = if m.trapping { "True" } else { "False" };
         let gts_pdfx_version = m.conformance.get_identifier_string();
