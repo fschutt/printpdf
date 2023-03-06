@@ -87,9 +87,7 @@ impl PdfPage {
 
         for (idx, mut layer) in self.layers.into_iter().enumerate() {
             // push OCG and q to the beginning of the layer
-            layer
-                .operations
-                .insert(0, Operation::new("q", vec![]));
+            layer.operations.insert(0, Operation::new("q", vec![]));
             layer.operations.insert(
                 0,
                 Operation::new(
