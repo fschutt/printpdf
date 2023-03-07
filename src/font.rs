@@ -163,12 +163,12 @@ impl ExternalFont {
     fn find_used_glyphs(&self, pages: &[PdfPage]) -> std::collections::HashSet<u16> {
         // TODO: This is almost the same code as `replace_glyphs`. Somehow reduce redundancy
         let mut used_glyphs = std::collections::HashSet::new();
-        for page in pages {
-            let operations = page
-                .layers
+
+        let layers = pages.iter().map(|page| page.layers.iter()).flatten();
+        for layer in layers {
+            let operations = layer
+                .operations
                 .iter()
-                .map(|layer| layer.operations.iter())
-                .flatten()
                 .map(|op| (&op.operator, &op.operands));
 
             let mut font_active = false;
@@ -213,12 +213,14 @@ impl ExternalFont {
     #[cfg(feature = "font_subsetting")]
     fn replace_glyphs(&self, pages: &mut [PdfPage], gid_mapping: &HashMap<u16, u16>) {
         // TODO: This is almost the same code as `find_used_glyphs`. Somehow reduce redundancy
-        for page in pages {
-            let operations = page
-                .layers
+        let layers = pages
+            .iter_mut()
+            .map(|page| page.layers.iter_mut())
+            .flatten();
+        for layer in layers {
+            let operations = layer
+                .operations
                 .iter_mut()
-                .map(|layer| layer.operations.iter_mut())
-                .flatten()
                 .map(|op| (&mut op.operator, &mut op.operands));
 
             let mut font_active = false;
@@ -281,17 +283,17 @@ impl ExternalFont {
         #[cfg(feature = "font_subsetting")]
         {
             let mut used_glyphs = self.find_used_glyphs(_pages);
+            // Don't include font if none of its glyphs are utilized
             if used_glyphs.is_empty() {
                 return None;
             }
 
-            let (new_font_bytes, gid_mapping) =
-                crate::subsetting::subset(&self.font_bytes, &mut used_glyphs);
-            self.replace_glyphs(_pages, &gid_mapping);
+            let font_subset = crate::subsetting::subset(&self.font_bytes, &mut used_glyphs);
+            self.replace_glyphs(_pages, &font_subset.gid_mapping);
             let font: Box<dyn FontData> =
-                Box::new(TtfFace::from_vec(new_font_bytes.clone()).unwrap());
+                Box::new(TtfFace::from_vec(font_subset.new_font_bytes.clone()).unwrap());
             font_data = font;
-            font_bytes = new_font_bytes;
+            font_bytes = font_subset.new_font_bytes;
         }
 
         #[cfg(not(feature = "font_subsetting"))]

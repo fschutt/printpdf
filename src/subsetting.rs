@@ -7,10 +7,13 @@ use allsorts::{
 };
 use std::collections::{HashMap, HashSet};
 
-pub(crate) fn subset(
-    font_bytes: &[u8],
-    used_glyphs: &mut HashSet<u16>,
-) -> (Vec<u8>, HashMap<u16, u16>) {
+pub(crate) struct FontSubset {
+    pub(crate) new_font_bytes: Vec<u8>,
+    /// Mapping from old GIDs (in the original font) to the new GIDs (in the new subset font)
+    pub(crate) gid_mapping: HashMap<u16, u16>,
+}
+
+pub(crate) fn subset(font_bytes: &[u8], used_glyphs: &mut HashSet<u16>) -> FontSubset {
     let font_file = ReadScope::new(font_bytes).read::<FontData<'_>>().unwrap();
     let provider = font_file.table_provider(0).unwrap();
     let cmap_data = provider.read_table_data(tag::CMAP).unwrap();
@@ -26,29 +29,15 @@ pub(crate) fn subset(
 
     glyph_ids.sort_unstable();
 
-    let mut gid_char_map = Vec::new();
-    cmap_subtable
-        .mappings_fn(|ch, gid| {
-            if used_glyphs.contains(&gid) {
-                gid_char_map.push((gid, ch));
-            }
-        })
-        .unwrap();
-
-    let new_font = allsorts::subset::subset(&provider, &glyph_ids).unwrap();
-
-    let font_file = ReadScope::new(&new_font).read::<FontData<'_>>().unwrap();
-    let provider = font_file.table_provider(0).unwrap();
-    let cmap_data = provider.read_table_data(tag::CMAP).unwrap();
-    let cmap = ReadScope::new(&cmap_data).read::<Cmap<'_>>().unwrap();
-    let (_, cmap_subtable) = read_cmap_subtable(&cmap).unwrap().unwrap();
+    let new_font_bytes = allsorts::subset::subset(&provider, &glyph_ids).unwrap();
 
     let mut gid_mapping = HashMap::new();
-    for (old_gid, ch) in gid_char_map {
-        let new_gid = cmap_subtable.map_glyph(ch).unwrap().unwrap();
-        gid_mapping.insert(old_gid, new_gid);
+    for (idx, old_gid) in glyph_ids.into_iter().enumerate() {
+        gid_mapping.insert(old_gid, idx as u16);
     }
 
-    drop(provider);
-    (new_font, gid_mapping)
+    FontSubset {
+        new_font_bytes,
+        gid_mapping,
+    }
 }
