@@ -198,11 +198,15 @@ impl ExternalFont {
             for (operator, operands) in operations {
                 match operator.as_str() {
                     "Tf" => {
-                        let font_name = operands[0].as_name_str().unwrap();
+                        let font_name = operands[0]
+                            .as_name_str()
+                            .expect("PDF Command 'Tf' not followed by Name operand");
                         font_active = font_name == &self.face_name;
                     }
                     "Tj" if font_active => {
-                        let gid_stream = operands[0].as_str().unwrap();
+                        let gid_stream = operands[0]
+                            .as_str()
+                            .expect("PDF Command 'Tj' not followed by String operand");
                         for b in gid_stream.chunks_exact(2) {
                             let gid = b[1] as u16 | ((b[0] as u16) << 8);
                             used_glyphs.insert(gid);
@@ -211,7 +215,7 @@ impl ExternalFont {
                     "TJ" if font_active => {
                         let text_sections = operands[0]
                             .as_array()
-                            .unwrap()
+                            .expect("PDF Command 'TJ' not followed by Array operand")
                             .into_iter()
                             .filter_map(|obj| obj.as_str().ok());
 
@@ -250,15 +254,19 @@ impl ExternalFont {
             for (operator, operands) in operations {
                 match operator.as_str() {
                     "Tf" => {
-                        let font_name = operands[0].as_name_str().unwrap();
+                        let font_name = operands[0]
+                            .as_name_str()
+                            .expect("PDF Command 'Tf' not followed by Name operand");
                         font_active = font_name == &self.face_name;
                     }
                     "Tj" if font_active => {
-                        let gid_stream = operands[0].as_str_mut().unwrap();
+                        let gid_stream = operands[0]
+                            .as_str_mut()
+                            .expect("PDF Command 'Tj' not followed by String operand");
                         for b in gid_stream.chunks_exact_mut(2) {
                             let gid = b[1] as u16 | ((b[0] as u16) << 8);
 
-                            let new_gid = gid_mapping.get(&gid).unwrap();
+                            let new_gid = gid_mapping.get(&gid).unwrap_or(&0);
                             b[0] = (new_gid >> 8) as u8;
                             b[1] = (new_gid & 0xff) as u8;
                         }
@@ -266,7 +274,7 @@ impl ExternalFont {
                     "TJ" if font_active => {
                         let text_sections = operands[0]
                             .as_array_mut()
-                            .unwrap()
+                            .expect("PDF Command 'TJ' not followed by Array operand")
                             .into_iter()
                             .filter_map(|obj| obj.as_str_mut().ok());
 
@@ -274,7 +282,7 @@ impl ExternalFont {
                             for b in gid_stream.chunks_exact_mut(2) {
                                 let gid = b[1] as u16 | ((b[0] as u16) << 8);
 
-                                let new_gid = gid_mapping.get(&gid).unwrap();
+                                let new_gid = gid_mapping.get(&gid).unwrap_or(&0);
                                 b[0] = (new_gid >> 8) as u8;
                                 b[1] = (new_gid & 0xff) as u8;
                             }
@@ -311,12 +319,29 @@ impl ExternalFont {
                     return None;
                 }
 
-                let font_subset = crate::subsetting::subset(&self.font_bytes, &mut used_glyphs);
-                self.replace_glyphs(_pages, &font_subset.gid_mapping);
-                let font: Box<dyn FontData> =
-                    Box::new(TtfFace::from_vec(font_subset.new_font_bytes.clone()).unwrap());
-                font_data = font;
-                font_bytes = font_subset.new_font_bytes;
+                // TODO: This is ugly and will silently fall back to no subsetting on errors
+                match crate::subsetting::subset(&self.font_bytes, &mut used_glyphs) {
+                    Ok(font_subset) => {
+                        match TtfFace::from_vec(font_subset.new_font_bytes.clone()) {
+                            Ok(face) => {
+                                let font: Box<dyn FontData> = Box::new(face);
+
+                                self.replace_glyphs(_pages, &font_subset.gid_mapping);
+
+                                font_data = font;
+                                font_bytes = font_subset.new_font_bytes;
+                            }
+                            Err(_) => {
+                                font_data = self.font_data;
+                                font_bytes = self.font_bytes;
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        font_data = self.font_data;
+                        font_bytes = self.font_bytes;
+                    }
+                }
             } else {
                 font_data = self.font_data;
                 font_bytes = self.font_bytes;
