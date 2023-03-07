@@ -310,6 +310,7 @@ impl PdfDocumentReference {
     }
 
     /// Add a font from a font stream and set the whether or not to allow subsetting the font
+    #[cfg(feature = "font_subsetting")]
     pub fn add_external_font_with_subsetting<R>(
         &self,
         font_stream: R,
@@ -351,6 +352,7 @@ impl PdfDocumentReference {
 
     /// Add a font from a custom font backend and set the whether or not to allow subsetting the
     /// font
+    #[cfg(feature = "font_subsetting")]
     pub fn add_external_font_data_with_subsetting<F>(
         &self,
         bytes: Vec<u8>,
