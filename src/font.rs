@@ -9,6 +9,7 @@ use owned_ttf_parser::{AsFaceRef as _, Face, OwnedFace};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::iter::FromIterator;
+use std::rc::Rc;
 
 /// The font
 #[derive(Debug, Clone, PartialEq)]
@@ -91,7 +92,7 @@ pub struct ExternalFont {
     /// Is the font written vertically? Default: false
     pub(crate) vertical_writing: bool,
     /// Is the font allowed to be subsetted (removing unused glyphs before embedding)? Default: true
-    pub(crate) allow_subsetting: RefCell<bool>,
+    pub(crate) allow_subsetting: Rc<RefCell<bool>>,
 }
 
 /// The text rendering mode determines how a text is drawn
@@ -157,7 +158,7 @@ impl ExternalFont {
             font_data,
             face_name,
             vertical_writing: false,
-            allow_subsetting: RefCell::new(true),
+            allow_subsetting: Rc::new(RefCell::new(true)),
         }
     }
 
