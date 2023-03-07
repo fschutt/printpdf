@@ -6,6 +6,7 @@ use lopdf;
 use lopdf::StringFormat;
 use lopdf::{Dictionary as LoDictionary, Stream as LoStream};
 use owned_ttf_parser::{AsFaceRef as _, Face, OwnedFace};
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::iter::FromIterator;
 
@@ -89,6 +90,8 @@ pub struct ExternalFont {
     pub(crate) face_name: String,
     /// Is the font written vertically? Default: false
     pub(crate) vertical_writing: bool,
+    /// Is the font allowed to be subsetted (removing unused glyphs before embedding)? Default: true
+    pub(crate) allow_subsetting: RefCell<bool>,
 }
 
 /// The text rendering mode determines how a text is drawn
@@ -154,7 +157,25 @@ impl ExternalFont {
             font_data,
             face_name,
             vertical_writing: false,
+            allow_subsetting: RefCell::new(true),
         }
+    }
+
+    /// Set whether or not to allow subsetting for the font. If subsetting is set to true, unused
+    /// glyphs will be removed before embedding the font into the PDF file. By default this is set
+    /// to `true`
+    #[cfg(feature = "font_subsetting")]
+    pub fn set_allow_subsetting(&self, allow_subsetting: bool) {
+        *self.allow_subsetting.borrow_mut() = allow_subsetting;
+    }
+
+    /// Set whether or not to allow subsetting for the font. If subsetting is set to true, unused
+    /// glyphs will be removed before embedding the font into the PDF file. By default this is set
+    /// to `true`
+    #[cfg(feature = "font_subsetting")]
+    pub fn with_allow_subsetting(self, allow_subsetting: bool) -> Self {
+        *self.allow_subsetting.borrow_mut() = allow_subsetting;
+        self
     }
 
     /// Iterate through all layers of the provided pages and build a Set of all Glyph IDs that were
@@ -282,18 +303,23 @@ impl ExternalFont {
 
         #[cfg(feature = "font_subsetting")]
         {
-            let mut used_glyphs = self.find_used_glyphs(_pages);
-            // Don't include font if none of its glyphs are utilized
-            if used_glyphs.is_empty() {
-                return None;
-            }
+            if *self.allow_subsetting.borrow() {
+                let mut used_glyphs = self.find_used_glyphs(_pages);
+                // Don't include font if none of its glyphs are utilized
+                if used_glyphs.is_empty() {
+                    return None;
+                }
 
-            let font_subset = crate::subsetting::subset(&self.font_bytes, &mut used_glyphs);
-            self.replace_glyphs(_pages, &font_subset.gid_mapping);
-            let font: Box<dyn FontData> =
-                Box::new(TtfFace::from_vec(font_subset.new_font_bytes.clone()).unwrap());
-            font_data = font;
-            font_bytes = font_subset.new_font_bytes;
+                let font_subset = crate::subsetting::subset(&self.font_bytes, &mut used_glyphs);
+                self.replace_glyphs(_pages, &font_subset.gid_mapping);
+                let font: Box<dyn FontData> =
+                    Box::new(TtfFace::from_vec(font_subset.new_font_bytes.clone()).unwrap());
+                font_data = font;
+                font_bytes = font_subset.new_font_bytes;
+            } else {
+                font_data = self.font_data;
+                font_bytes = self.font_bytes;
+            }
         }
 
         #[cfg(not(feature = "font_subsetting"))]

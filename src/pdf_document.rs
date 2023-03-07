@@ -291,7 +291,6 @@ impl PdfDocumentReference {
         let mut doc = self.document.borrow_mut();
         doc.bookmarks.insert(page.0, name.into());
     }
-
     /// Add a font from a font stream
     pub fn add_external_font<R>(
         &self,
@@ -308,6 +307,27 @@ impl PdfDocumentReference {
         let external_font_name = external_font.face_name.clone();
         let font = Font::ExternalFont(external_font);
         implement_adding_fonts!(self, external_font_name, font)
+    }
+
+    /// Add a font from a font stream and set the whether or not to allow subsetting the font
+    pub fn add_external_font_with_subsetting<R>(
+        &self,
+        font_stream: R,
+        allow_subsetting: bool,
+    ) -> ::std::result::Result<IndirectFontRef, Error>
+    where
+        R: ::std::io::Read,
+    {
+        let font = self.add_external_font(font_stream);
+        if let Ok(font) = &font {
+            match self.document.borrow().fonts.get_font(&font).unwrap().data {
+                Font::ExternalFont(ex_font) => {
+                    *ex_font.allow_subsetting.borrow_mut() = allow_subsetting
+                }
+                Font::BuiltinFont(_) => unreachable!(),
+            }
+        }
+        font
     }
 
     /// Add a font from a custom font backend
@@ -327,6 +347,29 @@ impl PdfDocumentReference {
         let external_font_name = external_font.face_name.clone();
         let font = Font::ExternalFont(external_font);
         implement_adding_fonts!(self, external_font_name, font)
+    }
+
+    /// Add a font from a custom font backend and set the whether or not to allow subsetting the
+    /// font
+    pub fn add_external_font_data_with_subsetting<F>(
+        &self,
+        bytes: Vec<u8>,
+        data: F,
+        allow_subsetting: bool,
+    ) -> Result<IndirectFontRef, Error>
+    where
+        F: FontData + 'static,
+    {
+        let font = self.add_external_font_data(bytes, data);
+        if let Ok(font) = &font {
+            match self.document.borrow().fonts.get_font(&font).unwrap().data {
+                Font::ExternalFont(ex_font) => {
+                    *ex_font.allow_subsetting.borrow_mut() = allow_subsetting
+                }
+                Font::BuiltinFont(_) => unreachable!(),
+            }
+        }
+        font
     }
 
     /// Add a built-in font to the document
@@ -574,7 +617,9 @@ impl PdfDocumentReference {
         let mut font_dict_id = None;
 
         // add all fonts / other resources shared in the whole document
-        let fonts_dict: lopdf::Dictionary = doc.fonts.into_with_document(&mut doc.inner_doc, &mut doc.pages);
+        let fonts_dict: lopdf::Dictionary = doc
+            .fonts
+            .into_with_document(&mut doc.inner_doc, &mut doc.pages);
 
         if !fonts_dict.is_empty() {
             font_dict_id = Some(doc.inner_doc.add_object(Dictionary(fonts_dict)));
