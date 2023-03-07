@@ -574,7 +574,7 @@ impl PdfDocumentReference {
         let mut font_dict_id = None;
 
         // add all fonts / other resources shared in the whole document
-        let fonts_dict: lopdf::Dictionary = doc.fonts.into_with_document(&mut doc.inner_doc);
+        let fonts_dict: lopdf::Dictionary = doc.fonts.into_with_document(&mut doc.inner_doc, &mut doc.pages);
 
         if !fonts_dict.is_empty() {
             font_dict_id = Some(doc.inner_doc.add_object(Dictionary(fonts_dict)));

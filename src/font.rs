@@ -1,12 +1,12 @@
 #![allow(trivial_numeric_casts)]
 
 //! Embedding fonts in 2D for Pdf
-use crate::{Error, PdfError};
+use crate::{Error, PdfError, PdfPage};
 use lopdf;
 use lopdf::StringFormat;
 use lopdf::{Dictionary as LoDictionary, Stream as LoStream};
 use owned_ttf_parser::{AsFaceRef as _, Face, OwnedFace};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::iter::FromIterator;
 
 /// The font
@@ -157,19 +157,150 @@ impl ExternalFont {
         }
     }
 
+    /// Iterate through all layers of the provided pages and build a Set of all Glyph IDs that were
+    /// used at least once
+    #[cfg(feature = "font_subsetting")]
+    fn find_used_glyphs(&self, pages: &[PdfPage]) -> std::collections::HashSet<u16> {
+        // TODO: This is almost the same code as `replace_glyphs`. Somehow reduce redundancy
+        let mut used_glyphs = std::collections::HashSet::new();
+        for page in pages {
+            let operations = page
+                .layers
+                .iter()
+                .map(|layer| layer.operations.iter())
+                .flatten()
+                .map(|op| (&op.operator, &op.operands));
+
+            let mut font_active = false;
+
+            for (operator, operands) in operations {
+                match operator.as_str() {
+                    "Tf" => {
+                        let font_name = operands[0].as_name_str().unwrap();
+                        font_active = font_name == &self.face_name;
+                    }
+                    "Tj" if font_active => {
+                        let gid_stream = operands[0].as_str().unwrap();
+                        for b in gid_stream.chunks_exact(2) {
+                            let gid = b[1] as u16 | ((b[0] as u16) << 8);
+                            used_glyphs.insert(gid);
+                        }
+                    }
+                    "TJ" if font_active => {
+                        let text_sections = operands[0]
+                            .as_array()
+                            .unwrap()
+                            .into_iter()
+                            .filter_map(|obj| obj.as_str().ok());
+
+                        for gid_stream in text_sections {
+                            for b in gid_stream.chunks_exact(2) {
+                                let gid = b[1] as u16 | ((b[0] as u16) << 8);
+                                used_glyphs.insert(gid);
+                            }
+                        }
+                    }
+                    _ => (),
+                }
+            }
+        }
+
+        used_glyphs
+    }
+
+    /// Iterate through all layers of the provided pages and replace the Glyph ID according to the
+    /// mapping
+    #[cfg(feature = "font_subsetting")]
+    fn replace_glyphs(&self, pages: &mut [PdfPage], gid_mapping: &HashMap<u16, u16>) {
+        // TODO: This is almost the same code as `find_used_glyphs`. Somehow reduce redundancy
+        for page in pages {
+            let operations = page
+                .layers
+                .iter_mut()
+                .map(|layer| layer.operations.iter_mut())
+                .flatten()
+                .map(|op| (&mut op.operator, &mut op.operands));
+
+            let mut font_active = false;
+
+            for (operator, operands) in operations {
+                match operator.as_str() {
+                    "Tf" => {
+                        let font_name = operands[0].as_name_str().unwrap();
+                        font_active = font_name == &self.face_name;
+                    }
+                    "Tj" if font_active => {
+                        let gid_stream = operands[0].as_str_mut().unwrap();
+                        for b in gid_stream.chunks_exact_mut(2) {
+                            let gid = b[1] as u16 | ((b[0] as u16) << 8);
+
+                            let new_gid = gid_mapping.get(&gid).unwrap();
+                            b[0] = (new_gid >> 8) as u8;
+                            b[1] = (new_gid & 0xff) as u8;
+                        }
+                    }
+                    "TJ" if font_active => {
+                        let text_sections = operands[0]
+                            .as_array_mut()
+                            .unwrap()
+                            .into_iter()
+                            .filter_map(|obj| obj.as_str_mut().ok());
+
+                        for gid_stream in text_sections {
+                            for b in gid_stream.chunks_exact_mut(2) {
+                                let gid = b[1] as u16 | ((b[0] as u16) << 8);
+
+                                let new_gid = gid_mapping.get(&gid).unwrap();
+                                b[0] = (new_gid >> 8) as u8;
+                                b[1] = (new_gid & 0xff) as u8;
+                            }
+                        }
+                    }
+                    _ => (),
+                }
+            }
+        }
+    }
+
     /// Takes the font and adds it to the document and consumes the font
-    pub(crate) fn into_with_document(self, doc: &mut lopdf::Document) -> LoDictionary {
+    pub(crate) fn into_with_document(
+        self,
+        doc: &mut lopdf::Document,
+        _pages: &mut [PdfPage],
+    ) -> LoDictionary {
         use lopdf::Object;
         use lopdf::Object::*;
 
         let face_name = self.face_name.clone();
 
+        let font_data;
+        let font_bytes;
+
+        #[cfg(feature = "font_subsetting")]
+        {
+            let mut used_glyphs = self.find_used_glyphs(_pages);
+
+            let (new_font_bytes, gid_mapping) =
+                crate::subsetting::subset(&self.font_bytes, &mut used_glyphs);
+            self.replace_glyphs(_pages, &gid_mapping);
+            let font: Box<dyn FontData> =
+                Box::new(TtfFace::from_vec(new_font_bytes.clone()).unwrap());
+            font_data = font;
+            font_bytes = new_font_bytes;
+        }
+
+        #[cfg(not(feature = "font_subsetting"))]
+        {
+            font_data = self.font_data;
+            font_bytes = self.font_bytes;
+        }
+
         // Extract basic font information
-        let face_metrics = self.font_data.font_metrics();
+        let face_metrics = font_data.font_metrics();
 
         let font_stream = LoStream::new(
-            LoDictionary::from_iter(vec![("Length1", Integer(self.font_bytes.len() as i64))]),
-            self.font_bytes,
+            LoDictionary::from_iter(vec![("Length1", Integer(font_bytes.len() as i64))]),
+            font_bytes,
         )
         .with_compression(false); /* important! font stream must not be compressed! */
 
@@ -208,8 +339,8 @@ impl ExternalFont {
         let mut cmap = BTreeMap::<u32, (u32, u32, u32)>::new();
         cmap.insert(0, (0, 1000, 1000));
 
-        for (glyph_id, c) in self.font_data.glyph_ids() {
-            if let Some(glyph_metrics) = self.font_data.glyph_metrics(glyph_id) {
+        for (glyph_id, c) in font_data.glyph_ids() {
+            if let Some(glyph_metrics) = font_data.glyph_metrics(glyph_id) {
                 if glyph_metrics.height > max_height {
                     max_height = glyph_metrics.height;
                 }
@@ -275,8 +406,8 @@ impl ExternalFont {
         // scale the font width so that it sort-of fits into an 1000 unit square
         let percentage_font_scaling = 1000.0 / (face_metrics.units_per_em as f64);
 
-        for gid in 0..self.font_data.glyph_count() {
-            if let Some(GlyphMetrics { width, .. }) = self.font_data.glyph_metrics(gid) {
+        for gid in 0..font_data.glyph_count() {
+            if let Some(GlyphMetrics { width, .. }) = font_data.glyph_metrics(gid) {
                 if gid == current_high_gid {
                     current_width_vec
                         .push(Integer((width as f64 * percentage_font_scaling) as i64));
@@ -453,12 +584,16 @@ impl FontList {
     }
 
     /// Converts the fonts into a dictionary
-    pub(crate) fn into_with_document(self, doc: &mut lopdf::Document) -> lopdf::Dictionary {
+    pub(crate) fn into_with_document(
+        self,
+        doc: &mut lopdf::Document,
+        pages: &mut [PdfPage],
+    ) -> lopdf::Dictionary {
         let mut font_dict = lopdf::Dictionary::new();
 
         for (indirect_ref, direct_font_ref) in self.fonts {
             let font_dict_collected = match direct_font_ref.data {
-                Font::ExternalFont(font) => font.into_with_document(doc),
+                Font::ExternalFont(font) => font.into_with_document(doc, pages),
                 Font::BuiltinFont(font) => font.into(),
             };
 
@@ -511,7 +646,7 @@ pub trait FontData: FontDataClone + std::fmt::Debug {
     fn glyph_id(&self, c: char) -> Option<u16>;
 
     /// Returns a mapping from glyph IDs to Unicode characters for all supported characters.
-    fn glyph_ids(&self) -> std::collections::HashMap<u16, char>;
+    fn glyph_ids(&self) -> HashMap<u16, char>;
 
     /// Returns the number of glyphs in this font.
     fn glyph_count(&self) -> u16;
@@ -559,13 +694,12 @@ impl FontData for TtfFace {
         self.face().glyph_index(c).map(|id| id.0)
     }
 
-    fn glyph_ids(&self) -> std::collections::HashMap<u16, char> {
+    fn glyph_ids(&self) -> HashMap<u16, char> {
         let subtables = self
             .face()
             .character_mapping_subtables()
             .filter(|s| s.is_unicode());
-        let mut map =
-            std::collections::HashMap::with_capacity(self.face().number_of_glyphs().into());
+        let mut map = HashMap::with_capacity(self.face().number_of_glyphs().into());
         for subtable in subtables {
             subtable.codepoints(|c| {
                 use std::convert::TryFrom as _;

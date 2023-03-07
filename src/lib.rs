@@ -357,6 +357,8 @@ pub mod svg;
 pub mod utils;
 pub mod xmp_metadata;
 pub mod xobject;
+#[cfg(feature = "font_subsetting")]
+pub(crate) mod subsetting;
 
 pub(crate) mod glob_defines {
 
