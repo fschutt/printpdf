@@ -262,12 +262,14 @@ impl ExternalFont {
         }
     }
 
-    /// Takes the font and adds it to the document and consumes the font
+    /// Takes the font and adds it to the document and consumes the font.
+    ///
+    /// Returns None if the font doesn't need to be embedded
     pub(crate) fn into_with_document(
         self,
         doc: &mut lopdf::Document,
         _pages: &mut [PdfPage],
-    ) -> LoDictionary {
+    ) -> Option<LoDictionary> {
         use lopdf::Object;
         use lopdf::Object::*;
 
@@ -279,6 +281,9 @@ impl ExternalFont {
         #[cfg(feature = "font_subsetting")]
         {
             let mut used_glyphs = self.find_used_glyphs(_pages);
+            if used_glyphs.is_empty() {
+                return None;
+            }
 
             let (new_font_bytes, gid_mapping) =
                 crate::subsetting::subset(&self.font_bytes, &mut used_glyphs);
@@ -483,7 +488,7 @@ impl ExternalFont {
         ));
         font_vec.push(("ToUnicode".into(), Reference(cid_to_unicode_map_stream_id)));
 
-        LoDictionary::from_iter(font_vec)
+        Some(LoDictionary::from_iter(font_vec))
     }
 }
 
@@ -593,7 +598,10 @@ impl FontList {
 
         for (indirect_ref, direct_font_ref) in self.fonts {
             let font_dict_collected = match direct_font_ref.data {
-                Font::ExternalFont(font) => font.into_with_document(doc, pages),
+                Font::ExternalFont(font) => match font.into_with_document(doc, pages) {
+                    Some(dict) => dict,
+                    None => continue,
+                },
                 Font::BuiltinFont(font) => font.into(),
             };
 
