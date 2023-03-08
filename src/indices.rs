@@ -16,10 +16,9 @@ pub struct PdfContentIndex(pub(crate) usize);
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct FontIndex(pub(crate) PdfContentIndex);
 
-impl Into<PdfContentIndex> for FontIndex {
-    fn into(self) -> PdfContentIndex
-    {
-        self.0
+impl From<FontIndex> for PdfContentIndex {
+    fn from(val: FontIndex) -> Self {
+        val.0
     }
 }
 
@@ -27,9 +26,8 @@ impl Into<PdfContentIndex> for FontIndex {
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct SvgIndex(pub(crate) PdfContentIndex);
 
-impl Into<PdfContentIndex> for SvgIndex {
-    fn into(self) -> PdfContentIndex
-    {
-        self.0
+impl From<SvgIndex> for PdfContentIndex {
+    fn from(val: SvgIndex) -> Self {
+        val.0
     }
 }

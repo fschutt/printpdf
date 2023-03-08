@@ -108,60 +108,61 @@
 //! current_layer.add_shape(line2);
 //! ```
 //!
-//! ### Adding images
-//!
-//! Note: Images only get compressed in release mode. You might get huge PDFs (6 or more MB) in
-//! debug mode. In release mode, the compression makes these files much smaller (~ 100 - 200 KB).
-//!
-//! To make this process faster, use `BufReader` instead of directly reading from the file.
-//! Images are currently not a top priority.
-//!
-//! Scaling of images is implicitly done to fit one pixel = one dot at 300 dpi.
-//!
-//! ```rust
-//! // Compile with --feature="embedded_images"
-//! extern crate printpdf;
-//!
-//! // imports the `image` library with the exact version that we are using
-//! use printpdf::*;
-//!
-//! use std::convert::From;
-//! use std::convert::TryFrom;
-//! use std::fs::File;
-//!
-//! fn main() {
-//!     let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", Mm(247.0), Mm(210.0), "Layer 1");
-//!     let current_layer = doc.get_page(page1).get_layer(layer1);
-//!
-//!     // currently, the only reliable file formats are bmp/jpeg/png
-//!     // this is an issue of the image library, not a fault of printpdf
-//!     let mut image_file = File::open("assets/img/BMP_test.bmp").unwrap();
-//!     let image = Image::try_from(image_crate::codecs::bmp::BmpDecoder::new(&mut image_file).unwrap()).unwrap();
-//!
-//!     // translate x, translate y, rotate, scale x, scale y
-//!     // by default, an image is optimized to 300 DPI (if scale is None)
-//!     // rotations and translations are always in relation to the lower left corner
-//!     image.add_to_layer(current_layer.clone(), ImageTransform::default());
-//!
-//!     // you can also construct images manually from your data:
-//!     let mut image_file_2 = ImageXObject {
-//!         width: Px(200),
-//!         height: Px(200),
-//!         color_space: ColorSpace::Greyscale,
-//!         bits_per_component: ColorBits::Bit8,
-//!         interpolate: true,
-//!         /* put your bytes here. Make sure the total number of bytes =
-//!            width * height * (bytes per component * number of components)
-//!            (e.g. 2 (bytes) x 3 (colors) for RGB 16bit) */
-//!         image_data: Vec::new(),
-//!         image_filter: None, /* does not work yet */
-//!         clipping_bbox: None, /* doesn't work either, untested */
-//!     };
-//!
-//!     let image2 = Image::from(image_file_2);
-//! }
-//! ```
-//!
+#![cfg_attr(feature = "embedded_images", doc = r##"
+### Adding images
+
+Note: Images only get compressed in release mode. You might get huge PDFs (6 or more MB) in
+debug mode. In release mode, the compression makes these files much smaller (~ 100 - 200 KB).
+
+To make this process faster, use `BufReader` instead of directly reading from the file.
+Images are currently not a top priority.
+
+Scaling of images is implicitly done to fit one pixel = one dot at 300 dpi.
+
+```rust
+// Compile with --feature="embedded_images"
+extern crate printpdf;
+
+// imports the `image` library with the exact version that we are using
+use printpdf::*;
+
+use std::convert::From;
+use std::convert::TryFrom;
+use std::fs::File;
+
+fn main() {
+    let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", Mm(247.0), Mm(210.0), "Layer 1");
+    let current_layer = doc.get_page(page1).get_layer(layer1);
+
+    // currently, the only reliable file formats are bmp/jpeg/png
+    // this is an issue of the image library, not a fault of printpdf
+    let mut image_file = File::open("assets/img/BMP_test.bmp").unwrap();
+    let image = Image::try_from(image_crate::codecs::bmp::BmpDecoder::new(&mut image_file).unwrap()).unwrap();
+
+    // translate x, translate y, rotate, scale x, scale y
+    // by default, an image is optimized to 300 DPI (if scale is None)
+    // rotations and translations are always in relation to the lower left corner
+    image.add_to_layer(current_layer.clone(), ImageTransform::default());
+
+    // you can also construct images manually from your data:
+    let mut image_file_2 = ImageXObject {
+        width: Px(200),
+        height: Px(200),
+        color_space: ColorSpace::Greyscale,
+        bits_per_component: ColorBits::Bit8,
+        interpolate: true,
+        /* put your bytes here. Make sure the total number of bytes =
+           width * height * (bytes per component * number of components)
+           (e.g. 2 (bytes) x 3 (colors) for RGB 16bit) */
+        image_data: Vec::new(),
+        image_filter: None, /* does not work yet */
+        clipping_bbox: None, /* doesn't work either, untested */
+    };
+
+    let image2 = Image::from(image_file_2);
+}
+```
+"##)]
 //! ### Adding fonts
 //!
 //! Note: Fonts are shared between pages. This means that they are added to the document first
@@ -306,40 +307,26 @@
 //!
 //! [PDF X/3 technical notes](http://www.pdfxreport.com/lib/exe/fetch.php?media=en:technote_pdfx_checks.pdf)
 
-#![warn(missing_copy_implementations,
-        trivial_numeric_casts,
-        trivial_casts,
-        unused_extern_crates,
-        unused_import_braces,
-        unused_qualifications)]
-
-#![cfg_attr(feature="clippy", warn(cast_possible_truncation))]
-#![cfg_attr(feature="clippy", warn(cast_possible_truncation))]
-#![cfg_attr(feature="clippy", warn(cast_precision_loss))]
-#![cfg_attr(feature="clippy", warn(cast_sign_loss))]
-#![cfg_attr(feature="clippy", warn(missing_docs_in_private_items))]
-#![cfg_attr(feature="clippy", warn(mut_mut))]
-
+#![warn(
+    missing_copy_implementations,
+    trivial_numeric_casts,
+    trivial_casts,
+    unused_extern_crates,
+    unused_import_braces,
+    unused_qualifications
+)]
 // Disallow `println!`. Use `debug!` for debug output
 // (which is provided by the `log` crate).
-#![cfg_attr(feature="clippy", warn(print_stdout))]
-
-#![cfg_attr(all(not(test), feature="clippy"), warn(result_unwrap_used))]
-#![cfg_attr(feature="clippy", warn(unseparated_literal_suffix))]
-#![cfg_attr(feature="clippy", warn(wrong_pub_self_convention))]
+#![cfg_attr(all(not(test), feature = "clippy"), warn(result_unwrap_used))]
 
 #[cfg(feature = "logging")]
 #[macro_use]
 pub extern crate log;
 #[cfg(feature = "embedded_images")]
 pub extern crate image as image_crate;
-pub extern crate lopdf;
-extern crate owned_ttf_parser;
-#[cfg(feature = "svg")]
-extern crate pdf_writer;
-extern crate time;
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 extern crate js_sys;
+pub use lopdf;
 
 pub mod color;
 pub mod ctm;
@@ -376,68 +363,66 @@ pub(crate) mod glob_defines {
     /// ## General graphics state
 
     /// Set line width
-    pub const OP_PATH_STATE_SET_LINE_WIDTH: &str                 = "w";
+    pub const OP_PATH_STATE_SET_LINE_WIDTH: &str = "w";
     /// Set line join
-    pub const OP_PATH_STATE_SET_LINE_JOIN: &str                  = "J";
+    pub const OP_PATH_STATE_SET_LINE_JOIN: &str = "J";
     /// Set line cap
-    pub const OP_PATH_STATE_SET_LINE_CAP: &str                   = "j";
+    pub const OP_PATH_STATE_SET_LINE_CAP: &str = "j";
     /// Set miter limit
-    pub const OP_PATH_STATE_SET_MITER_LIMIT: &str                = "M";
+    pub const OP_PATH_STATE_SET_MITER_LIMIT: &str = "M";
     /// Set line dash pattern
-    pub const OP_PATH_STATE_SET_LINE_DASH: &str                  = "d";
+    pub const OP_PATH_STATE_SET_LINE_DASH: &str = "d";
     /// Set rendering intent
-    pub const OP_PATH_STATE_SET_RENDERING_INTENT: &str           = "ri";
+    pub const OP_PATH_STATE_SET_RENDERING_INTENT: &str = "ri";
     /// Set flatness tolerance
-    pub const OP_PATH_STATE_SET_FLATNESS_TOLERANCE: &str         = "i";
+    pub const OP_PATH_STATE_SET_FLATNESS_TOLERANCE: &str = "i";
     /// (PDF 1.2) Set graphics state from parameter dictionary
-    pub const OP_PATH_STATE_SET_GS_FROM_PARAM_DICT: &str         = "gs";
-
+    pub const OP_PATH_STATE_SET_GS_FROM_PARAM_DICT: &str = "gs";
 
     /// ## Color
 
     /// stroking color space (PDF 1.1)
-    pub const OP_COLOR_SET_STROKE_CS: &str                       = "CS";
+    pub const OP_COLOR_SET_STROKE_CS: &str = "CS";
     /// non-stroking color space (PDF 1.1)
-    pub const OP_COLOR_SET_FILL_CS: &str                         = "cs";
+    pub const OP_COLOR_SET_FILL_CS: &str = "cs";
     /// set stroking color (PDF 1.1)
-    pub const OP_COLOR_SET_STROKE_COLOR: &str                    = "SC";
+    pub const OP_COLOR_SET_STROKE_COLOR: &str = "SC";
     /// set stroking color (PDF 1.2) with support for ICC, etc.
-    pub const OP_COLOR_SET_STROKE_COLOR_ICC: &str                = "SCN";
+    pub const OP_COLOR_SET_STROKE_COLOR_ICC: &str = "SCN";
     /// set fill color (PDF 1.1)
-    pub const OP_COLOR_SET_FILL_COLOR: &str                      = "sc";
+    pub const OP_COLOR_SET_FILL_COLOR: &str = "sc";
     /// set fill color (PDF 1.2) with support for Icc, etc.
-    pub const OP_COLOR_SET_FILL_COLOR_ICC: &str                  = "scn";
+    pub const OP_COLOR_SET_FILL_COLOR_ICC: &str = "scn";
 
     /// Set the stroking color space to DeviceGray
-    pub const OP_COLOR_SET_STROKE_CS_DEVICEGRAY: &str            = "G";
+    pub const OP_COLOR_SET_STROKE_CS_DEVICEGRAY: &str = "G";
     /// Set the fill color space to DeviceGray
-    pub const OP_COLOR_SET_FILL_CS_DEVICEGRAY: &str              = "g";
+    pub const OP_COLOR_SET_FILL_CS_DEVICEGRAY: &str = "g";
     /// Set the stroking color space to DeviceRGB
-    pub const OP_COLOR_SET_STROKE_CS_DEVICERGB: &str             = "RG";
+    pub const OP_COLOR_SET_STROKE_CS_DEVICERGB: &str = "RG";
     /// Set the fill color space to DeviceRGB
-    pub const OP_COLOR_SET_FILL_CS_DEVICERGB: &str               = "rg";
+    pub const OP_COLOR_SET_FILL_CS_DEVICERGB: &str = "rg";
     /// Set the stroking color space to DeviceCMYK
-    pub const OP_COLOR_SET_STROKE_CS_DEVICECMYK: &str            = "K";
+    pub const OP_COLOR_SET_STROKE_CS_DEVICECMYK: &str = "K";
     /// Set the fill color to DeviceCMYK
-    pub const OP_COLOR_SET_FILL_CS_DEVICECMYK: &str              = "k";
-
+    pub const OP_COLOR_SET_FILL_CS_DEVICECMYK: &str = "k";
 
     /// Path construction
 
     /// Move to point
-    pub const OP_PATH_CONST_MOVE_TO: &str                        = "m";
+    pub const OP_PATH_CONST_MOVE_TO: &str = "m";
     /// Straight line to the two following points
-    pub const OP_PATH_CONST_LINE_TO: &str                        = "l";
+    pub const OP_PATH_CONST_LINE_TO: &str = "l";
     /// Cubic bezier over four following points
-    pub const OP_PATH_CONST_4BEZIER: &str                        = "c";
+    pub const OP_PATH_CONST_4BEZIER: &str = "c";
     /// Cubic bezier with two points in v1
-    pub const OP_PATH_CONST_3BEZIER_V1: &str                     = "v";
+    pub const OP_PATH_CONST_3BEZIER_V1: &str = "v";
     /// Cubic bezier with two points in v2
-    pub const OP_PATH_CONST_3BEZIER_V2: &str                     = "y";
+    pub const OP_PATH_CONST_3BEZIER_V2: &str = "y";
     /// Add rectangle to the path (width / height): x y width height re
-    pub const OP_PATH_CONST_RECT: &str                           = "re";
+    pub const OP_PATH_CONST_RECT: &str = "re";
     /// Close current sub-path (for appending custom patterns along line)
-    pub const OP_PATH_CONST_CLOSE_SUBPATH: &str                  = "h";
+    pub const OP_PATH_CONST_CLOSE_SUBPATH: &str = "h";
     /// Current path is a clip path, non-zero winding order (usually in like `h W S`)
     pub const OP_PATH_CONST_CLIP_NZ: &str = "W";
     /// Current path is a clip path, non-zero winding order
@@ -446,25 +431,25 @@ pub(crate) mod glob_defines {
     /// Path painting
 
     /// Stroke path
-    pub const OP_PATH_PAINT_STROKE: &str                         = "S";
+    pub const OP_PATH_PAINT_STROKE: &str = "S";
     /// Close and stroke path
-    pub const OP_PATH_PAINT_STROKE_CLOSE: &str                   = "s";
+    pub const OP_PATH_PAINT_STROKE_CLOSE: &str = "s";
     /// Fill path using nonzero winding number rule
-    pub const OP_PATH_PAINT_FILL_NZ: &str                        = "f";
+    pub const OP_PATH_PAINT_FILL_NZ: &str = "f";
     /// Fill path using nonzero winding number rule (obsolete)
-    pub const OP_PATH_PAINT_FILL_NZ_OLD: &str                    = "F";
+    pub const OP_PATH_PAINT_FILL_NZ_OLD: &str = "F";
     /// Fill path using even-odd rule
-    pub const OP_PATH_PAINT_FILL_EO: &str                        = "f*";
+    pub const OP_PATH_PAINT_FILL_EO: &str = "f*";
     /// Fill and stroke path using nonzero winding number rule
-    pub const OP_PATH_PAINT_FILL_STROKE_NZ: &str                 = "B";
+    pub const OP_PATH_PAINT_FILL_STROKE_NZ: &str = "B";
     /// Close, fill and stroke path using nonzero winding number rule
-    pub const OP_PATH_PAINT_FILL_STROKE_CLOSE_NZ: &str           = "b";
+    pub const OP_PATH_PAINT_FILL_STROKE_CLOSE_NZ: &str = "b";
     /// Fill and stroke path using even-odd rule
-    pub const OP_PATH_PAINT_FILL_STROKE_EO: &str                 = "B*";
+    pub const OP_PATH_PAINT_FILL_STROKE_EO: &str = "B*";
     /// Close, fill and stroke path using even odd rule
-    pub const OP_PATH_PAINT_FILL_STROKE_CLOSE_EO: &str           = "b*";
+    pub const OP_PATH_PAINT_FILL_STROKE_CLOSE_EO: &str = "b*";
     /// End path without filling or stroking
-    pub const OP_PATH_PAINT_END: &str                            = "n";
+    pub const OP_PATH_PAINT_END: &str = "n";
 }
 
 #[doc(inline)]

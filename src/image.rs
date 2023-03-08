@@ -1,9 +1,9 @@
 //! Abstraction class for images. Please use this class
 //! instead of adding `ImageXObjects` yourself
 
+use crate::{ImageXObject, Mm, PdfLayerReference, Px};
 #[cfg(feature = "embedded_images")]
-use image_crate::{self, ImageDecoder, DynamicImage};
-use crate::{Mm, Px, ImageXObject, PdfLayerReference};
+use image_crate::{self, DynamicImage, ImageDecoder};
 
 /// Image - wrapper around an `ImageXObject` to allow for more control
 /// within the library
@@ -14,30 +14,19 @@ pub struct Image {
 }
 
 impl From<ImageXObject> for Image {
-    fn from(image: ImageXObject)
-    -> Self
-    {
-        Self {
-            image,
-        }
+    fn from(image: ImageXObject) -> Self {
+        Self { image }
     }
-
 }
 
 #[cfg(feature = "embedded_images")]
 impl<'a> Image {
-    pub fn try_from<T: ImageDecoder<'a>>(image: T)
-    -> Result<Self, image_crate::ImageError>
-    {
+    pub fn try_from<T: ImageDecoder<'a>>(image: T) -> Result<Self, image_crate::ImageError> {
         let image = ImageXObject::try_from(image)?;
-        Ok(Self {
-            image,
-        })
+        Ok(Self { image })
     }
 
-    pub fn from_dynamic_image(image: &DynamicImage)
-    -> Self
-    {
+    pub fn from_dynamic_image(image: &DynamicImage) -> Self {
         Self {
             image: ImageXObject::from_dynamic_image(image),
         }
@@ -67,7 +56,6 @@ pub struct ImageRotation {
 }
 
 impl Image {
-
     /// Adds the image to a specific layer and consumes it.
     ///
     /// This is due to a PDF weirdness - images are basically just "names"
@@ -76,10 +64,9 @@ impl Image {
     ///
     /// You can use the "transform.dpi" parameter to specify a scaling -
     /// the default is 300dpi
-    pub fn add_to_layer(self, layer: PdfLayerReference, transform: ImageTransform)
-    {
+    pub fn add_to_layer(self, layer: PdfLayerReference, transform: ImageTransform) {
         use crate::CurTransMat;
-        use Pt;
+        use crate::Pt;
 
         // PDF maps an image to a 1x1 square, we have to adjust the transform matrix
         // to fix the distortion
@@ -96,7 +83,6 @@ impl Image {
         let image_w = image_w.0 * scale_x;
         let image_h = image_h.0 * scale_y;
 
-
         let mut transforms = Vec::new();
 
         transforms.push(CurTransMat::Scale(image_w, image_h));
@@ -106,17 +92,14 @@ impl Image {
                 Pt(-rotate.rotation_center_x.into_pt(dpi).0),
                 Pt(-rotate.rotation_center_y.into_pt(dpi).0),
             ));
-            transforms.push(CurTransMat::Rotate(
-                rotate.angle_ccw_degrees,
-            ));
+            transforms.push(CurTransMat::Rotate(rotate.angle_ccw_degrees));
             transforms.push(CurTransMat::Translate(
-               rotate.rotation_center_x.into_pt(dpi),
-               rotate.rotation_center_y.into_pt(dpi),
+                rotate.rotation_center_x.into_pt(dpi),
+                rotate.rotation_center_y.into_pt(dpi),
             ));
         }
 
-        if transform.translate_x.is_some() ||
-           transform.translate_y.is_some() {
+        if transform.translate_x.is_some() || transform.translate_y.is_some() {
             transforms.push(CurTransMat::Translate(
                 transform.translate_x.unwrap_or(Mm(0.0)).into_pt(),
                 transform.translate_y.unwrap_or(Mm(0.0)).into_pt(),

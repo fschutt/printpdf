@@ -1,6 +1,6 @@
 //! ICC profile that can be embedded into a PDF
 
-extern crate lopdf;
+use lopdf;
 
 /// Type of the icc profile
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -26,12 +26,10 @@ pub struct IccProfile {
 
 impl IccProfile {
     /// Creates a new Icc Profile
-    pub fn new(icc: Vec<u8>, icc_type: IccProfileType)
-    -> Self
-    {
+    pub fn new(icc: Vec<u8>, icc_type: IccProfileType) -> Self {
         Self {
-            icc: icc,
-            icc_type: icc_type,
+            icc,
+            icc_type,
             has_alternate: true,
             has_range: false,
         }
@@ -39,60 +37,57 @@ impl IccProfile {
 
     /// Does the ICC profile have an alternate version (such as "DeviceCMYk")?
     #[inline]
-    pub fn with_alternate_profile(mut self, has_alternate: bool)
-    -> Self
-    {
+    pub fn with_alternate_profile(mut self, has_alternate: bool) -> Self {
         self.has_alternate = has_alternate;
         self
     }
 
     /// Does the ICC profile have an "Range" dictionary?
     #[inline]
-    pub fn with_range(mut self, has_range: bool)
-    -> Self
-    {
+    pub fn with_range(mut self, has_range: bool) -> Self {
         self.has_range = has_range;
         self
     }
-
 }
 
-impl Into<lopdf::Stream> for IccProfile {
-    fn into(self)
-    -> lopdf::Stream
-    {
-        use lopdf::{Dictionary as LoDictionary,
-                    Stream as LoStream};
+impl From<IccProfile> for lopdf::Stream {
+    fn from(val: IccProfile) -> Self {
         use lopdf::Object::*;
+        use lopdf::{Dictionary as LoDictionary, Stream as LoStream};
         use std::iter::FromIterator;
 
-        let (num_icc_fields, alternate) = match self.icc_type {
+        let (num_icc_fields, alternate) = match val.icc_type {
             IccProfileType::Cmyk => (4, "DeviceCMYK"),
             IccProfileType::Rgb => (3, "DeviceRGB"),
             IccProfileType::Greyscale => (1, "DeviceGray"),
         };
 
         let mut stream_dict = LoDictionary::from_iter(vec![
-                ("N", Integer(num_icc_fields)).into(),
-                ("Length", Integer(self.icc.len() as i64).into())]);
+            ("N", Integer(num_icc_fields)),
+            ("Length", Integer(val.icc.len() as i64)),
+        ]);
 
-        if self.has_alternate {
+        if val.has_alternate {
             stream_dict.set("Alternate", Name(alternate.into()));
         }
 
-        if self.has_range {
-            stream_dict.set("Range", Array(vec![
-                                        Real(0.0),
-                                        Real(1.0),
-                                        Real(0.0),
-                                        Real(1.0),
-                                        Real(0.0),
-                                        Real(1.0),
-                                        Real(0.0),
-                                        Real(1.0)]));
+        if val.has_range {
+            stream_dict.set(
+                "Range",
+                Array(vec![
+                    Real(0.0),
+                    Real(1.0),
+                    Real(0.0),
+                    Real(1.0),
+                    Real(0.0),
+                    Real(1.0),
+                    Real(0.0),
+                    Real(1.0),
+                ]),
+            );
         }
 
-        LoStream::new(stream_dict, self.icc)
+        LoStream::new(stream_dict, val.icc)
     }
 }
 
@@ -104,11 +99,9 @@ pub struct IccProfileRef {
 
 impl IccProfileRef {
     /// Creates a new IccProfileRef
-    pub fn new(index: usize)
-    -> Self
-    {
+    pub fn new(index: usize) -> Self {
         Self {
-            name: format!("/ICC{}", index)
+            name: format!("/ICC{index}"),
         }
     }
 }
@@ -120,16 +113,12 @@ pub struct IccProfileList {
 
 impl IccProfileList {
     /// Creates a new IccProfileList
-    pub fn new()
-    -> Self
-    {
+    pub fn new() -> Self {
         Self::default()
     }
 
     /// Adds an ICC profile
-    pub fn add_profile(&mut self, profile: IccProfile)
-    -> IccProfileRef
-    {
+    pub fn add_profile(&mut self, profile: IccProfile) -> IccProfileRef {
         let cur_len = self.profiles.len();
         self.profiles.push(profile);
         IccProfileRef::new(cur_len)

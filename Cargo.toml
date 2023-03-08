@@ -11,16 +11,26 @@ keywords = ["pdf", "gui", "graphics", "wkhtmltopdf"]
 categories = ["gui"]
 exclude = ["./assets/*", "./doc/*", "./examples/*"]
 autoexamples = false
+edition = "2018"
 
 [dependencies]
 # minimum dependencies
-lopdf = { version = "0.27.0", default-features = false, features = ["pom_parser"] }
+lopdf = { version = "0.27.0", default-features = false, features = [
+    "pom_parser",
+] }
 owned_ttf_parser = { version = "0.12", default-features = false }
 time = { version = "0.2.11", default-features = false, features = ["std"] }
 # optional: logging
 log = { version = "0.4.8", optional = true }
 # image reading (png / jpeg)
-image = { version = "0.24.3", optional = true, default-features = false, features = ["gif", "jpeg", "png", "pnm", "tiff", "bmp"] }
+image = { version = "0.24.3", optional = true, default-features = false, features = [
+    "gif",
+    "jpeg",
+    "png",
+    "pnm",
+    "tiff",
+    "bmp",
+] }
 # svg support (svg -> pdf xobject)
 svg2pdf = { version = "0.1.0", optional = true }
 pdf-writer = { version = "0.4.1", optional = true }
@@ -28,8 +38,6 @@ usvg = { version = "0.19.0", optional = true }
 
 [features]
 default = []
-# cargo clippy
-clippy = []
 # do not compress PDF streams, useful for debugging
 less-optimization = []
 # enables logging
@@ -47,10 +55,8 @@ webp = ["image/webp", "embedded_images"]
 # enables svg
 svg = ["svg2pdf", "usvg", "pdf-writer"]
 
-
 [package.metadata.docs.rs]
 all-features = true
-
 
 [target.'cfg(all(target_arch="wasm32",target_os="unknown"))'.dependencies]
 js-sys = "0.3.40"
@@ -61,40 +67,32 @@ appveyor = { repository = "fschutt/printpdf" }
 
 [[example]]
 name = "bookmark"
-default-features = false
 required-features = []
 
 [[example]]
 name = "circle"
-default-features = false
 required-features = []
 
 [[example]]
 name = "font"
-default-features = false
 required-features = []
 
 [[example]]
 name = "image"
-default-features = false
 required-features = ["embedded_images"]
 
 [[example]]
 name = "no_icc"
-default-features = false
 required-features = []
 
 [[example]]
 name = "page"
-default-features = false
 required-features = []
 
 [[example]]
 name = "shape"
-default-features = false
 required-features = []
 
 [[example]]
 name = "svg"
-default-features = false
 required-features = ["svg"]

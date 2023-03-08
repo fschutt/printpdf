@@ -1,8 +1,8 @@
 //! Current transformation matrix, for transforming shapes (rotate, translate, scale)
 
+use crate::Pt;
 use lopdf;
 use lopdf::content::Operation;
-use crate::Pt;
 
 /// PDF "current transformation matrix". Once set, will operate on all following shapes,
 /// until the `layer.restore_graphics_state()` is called. It is important to
@@ -20,59 +20,110 @@ pub enum CurTransMat {
     /// X and Y can have different values
     Scale(f64, f64),
     /// Raw (PDF-internal) PDF matrix
-    Raw([f64;6]),
+    Raw([f64; 6]),
     /// Identity matrix
     Identity,
 }
 
 impl CurTransMat {
-    pub fn combine_matrix(a: [f64;6], b: [f64;6]) -> [f64;6] {
-
+    pub fn combine_matrix(a: [f64; 6], b: [f64; 6]) -> [f64; 6] {
         let a = [
-            [a[0], a[1], 0.0,  0.0],
-            [a[2], a[3], 0.0,  0.0],
-            [0.0,  0.0,  1.0,  0.0],
-            [a[4], a[5], 0.0,  1.0],
+            [a[0], a[1], 0.0, 0.0],
+            [a[2], a[3], 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [a[4], a[5], 0.0, 1.0],
         ];
 
         let b = [
-            [b[0], b[1], 0.0,  0.0],
-            [b[2], b[3], 0.0,  0.0],
-            [0.0,  0.0,  1.0,  0.0],
-            [b[4], b[5], 0.0,  1.0],
+            [b[0], b[1], 0.0, 0.0],
+            [b[2], b[3], 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [b[4], b[5], 0.0, 1.0],
         ];
 
         let result = [
-
             [
-            a[0][0].mul_add(b[0][0], a[0][1].mul_add(b[1][0], a[0][2].mul_add(b[2][0], a[0][3] * b[3][0]))),
-            a[0][0].mul_add(b[0][1], a[0][1].mul_add(b[1][1], a[0][2].mul_add(b[2][1], a[0][3] * b[3][1]))),
-            a[0][0].mul_add(b[0][2], a[0][1].mul_add(b[1][2], a[0][2].mul_add(b[2][2], a[0][3] * b[3][2]))),
-            a[0][0].mul_add(b[0][3], a[0][1].mul_add(b[1][3], a[0][2].mul_add(b[2][3], a[0][3] * b[3][3]))),
+                a[0][0].mul_add(
+                    b[0][0],
+                    a[0][1].mul_add(b[1][0], a[0][2].mul_add(b[2][0], a[0][3] * b[3][0])),
+                ),
+                a[0][0].mul_add(
+                    b[0][1],
+                    a[0][1].mul_add(b[1][1], a[0][2].mul_add(b[2][1], a[0][3] * b[3][1])),
+                ),
+                a[0][0].mul_add(
+                    b[0][2],
+                    a[0][1].mul_add(b[1][2], a[0][2].mul_add(b[2][2], a[0][3] * b[3][2])),
+                ),
+                a[0][0].mul_add(
+                    b[0][3],
+                    a[0][1].mul_add(b[1][3], a[0][2].mul_add(b[2][3], a[0][3] * b[3][3])),
+                ),
             ],
             [
-            a[1][0].mul_add(b[0][0], a[1][1].mul_add(b[1][0], a[1][2].mul_add(b[2][0], a[1][3] * b[3][0]))),
-            a[1][0].mul_add(b[0][1], a[1][1].mul_add(b[1][1], a[1][2].mul_add(b[2][1], a[1][3] * b[3][1]))),
-            a[1][0].mul_add(b[0][2], a[1][1].mul_add(b[1][2], a[1][2].mul_add(b[2][2], a[1][3] * b[3][2]))),
-            a[1][0].mul_add(b[0][3], a[1][1].mul_add(b[1][3], a[1][2].mul_add(b[2][3], a[1][3] * b[3][3]))),
+                a[1][0].mul_add(
+                    b[0][0],
+                    a[1][1].mul_add(b[1][0], a[1][2].mul_add(b[2][0], a[1][3] * b[3][0])),
+                ),
+                a[1][0].mul_add(
+                    b[0][1],
+                    a[1][1].mul_add(b[1][1], a[1][2].mul_add(b[2][1], a[1][3] * b[3][1])),
+                ),
+                a[1][0].mul_add(
+                    b[0][2],
+                    a[1][1].mul_add(b[1][2], a[1][2].mul_add(b[2][2], a[1][3] * b[3][2])),
+                ),
+                a[1][0].mul_add(
+                    b[0][3],
+                    a[1][1].mul_add(b[1][3], a[1][2].mul_add(b[2][3], a[1][3] * b[3][3])),
+                ),
             ],
-
             [
-            a[2][0].mul_add(b[0][0], a[2][1].mul_add(b[1][0], a[2][2].mul_add(b[2][0], a[2][3] * b[3][0]))),
-            a[2][0].mul_add(b[0][1], a[2][1].mul_add(b[1][1], a[2][2].mul_add(b[2][1], a[2][3] * b[3][1]))),
-            a[2][0].mul_add(b[0][2], a[2][1].mul_add(b[1][2], a[2][2].mul_add(b[2][2], a[2][3] * b[3][2]))),
-            a[2][0].mul_add(b[0][3], a[2][1].mul_add(b[1][3], a[2][2].mul_add(b[2][3], a[2][3] * b[3][3]))),
+                a[2][0].mul_add(
+                    b[0][0],
+                    a[2][1].mul_add(b[1][0], a[2][2].mul_add(b[2][0], a[2][3] * b[3][0])),
+                ),
+                a[2][0].mul_add(
+                    b[0][1],
+                    a[2][1].mul_add(b[1][1], a[2][2].mul_add(b[2][1], a[2][3] * b[3][1])),
+                ),
+                a[2][0].mul_add(
+                    b[0][2],
+                    a[2][1].mul_add(b[1][2], a[2][2].mul_add(b[2][2], a[2][3] * b[3][2])),
+                ),
+                a[2][0].mul_add(
+                    b[0][3],
+                    a[2][1].mul_add(b[1][3], a[2][2].mul_add(b[2][3], a[2][3] * b[3][3])),
+                ),
             ],
-
             [
-            a[3][0].mul_add(b[0][0], a[3][1].mul_add(b[1][0], a[3][2].mul_add(b[2][0], a[3][3] * b[3][0]))),
-            a[3][0].mul_add(b[0][1], a[3][1].mul_add(b[1][1], a[3][2].mul_add(b[2][1], a[3][3] * b[3][1]))),
-            a[3][0].mul_add(b[0][2], a[3][1].mul_add(b[1][2], a[3][2].mul_add(b[2][2], a[3][3] * b[3][2]))),
-            a[3][0].mul_add(b[0][3], a[3][1].mul_add(b[1][3], a[3][2].mul_add(b[2][3], a[3][3] * b[3][3]))),
+                a[3][0].mul_add(
+                    b[0][0],
+                    a[3][1].mul_add(b[1][0], a[3][2].mul_add(b[2][0], a[3][3] * b[3][0])),
+                ),
+                a[3][0].mul_add(
+                    b[0][1],
+                    a[3][1].mul_add(b[1][1], a[3][2].mul_add(b[2][1], a[3][3] * b[3][1])),
+                ),
+                a[3][0].mul_add(
+                    b[0][2],
+                    a[3][1].mul_add(b[1][2], a[3][2].mul_add(b[2][2], a[3][3] * b[3][2])),
+                ),
+                a[3][0].mul_add(
+                    b[0][3],
+                    a[3][1].mul_add(b[1][3], a[3][2].mul_add(b[2][3], a[3][3] * b[3][3])),
+                ),
             ],
         ];
 
-        [result[0][0], result[0][1], result[1][0], result[1][1], result[3][0], result[3][1]]
+        [
+            result[0][0],
+            result[0][1],
+            result[1][0],
+            result[1][1],
+            result[3][0],
+            result[3][1],
+        ]
     }
 }
 
@@ -92,98 +143,85 @@ pub enum TextMatrix {
     /// Combined translate + rotate matrix
     TranslateRotate(Pt, Pt, f64),
     /// Raw matrix (/tm operator)
-    Raw([f64;6]),
+    Raw([f64; 6]),
 }
 
-impl Into<[f64; 6]> for TextMatrix {
-    fn into(self)
-    -> [f64; 6]
-    {
-        use TextMatrix::*;
-        match self {
-            Translate(x, y) => { 
-                // 1 0 0 1 x y cm 
-                [ 1.0, 0.0, 0.0, 1.0, x.0, y.0 ]
+impl From<TextMatrix> for [f64; 6] {
+    fn from(val: TextMatrix) -> Self {
+        use crate::TextMatrix::*;
+        match val {
+            Translate(x, y) => {
+                // 1 0 0 1 x y cm
+                [1.0, 0.0, 0.0, 1.0, x.0, y.0]
             }
             Rotate(rot) => {
                 let rad = (360.0 - rot).to_radians();
-                [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), 0.0, 0.0 ] /* cos sin -sin cos 0 0 cm */
-            },
-            Raw(r) => r.clone(),
+                [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), 0.0, 0.0] /* cos sin -sin cos 0 0 cm */
+            }
+            Raw(r) => r,
             TranslateRotate(x, y, rot) => {
                 let rad = (360.0 - rot).to_radians();
-                [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), x.0, y.0 ] /* cos sin -sin cos x y cm */
+                [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), x.0, y.0] /* cos sin -sin cos x y cm */
             }
         }
     }
 }
 
-impl Into<[f64; 6]> for CurTransMat {
-    fn into(self)
-    -> [f64; 6]
-    {
-        use CurTransMat::*;
-        match self {
-            Translate(x, y) => { 
-                // 1 0 0 1 x y cm 
-                [ 1.0, 0.0, 0.0, 1.0, x.0, y.0 ]
+impl From<CurTransMat> for [f64; 6] {
+    fn from(val: CurTransMat) -> Self {
+        use crate::CurTransMat::*;
+        match val {
+            Translate(x, y) => {
+                // 1 0 0 1 x y cm
+                [1.0, 0.0, 0.0, 1.0, x.0, y.0]
             }
             TranslateRotate(x, y, rot) => {
                 let rad = (360.0 - rot).to_radians();
-                [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), x.0, y.0 ] /* cos sin -sin cos x y cm */
+                [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), x.0, y.0] /* cos sin -sin cos x y cm */
             }
-            Rotate(rot) => { 
-                // cos sin -sin cos 0 0 cm 
-                let rad = (360.0 - rot).to_radians(); 
-                [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), 0.0, 0.0 ] 
-            },
-            Raw(r) => r.clone(),
-            Scale(x, y) => { 
+            Rotate(rot) => {
+                // cos sin -sin cos 0 0 cm
+                let rad = (360.0 - rot).to_radians();
+                [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), 0.0, 0.0]
+            }
+            Raw(r) => r,
+            Scale(x, y) => {
                 // x 0 0 y 0 0 cm
-                [ x, 0.0, 0.0, y, 0.0, 0.0 ] 
+                [x, 0.0, 0.0, y, 0.0, 0.0]
             }
-            Identity => { 
-                [ 1.0, 0.0, 0.0, 1.0, 0.0, 0.0 ] 
-            }
+            Identity => [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
         }
     }
 }
 
-impl Into<Operation> for CurTransMat {
-	fn into(self)
-	-> Operation
-	{
-		use lopdf::Object::*;
-        let matrix_nums: [f64; 6] = self.into();
-        let matrix: Vec<lopdf::Object> = matrix_nums.to_vec().into_iter().map(Real).collect();
+impl From<CurTransMat> for Operation {
+    fn from(val: CurTransMat) -> Self {
+        use lopdf::Object::*;
+        let matrix_nums: [f64; 6] = val.into();
+        let matrix: Vec<lopdf::Object> = matrix_nums.iter().copied().map(Real).collect();
         Operation::new("cm", matrix)
-	}
+    }
 }
 
-impl Into<Operation> for TextMatrix {
-    fn into(self)
-    -> Operation
-    {
+impl From<TextMatrix> for Operation {
+    fn from(val: TextMatrix) -> Self {
         use lopdf::Object::*;
-        let matrix_nums: [f64; 6] = self.into();
-        let matrix: Vec<lopdf::Object> = matrix_nums.to_vec().into_iter().map(Real).collect();
+        let matrix_nums: [f64; 6] = val.into();
+        let matrix: Vec<lopdf::Object> = matrix_nums.iter().copied().map(Real).collect();
         Operation::new("Tm", matrix)
     }
 }
 
-impl Into<lopdf::Object> for CurTransMat {
-    fn into(self)
-    -> lopdf::Object
-    {
+impl From<CurTransMat> for lopdf::Object {
+    fn from(val: CurTransMat) -> Self {
         use lopdf::Object::*;
-        let matrix_nums: [f64; 6] = self.into();
-        Array(matrix_nums.to_vec().into_iter().map(Real).collect())
+        let matrix_nums: [f64; 6] = val.into();
+        Array(matrix_nums.iter().copied().map(Real).collect())
     }
 }
 
 #[test]
-fn test_ctm_translate()
-{
+fn test_ctm_translate() {
     use self::*;
 
     // test that the translation matrix look like what PDF expects
@@ -197,5 +235,15 @@ fn test_ctm_translate()
 
     let ctm_rot = CurTransMat::Rotate(30.0);
     let ctm_rot_arr: [f64; 6] = ctm_rot.into();
-    assert_eq!([0.8660254037844384, 0.5000000000000004, -0.5000000000000004, 0.8660254037844384, 0.0, 0.0], ctm_rot_arr);
+    assert_eq!(
+        [
+            0.8660254037844384,
+            0.5000000000000004,
+            -0.5000000000000004,
+            0.8660254037844384,
+            0.0,
+            0.0
+        ],
+        ctm_rot_arr
+    );
 }
