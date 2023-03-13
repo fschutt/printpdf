@@ -234,7 +234,6 @@ impl ImageXObject {
 impl From<ImageXObject> for lopdf::Stream {
     fn from(img: ImageXObject) -> lopdf::Stream {
         use lopdf::Object::*;
-        use std::iter::FromIterator;
 
         let cs: &'static str = img.color_space.into();
         let bbox: lopdf::Object = img.clipping_bbox.unwrap_or(CurTransMat::Identity).into();
@@ -397,7 +396,6 @@ pub struct FormXObject {
 impl From<FormXObject> for lopdf::Stream {
     fn from(val: FormXObject) -> Self {
         use lopdf::Object::*;
-        use std::iter::FromIterator;
 
         let dict = lopdf::Dictionary::from_iter(vec![
             ("Type", Name("XObject".as_bytes().to_vec())),

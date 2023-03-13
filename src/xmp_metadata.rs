@@ -34,7 +34,6 @@ impl XmpMetadata {
     pub(crate) fn into_obj(self, m: &PdfMetadata) -> lopdf::Object {
         use lopdf::Object::*;
         use lopdf::{Dictionary as LoDictionary, Stream as LoStream};
-        use std::iter::FromIterator;
 
         // Shared between XmpMetadata and DocumentInfo
         let trapping = if m.trapping { "True" } else { "False" };

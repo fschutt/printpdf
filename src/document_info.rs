@@ -1,8 +1,8 @@
 //! Info dictionary of a PDF document
 
 use crate::OffsetDateTime;
-use lopdf;
 use crate::PdfMetadata;
+use lopdf;
 /// "Info" dictionary of a PDF document.
 /// Actual data is contained in `DocumentMetadata`, to keep it in sync with the `XmpMetadata`
 /// (if the timestamps / settings are not in sync, Preflight will complain)
@@ -64,7 +64,6 @@ impl DocumentInfo {
         use lopdf::Dictionary as LoDictionary;
         use lopdf::Object::*;
         use lopdf::StringFormat::Literal;
-        use std::iter::FromIterator;
 
         let trapping = if m.trapping { "True" } else { "False" };
         let gts_pdfx_version = m.conformance.get_identifier_string();

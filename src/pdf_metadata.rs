@@ -1,8 +1,8 @@
 //! Wapper type for shared metadata between XMP Metadata and the `DocumentInfo` dictionary
 
 use crate::OffsetDateTime;
-use lopdf;
 use crate::{DocumentInfo, IccProfile, IccProfileType, PdfConformance, XmpMetadata};
+use lopdf;
 
 use crate::glob_defines::ICC_PROFILE_ECI_V2;
 

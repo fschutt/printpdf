@@ -54,7 +54,6 @@ impl From<IccProfile> for lopdf::Stream {
     fn from(val: IccProfile) -> Self {
         use lopdf::Object::*;
         use lopdf::{Dictionary as LoDictionary, Stream as LoStream};
-        use std::iter::FromIterator;
 
         let (num_icc_fields, alternate) = match val.icc_type {
             IccProfileType::Cmyk => (4, "DeviceCMYK"),

@@ -11,7 +11,7 @@ keywords = ["pdf", "gui", "graphics", "wkhtmltopdf"]
 categories = ["gui"]
 exclude = ["./assets/*", "./doc/*", "./examples/*"]
 autoexamples = false
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 # minimum dependencies
@@ -35,6 +35,7 @@ image = { version = "0.24.3", optional = true, default-features = false, feature
 svg2pdf = { version = "0.1.0", optional = true }
 pdf-writer = { version = "0.4.1", optional = true }
 usvg = { version = "0.19.0", optional = true }
+allsorts = { version = "0.14", optional = true, default-features = false, features = ["flate2_rust"]  }
 
 [features]
 default = []
@@ -54,6 +55,7 @@ dds = ["image/dds", "embedded_images"]
 webp = ["image/webp", "embedded_images"]
 # enables svg
 svg = ["svg2pdf", "usvg", "pdf-writer"]
+font_subsetting = ["dep:allsorts"]
 
 [package.metadata.docs.rs]
 all-features = true
