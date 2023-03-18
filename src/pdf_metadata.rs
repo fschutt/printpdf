@@ -58,8 +58,8 @@ impl PdfMetadata {
         let current_time = OffsetDateTime::now_utc();
 
         Self {
-            creation_date: current_time,
-            modification_date: current_time,
+            creation_date: current_time.clone(),
+            modification_date: current_time.clone(),
             metadata_date: current_time,
             document_title: title.into(),
             author: String::new(),
