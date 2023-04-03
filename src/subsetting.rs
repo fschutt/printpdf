@@ -27,12 +27,26 @@ pub(crate) fn subset(
     let (_, cmap_subtable) =
         read_cmap_subtable(&cmap)?.ok_or(allsorts::error::ParseError::MissingValue)?;
 
-    // Prevent `allsorts` from using MacRoman encoding by using a non supported character
-    let gid_eur = cmap_subtable
-        .map_glyph('€' as u32)?
+    let mut non_macroman_char = None;
+
+    // Try to find a char this is not encoded in the MacRoman encoding
+    cmap_subtable.mappings_fn(|chr, _gid| {
+        if non_macroman_char.is_none() {
+            if !allsorts::macroman::is_macroman(char::from_u32(chr).unwrap_or('\0')) {
+                non_macroman_char = Some(chr);
+            }
+        }
+    })?;
+
+    let non_macroman_gid = cmap_subtable
+        .map_glyph(non_macroman_char.ok_or(allsorts::error::ParseError::MissingValue)?)?
         .ok_or(allsorts::error::ParseError::MissingValue)?;
+
     used_glyphs.insert(0);
-    used_glyphs.insert(gid_eur);
+
+    // Prevent `allsorts` from using MacRoman encoding by using a non supported character since the
+    // MacRoman encoding doesn't seem to work in PDFs
+    used_glyphs.insert(non_macroman_gid);
 
     let mut glyph_ids: Vec<u16> = used_glyphs.iter().copied().collect();
 
