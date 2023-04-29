@@ -648,8 +648,10 @@ impl PdfDocumentReference {
                 ("Parent", Reference(pages_id)),
             ]);
 
-            if let Some(extended) = &page.extend_with {
-              p.extend(&extended)
+            if let Some(extension) = &page.extend_with {
+              for (key, value) in extension.iter() {
+                p.set(key.to_vec(), value.clone())
+              }
             }
 
             // this will collect the resources needed for rendering this page

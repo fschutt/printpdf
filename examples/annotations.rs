@@ -27,7 +27,7 @@ fn main() {
         ("Subtype", Object::Name(b"Link".to_vec())),
         ("Rect", vec![20.into(), 580.into(), 300.into(), 560.into()].into()),
         ("C", vec![].into()),
-        ("Contents", Object::String("Hello ñandu".into(), Literal)),
+        ("Contents", Object::String("Hello World".into(), Literal)),
         ("A", action.into()),
     ]);
 
