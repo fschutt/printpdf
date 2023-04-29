@@ -98,3 +98,7 @@ required-features = []
 [[example]]
 name = "svg"
 required-features = ["svg"]
+
+[[example]]
+name = "annotations"
+required-features = []

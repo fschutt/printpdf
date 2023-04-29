@@ -648,6 +648,10 @@ impl PdfDocumentReference {
                 ("Parent", Reference(pages_id)),
             ]);
 
+            if let Some(extended) = &page.extend_with {
+              p.extend(&extended)
+            }
+
             // this will collect the resources needed for rendering this page
             let layers_temp = ocg_list.iter().find(|e| e.0 == idx).unwrap();
             let (mut resources_page, layer_streams) =

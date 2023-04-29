@@ -23,6 +23,10 @@ pub struct PdfPage {
     pub layers: Vec<PdfLayer>,
     /// Resources used in this page
     pub(crate) resources: PdfResources,
+    /// Extend the page with custom ad-hoc attributes, as an escape hatch to the low level lopdf library.
+    /// Can be used to add annotations to a page.
+    /// If your dictionary is wrong it will produce a broken PDF without warning or useful messages.
+    pub(crate) extend_with: Option<lopdf::Dictionary>,
 }
 
 /// A "reference" to the current page, allows for inner mutability
@@ -48,6 +52,7 @@ impl PdfPage {
             height: height.into(),
             layers: Vec::new(),
             resources: PdfResources::new(),
+            extend_with: None
         };
 
         let initial_layer = PdfLayer::new(layer_name);
@@ -180,5 +185,13 @@ impl PdfPageReference {
             page: self.page,
             layer,
         }
+    }
+
+    #[inline]
+    pub fn extend_with(&self, dict: lopdf::Dictionary) {
+        let doc = self.document.upgrade().unwrap();
+        let mut doc = doc.borrow_mut();
+        let page = &mut doc.pages[self.page.0];
+        page.extend_with = Some(dict);
     }
 }
