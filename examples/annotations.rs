@@ -1,4 +1,4 @@
-//! Embeds the SVG image on the page
+//! Uses the extend_with feature to add a link to the page.
 extern crate printpdf;
 
 use printpdf::*;
