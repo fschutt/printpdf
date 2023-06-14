@@ -14,6 +14,9 @@ autoexamples = false
 edition = "2021"
 
 [dependencies]
+# for table development
+grid = "0.10.0"
+
 # minimum dependencies
 lopdf = { version = "0.27.0", default-features = false, features = [
     "pom_parser",

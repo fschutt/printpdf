@@ -56,7 +56,8 @@ impl From<PdfLayer> for lopdf::Stream {
 
 impl PdfLayerReference {
     /// Add a table to the layer.
-    /// TODO add table based on given columns and rows
+    /// - [x] TODO add table based on given columns and rows
+    /// - [ ] TODO possibility to set column_lines manually
     pub fn add_table(&self, column_count: u8, row_count: u8, bottom_left_corner: Point, width: Mm, height: Mm) {
         let column_offset = width  / column_count as f64;
         let    row_offset = height /    row_count as f64;
