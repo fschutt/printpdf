@@ -1,4 +1,4 @@
-extern crate grid;
+/*extern crate grid;
 use grid::Grid;
 use crate::Mm;
 
@@ -18,4 +18,4 @@ enum ColumnLineConfiguration<S: Into<String>> {
     /// Please use `Automatic` or `Manually` instead.
     /// - [ ] in progress
     ContentAdapting(Grid<S>),
-}
+}*/

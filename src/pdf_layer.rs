@@ -55,7 +55,7 @@ impl From<PdfLayer> for lopdf::Stream {
 }
 
 impl PdfLayerReference {
-    /// Add a table to the layer.
+/*    /// Add a table to the layer.
     /// - [x] TODO add table based on given columns and rows
     /// - [ ] TODO possibility to set column_lines manually
     pub fn add_table(&self, column_count: u8, row_count: u8, bottom_left_corner: Point, width: Mm, height: Mm) {
@@ -90,7 +90,7 @@ impl PdfLayerReference {
             self.add_operation(operation);
         }
     }
-
+*/
 
     /// Add a shape to the layer. Use `closed` to indicate whether the line is a closed line
     /// Use has_fill to determine if the line should be filled.
