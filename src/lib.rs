@@ -329,8 +329,10 @@ pub extern crate log;
 pub extern crate image as image_crate;
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 extern crate js_sys;
+
 pub use lopdf;
 
+//pub mod table;
 pub mod color;
 pub mod ctm;
 pub mod date;
