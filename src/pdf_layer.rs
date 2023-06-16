@@ -55,6 +55,43 @@ impl From<PdfLayer> for lopdf::Stream {
 }
 
 impl PdfLayerReference {
+/*    /// Add a table to the layer.
+    /// - [x] TODO add table based on given columns and rows
+    /// - [ ] TODO possibility to set column_lines manually
+    pub fn add_table(&self, column_count: u8, row_count: u8, bottom_left_corner: Point, width: Mm, height: Mm) {
+        let column_offset = width  / column_count as f64;
+        let    row_offset = height /    row_count as f64;
+
+        let mut line_operations = Vec::new();
+        
+        for col in 0..=column_count {
+            line_operations.append(&mut Line {
+                points: vec![(Point::new(Mm::from(bottom_left_corner.x) + column_offset * col as f64, Mm::from(bottom_left_corner.y)         ), false),
+                             (Point::new(Mm::from(bottom_left_corner.x) + column_offset * col as f64, Mm::from(bottom_left_corner.y) + height), false)],
+                is_closed: false,
+                has_fill: false,
+                has_stroke: true,
+                is_clipping_path: false,
+            }.into_stream_op());
+        }
+
+        for row in 0..=row_count {
+            line_operations.append(&mut Line {
+                points: vec![(Point::new(Mm::from(bottom_left_corner.x)        , Mm::from(bottom_left_corner.y) + row_offset * row as f64), false),
+                             (Point::new(Mm::from(bottom_left_corner.x) + width, Mm::from(bottom_left_corner.y) + row_offset * row as f64), false)],
+                is_closed: false,
+                has_fill: false,
+                has_stroke: true,
+                is_clipping_path: false,
+            }.into_stream_op());
+        }
+
+        for operation in line_operations {
+            self.add_operation(operation);
+        }
+    }
+*/
+
     /// Add a shape to the layer. Use `closed` to indicate whether the line is a closed line
     /// Use has_fill to determine if the line should be filled.
     pub fn add_shape(&self, line: Line) {
