@@ -332,7 +332,6 @@ extern crate js_sys;
 
 pub use lopdf;
 
-//pub mod table;
 pub mod color;
 pub mod ctm;
 pub mod date;
