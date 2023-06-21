@@ -1,15 +1,35 @@
 //! Scaling types for reducing errors between conversions between point (pt) and millimeter (mm)
 
+use std::num::FpCategory;
+use std::cmp::Ordering;
+
 macro_rules! impl_partialeq {
     ($t:ty) => {
         impl PartialEq for $t {
             // custom compare function because of floating point inaccuracy
             fn eq(&self, other: &$t) -> bool {
-                if self.0.is_normal() && other.0.is_normal() {
+                if (self.0.classify() == FpCategory::Zero || self.0.classify() == FpCategory::Normal) &&  (other.0.classify() == FpCategory::Zero || other.0.classify() == FpCategory::Normal) {
                     // four floating point numbers have to match
                     (self.0 * 1000.0).round() == (other.0 * 1000.0).round()
                 } else {
                     false
+                }
+            }
+        }
+    };
+}
+
+macro_rules! impl_ord {
+    ($t:ty) => {
+        impl Ord for $t {
+            // custom compare function to offer ordering
+            fn cmp(&self, other: &$t) -> Ordering {
+                if self.0 < other.0 {
+                    Ordering::Less
+                } else if self.0 > other.0 {
+                    Ordering::Greater
+                } else {
+                    Ordering::Equal
                 }
             }
         }
@@ -33,7 +53,10 @@ impl From<Pt> for Mm {
     }
 }
 
+impl Eq for Mm {}
+
 impl_partialeq!(Mm);
+impl_ord!(Mm);
 
 /// Scale in point
 #[derive(Debug, Default, Copy, Clone, PartialOrd)]
@@ -51,7 +74,10 @@ impl From<Pt> for ::lopdf::Object {
     }
 }
 
+impl Eq for Pt {}
+
 impl_partialeq!(Pt);
+impl_ord!(Pt);
 
 /// Scale in pixels
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
@@ -202,4 +228,47 @@ fn mm_to_point_conversion() {
     let mm2: Pt = Mm(23.0).into();
     assert_eq!(mm1, Pt(2.83464745483286));
     assert_eq!(mm2, Pt(65.1969));
+}
+
+#[test]
+fn mm_eq_zero_check() {
+    let mm1: Mm = Mm(0.0).into();
+    let mm2: Mm = Mm(0.0).into();
+    assert_eq!(mm1, mm2);
+    assert_eq!(mm1, Mm(0.0));
+    assert_eq!(mm2, Mm(0.0));
+}
+
+#[test]
+fn max_mm() {
+    let mm_vector = vec![Mm(0.0), Mm(1.0), Mm(2.0)];
+    assert_eq!(mm_vector.iter().max().unwrap(), &Mm(2.0));
+}
+
+#[test]
+fn min_mm() {
+    let mm_vector = vec![Mm(0.0), Mm(1.0), Mm(2.0)];
+    assert_eq!(mm_vector.iter().min().unwrap(), &Mm(0.0));
+}
+
+
+#[test]
+fn pt_eq_zero_check() {
+    let pt1: Pt = Pt(0.0).into();
+    let pt2: Pt = Pt(0.0).into();
+    assert_eq!(pt1, pt2);
+    assert_eq!(pt1, Pt(0.0));
+    assert_eq!(pt2, Pt(0.0));
+}
+
+#[test]
+fn max_pt() {
+    let pt_vector = vec![Pt(0.0), Pt(1.0), Pt(2.0)];
+    assert_eq!(pt_vector.iter().max().unwrap(), &Pt(2.0));
+}
+
+#[test]
+fn min_pt() {
+    let pt_vector = vec![Pt(0.0), Pt(1.0), Pt(2.0)];
+    assert_eq!(pt_vector.iter().min().unwrap(), &Pt(0.0));
 }

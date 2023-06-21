@@ -2,11 +2,7 @@
 
 use crate::glob_defines::OP_PATH_STATE_SET_LINE_WIDTH;
 use crate::indices::{PdfLayerIndex, PdfPageIndex};
-use crate::{
-    BlendMode, Color, CurTransMat, ExtendedGraphicsStateBuilder, Font, ImageXObject,
-    IndirectFontRef, Line, LineCapStyle, LineDashPattern, LineJoinStyle, Mm, PdfColor, PdfDocument,
-    Pt, TextMatrix, TextRenderingMode, XObject, XObjectRef,
-};
+use crate::{BlendMode, Color, CurTransMat, ExtendedGraphicsStateBuilder, Font, ImageXObject, IndirectFontRef, Line, LineCapStyle, LineDashPattern, LineJoinStyle, Mm, PdfColor, PdfDocument, Point, Pt, TextMatrix, TextRenderingMode, XObject, XObjectRef};
 use lopdf::content::Operation;
 use std::cell::RefCell;
 use std::rc::Weak;
@@ -527,3 +523,4 @@ impl PdfLayerReference {
             ));
     }
 }
+
