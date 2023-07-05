@@ -6,7 +6,11 @@ use lopdf::{Object, Stream};
 use std::{error, fmt};
 
 /// SVG - wrapper around an `XObject` to allow for more
-/// control within the library
+/// control within the library. 
+/// When creating placing multiple copies of the same SVGs
+/// on the same layer, it is better to use the
+/// `into_xobject` method to get a reference, rather than a
+/// clone
 #[derive(Debug, Clone)]
 pub struct Svg {
     /// The PDF document, converted from SVG using svg2pdf
