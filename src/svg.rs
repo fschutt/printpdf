@@ -7,7 +7,7 @@ use std::{error, fmt};
 
 /// SVG - wrapper around an `XObject` to allow for more
 /// control within the library
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Svg {
     /// The PDF document, converted from SVG using svg2pdf
     svg_xobject: Stream,
