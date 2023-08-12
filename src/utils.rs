@@ -5,7 +5,7 @@ use crate::Point;
 
 // PDF doesn't understand what a "circle" is, so we have to
 // approximate it.
-const C: f64 = 0.551915024494;
+const C: f32 = 0.551915024494;
 
 /// Calculates and returns the points for an approximated circle, given a radius and an
 /// offset into the centre of circle (starting from bottom left corner of page).

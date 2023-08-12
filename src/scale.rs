@@ -38,7 +38,7 @@ macro_rules! impl_ord {
 
 /// Scale in millimeter
 #[derive(Debug, Default, Copy, Clone, PartialOrd)]
-pub struct Mm(pub f64);
+pub struct Mm(pub f32);
 
 impl Mm {
     pub fn into_pt(&self) -> Pt {
@@ -49,7 +49,7 @@ impl Mm {
 
 impl From<Pt> for Mm {
     fn from(value: Pt) -> Mm {
-        Mm(value.0 * 0.352_778_f64)
+        Mm(value.0 * 0.352_778_f32)
     }
 }
 
@@ -60,11 +60,11 @@ impl_ord!(Mm);
 
 /// Scale in point
 #[derive(Debug, Default, Copy, Clone, PartialOrd)]
-pub struct Pt(pub f64);
+pub struct Pt(pub f32);
 
 impl From<Mm> for Pt {
     fn from(value: Mm) -> Pt {
-        Pt(value.0 * 2.834_646_f64)
+        Pt(value.0 * 2.834_646_f32)
     }
 }
 
@@ -84,8 +84,8 @@ impl_ord!(Pt);
 pub struct Px(pub usize);
 
 impl Px {
-    pub fn into_pt(self, dpi: f64) -> Pt {
-        Mm(self.0 as f64 * (25.4 / dpi)).into()
+    pub fn into_pt(self, dpi: f32) -> Pt {
+        Mm(self.0 as f32 * (25.4 / dpi)).into()
     }
 }
 
@@ -138,21 +138,21 @@ macro_rules! impl_sub_self {
     };
 }
 
-macro_rules! impl_mul_f64 {
+macro_rules! impl_mul_f32 {
     ($type:ident) => {
-        impl Mul<f64> for $type {
+        impl Mul<f32> for $type {
             type Output = Self;
-            fn mul(self, other: f64) -> Self {
+            fn mul(self, other: f32) -> Self {
                 Self { 0: self.0 * other }
             }
         }
     };
 }
 
-macro_rules! impl_mul_assign_f64 {
+macro_rules! impl_mul_assign_f32 {
     ($type:ident) => {
-        impl MulAssign<f64> for $type {
-            fn mul_assign(&mut self, other: f64) {
+        impl MulAssign<f32> for $type {
+            fn mul_assign(&mut self, other: f32) {
                 self.0 *= other;
             }
         }
@@ -162,24 +162,24 @@ macro_rules! impl_mul_assign_f64 {
 macro_rules! impl_div {
     ($type:ident) => {
         impl Div<$type> for $type {
-            type Output = f64;
+            type Output = f32;
             fn div(self, other: $type) -> Self::Output {
                 self.0 / other.0
             }
         }
-        impl Div<f64> for $type {
+        impl Div<f32> for $type {
             type Output = Self;
-            fn div(self, other: f64) -> Self::Output {
+            fn div(self, other: f32) -> Self::Output {
                 Self { 0: self.0 / other }
             }
         }
     };
 }
 
-macro_rules! impl_div_assign_f64 {
+macro_rules! impl_div_assign_f32 {
     ($type:ident) => {
-        impl DivAssign<f64> for $type {
-            fn div_assign(&mut self, other: f64) {
+        impl DivAssign<f32> for $type {
+            fn div_assign(&mut self, other: f32) {
                 self.0 /= other;
             }
         }
@@ -202,17 +202,17 @@ impl_sub_self!(Mm);
 impl_sub_self!(Pt);
 impl_sub_self!(Px);
 
-impl_mul_f64!(Mm);
-impl_mul_f64!(Pt);
+impl_mul_f32!(Mm);
+impl_mul_f32!(Pt);
 
-impl_mul_assign_f64!(Mm);
-impl_mul_assign_f64!(Pt);
+impl_mul_assign_f32!(Mm);
+impl_mul_assign_f32!(Pt);
 
 impl_div!(Mm);
 impl_div!(Pt);
 
-impl_div_assign_f64!(Mm);
-impl_div_assign_f64!(Pt);
+impl_div_assign_f32!(Mm);
+impl_div_assign_f32!(Pt);
 
 #[test]
 fn point_to_mm_conversion() {
