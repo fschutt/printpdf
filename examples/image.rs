@@ -20,8 +20,8 @@ fn main() {
     let decoder = BmpDecoder::new(&mut reader).unwrap();
     let image = Image::try_from(decoder).unwrap();
 
-    let rotation_center_x = Px((image.image.width.0 as f64 / 2.0) as usize);
-    let rotation_center_y = Px((image.image.height.0 as f64 / 2.0) as usize);
+    let rotation_center_x = Px((image.image.width.0 as f32 / 2.0) as usize);
+    let rotation_center_y = Px((image.image.height.0 as f32 / 2.0) as usize);
 
     // layer,
     image.add_to_layer(

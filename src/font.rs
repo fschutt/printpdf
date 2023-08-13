@@ -464,20 +464,20 @@ impl ExternalFont {
         let mut current_width_vec = Vec::<Object>::new();
 
         // scale the font width so that it sort-of fits into an 1000 unit square
-        let percentage_font_scaling = 1000.0 / (face_metrics.units_per_em as f64);
+        let percentage_font_scaling = 1000.0 / (face_metrics.units_per_em as f32);
 
         for gid in 0..font_data.glyph_count() {
             if let Some(GlyphMetrics { width, .. }) = font_data.glyph_metrics(gid) {
                 if gid == current_high_gid {
                     current_width_vec
-                        .push(Integer((width as f64 * percentage_font_scaling) as i64));
+                        .push(Integer((width as f32 * percentage_font_scaling) as i64));
                     current_high_gid += 1;
                 } else {
                     widths_list.push(Integer(current_low_gid as i64));
                     widths_list.push(Array(current_width_vec.drain(..).collect()));
 
                     current_width_vec
-                        .push(Integer((width as f64 * percentage_font_scaling) as i64));
+                        .push(Integer((width as f32 * percentage_font_scaling) as i64));
                     current_low_gid = gid;
                     current_high_gid = gid + 1;
                 }

@@ -133,7 +133,7 @@ pub struct ExtendedGraphicsState {
 
     /* LW float */
     /// __(Optional; PDF 1.3)__ The current line width
-    pub(crate) line_width: f64,
+    pub(crate) line_width: f32,
 
     /* LC integer */
     /// __(Optional; PDF 1.3)__ The current line cap style
@@ -145,7 +145,7 @@ pub struct ExtendedGraphicsState {
 
     /* ML float */
     /// __(Optional; PDF 1.3)__ The miter limit (see “Miter Limit” on page 217).
-    pub(crate) miter_limit: f64,
+    pub(crate) miter_limit: f32,
 
     /* D array */
     /// __(Optional; PDF 1.3)__ The line dash pattern, expressed as an array of the form
@@ -233,12 +233,12 @@ pub struct ExtendedGraphicsState {
     /* FL integer */
     /// __(Optional; PDF 1.3)__ The flatness tolerance (see Section 6.5.1, “Flatness Toler-
     /// ance”).
-    pub(crate) flatness_tolerance: f64,
+    pub(crate) flatness_tolerance: f32,
 
     /* SM integer */
     /// __(Optional; PDF 1.3)__ The smoothness tolerance (see Section 6.5.2, “Smooth-
     /// ness Tolerance”).
-    pub(crate) smoothness_tolerance: f64,
+    pub(crate) smoothness_tolerance: f32,
 
     /* SA integer */
     /// (Optional) A flag specifying whether to apply automatic stroke adjustment
@@ -268,11 +268,11 @@ pub struct ExtendedGraphicsState {
     /// stant shape or constant opacity value to be used for stroking operations in the
     /// transparent imaging model (see “Source Shape and Opacity” on page 526 and
     /// “Constant Shape and Opacity” on page 551).
-    pub(crate) current_stroke_alpha: f64,
+    pub(crate) current_stroke_alpha: f32,
 
     /* ca integer */
     /// __(Optional; PDF 1.4)__ Same as CA , but for nonstroking operations.
-    pub(crate) current_fill_alpha: f64,
+    pub(crate) current_fill_alpha: f32,
 
     /* AIS boolean */
     /// __(Optional; PDF 1.4)__ The alpha source flag (“alpha is shape”), specifying
@@ -302,7 +302,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the line width
     #[inline]
-    pub fn with_line_width(mut self, line_width: f64) -> Self {
+    pub fn with_line_width(mut self, line_width: f32) -> Self {
         self.gs.line_width = line_width;
         self.gs.changed_fields.insert(LINE_WIDTH);
         self
@@ -326,7 +326,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the miter limit
     #[inline]
-    pub fn with_miter_limit(mut self, miter_limit: f64) -> Self {
+    pub fn with_miter_limit(mut self, miter_limit: f32) -> Self {
         self.gs.miter_limit = miter_limit;
         self.gs.changed_fields.insert(MITER_LIMIT);
         self
@@ -446,7 +446,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the flatness tolerance
     #[inline]
-    pub fn with_flatness_tolerance(mut self, flatness_tolerance: f64) -> Self {
+    pub fn with_flatness_tolerance(mut self, flatness_tolerance: f32) -> Self {
         self.gs.flatness_tolerance = flatness_tolerance;
         self.gs.changed_fields.insert(FLATNESS_TOLERANCE);
         self
@@ -454,7 +454,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the smoothness tolerance
     #[inline]
-    pub fn with_smoothness_tolerance(mut self, smoothness_tolerance: f64) -> Self {
+    pub fn with_smoothness_tolerance(mut self, smoothness_tolerance: f32) -> Self {
         self.gs.smoothness_tolerance = smoothness_tolerance;
         self.gs.changed_fields.insert(SMOOTHNESS_TOLERANCE);
         self
@@ -486,7 +486,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the current alpha for strokes
     #[inline]
-    pub fn with_current_stroke_alpha(mut self, current_stroke_alpha: f64) -> Self {
+    pub fn with_current_stroke_alpha(mut self, current_stroke_alpha: f32) -> Self {
         self.gs.current_stroke_alpha = current_stroke_alpha;
         self.gs.changed_fields.insert(CURRENT_STROKE_ALPHA);
         self
@@ -494,7 +494,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the current alpha for fills
     #[inline]
-    pub fn with_current_fill_alpha(mut self, current_fill_alpha: f64) -> Self {
+    pub fn with_current_fill_alpha(mut self, current_fill_alpha: f32) -> Self {
         self.gs.current_fill_alpha = current_fill_alpha;
         self.gs.changed_fields.insert(CURRENT_FILL_ALPHA);
         self
@@ -810,7 +810,7 @@ pub enum TransferExtraFunction {}
 #[derive(Debug, PartialEq, Clone)]
 pub enum HalftoneType {
     /// 1: Defines a single halftone screen by a frequency, angle, and spot function
-    Type1(f64, f64, SpotFunction),
+    Type1(f32, f32, SpotFunction),
     /// 5: Defines an arbitrary number of halftone screens, one for each colorant or
     /// color component (including both primary and spot colorants).
     /// The keys in this dictionary are names of colorants; the values are halftone
@@ -1102,11 +1102,11 @@ pub enum SeperableBlendMode {
 /// # use printpdf::Rgb;
 /// # use printpdf::glob_macros::*;
 /// # fn main() { /* needed for testing*/ }
-/// fn luminosity(input: Rgb) -> f64 {
+/// fn luminosity(input: Rgb) -> f32 {
 ///     0.3 * input.r + 0.59 * input.g + 0.11 * input.b
 /// }
 ///
-/// fn set_luminosity(input: Rgb, target_luminosity: f64) -> Rgb {
+/// fn set_luminosity(input: Rgb, target_luminosity: f32) -> Rgb {
 ///     let d = target_luminosity - luminosity(input);
 ///     Rgb {
 ///         r: input.r + d,
@@ -1128,8 +1128,8 @@ pub enum SeperableBlendMode {
 ///     let mut min = min!(cur_r, cur_g, cur_b);
 ///     let mut max = max!(cur_r, cur_g, cur_b);
 ///
-///     let new_min = (min as f64) / 1000.0;
-///     let new_max = (max as f64) / 1000.0;
+///     let new_min = (min as f32) / 1000.0;
+///     let new_max = (max as f32) / 1000.0;
 ///
 ///     if new_min < 0.0 {
 ///         input.r = lum + (((input.r - lum) * lum) / (lum - new_min));
@@ -1144,7 +1144,7 @@ pub enum SeperableBlendMode {
 ///     return input;
 /// }
 ///
-/// fn saturation(input: Rgb) -> f64 {
+/// fn saturation(input: Rgb) -> f32 {
 ///     let mut cur_r = (input.r * 1000.0) as i64;
 ///     let mut cur_g = (input.g * 1000.0) as i64;
 ///     let mut cur_b = (input.b * 1000.0) as i64;
@@ -1153,8 +1153,8 @@ pub enum SeperableBlendMode {
 ///     let mut min = min!(cur_r, cur_g, cur_b);
 ///     let mut max = max!(cur_r, cur_g, cur_b);
 ///
-///     let new_min = (min as f64) / 1000.0;
-///     let new_max = (max as f64) / 1000.0;
+///     let new_min = (min as f32) / 1000.0;
+///     let new_max = (max as f32) / 1000.0;
 ///     new_max - new_min
 /// }
 /// ```
