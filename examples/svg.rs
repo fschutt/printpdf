@@ -11,8 +11,8 @@ fn main() {
     let current_layer = doc.get_page(page1).get_layer(layer1);
     let svg = Svg::parse(SVG).unwrap();
 
-    let rotation_center_x = Px((svg.width.0 as f64 / 2.0) as usize);
-    let rotation_center_y = Px((svg.height.0 as f64 / 2.0) as usize);
+    let rotation_center_x = Px((svg.width.0 as f32 / 2.0) as usize);
+    let rotation_center_y = Px((svg.height.0 as f32 / 2.0) as usize);
 
     let reference = svg.into_xobject(&current_layer);
 
