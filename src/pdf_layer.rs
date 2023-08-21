@@ -2,7 +2,12 @@
 
 use crate::glob_defines::OP_PATH_STATE_SET_LINE_WIDTH;
 use crate::indices::{PdfLayerIndex, PdfPageIndex};
-use crate::{BlendMode, Color, CurTransMat, ExtendedGraphicsStateBuilder, Font, ImageXObject, IndirectFontRef, Line, LineCapStyle, LineDashPattern, LineJoinStyle, Mm, PdfColor, PdfDocument, Pt, TextMatrix, TextRenderingMode, XObject, XObjectRef};
+use crate::{
+    BlendMode, Color, CurTransMat, ExtendedGraphicsStateBuilder, Font, ImageXObject,
+    IndirectFontRef, Line, LineCapStyle, LineDashPattern, LineJoinStyle, LinkAnnotation,
+    LinkAnnotationRef, Mm, PdfColor, PdfDocument, Pt, TextMatrix, TextRenderingMode, XObject,
+    XObjectRef,
+};
 use lopdf::content::Operation;
 use std::cell::RefCell;
 use std::rc::Weak;
@@ -85,6 +90,18 @@ impl PdfLayerReference {
         let page_mut = &mut doc.pages[self.page.0];
 
         page_mut.add_xobject(xobject.into())
+    }
+
+    pub fn add_link_annotation<T>(&self, annotation: T) -> LinkAnnotationRef
+    where
+        T: Into<LinkAnnotation>,
+    {
+        let doc = self.document.upgrade().unwrap();
+        let mut doc = doc.borrow_mut();
+        let page_mut = &mut doc.pages[self.page.0];
+
+        let annot_ref = page_mut.add_link_annotation(annotation.into());
+        annot_ref
     }
 
     /// Begins a new text section
