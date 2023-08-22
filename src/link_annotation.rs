@@ -232,7 +232,10 @@ impl LinkAnnotationList {
 
 impl From<LinkAnnotationList> for lopdf::Dictionary {
     fn from(_val: LinkAnnotationList) -> Self {
-        // todo
+        if _val.link_annotations.is_empty() {
+            return lopdf::Dictionary::new();
+        }
+        
         let mut dict = lopdf::Dictionary::new();
         dict.set("Type", lopdf::Object::Name("Annot".as_bytes().to_vec()));
         dict.set("Subtype", lopdf::Object::Name("Link".as_bytes().to_vec()));
