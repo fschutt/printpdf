@@ -630,6 +630,14 @@ impl PdfDocumentReference {
         let mut page_id_to_obj: HashMap<usize, (u32, u16)> = HashMap::new();
 
         for (idx, page) in doc.pages.into_iter().enumerate() {
+            let annotation_ids = page
+                .resources
+                .link_annotations
+                .clone()
+                .into_iter()
+                .map(|(_, annotation)| doc.inner_doc.add_object(annotation))
+                .collect::<Vec<_>>();
+
             let mut p = LoDictionary::from_iter(vec![
                 ("Type", "Page".into()),
                 ("Rotate", Integer(0)),
@@ -644,6 +652,14 @@ impl PdfDocumentReference {
                 (
                     "CropBox",
                     vec![0.into(), 0.into(), page.width.into(), page.height.into()].into(),
+                ),
+                (
+                    "Annots",
+                    annotation_ids
+                        .iter()
+                        .map(|id| Reference(*id))
+                        .collect::<Vec<LoObject>>()
+                        .into(),
                 ),
                 ("Parent", Reference(pages_id)),
             ]);

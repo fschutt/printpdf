@@ -56,6 +56,8 @@ webp = ["image/webp", "embedded_images"]
 # enables svg
 svg = ["svg2pdf", "usvg", "pdf-writer"]
 font_subsetting = ["dep:allsorts"]
+# enables annotations
+annotations = ["pdf-writer"]
 
 [package.metadata.docs.rs]
 all-features = true
@@ -98,3 +100,7 @@ required-features = []
 [[example]]
 name = "svg"
 required-features = ["svg"]
+
+[[example]]
+name = "hyperlink"
+required-features = ["annotations"]

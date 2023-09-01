@@ -1,6 +1,7 @@
 use crate::{
-    ExtendedGraphicsState, ExtendedGraphicsStateList, ExtendedGraphicsStateRef, OCGList, OCGRef,
-    Pattern, PatternList, PatternRef, XObject, XObjectList, XObjectRef,
+    ExtendedGraphicsState, ExtendedGraphicsStateList, ExtendedGraphicsStateRef, LinkAnnotation,
+    LinkAnnotationList, LinkAnnotationRef, OCGList, OCGRef, Pattern, PatternList, PatternRef,
+    XObject, XObjectList, XObjectRef,
 };
 use lopdf;
 
@@ -15,6 +16,8 @@ pub struct PdfResources {
     pub graphics_states: ExtendedGraphicsStateList,
     /// Layers / optional content ("Properties") in the resource dictionary
     pub layers: OCGList,
+    /// Link Annotations used in this page
+    pub link_annotations: LinkAnnotationList,
 }
 
 impl PdfResources {
@@ -44,6 +47,12 @@ impl PdfResources {
         self.patterns.add_pattern(pattern)
     }
 
+    /// __STUB__: Adds a link annotation to the resources
+    #[inline]
+    pub fn add_link_annotation(&mut self, link_annotation: LinkAnnotation) -> LinkAnnotationRef {
+        self.link_annotations.add_link_annotation(link_annotation)
+    }
+
     /// See `XObject::Into_with_document`.
     /// The resources also need access to the layers (the optional content groups), this should be a
     /// `Vec<lopdf::Object::Reference>` (to the actual OCG groups, which are added on the document level)
@@ -61,6 +70,7 @@ impl PdfResources {
         let xobjects_dict: lopdf::Dictionary = self.xobjects.into_with_document(doc);
         let patterns_dict: lopdf::Dictionary = self.patterns.into();
         let graphics_state_dict: lopdf::Dictionary = self.graphics_states.into();
+        let annotations_dict: lopdf::Dictionary = self.link_annotations.into();
 
         if !layers.is_empty() {
             for l in layers {
@@ -84,6 +94,10 @@ impl PdfResources {
 
         if !graphics_state_dict.is_empty() {
             dict.set("ExtGState", lopdf::Object::Dictionary(graphics_state_dict));
+        }
+
+        if !annotations_dict.is_empty() {
+            dict.set("Annots", lopdf::Object::Dictionary(annotations_dict))
         }
 
         (dict, ocg_references)

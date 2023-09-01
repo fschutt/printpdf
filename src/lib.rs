@@ -343,6 +343,7 @@ pub mod icc_profile;
 pub mod image;
 pub mod indices;
 pub mod line;
+pub mod link_annotation;
 pub mod ocg;
 pub mod pattern;
 pub mod pdf_conformance;
@@ -352,6 +353,7 @@ pub mod pdf_metadata;
 pub mod pdf_page;
 pub mod pdf_resources;
 pub mod point;
+pub mod rectangle;
 pub mod scale;
 #[cfg(feature = "svg")]
 pub mod svg;
@@ -483,6 +485,8 @@ pub use crate::indices::*;
 #[doc(inline)]
 pub use crate::line::*;
 #[doc(inline)]
+pub use crate::link_annotation::*;
+#[doc(inline)]
 pub use crate::ocg::*;
 #[doc(inline)]
 pub use crate::pattern::*;
@@ -500,6 +504,8 @@ pub use crate::pdf_page::*;
 pub use crate::pdf_resources::*;
 #[doc(inline)]
 pub use crate::point::*;
+#[doc(inline)]
+pub use crate::rectangle::*;
 #[doc(inline)]
 pub use crate::scale::*;
 #[cfg(feature = "svg")]
