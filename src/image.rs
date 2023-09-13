@@ -42,15 +42,15 @@ pub struct ImageTransform {
     pub translate_y: Option<Mm>,
     /// Rotate (counter-clockwise) around a point, in degree angles
     pub rotate: Option<ImageRotation>,
-    pub scale_x: Option<f64>,
-    pub scale_y: Option<f64>,
+    pub scale_x: Option<f32>,
+    pub scale_y: Option<f32>,
     /// If set to None, will be set to 300.0 for images
-    pub dpi: Option<f64>,
+    pub dpi: Option<f32>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Default)]
 pub struct ImageRotation {
-    pub angle_ccw_degrees: f64,
+    pub angle_ccw_degrees: f32,
     pub rotation_center_x: Px,
     pub rotation_center_y: Px,
 }

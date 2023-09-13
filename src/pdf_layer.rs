@@ -127,7 +127,7 @@ impl PdfLayerReference {
     /// Set the current font, only valid in a `begin_text_section` to
     /// `end_text_section` block
     #[inline]
-    pub fn set_font(&self, font: &IndirectFontRef, font_size: f64) {
+    pub fn set_font(&self, font: &IndirectFontRef, font_size: f32) {
         self.add_operation(Operation::new(
             "Tf",
             vec![font.name.clone().into(), (font_size).into()],
@@ -236,7 +236,7 @@ impl PdfLayerReference {
     /// __NOTE__: 0.0 is a special value, it does not make the line disappear, but rather
     /// makes it appear 1px wide across all devices
     #[inline]
-    pub fn set_outline_thickness(&self, outline_thickness: f64) {
+    pub fn set_outline_thickness(&self, outline_thickness: f32) {
         use lopdf::Object::*;
         self.add_operation(Operation::new(
             OP_PATH_STATE_SET_LINE_WIDTH,
@@ -300,7 +300,7 @@ impl PdfLayerReference {
     /// Sets the text line height inside a text block
     /// (must be called within `begin_text_block` and `end_text_block`)
     #[inline]
-    pub fn set_line_height(&self, height: f64) {
+    pub fn set_line_height(&self, height: f32) {
         self.add_operation(Operation::new("TL", vec![lopdf::Object::Real(height)]));
     }
 
@@ -308,7 +308,7 @@ impl PdfLayerReference {
     /// Values are given in points. A value of 3 (pt) will increase
     /// the spacing inside a word by 3pt.
     #[inline]
-    pub fn set_character_spacing(&self, spacing: f64) {
+    pub fn set_character_spacing(&self, spacing: f32) {
         self.add_operation(Operation::new("Tc", vec![lopdf::Object::Real(spacing)]));
     }
 
@@ -321,7 +321,7 @@ impl PdfLayerReference {
     /// However, the function itself is valid and _will work_
     /// with builtin fonts.
     #[inline]
-    pub fn set_word_spacing(&self, spacing: f64) {
+    pub fn set_word_spacing(&self, spacing: f32) {
         self.add_operation(Operation::new("Tw", vec![lopdf::Object::Real(spacing)]));
     }
 
@@ -330,7 +330,7 @@ impl PdfLayerReference {
     /// 50 will reduce the width of the written text by half,
     /// but stretch the text
     #[inline]
-    pub fn set_text_scaling(&self, scaling: f64) {
+    pub fn set_text_scaling(&self, scaling: f32) {
         self.add_operation(Operation::new("Tz", vec![lopdf::Object::Real(scaling)]));
     }
 
@@ -340,7 +340,7 @@ impl PdfLayerReference {
     /// number, for subscript, use a negative number. This does not
     /// change the size of the font
     #[inline]
-    pub fn set_line_offset(&self, offset: f64) {
+    pub fn set_line_offset(&self, offset: f32) {
         self.add_operation(Operation::new("Ts", vec![lopdf::Object::Real(offset)]));
     }
 
@@ -477,7 +477,7 @@ impl PdfLayerReference {
     ///
     /// [Windows-1252]: https://en.wikipedia.org/wiki/Windows-1252
     #[inline]
-    pub fn use_text<S>(&self, text: S, font_size: f64, x: Mm, y: Mm, font: &IndirectFontRef)
+    pub fn use_text<S>(&self, text: S, font_size: f32, x: Mm, y: Mm, font: &IndirectFontRef)
     where
         S: Into<String>,
     {
@@ -506,8 +506,8 @@ impl PdfLayerReference {
     /*
         /// Instantiate SVG data
         #[inline]
-        pub fn use_svg(&self, width_mm: f64, height_mm: f64,
-                       x_mm: f64, y_mm: f64, svg_data_index: SvgIndex)
+        pub fn use_svg(&self, width_mm: f32, height_mm: f32,
+                       x_mm: f32, y_mm: f32, svg_data_index: SvgIndex)
         {
             let svg_element_ref = {
                 let doc = self.document.upgrade().unwrap();

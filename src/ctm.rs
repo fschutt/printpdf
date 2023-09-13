@@ -13,20 +13,20 @@ pub enum CurTransMat {
     /// X and Y can have different values
     Translate(Pt, Pt),
     /// Rotation matrix (clockwise, in degrees)
-    Rotate(f64),
+    Rotate(f32),
     /// Combined rotate + translate matrix
-    TranslateRotate(Pt, Pt, f64),
+    TranslateRotate(Pt, Pt, f32),
     /// Scale matrix (1.0 = 100% scale, no change)
     /// X and Y can have different values
-    Scale(f64, f64),
+    Scale(f32, f32),
     /// Raw (PDF-internal) PDF matrix
-    Raw([f64; 6]),
+    Raw([f32; 6]),
     /// Identity matrix
     Identity,
 }
 
 impl CurTransMat {
-    pub fn combine_matrix(a: [f64; 6], b: [f64; 6]) -> [f64; 6] {
+    pub fn combine_matrix(a: [f32; 6], b: [f32; 6]) -> [f32; 6] {
         let a = [
             [a[0], a[1], 0.0, 0.0],
             [a[2], a[3], 0.0, 0.0],
@@ -136,17 +136,17 @@ impl CurTransMat {
 #[derive(Debug, Copy, Clone)]
 pub enum TextMatrix {
     /// Text rotation matrix, used for rotating text
-    Rotate(f64),
+    Rotate(f32),
     /// Text translate matrix, used for indenting (transforming) text
     /// (different to regular text placement)
     Translate(Pt, Pt),
     /// Combined translate + rotate matrix
-    TranslateRotate(Pt, Pt, f64),
+    TranslateRotate(Pt, Pt, f32),
     /// Raw matrix (/tm operator)
-    Raw([f64; 6]),
+    Raw([f32; 6]),
 }
 
-impl From<TextMatrix> for [f64; 6] {
+impl From<TextMatrix> for [f32; 6] {
     fn from(val: TextMatrix) -> Self {
         use crate::TextMatrix::*;
         match val {
@@ -167,7 +167,7 @@ impl From<TextMatrix> for [f64; 6] {
     }
 }
 
-impl From<CurTransMat> for [f64; 6] {
+impl From<CurTransMat> for [f32; 6] {
     fn from(val: CurTransMat) -> Self {
         use crate::CurTransMat::*;
         match val {
@@ -197,7 +197,7 @@ impl From<CurTransMat> for [f64; 6] {
 impl From<CurTransMat> for Operation {
     fn from(val: CurTransMat) -> Self {
         use lopdf::Object::*;
-        let matrix_nums: [f64; 6] = val.into();
+        let matrix_nums: [f32; 6] = val.into();
         let matrix: Vec<lopdf::Object> = matrix_nums.iter().copied().map(Real).collect();
         Operation::new("cm", matrix)
     }
@@ -206,7 +206,7 @@ impl From<CurTransMat> for Operation {
 impl From<TextMatrix> for Operation {
     fn from(val: TextMatrix) -> Self {
         use lopdf::Object::*;
-        let matrix_nums: [f64; 6] = val.into();
+        let matrix_nums: [f32; 6] = val.into();
         let matrix: Vec<lopdf::Object> = matrix_nums.iter().copied().map(Real).collect();
         Operation::new("Tm", matrix)
     }
@@ -215,7 +215,7 @@ impl From<TextMatrix> for Operation {
 impl From<CurTransMat> for lopdf::Object {
     fn from(val: CurTransMat) -> Self {
         use lopdf::Object::*;
-        let matrix_nums: [f64; 6] = val.into();
+        let matrix_nums: [f32; 6] = val.into();
         Array(matrix_nums.iter().copied().map(Real).collect())
     }
 }
@@ -226,21 +226,21 @@ fn test_ctm_translate() {
 
     // test that the translation matrix look like what PDF expects
     let ctm_trans = CurTransMat::Translate(Pt(150.0), Pt(50.0));
-    let ctm_trans_arr: [f64; 6] = ctm_trans.into();
-    assert_eq!([1.0_f64, 0.0, 0.0, 1.0, 150.0, 50.0], ctm_trans_arr);
+    let ctm_trans_arr: [f32; 6] = ctm_trans.into();
+    assert_eq!([1.0_f32, 0.0, 0.0, 1.0, 150.0, 50.0], ctm_trans_arr);
 
     let ctm_scale = CurTransMat::Scale(2.0, 4.0);
-    let ctm_scale_arr: [f64; 6] = ctm_scale.into();
-    assert_eq!([2.0_f64, 0.0, 0.0, 4.0, 0.0, 0.0], ctm_scale_arr);
+    let ctm_scale_arr: [f32; 6] = ctm_scale.into();
+    assert_eq!([2.0_f32, 0.0, 0.0, 4.0, 0.0, 0.0], ctm_scale_arr);
 
     let ctm_rot = CurTransMat::Rotate(30.0);
-    let ctm_rot_arr: [f64; 6] = ctm_rot.into();
+    let ctm_rot_arr: [f32; 6] = ctm_rot.into();
     assert_eq!(
         [
-            0.8660254037844384,
-            0.5000000000000004,
-            -0.5000000000000004,
-            0.8660254037844384,
+            0.86602527,
+            0.5000002,
+            -0.5000002,
+            0.86602527,
             0.0,
             0.0
         ],

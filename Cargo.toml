@@ -15,11 +15,11 @@ edition = "2021"
 
 [dependencies]
 # minimum dependencies
-lopdf = { version = "0.27.0", default-features = false, features = [
+lopdf = { version = "0.31.0", default-features = false, features = [
     "pom_parser",
 ] }
 owned_ttf_parser = { version = "0.12", default-features = false }
-time = { version = "0.2.11", default-features = false, features = ["std"] }
+time = { version = "0.3.25", default-features = false, features = ["std"] }
 # optional: logging
 log = { version = "0.4.8", optional = true }
 # image reading (png / jpeg)
