@@ -4,3 +4,4 @@ target/*
 test_*
 .vscode/*
 .cargo/*
+.idea/

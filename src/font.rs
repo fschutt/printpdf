@@ -92,6 +92,7 @@ pub struct ExternalFont {
     /// Is the font written vertically? Default: false
     pub(crate) vertical_writing: bool,
     /// Is the font allowed to be subsetted (removing unused glyphs before embedding)? Default: true
+    #[allow(unused)]
     pub(crate) allow_subsetting: Rc<RefCell<bool>>,
 }
 
