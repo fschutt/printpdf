@@ -6,7 +6,7 @@ use crate::{
     BlendMode, Color, CurTransMat, ExtendedGraphicsStateBuilder, Font, ImageXObject,
     IndirectFontRef, Line, LineCapStyle, LineDashPattern, LineJoinStyle, LinkAnnotation,
     LinkAnnotationRef, Mm, PdfColor, PdfDocument, Pt, TextMatrix, TextRenderingMode, XObject,
-    XObjectRef,
+    XObjectRef, Polygon,
 };
 use lopdf::content::Operation;
 use std::cell::RefCell;
@@ -60,10 +60,19 @@ impl From<PdfLayer> for lopdf::Stream {
 }
 
 impl PdfLayerReference {
-    /// Add a shape to the layer. Use `closed` to indicate whether the line is a closed line
+    /// Add a line to the layer. Use `closed` to indicate whether the line is a closed line
     /// Use has_fill to determine if the line should be filled.
-    pub fn add_shape(&self, line: Line) {
+    pub fn add_line(&self, line: Line) {
         let line_ops = line.into_stream_op();
+        for op in line_ops {
+            self.add_operation(op);
+        }
+    }
+
+    /// Add a line to the layer. Use `closed` to indicate whether the line is a closed line
+    /// Use has_fill to determine if the line should be filled.
+    pub fn add_polygon(&self, poly: Polygon) {
+        let line_ops = poly.into_stream_op();
         for op in line_ops {
             self.add_operation(op);
         }

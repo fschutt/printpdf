@@ -50,34 +50,18 @@
 //!
 //! // Quadratic shape. The "false" determines if the next (following)
 //! // point is a bezier handle (for curves)
-//! // If you want holes, simply reorder the winding of the points to be
-//! // counterclockwise instead of clockwise.
+//! //
+//! // If you want holes, use WindingOrder::EvenOdd
 //! let points1 = vec![(Point::new(Mm(100.0), Mm(100.0)), false),
 //!                    (Point::new(Mm(100.0), Mm(200.0)), false),
 //!                    (Point::new(Mm(300.0), Mm(200.0)), false),
 //!                    (Point::new(Mm(300.0), Mm(100.0)), false)];
 //!
-//! // Is the shape stroked? Is the shape closed? Is the shape filled?
-//! let line1 = Line {
-//!     points: points1,
-//!     is_closed: true,
-//!     has_fill: true,
-//!     has_stroke: true,
-//!     is_clipping_path: false,
+//! let line1 = Polygon {
+//!     rings: vec![points1],
+//!     mode: PolygonMode::FillStroke,
+//!     winding_order: WindingOrder::NonZero,
 //! };
-//!
-//! // Triangle shape
-//! // Note: Line is invisible by default, the previous method of
-//! // constructing a line is recommended!
-//! let mut line2 = Line::from_iter(vec![
-//!     (Point::new(Mm(150.0), Mm(150.0)), false),
-//!     (Point::new(Mm(150.0), Mm(250.0)), false),
-//!     (Point::new(Mm(350.0), Mm(250.0)), false)]);
-//!
-//! line2.set_stroke(true);
-//! line2.set_closed(false);
-//! line2.set_fill(false);
-//! line2.set_as_clipping_path(false);
 //!
 //! let fill_color = Color::Cmyk(Cmyk::new(0.0, 0.23, 0.0, 0.0, None));
 //! let outline_color = Color::Rgb(Rgb::new(0.75, 1.0, 0.64, None));
@@ -89,7 +73,7 @@
 //! current_layer.set_outline_thickness(10.0);
 //!
 //! // Draw first line
-//! current_layer.add_shape(line1);
+//! current_layer.add_polygon(line1);
 //!
 //! let fill_color_2 = Color::Cmyk(Cmyk::new(0.0, 0.0, 0.0, 0.0, None));
 //! let outline_color_2 = Color::Greyscale(Greyscale::new(0.45, None));
@@ -104,8 +88,14 @@
 //! current_layer.set_outline_color(outline_color_2);
 //! current_layer.set_outline_thickness(15.0);
 //!
+//! // Triangle shape
+//! let mut line2 = Line::from_iter(vec![
+//!     (Point::new(Mm(150.0), Mm(150.0)), false),
+//!     (Point::new(Mm(150.0), Mm(250.0)), false),
+//!     (Point::new(Mm(350.0), Mm(250.0)), false)]);
+//! 
 //! // draw second line
-//! current_layer.add_shape(line2);
+//! current_layer.add_line(line2);
 //! ```
 //!
 #![cfg_attr(
