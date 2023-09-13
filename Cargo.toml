@@ -102,5 +102,9 @@ name = "svg"
 required-features = ["svg"]
 
 [[example]]
+name = "annotations"
+required-features = []
+
+[[example]]
 name = "hyperlink"
 required-features = ["annotations"]
