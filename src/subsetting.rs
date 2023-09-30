@@ -31,10 +31,8 @@ pub(crate) fn subset(
 
     // Try to find a char this is not encoded in the MacRoman encoding
     cmap_subtable.mappings_fn(|chr, _gid| {
-        if non_macroman_char.is_none() {
-            if !allsorts::macroman::is_macroman(char::from_u32(chr).unwrap_or('\0')) {
-                non_macroman_char = Some(chr);
-            }
+        if non_macroman_char.is_none() && !allsorts::macroman::is_macroman(char::from_u32(chr).unwrap_or('\0')) {
+            non_macroman_char = Some(chr);
         }
     })?;
 

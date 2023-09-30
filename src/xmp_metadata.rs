@@ -1,5 +1,6 @@
 //! Stub plugin for XMP Metadata streams, to be expanded later
 
+use std::string;
 use crate::OffsetDateTime;
 use lopdf;
 
@@ -50,7 +51,7 @@ impl XmpMetadata {
 
         let rendition_class = match self.rendition_class {
             Some(class) => class,
-            None => "".to_string(),
+            None => string::String::new(),
         };
 
         let xmp_metadata = format!(

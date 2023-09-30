@@ -1,0 +1,47 @@
+name: Build and test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  full_ci:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+        toolchain: [ stable, 1.67.0 ]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup rust version
+        run: rustup default ${{ matrix.toolchain }}
+
+      - name: Clippy fmt
+        run: |
+          cargo fmt -- --check
+        if: false
+      #        if: ${{ matrix.type == 'stable' }} # Re-enable after applying proper formatting
+
+      - name: Cargo check
+        run: |
+          cargo check
+          cargo check --all-features
+
+      - name: Cargo clippy
+        run: |
+          cargo clippy -- -A clippy::excessive_precision -A clippy::derive_ord_xor_partial_ord -A clippy::useless_conversion -A clippy::from_over_into
+          cargo clippy --all-features -- -A clippy::excessive_precision -A clippy::derive_ord_xor_partial_ord -A clippy::useless_conversion -A clippy::from_over_into
+
+# Clippy pedantic
+      # cargo clippy --all-features -- -Wclippy::pedantic -Aclippy::case_sensitive_file_extension_comparisons -Aclippy::let-underscore-untyped -Aclippy::match_wildcard_for_single_variants -Aclippy::cast_possible_wrap -Aclippy::trivially_copy_pass_by_ref -Aclippy::if_not_else -Aclippy::missing_errors_doc -Aclippy::cast_sign_loss -Aclippy::cast_possible_truncation -Aclippy::cast_lossless -Aclippy::default_trait_access -Aclippy::wildcard_imports -Aclippy::too_many_lines -Aclippy::unused_self -Aclippy::cast_precision_loss -Aclippy::missing_panics_doc -Aclippy::struct_excessive_bools -Aclippy::module_name_repetitions -Aclippy::implicit_hasher -Aclippy::inconsistent_struct_constructor -Aclippy::doc_markdown -Aclippy::must_use_candidate -Aclippy::enum_glob_use -Aclippy::inline_always -Aclippy::excessive_precision -Aclippy::derive_ord_xor_partial_ord -Aclippy::items_after_statements -Aclippy::similar_names -Aclippy::unreadable_literal -Aclippy::return_self_not_must_use
+
+      - name: Test
+        run: |
+          cargo test --no-fail-fast -- --nocapture
+          cargo test --all-features --no-fail-fast -- --nocapture
+
+      - name: Doc
+        run: |
+          cargo doc

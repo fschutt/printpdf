@@ -149,7 +149,8 @@ impl Polygon {
             return operations;
         };
 
-        for ring in self.rings.iter() {
+        for ring in &self.rings {
+
             operations.push(Operation::new(
                 OP_PATH_CONST_MOVE_TO,
                 vec![ring[0].0.x.into(), ring[0].0.y.into()],

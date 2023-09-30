@@ -109,8 +109,7 @@ impl PdfLayerReference {
         let mut doc = doc.borrow_mut();
         let page_mut = &mut doc.pages[self.page.0];
 
-        let annot_ref = page_mut.add_link_annotation(annotation.into());
-        annot_ref
+        page_mut.add_link_annotation(annotation.into())
     }
 
     /// Begins a new text section

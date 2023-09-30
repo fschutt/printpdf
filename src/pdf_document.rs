@@ -321,9 +321,9 @@ impl PdfDocumentReference {
     {
         let font = self.add_external_font(font_stream);
         if let Ok(font) = &font {
-            match self.document.borrow().fonts.get_font(&font).unwrap().data {
+            match self.document.borrow().fonts.get_font(font).unwrap().data {
                 Font::ExternalFont(ex_font) => {
-                    *ex_font.allow_subsetting.borrow_mut() = allow_subsetting
+                    *ex_font.allow_subsetting.borrow_mut() = allow_subsetting;
                 }
                 Font::BuiltinFont(_) => unreachable!(),
             }
@@ -364,9 +364,9 @@ impl PdfDocumentReference {
     {
         let font = self.add_external_font_data(bytes, data);
         if let Ok(font) = &font {
-            match self.document.borrow().fonts.get_font(&font).unwrap().data {
+            match self.document.borrow().fonts.get_font(font).unwrap().data {
                 Font::ExternalFont(ex_font) => {
-                    *ex_font.allow_subsetting.borrow_mut() = allow_subsetting
+                    *ex_font.allow_subsetting.borrow_mut() = allow_subsetting;
                 }
                 Font::BuiltinFont(_) => unreachable!(),
             }
@@ -666,7 +666,7 @@ impl PdfDocumentReference {
 
             if let Some(extension) = &page.extend_with {
               for (key, value) in extension.iter() {
-                p.set(key.to_vec(), value.clone())
+                p.set(key.to_vec(), value.clone());
               }
             }
 
@@ -699,7 +699,7 @@ impl PdfDocumentReference {
             if doc.bookmarks.contains_key(&idx) {
                 page_id_to_obj.insert(idx, page_obj);
             }
-            page_ids.push(Reference(page_obj))
+            page_ids.push(Reference(page_obj));
         }
 
         if !doc.bookmarks.is_empty() {

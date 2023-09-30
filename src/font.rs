@@ -187,7 +187,7 @@ impl ExternalFont {
         // TODO: This is almost the same code as `replace_glyphs`. Somehow reduce redundancy
         let mut used_glyphs = std::collections::HashSet::new();
 
-        let layers = pages.iter().map(|page| page.layers.iter()).flatten();
+        let layers = pages.iter().flat_map(|page| page.layers.iter());
         for layer in layers {
             let operations = layer
                 .operations
@@ -202,7 +202,7 @@ impl ExternalFont {
                         let font_name = operands[0]
                             .as_name_str()
                             .expect("PDF Command 'Tf' not followed by Name operand");
-                        font_active = font_name == &self.face_name;
+                        font_active = font_name == self.face_name;
                     }
                     "Tj" if font_active => {
                         let gid_stream = operands[0]
@@ -217,7 +217,7 @@ impl ExternalFont {
                         let text_sections = operands[0]
                             .as_array()
                             .expect("PDF Command 'TJ' not followed by Array operand")
-                            .into_iter()
+                            .iter()
                             .filter_map(|obj| obj.as_str().ok());
 
                         for gid_stream in text_sections {
@@ -242,8 +242,7 @@ impl ExternalFont {
         // TODO: This is almost the same code as `find_used_glyphs`. Somehow reduce redundancy
         let layers = pages
             .iter_mut()
-            .map(|page| page.layers.iter_mut())
-            .flatten();
+            .flat_map(|page| page.layers.iter_mut());
         for layer in layers {
             let operations = layer
                 .operations
@@ -258,7 +257,7 @@ impl ExternalFont {
                         let font_name = operands[0]
                             .as_name_str()
                             .expect("PDF Command 'Tf' not followed by Name operand");
-                        font_active = font_name == &self.face_name;
+                        font_active = font_name == self.face_name;
                     }
                     "Tj" if font_active => {
                         let gid_stream = operands[0]
@@ -276,7 +275,7 @@ impl ExternalFont {
                         let text_sections = operands[0]
                             .as_array_mut()
                             .expect("PDF Command 'TJ' not followed by Array operand")
-                            .into_iter()
+                            .iter_mut()
                             .filter_map(|obj| obj.as_str_mut().ok());
 
                         for gid_stream in text_sections {
@@ -474,20 +473,18 @@ impl ExternalFont {
                     current_high_gid += 1;
                 } else {
                     widths_list.push(Integer(current_low_gid as i64));
-                    widths_list.push(Array(current_width_vec.drain(..).collect()));
+                    widths_list.push(Array(std::mem::take(&mut current_width_vec)));
 
                     current_width_vec
                         .push(Integer((width as f32 * percentage_font_scaling) as i64));
                     current_low_gid = gid;
                     current_high_gid = gid + 1;
                 }
-            } else {
-                continue;
             }
         }
         // push the last widths, because the loop is delayed by one iteration
         widths_list.push(Integer(current_low_gid as i64));
-        widths_list.push(Array(current_width_vec.drain(..).collect()));
+        widths_list.push(Array(std::mem::take(&mut current_width_vec)));
 
         let w = {
             if self.vertical_writing {
@@ -771,8 +768,8 @@ impl FontData for TtfFace {
                         map.entry(idx.0).or_insert(ch);
                     }
                 }
-            })
-        }
+            });
+        };
         map
     }
 
@@ -787,8 +784,7 @@ impl FontData for TtfFace {
             let height = self
                 .face()
                 .glyph_bounding_box(glyph_id)
-                .map(|bbox| bbox.y_max - bbox.y_min - self.face().descender())
-                .unwrap_or(1000) as u32;
+                .map_or(1000, |bbox| bbox.y_max - bbox.y_min - self.face().descender()) as u32;
             Some(GlyphMetrics { width, height })
         } else {
             None

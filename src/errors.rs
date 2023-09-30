@@ -65,7 +65,7 @@ impl fmt::Display for IndexError {
             match *self {
                 PdfPageIndexError => "Page index out of bounds",
                 PdfLayerIndexError => "PDF layer index out of bounds",
-                PdfMarkerIndexError => "PDF layer index out of bounds",
+                PdfMarkerIndexError => "PDF marker index out of bounds",
             }
         )
     }

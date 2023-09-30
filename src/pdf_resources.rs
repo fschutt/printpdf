@@ -97,7 +97,7 @@ impl PdfResources {
         }
 
         if !annotations_dict.is_empty() {
-            dict.set("Annots", lopdf::Object::Dictionary(annotations_dict))
+            dict.set("Annots", lopdf::Object::Dictionary(annotations_dict));
         }
 
         (dict, ocg_references)

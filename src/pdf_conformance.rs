@@ -123,7 +123,7 @@ pub struct CustomPdfConformance {
 impl Default for CustomPdfConformance {
     fn default() -> Self {
         CustomPdfConformance {
-            identifier: "".into(),
+            identifier: String::new(),
             allows_3d_content: false,
             allows_video_content: false,
             allows_audio_content: false,

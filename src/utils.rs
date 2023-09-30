@@ -105,7 +105,7 @@ pub fn calculate_points_for_circle<P: Into<Pt>>(
         (p43, false),
     ];
 
-    for &mut (ref mut p, _) in pts.iter_mut() {
+    for &mut (ref mut p, _) in &mut pts {
         p.x.0 += offset_x.0;
         p.y.0 += offset_y.0;
     }
