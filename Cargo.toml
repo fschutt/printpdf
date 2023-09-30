@@ -67,10 +67,6 @@ all-features = true
 [target.'cfg(all(target_arch="wasm32",target_os="unknown"))'.dependencies]
 js-sys = { version = "0.3.40", optional = true }
 
-[badges]
-travis-ci = { repository = "fschutt/printpdf" }
-appveyor = { repository = "fschutt/printpdf" }
-
 [[example]]
 name = "bookmark"
 required-features = []

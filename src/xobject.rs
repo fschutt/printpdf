@@ -224,8 +224,6 @@ impl ImageXObject {
 
     #[cfg(feature = "embedded_images")]
     pub fn from_dynamic_image(image: &DynamicImage) -> Self {
-        use image_crate::EncodableLayout;
-
         let dim = image.dimensions();
         let color_type = image.color();
         let data = image.as_bytes().to_vec();
