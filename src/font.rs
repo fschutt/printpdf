@@ -729,14 +729,11 @@ struct TtfFace {
 impl TtfFace {
     pub fn from_vec(v: Vec<u8>) -> Result<Self, Error> {
         let face = OwnedFace::from_vec(v, 0)?;
-        if let Some(units_per_em) = face.as_face_ref().units_per_em() {
-            Ok(Self {
-                inner: std::sync::Arc::new(face),
-                units_per_em,
-            })
-        } else {
-            Err(PdfError::FontFaceError.into())
-        }
+        let units_per_em = face.as_face_ref().units_per_em();
+        Ok(Self {
+            inner: std::sync::Arc::new(face),
+            units_per_em,
+        })
     }
 
     fn face(&self) -> &Face<'_> {
@@ -760,8 +757,10 @@ impl FontData for TtfFace {
     fn glyph_ids(&self) -> HashMap<u16, char> {
         let subtables = self
             .face()
-            .character_mapping_subtables()
-            .filter(|s| s.is_unicode());
+            .tables().cmap.map(|cmap| cmap.subtables.into_iter().filter(|v| v.is_unicode()));
+         let Some(subtables) = subtables else{
+            return HashMap::new();
+        };
         let mut map = HashMap::with_capacity(self.face().number_of_glyphs().into());
         for subtable in subtables {
             subtable.codepoints(|c| {

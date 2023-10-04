@@ -4,6 +4,7 @@
 use crate::{PdfLayerReference, Pt, Px, XObject, XObjectRef};
 use lopdf::{Object, Stream};
 use std::{error, fmt};
+use usvg::TreeParsing;
 
 /// SVG - wrapper around an `XObject` to allow for more
 /// control within the library.
@@ -66,7 +67,7 @@ pub struct SvgRotation {
 }
 
 fn export_svg_to_xobject_pdf(svg: &str) -> Result<Stream, String> {
-    use pdf_writer::{Content, Finish, Name, PdfWriter, Rect, Ref};
+    use pdf_writer::{Content, Finish, Name, Rect, Ref, Pdf};
 
     // Allocate the indirect reference IDs and names.
     let catalog_id = Ref::new(1);
@@ -77,7 +78,7 @@ fn export_svg_to_xobject_pdf(svg: &str) -> Result<Stream, String> {
     let svg_name = Name(b"S1");
 
     // Start writing a PDF.
-    let mut writer = PdfWriter::new();
+    let mut writer = Pdf::new();
     writer.catalog(catalog_id).pages(page_tree_id);
     writer.pages(page_tree_id).kids([page_id]).count(1);
 
@@ -96,7 +97,7 @@ fn export_svg_to_xobject_pdf(svg: &str) -> Result<Stream, String> {
 
     // Let's add an SVG graphic to this file.
     // We need to load its source first and manually parse it into a usvg Tree.
-    let tree = usvg::Tree::from_str(svg, &usvg::Options::default().to_ref())
+    let tree = usvg::Tree::from_str(svg, &usvg::Options::default())
         .map_err(|err| format!("usvg parse: {err}"))?;
 
     // Then, we will write it to the page as the 6th indirect object.
