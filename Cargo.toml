@@ -86,6 +86,10 @@ name = "image"
 required-features = ["embedded_images"]
 
 [[example]]
+name = "image_alpha"
+required-features = ["embedded_images"]
+
+[[example]]
 name = "no_icc"
 required-features = []
 
