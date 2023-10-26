@@ -3,9 +3,9 @@
 
 use crate::{OffsetDateTime, rgba_to_rgb};
 use crate::{ColorBits, ColorSpace, CurTransMat, Px};
-use image_crate::ColorType;
+
 #[cfg(feature = "embedded_images")]
-use image_crate::{DynamicImage, GenericImageView, ImageDecoder, ImageError};
+use image_crate::{DynamicImage, GenericImageView, ImageDecoder, ImageError, ColorType};
 use lopdf;
 use lopdf::Stream as LoPdfStream;
 use std::collections::HashMap;
@@ -436,22 +436,11 @@ impl From<FormXObject> for lopdf::Stream {
     fn from(val: FormXObject) -> Self {
         use lopdf::Object::*;
 
-        let components = vec![
+        let dict = lopdf::Dictionary::from_iter(vec![
             ("Type", Name("XObject".as_bytes().to_vec())),
             ("Subtype", Name("Form".as_bytes().to_vec())),
             ("FormType", Integer(val.form_type.into())),
-        ];
-
-        // if let Some(_) = val.group {
-        //     components.push((
-        //         "Group",
-        //         Dictionary(lopdf::Dictionary::from_iter(vec![
-        //             ("S", Name("Transparency".as_bytes().to_vec())), // the only valid option
-        //         ])),
-        //     ));
-        // }
-
-        let dict = lopdf::Dictionary::from_iter(components);
+        ]);
 
         lopdf::Stream::new(dict, val.bytes)
     }
@@ -642,6 +631,7 @@ impl From<PostScriptXObject> for lopdf::Stream {
     }
 }
 
+#[cfg(feature = "embedded_images")]
 fn preprocess_image_with_alpha(color_type: ColorType, image_data: Vec<u8>, dim: (u32, u32)) -> (ColorType, Vec<u8>, Option<SMask>) {
     match color_type {
         image_crate::ColorType::Rgba8 => {
