@@ -7,9 +7,9 @@ use std::{error, fmt};
 
 /// SVG - wrapper around an `XObject` to allow for more
 /// control within the library.
-/// 
-/// When placing multiple copies of the same SVG on the 
-/// same layer, it is better to use the `into_xobject` 
+///
+/// When placing multiple copies of the same SVG on the
+/// same layer, it is better to use the `into_xobject`
 /// method to get a reference, rather than a clone
 #[derive(Debug, Clone)]
 pub struct Svg {
@@ -66,7 +66,9 @@ pub struct SvgRotation {
 }
 
 fn export_svg_to_xobject_pdf(svg: &str) -> Result<Stream, String> {
-    use pdf_writer::{Content, Finish, Name, PdfWriter, Rect, Ref};
+    use pdf_writer::{Content, Finish, Name, Pdf, Rect, Ref};
+    use usvg::TreeParsing;
+    use usvg::TreeTextToPath;
 
     // Allocate the indirect reference IDs and names.
     let catalog_id = Ref::new(1);
@@ -77,12 +79,12 @@ fn export_svg_to_xobject_pdf(svg: &str) -> Result<Stream, String> {
     let svg_name = Name(b"S1");
 
     // Start writing a PDF.
-    let mut writer = PdfWriter::new();
-    writer.catalog(catalog_id).pages(page_tree_id);
-    writer.pages(page_tree_id).kids([page_id]).count(1);
+    let mut pdf = Pdf::new();
+    pdf.catalog(catalog_id).pages(page_tree_id);
+    pdf.pages(page_tree_id).kids([page_id]).count(1);
 
     // Set up a simple A4 page.
-    let mut page = writer.page(page_id);
+    let mut page = pdf.page(page_id);
     page.media_box(Rect::new(0.0, 0.0, 595.0, 842.0));
     page.parent(page_tree_id);
     page.contents(content_id);
@@ -94,23 +96,27 @@ fn export_svg_to_xobject_pdf(svg: &str) -> Result<Stream, String> {
     resources.finish();
     page.finish();
 
+    let mut fontdb = fontdb::Database::new();
+    fontdb.load_system_fonts();
+
     // Let's add an SVG graphic to this file.
     // We need to load its source first and manually parse it into a usvg Tree.
-    let tree = usvg::Tree::from_str(svg, &usvg::Options::default().to_ref())
+    let mut tree = usvg::Tree::from_str(svg, &usvg::Options::default())
         .map_err(|err| format!("usvg parse: {err}"))?;
+    tree.convert_text(&fontdb);
 
     // Then, we will write it to the page as the 6th indirect object.
     //
     // This call allocates some indirect object reference IDs for itself. If we
     // wanted to write some more indirect objects afterwards, we could use the
     // return value as the next unused reference ID.
-    svg2pdf::convert_tree_into(&tree, svg2pdf::Options::default(), &mut writer, svg_id);
+    svg2pdf::convert_tree_into(&tree, svg2pdf::Options::default(), &mut pdf, svg_id);
 
     // Write a content stream
     let content = Content::new();
-    writer.stream(content_id, &content.finish());
+    pdf.stream(content_id, &content.finish());
 
-    let bytes = writer.finish();
+    let bytes = pdf.finish();
     let document = lopdf::Document::load_mem(&bytes)
         .map_err(|err| format!("lopdf load generated pdf: {err}"))?;
     let svg_xobject = document
