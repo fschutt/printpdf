@@ -38,7 +38,7 @@ usvg = { version = "0.19.0", optional = true }
 allsorts = { version = "0.14", optional = true, default-features = false, features = ["flate2_rust"]  }
 
 [features]
-default = []
+default = ["js-sys"]
 # do not compress PDF streams, useful for debugging
 less-optimization = []
 # enables logging
@@ -58,12 +58,14 @@ svg = ["svg2pdf", "usvg", "pdf-writer"]
 font_subsetting = ["dep:allsorts"]
 # enables annotations
 annotations = ["pdf-writer"]
+# enables js-sys features on wasm
+js-sys = ["dep:js-sys"]
 
 [package.metadata.docs.rs]
 all-features = true
 
 [target.'cfg(all(target_arch="wasm32",target_os="unknown"))'.dependencies]
-js-sys = "0.3.40"
+js-sys = { version = "0.3.40", optional = true }
 
 [badges]
 travis-ci = { repository = "fschutt/printpdf" }
