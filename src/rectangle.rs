@@ -7,14 +7,17 @@ use crate::{Mm, Point};
 /// This can be used to paint rectangles or to clip other paths.
 #[derive(Debug, Copy, Clone)]
 pub struct Rect {
-    /// x position from the bottom left corner in pt
+    /// Position of the lower left point of the rectangle, relative to the bottom left corner of
+    /// the PDF page in pt.
     pub ll: Point,
-    /// y position from the bottom left corner in pt
+    /// Position of the upper right point of the rectangle, relative to the bottom left corner of
+    /// the PDF page in pt.
     pub ur: Point,
 }
 
 impl Rect {
     /// Create a new point.
+    ///
     /// **WARNING: The reference point for a point is the bottom left corner, not the top left**
     #[inline]
     pub fn new(llx: Mm, lly: Mm, urx: Mm, ury: Mm) -> Self {
