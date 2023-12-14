@@ -1,5 +1,10 @@
+//! Utilities for rectangle paths.
+
 use crate::{Mm, Point};
 
+/// A helper struct to insert rectangular shapes into a PDF.
+///
+/// This can be used to paint rectangles or to clip other paths.
 #[derive(Debug, Copy, Clone)]
 pub struct Rect {
     /// x position from the bottom left corner in pt
