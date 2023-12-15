@@ -101,15 +101,17 @@ impl DocumentInfo {
 
 // D:20170505150224+02'00'
 fn to_pdf_time_stamp_metadata(date: &OffsetDateTime) -> String {
-    // Since the time is in UTC, we know that the time zone
-    // difference to UTC is 0 min, 0 sec, hence the 00'00
+    let offset = date.offset();
+    let offset_sign = if offset.is_negative() { '-' } else { '+' };
     format!(
-        "D:{:04}{:02}{:02}{:02}{:02}{:02}+00'00'",
+        "D:{:04}{:02}{:02}{:02}{:02}{:02}{offset_sign}{:02}'{:02}'",
         date.year(),
         u8::from(date.month()),
         date.day(),
         date.hour(),
         date.minute(),
         date.second(),
+        offset.whole_hours().abs(),
+        offset.minutes_past_hour(),
     )
 }
