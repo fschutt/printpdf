@@ -112,6 +112,47 @@ fn to_pdf_time_stamp_metadata(date: &OffsetDateTime) -> String {
         date.minute(),
         date.second(),
         offset.whole_hours().abs(),
-        offset.minutes_past_hour(),
+        offset.minutes_past_hour().abs(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use time::{Date, Month, UtcOffset};
+
+    use super::to_pdf_time_stamp_metadata;
+
+    #[test]
+    fn pdf_timestamp_positive() {
+        let datetime = Date::from_calendar_date(2017, Month::May, 8)
+            .unwrap()
+            .with_hms(15, 2, 24)
+            .unwrap();
+
+        assert_eq!(
+            to_pdf_time_stamp_metadata(
+                &datetime.assume_offset(UtcOffset::from_hms(2, 28, 15).unwrap())
+            ),
+            "D:20170508150224+02'28'"
+        );
+
+        assert_eq!(
+            to_pdf_time_stamp_metadata(&datetime.assume_utc()),
+            "D:20170508150224+00'00'"
+        );
+    }
+
+    #[test]
+    fn pdf_timestamp_negative() {
+        let datetime = Date::from_calendar_date(2017, Month::May, 8)
+            .unwrap()
+            .with_hms(15, 2, 24)
+            .unwrap()
+            .assume_offset(UtcOffset::from_hms(-2, -20, -30).unwrap());
+
+        assert_eq!(
+            to_pdf_time_stamp_metadata(&datetime),
+            "D:20170508150224-02'20'"
+        );
+    }
 }
