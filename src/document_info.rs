@@ -106,7 +106,7 @@ fn to_pdf_time_stamp_metadata(date: &OffsetDateTime) -> String {
     format!(
         "D:{:04}{:02}{:02}{:02}{:02}{:02}+00'00'",
         date.year(),
-        date.month(),
+        u8::from(date.month()),
         date.day(),
         date.hour(),
         date.minute(),
