@@ -101,15 +101,58 @@ impl DocumentInfo {
 
 // D:20170505150224+02'00'
 fn to_pdf_time_stamp_metadata(date: &OffsetDateTime) -> String {
-    // Since the time is in UTC, we know that the time zone
-    // difference to UTC is 0 min, 0 sec, hence the 00'00
+    let offset = date.offset();
+    let offset_sign = if offset.is_negative() { '-' } else { '+' };
     format!(
-        "D:{:04}{:02}{:02}{:02}{:02}{:02}+00'00'",
+        "D:{:04}{:02}{:02}{:02}{:02}{:02}{offset_sign}{:02}'{:02}'",
         date.year(),
-        date.month(),
+        u8::from(date.month()),
         date.day(),
         date.hour(),
         date.minute(),
         date.second(),
+        offset.whole_hours().abs(),
+        offset.minutes_past_hour().abs(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use time::{Date, Month, UtcOffset};
+
+    use super::to_pdf_time_stamp_metadata;
+
+    #[test]
+    fn pdf_timestamp_positive() {
+        let datetime = Date::from_calendar_date(2017, Month::May, 8)
+            .unwrap()
+            .with_hms(15, 2, 24)
+            .unwrap();
+
+        assert_eq!(
+            to_pdf_time_stamp_metadata(
+                &datetime.assume_offset(UtcOffset::from_hms(2, 28, 15).unwrap())
+            ),
+            "D:20170508150224+02'28'"
+        );
+
+        assert_eq!(
+            to_pdf_time_stamp_metadata(&datetime.assume_utc()),
+            "D:20170508150224+00'00'"
+        );
+    }
+
+    #[test]
+    fn pdf_timestamp_negative() {
+        let datetime = Date::from_calendar_date(2017, Month::May, 8)
+            .unwrap()
+            .with_hms(15, 2, 24)
+            .unwrap()
+            .assume_offset(UtcOffset::from_hms(-2, -20, -30).unwrap());
+
+        assert_eq!(
+            to_pdf_time_stamp_metadata(&datetime),
+            "D:20170508150224-02'20'"
+        );
+    }
 }
