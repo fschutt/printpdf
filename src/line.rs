@@ -1,11 +1,9 @@
 use crate::glob_defines::{
     OP_PATH_CONST_3BEZIER_V1, OP_PATH_CONST_3BEZIER_V2, OP_PATH_CONST_4BEZIER,
-    OP_PATH_CONST_CLIP_NZ, OP_PATH_CONST_CLIP_EO, OP_PATH_CONST_LINE_TO, 
-    OP_PATH_CONST_MOVE_TO, OP_PATH_PAINT_END,
-    OP_PATH_PAINT_FILL_NZ, OP_PATH_PAINT_FILL_EO, 
-    OP_PATH_PAINT_FILL_STROKE_CLOSE_NZ, OP_PATH_PAINT_FILL_STROKE_CLOSE_EO, 
-    OP_PATH_PAINT_STROKE, OP_PATH_PAINT_STROKE_CLOSE,
+    OP_PATH_CONST_LINE_TO, OP_PATH_CONST_MOVE_TO, OP_PATH_PAINT_END, OP_PATH_PAINT_STROKE,
+    OP_PATH_PAINT_STROKE_CLOSE,
 };
+use crate::path::{PaintMode, WindingOrder};
 use crate::Point;
 use lopdf;
 use std::iter::{FromIterator, IntoIterator};
@@ -119,62 +117,12 @@ impl Line {
     }
 }
 
-
-#[derive(Debug, Clone, Copy)]
-pub enum WindingOrder {
-    EvenOdd,
-    NonZero,
-}
-
-impl Default for WindingOrder {
-    fn default() -> Self {
-        WindingOrder::NonZero
-    }
-}
-
-impl WindingOrder {
-    pub fn get_clip_op(&self) -> &'static str {
-        match self {
-            WindingOrder::NonZero => OP_PATH_CONST_CLIP_NZ,
-            WindingOrder::EvenOdd => OP_PATH_CONST_CLIP_EO,
-        }
-    }
-
-    pub fn get_fill_op(&self) -> &'static str {
-        match self {
-            WindingOrder::NonZero => OP_PATH_PAINT_FILL_NZ,
-            WindingOrder::EvenOdd => OP_PATH_PAINT_FILL_EO,
-        }
-    }
-
-    pub fn get_fill_stroke_close_op(&self) -> &'static str {
-        match self {
-            WindingOrder::NonZero => OP_PATH_PAINT_FILL_STROKE_CLOSE_NZ,
-            WindingOrder::EvenOdd => OP_PATH_PAINT_FILL_STROKE_CLOSE_EO,
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum PolygonMode {
-    Clip,
-    Fill,
-    Stroke,
-    FillStroke,
-}
-
-impl Default for PolygonMode {
-    fn default() -> PolygonMode {
-        PolygonMode::Fill
-    }
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct Polygon {
     /// 2D Points for the line
     pub rings: Vec<Vec<(Point, bool)>>,
     /// What type of polygon is this?
-    pub mode: PolygonMode,
+    pub mode: PaintMode,
     /// Winding order to use for constructing this polygon
     pub winding_order: WindingOrder,
 }
@@ -193,7 +141,6 @@ impl FromIterator<(Point, bool)> for Polygon {
 }
 
 impl Polygon {
-    
     pub fn into_stream_op(self) -> Vec<lopdf::content::Operation> {
         use lopdf::content::Operation;
         let mut operations = Vec::<Operation>::new();
@@ -203,7 +150,6 @@ impl Polygon {
         };
 
         for ring in self.rings.iter() {
-
             operations.push(Operation::new(
                 OP_PATH_CONST_MOVE_TO,
                 vec![ring[0].0.x.into(), ring[0].0.y.into()],
@@ -230,13 +176,23 @@ impl Polygon {
                                 // first control point coincides with initial point of curve
                                 operations.push(Operation::new(
                                     OP_PATH_CONST_3BEZIER_V1,
-                                    vec![p3.0.x.into(), p3.0.y.into(), p4.0.x.into(), p4.0.y.into()],
+                                    vec![
+                                        p3.0.x.into(),
+                                        p3.0.y.into(),
+                                        p4.0.x.into(),
+                                        p4.0.y.into(),
+                                    ],
                                 ));
                             } else if p2.0 == p3.0 {
                                 // first control point coincides with final point of curve
                                 operations.push(Operation::new(
                                     OP_PATH_CONST_3BEZIER_V2,
-                                    vec![p2.0.x.into(), p2.0.y.into(), p4.0.x.into(), p4.0.y.into()],
+                                    vec![
+                                        p2.0.x.into(),
+                                        p2.0.y.into(),
+                                        p4.0.x.into(),
+                                        p4.0.y.into(),
+                                    ],
                                 ));
                             } else {
                                 // regular bezier curve with four points
@@ -265,32 +221,35 @@ impl Polygon {
                 ));
                 current += 1;
             }
-
         }
 
         match self.mode {
-            PolygonMode::Clip => {
+            PaintMode::Clip => {
                 // set the path as a clipping path
                 operations.push(Operation::new(self.winding_order.get_clip_op(), vec![]));
-            },
-            PolygonMode::Fill => {
+            }
+            PaintMode::Fill => {
                 // is not stroked, only filled
                 // closed-ness doesn't matter in this case, an area is always closed
                 operations.push(Operation::new(self.winding_order.get_fill_op(), vec![]));
-            },
-            PolygonMode::Stroke => {
+            }
+            PaintMode::Stroke => {
                 // same as line with is_closed = true
                 operations.push(Operation::new(OP_PATH_PAINT_STROKE_CLOSE, vec![]));
-            },
-            PolygonMode::FillStroke => {
-                operations.push(Operation::new(self.winding_order.get_fill_stroke_close_op(), vec![]));
-            },
+            }
+            PaintMode::FillStroke => {
+                operations.push(Operation::new(
+                    self.winding_order.get_fill_stroke_close_op(),
+                    vec![],
+                ));
+            }
         }
 
         if !operations.is_empty() {
-            operations.push(Operation::new(OP_PATH_PAINT_END, vec![]));            
+            operations.push(Operation::new(OP_PATH_PAINT_END, vec![]));
         }
 
         operations
     }
 }
+

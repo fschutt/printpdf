@@ -1,5 +1,6 @@
 extern crate printpdf;
 
+use printpdf::path::{PaintMode, WindingOrder};
 use printpdf::*;
 use std::fs::File;
 use std::io::BufWriter;
@@ -19,7 +20,7 @@ fn main() {
             calculate_points_for_circle(radius_1, offset_x, offset_y),
             calculate_points_for_circle(radius_2, offset_x, offset_y), // hole
         ],
-        mode: PolygonMode::FillStroke,
+        mode: PaintMode::FillStroke,
         winding_order: WindingOrder::EvenOdd,
     };
 
@@ -31,8 +32,13 @@ fn main() {
     let offset_y_rect = Pt(5.0);
 
     let line = Polygon {
-        rings: vec![calculate_points_for_rect(scale_x_rect, scale_y_rect, offset_x_rect, offset_y_rect)],
-        mode: PolygonMode::FillStroke,
+        rings: vec![calculate_points_for_rect(
+            scale_x_rect,
+            scale_y_rect,
+            offset_x_rect,
+            offset_y_rect,
+        )],
+        mode: PaintMode::FillStroke,
         winding_order: WindingOrder::NonZero,
     };
 
