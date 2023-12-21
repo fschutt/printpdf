@@ -1,8 +1,11 @@
 //! Utilities to work with path objects.
 
-use crate::glob_defines::{
-    OP_PATH_CONST_CLIP_EO, OP_PATH_CONST_CLIP_NZ, OP_PATH_PAINT_FILL_EO, OP_PATH_PAINT_FILL_NZ,
-    OP_PATH_PAINT_FILL_STROKE_CLOSE_EO, OP_PATH_PAINT_FILL_STROKE_CLOSE_NZ,
+use crate::{
+    glob_defines::{
+        OP_PATH_CONST_CLIP_EO, OP_PATH_CONST_CLIP_NZ, OP_PATH_PAINT_FILL_EO, OP_PATH_PAINT_FILL_NZ,
+        OP_PATH_PAINT_FILL_STROKE_CLOSE_EO, OP_PATH_PAINT_FILL_STROKE_CLOSE_NZ,
+    },
+    OP_PATH_PAINT_FILL_STROKE_EO, OP_PATH_PAINT_FILL_STROKE_NZ,
 };
 
 /// The rule to use in filling/clipping paint operations.
@@ -65,6 +68,15 @@ impl WindingOrder {
         match self {
             WindingOrder::NonZero => OP_PATH_PAINT_FILL_STROKE_CLOSE_NZ,
             WindingOrder::EvenOdd => OP_PATH_PAINT_FILL_STROKE_CLOSE_EO,
+        }
+    }
+
+    /// Gets the operator for a fill and stroke painting operation.
+    #[must_use]
+    pub fn get_fill_stroke_op(&self) -> &'static str {
+        match self {
+            WindingOrder::NonZero => OP_PATH_PAINT_FILL_STROKE_NZ,
+            WindingOrder::EvenOdd => OP_PATH_PAINT_FILL_STROKE_EO,
         }
     }
 }
