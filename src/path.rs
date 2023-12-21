@@ -5,19 +5,15 @@ use crate::glob_defines::{
     OP_PATH_PAINT_FILL_STROKE_CLOSE_EO, OP_PATH_PAINT_FILL_STROKE_CLOSE_NZ,
 };
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub enum WindingOrder {
     EvenOdd,
+    #[default]
     NonZero,
 }
 
-impl Default for WindingOrder {
-    fn default() -> Self {
-        WindingOrder::NonZero
-    }
-}
-
 impl WindingOrder {
+    #[must_use]
     pub fn get_clip_op(&self) -> &'static str {
         match self {
             WindingOrder::NonZero => OP_PATH_CONST_CLIP_NZ,
@@ -25,6 +21,7 @@ impl WindingOrder {
         }
     }
 
+    #[must_use]
     pub fn get_fill_op(&self) -> &'static str {
         match self {
             WindingOrder::NonZero => OP_PATH_PAINT_FILL_NZ,
@@ -32,6 +29,7 @@ impl WindingOrder {
         }
     }
 
+    #[must_use]
     pub fn get_fill_stroke_close_op(&self) -> &'static str {
         match self {
             WindingOrder::NonZero => OP_PATH_PAINT_FILL_STROKE_CLOSE_NZ,
@@ -40,16 +38,11 @@ impl WindingOrder {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub enum PaintMode {
     Clip,
+    #[default]
     Fill,
     Stroke,
     FillStroke,
-}
-
-impl Default for PaintMode {
-    fn default() -> PaintMode {
-        PaintMode::Fill
-    }
 }
