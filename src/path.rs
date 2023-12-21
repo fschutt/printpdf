@@ -5,7 +5,7 @@ use crate::glob_defines::{
     OP_PATH_PAINT_FILL_STROKE_CLOSE_EO, OP_PATH_PAINT_FILL_STROKE_CLOSE_NZ,
 };
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WindingOrder {
     EvenOdd,
     #[default]
@@ -38,7 +38,7 @@ impl WindingOrder {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum PaintMode {
     Clip,
     #[default]
