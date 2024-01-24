@@ -1,0 +1,2 @@
+imports_granularity = "module" # Only avaiable in nightly channel
+max_width = 120
