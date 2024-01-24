@@ -1,5 +1,6 @@
 extern crate printpdf;
 
+use printpdf::path::{PaintMode, WindingOrder};
 use printpdf::*;
 use std::fs::File;
 use std::io::BufWriter;
@@ -42,14 +43,12 @@ fn main() {
     // Note: Line is invisible by default, the previous method of
     // constructing a line is recommended!
     let mut line2 = Polygon {
-        rings: vec![
-            vec![
-                (Point::new(Mm(150.0), Mm(150.0)), false),
-                (Point::new(Mm(150.0), Mm(250.0)), false),
-                (Point::new(Mm(350.0), Mm(250.0)), false),
-            ]
-        ],
-        mode: PolygonMode::FillStroke,
+        rings: vec![vec![
+            (Point::new(Mm(150.0), Mm(150.0)), false),
+            (Point::new(Mm(150.0), Mm(250.0)), false),
+            (Point::new(Mm(350.0), Mm(250.0)), false),
+        ]],
+        mode: PaintMode::FillStroke,
         winding_order: WindingOrder::NonZero,
     };
 

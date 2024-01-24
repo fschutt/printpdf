@@ -41,6 +41,7 @@
 //!
 //! ```rust
 //! use printpdf::*;
+//! use printpdf::path::{PaintMode, WindingOrder};
 //! use std::fs::File;
 //! use std::io::BufWriter;
 //! use std::iter::FromIterator;
@@ -59,7 +60,7 @@
 //!
 //! let line1 = Polygon {
 //!     rings: vec![points1],
-//!     mode: PolygonMode::FillStroke,
+//!     mode: PaintMode::FillStroke,
 //!     winding_order: WindingOrder::NonZero,
 //! };
 //!
@@ -93,7 +94,7 @@
 //!     (Point::new(Mm(150.0), Mm(150.0)), false),
 //!     (Point::new(Mm(150.0), Mm(250.0)), false),
 //!     (Point::new(Mm(350.0), Mm(250.0)), false)]);
-//! 
+//!
 //! // draw second line
 //! current_layer.add_line(line2);
 //! ```
@@ -335,6 +336,7 @@ pub mod indices;
 pub mod line;
 pub mod link_annotation;
 pub mod ocg;
+pub mod path;
 pub mod pattern;
 pub mod pdf_conformance;
 pub mod pdf_document;
@@ -345,13 +347,13 @@ pub mod pdf_resources;
 pub mod point;
 pub mod rectangle;
 pub mod scale;
+#[cfg(feature = "font_subsetting")]
+pub(crate) mod subsetting;
 #[cfg(feature = "svg")]
 pub mod svg;
 pub mod utils;
 pub mod xmp_metadata;
 pub mod xobject;
-#[cfg(feature = "font_subsetting")]
-pub(crate) mod subsetting;
 
 pub(crate) mod glob_defines {
 

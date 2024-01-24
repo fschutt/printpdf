@@ -108,3 +108,7 @@ required-features = []
 [[example]]
 name = "hyperlink"
 required-features = ["annotations"]
+
+[[example]]
+name = "rect"
+required-features = []

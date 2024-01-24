@@ -5,8 +5,8 @@ use crate::indices::{PdfLayerIndex, PdfPageIndex};
 use crate::{
     BlendMode, Color, CurTransMat, ExtendedGraphicsStateBuilder, Font, ImageXObject,
     IndirectFontRef, Line, LineCapStyle, LineDashPattern, LineJoinStyle, LinkAnnotation,
-    LinkAnnotationRef, Mm, PdfColor, PdfDocument, Pt, TextMatrix, TextRenderingMode, XObject,
-    XObjectRef, Polygon,
+    LinkAnnotationRef, Mm, PdfColor, PdfDocument, Polygon, Pt, Rect, TextMatrix, TextRenderingMode,
+    XObject, XObjectRef,
 };
 use lopdf::content::Operation;
 use std::cell::RefCell;
@@ -548,5 +548,11 @@ impl PdfLayerReference {
                 vec![lopdf::Object::Name(name.as_bytes().to_vec())],
             ));
     }
-}
 
+    /// Add a rectangle to the layer.
+    pub fn add_rect(&self, rect: Rect) {
+        for op in rect.into_stream_op() {
+            self.add_operation(op);
+        }
+    }
+}
