@@ -1,7 +1,9 @@
 // clippy lints when serializing PDF strings, in this case its wrong
 #![cfg_attr(feature = "cargo-clippy", allow(clippy::string_lit_as_bytes))]
 
-use crate::{OffsetDateTime, rgba_to_rgb};
+use crate::OffsetDateTime;
+#[cfg(feature = "embedded_images")]
+use crate::rgba_to_rgb;
 use crate::{ColorBits, ColorSpace, CurTransMat, Px};
 
 #[cfg(feature = "embedded_images")]

@@ -203,6 +203,7 @@ fn u8_to_char(input: u8) -> char {
 }
 
 /// Takes a Vec<u8> of RGBA data and returns two Vec<u8> of RGB and alpha data
+#[cfg(feature = "embedded_images")]
 pub(crate) fn rgba_to_rgb(data: Vec<u8>) -> (Vec<u8>, Vec<u8>) {
     let mut rgb = Vec::with_capacity(data.len() / 4 * 3);
     let mut alpha = Vec::with_capacity(data.len() / 4);

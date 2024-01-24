@@ -1,7 +1,7 @@
 #![allow(trivial_numeric_casts)]
 
 //! Embedding fonts in 2D for Pdf
-use crate::{Error, PdfError, PdfPage};
+use crate::{Error, PdfPage};
 use lopdf;
 use lopdf::StringFormat;
 use lopdf::{Dictionary as LoDictionary, Stream as LoStream};
