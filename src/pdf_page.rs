@@ -6,8 +6,8 @@ use std::rc::Weak;
 
 use crate::indices::{PdfLayerIndex, PdfPageIndex};
 use crate::{
-    ExtendedGraphicsState, ExtendedGraphicsStateRef, Mm, Pattern, PatternRef, PdfDocument,
-    PdfLayer, PdfLayerReference, PdfResources, Pt, XObject, XObjectRef, LinkAnnotation, LinkAnnotationRef,
+    ExtendedGraphicsState, ExtendedGraphicsStateRef, LinkAnnotation, LinkAnnotationRef, Mm, Pattern, PatternRef,
+    PdfDocument, PdfLayer, PdfLayerReference, PdfResources, Pt, XObject, XObjectRef,
 };
 
 /// PDF page
@@ -52,7 +52,7 @@ impl PdfPage {
             height: height.into(),
             layers: Vec::new(),
             resources: PdfResources::new(),
-            extend_with: None
+            extend_with: None,
         };
 
         let initial_layer = PdfLayer::new(layer_name);
@@ -81,9 +81,7 @@ impl PdfPage {
         layers: &[(usize, lopdf::Object)],
     ) -> (lopdf::Dictionary, Vec<lopdf::Stream>) {
         let cur_layers = layers.iter().map(|l| l.1.clone()).collect();
-        let (resource_dictionary, ocg_refs) = self
-            .resources
-            .into_with_document_and_layers(doc, cur_layers);
+        let (resource_dictionary, ocg_refs) = self.resources.into_with_document_and_layers(doc, cur_layers);
 
         // set contents
         let mut layer_streams = Vec::<lopdf::Stream>::new();
@@ -95,10 +93,7 @@ impl PdfPage {
             layer.operations.insert(0, Operation::new("q", vec![]));
             layer.operations.insert(
                 0,
-                Operation::new(
-                    "BDC",
-                    vec![Name("OC".into()), Name(ocg_refs[idx].name.clone().into())],
-                ),
+                Operation::new("BDC", vec![Name("OC".into()), Name(ocg_refs[idx].name.clone().into())]),
             );
 
             // push OCG END and Q to the end of the layer stream
@@ -127,10 +122,7 @@ impl PdfPage {
     /// Returns the old graphics state, in case it was overwritten, as well as a reference
     /// to the currently active graphics state
     #[inline]
-    pub fn add_graphics_state(
-        &mut self,
-        added_state: ExtendedGraphicsState,
-    ) -> ExtendedGraphicsStateRef {
+    pub fn add_graphics_state(&mut self, added_state: ExtendedGraphicsState) -> ExtendedGraphicsStateRef {
         self.resources.add_graphics_state(added_state)
     }
 
@@ -152,8 +144,6 @@ impl PdfPage {
     pub fn add_link_annotation(&mut self, annotation: LinkAnnotation) -> LinkAnnotationRef {
         self.resources.add_link_annotation(annotation)
     }
-
-    
 }
 
 impl PdfPageReference {

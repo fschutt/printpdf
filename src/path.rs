@@ -1,12 +1,10 @@
 //! Utilities to work with path objects.
 
-use crate::{
-    glob_defines::{
-        OP_PATH_CONST_CLIP_EO, OP_PATH_CONST_CLIP_NZ, OP_PATH_PAINT_FILL_EO, OP_PATH_PAINT_FILL_NZ,
-        OP_PATH_PAINT_FILL_STROKE_CLOSE_EO, OP_PATH_PAINT_FILL_STROKE_CLOSE_NZ,
-    },
-    OP_PATH_PAINT_FILL_STROKE_EO, OP_PATH_PAINT_FILL_STROKE_NZ,
+use crate::glob_defines::{
+    OP_PATH_CONST_CLIP_EO, OP_PATH_CONST_CLIP_NZ, OP_PATH_PAINT_FILL_EO, OP_PATH_PAINT_FILL_NZ,
+    OP_PATH_PAINT_FILL_STROKE_CLOSE_EO, OP_PATH_PAINT_FILL_STROKE_CLOSE_NZ,
 };
+use crate::{OP_PATH_PAINT_FILL_STROKE_EO, OP_PATH_PAINT_FILL_STROKE_NZ};
 
 /// The rule to use in filling/clipping paint operations.
 ///

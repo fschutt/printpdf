@@ -13,8 +13,6 @@ fn main() {
     doc.add_bookmark("This is another bookmark", page2);
 
     // If this is successful, you should see a PDF with two blank A4 pages and 2 bookmarks
-    doc.save(&mut BufWriter::new(
-        File::create("test_bookmark.pdf").unwrap(),
-    ))
-    .unwrap();
+    doc.save(&mut BufWriter::new(File::create("test_bookmark.pdf").unwrap()))
+        .unwrap();
 }

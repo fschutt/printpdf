@@ -3,8 +3,7 @@
 //! Embedding fonts in 2D for Pdf
 use crate::{Error, PdfPage};
 use lopdf;
-use lopdf::StringFormat;
-use lopdf::{Dictionary as LoDictionary, Stream as LoStream};
+use lopdf::{Dictionary as LoDictionary, Stream as LoStream, StringFormat};
 use owned_ttf_parser::{AsFaceRef as _, Face, OwnedFace};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
@@ -189,10 +188,7 @@ impl ExternalFont {
 
         let layers = pages.iter().flat_map(|page| page.layers.iter());
         for layer in layers {
-            let operations = layer
-                .operations
-                .iter()
-                .map(|op| (&op.operator, &op.operands));
+            let operations = layer.operations.iter().map(|op| (&op.operator, &op.operands));
 
             let mut font_active = false;
 
@@ -240,9 +236,7 @@ impl ExternalFont {
     #[cfg(feature = "font_subsetting")]
     fn replace_glyphs(&self, pages: &mut [PdfPage], gid_mapping: &HashMap<u16, u16>) {
         // TODO: This is almost the same code as `find_used_glyphs`. Somehow reduce redundancy
-        let layers = pages
-            .iter_mut()
-            .flat_map(|page| page.layers.iter_mut());
+        let layers = pages.iter_mut().flat_map(|page| page.layers.iter_mut());
         for layer in layers {
             let operations = layer
                 .operations
@@ -297,11 +291,7 @@ impl ExternalFont {
     /// Takes the font and adds it to the document and consumes the font.
     ///
     /// Returns None if the font doesn't need to be embedded
-    pub(crate) fn into_with_document(
-        self,
-        doc: &mut lopdf::Document,
-        _pages: &mut [PdfPage],
-    ) -> Option<LoDictionary> {
+    pub(crate) fn into_with_document(self, doc: &mut lopdf::Document, _pages: &mut [PdfPage]) -> Option<LoDictionary> {
         use lopdf::Object;
         use lopdf::Object::*;
 
@@ -321,22 +311,20 @@ impl ExternalFont {
 
                 // TODO: This is ugly and will silently fall back to no subsetting on errors
                 match crate::subsetting::subset(&self.font_bytes, &mut used_glyphs) {
-                    Ok(font_subset) => {
-                        match TtfFace::from_vec(font_subset.new_font_bytes.clone()) {
-                            Ok(face) => {
-                                let font: Box<dyn FontData> = Box::new(face);
+                    Ok(font_subset) => match TtfFace::from_vec(font_subset.new_font_bytes.clone()) {
+                        Ok(face) => {
+                            let font: Box<dyn FontData> = Box::new(face);
 
-                                self.replace_glyphs(_pages, &font_subset.gid_mapping);
+                            self.replace_glyphs(_pages, &font_subset.gid_mapping);
 
-                                font_data = font;
-                                font_bytes = font_subset.new_font_bytes;
-                            }
-                            Err(_) => {
-                                font_data = self.font_data;
-                                font_bytes = self.font_bytes;
-                            }
+                            font_data = font;
+                            font_bytes = font_subset.new_font_bytes;
                         }
-                    }
+                        Err(_) => {
+                            font_data = self.font_data;
+                            font_bytes = self.font_bytes;
+                        }
+                    },
                     Err(_) => {
                         font_data = self.font_data;
                         font_bytes = self.font_bytes;
@@ -405,10 +393,7 @@ impl ExternalFont {
                 }
 
                 total_width += glyph_metrics.width;
-                cmap.insert(
-                    glyph_id as u32,
-                    (c as u32, glyph_metrics.width, glyph_metrics.height),
-                );
+                cmap.insert(glyph_id as u32, (c as u32, glyph_metrics.width, glyph_metrics.height));
             }
         }
 
@@ -447,8 +432,7 @@ impl ExternalFont {
 
         let cid_to_unicode_map = generate_cid_to_unicode_map(face_name.clone(), all_cmap_blocks);
 
-        let cid_to_unicode_map_stream =
-            LoStream::new(LoDictionary::new(), cid_to_unicode_map.as_bytes().to_vec());
+        let cid_to_unicode_map_stream = LoStream::new(LoDictionary::new(), cid_to_unicode_map.as_bytes().to_vec());
         let cid_to_unicode_map_stream_id = doc.add_object(cid_to_unicode_map_stream);
 
         // encode widths / heights so that they fit into what PDF expects
@@ -468,15 +452,13 @@ impl ExternalFont {
         for gid in 0..font_data.glyph_count() {
             if let Some(GlyphMetrics { width, .. }) = font_data.glyph_metrics(gid) {
                 if gid == current_high_gid {
-                    current_width_vec
-                        .push(Integer((width as f32 * percentage_font_scaling) as i64));
+                    current_width_vec.push(Integer((width as f32 * percentage_font_scaling) as i64));
                     current_high_gid += 1;
                 } else {
                     widths_list.push(Integer(current_low_gid as i64));
                     widths_list.push(Array(std::mem::take(&mut current_width_vec)));
 
-                    current_width_vec
-                        .push(Integer((width as f32 * percentage_font_scaling) as i64));
+                    current_width_vec.push(Integer((width as f32 * percentage_font_scaling) as i64));
                     current_low_gid = gid;
                     current_high_gid = gid + 1;
                 }
@@ -534,10 +516,7 @@ impl ExternalFont {
 
         desc_fonts.set("FontDescriptor", Reference(font_descriptor_vec_id));
 
-        font_vec.push((
-            "DescendantFonts".into(),
-            Array(vec![Dictionary(desc_fonts)]),
-        ));
+        font_vec.push(("DescendantFonts".into(), Array(vec![Dictionary(desc_fonts)])));
         font_vec.push(("ToUnicode".into(), Reference(cid_to_unicode_map_stream_id)));
 
         Some(LoDictionary::from_iter(font_vec))
@@ -550,8 +529,7 @@ type CmapBlock = Vec<(GlyphId, UnicodeCodePoint)>;
 
 /// Generates a CMAP (character map) from valid cmap blocks
 fn generate_cid_to_unicode_map(face_name: String, all_cmap_blocks: Vec<CmapBlock>) -> String {
-    let mut cid_to_unicode_map =
-        format!(include_str!("../assets/gid_to_unicode_beg.txt"), face_name);
+    let mut cid_to_unicode_map = format!(include_str!("../assets/gid_to_unicode_beg.txt"), face_name);
 
     for cmap_block in all_cmap_blocks
         .into_iter()
@@ -641,11 +619,7 @@ impl FontList {
     }
 
     /// Converts the fonts into a dictionary
-    pub(crate) fn into_with_document(
-        self,
-        doc: &mut lopdf::Document,
-        pages: &mut [PdfPage],
-    ) -> lopdf::Dictionary {
+    pub(crate) fn into_with_document(self, doc: &mut lopdf::Document, pages: &mut [PdfPage]) -> lopdf::Dictionary {
         let mut font_dict = lopdf::Dictionary::new();
 
         for (indirect_ref, direct_font_ref) in self.fonts {
@@ -661,10 +635,7 @@ impl FontList {
                 direct_font_ref.inner_obj,
                 lopdf::Object::Dictionary(font_dict_collected),
             );
-            font_dict.set(
-                indirect_ref.name,
-                lopdf::Object::Reference(direct_font_ref.inner_obj),
-            );
+            font_dict.set(indirect_ref.name, lopdf::Object::Reference(direct_font_ref.inner_obj));
         }
 
         font_dict
@@ -754,8 +725,10 @@ impl FontData for TtfFace {
     fn glyph_ids(&self) -> HashMap<u16, char> {
         let subtables = self
             .face()
-            .tables().cmap.map(|cmap| cmap.subtables.into_iter().filter(|v| v.is_unicode()));
-         let Some(subtables) = subtables else{
+            .tables()
+            .cmap
+            .map(|cmap| cmap.subtables.into_iter().filter(|v| v.is_unicode()));
+        let Some(subtables) = subtables else {
             return HashMap::new();
         };
         let mut map = HashMap::with_capacity(self.face().number_of_glyphs().into());
@@ -769,7 +742,7 @@ impl FontData for TtfFace {
                     }
                 }
             });
-        };
+        }
         map
     }
 

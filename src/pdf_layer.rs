@@ -3,10 +3,9 @@
 use crate::glob_defines::OP_PATH_STATE_SET_LINE_WIDTH;
 use crate::indices::{PdfLayerIndex, PdfPageIndex};
 use crate::{
-    BlendMode, Color, CurTransMat, ExtendedGraphicsStateBuilder, Font, ImageXObject,
-    IndirectFontRef, Line, LineCapStyle, LineDashPattern, LineJoinStyle, LinkAnnotation,
-    LinkAnnotationRef, Mm, PdfColor, PdfDocument, Polygon, Pt, Rect, TextMatrix, TextRenderingMode,
-    XObject, XObjectRef,
+    BlendMode, Color, CurTransMat, ExtendedGraphicsStateBuilder, Font, ImageXObject, IndirectFontRef, Line,
+    LineCapStyle, LineDashPattern, LineJoinStyle, LinkAnnotation, LinkAnnotationRef, Mm, PdfColor, PdfDocument,
+    Polygon, Pt, Rect, TextMatrix, TextRenderingMode, XObject, XObjectRef,
 };
 use lopdf::content::Operation;
 use std::cell::RefCell;
@@ -136,10 +135,7 @@ impl PdfLayerReference {
     /// `end_text_section` block
     #[inline]
     pub fn set_font(&self, font: &IndirectFontRef, font_size: f32) {
-        self.add_operation(Operation::new(
-            "Tf",
-            vec![font.name.clone().into(), (font_size).into()],
-        ));
+        self.add_operation(Operation::new("Tf", vec![font.name.clone().into(), (font_size).into()]));
     }
 
     /// Set the current line / outline color for the layer
@@ -221,9 +217,7 @@ impl PdfLayerReference {
     /// This changes the graphics state of the current page, don't do it too often or you'll bloat the file size
     pub fn set_blend_mode(&self, blend_mode: BlendMode) {
         // this is technically an operation on the page level
-        let new_blend_mode_state = ExtendedGraphicsStateBuilder::new()
-            .with_blend_mode(blend_mode)
-            .build();
+        let new_blend_mode_state = ExtendedGraphicsStateBuilder::new().with_blend_mode(blend_mode).build();
 
         let doc = self.document.upgrade().unwrap();
         let mut doc = doc.borrow_mut();
@@ -354,10 +348,7 @@ impl PdfLayerReference {
 
     #[inline]
     pub fn set_text_rendering_mode(&self, mode: TextRenderingMode) {
-        self.add_operation(Operation::new(
-            "Tr",
-            vec![lopdf::Object::Integer(mode.into())],
-        ));
+        self.add_operation(Operation::new("Tr", vec![lopdf::Object::Integer(mode.into())]));
     }
 
     /// Add text to the file at the current position by specifying font codepoints for an

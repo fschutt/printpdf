@@ -10,11 +10,7 @@ const C: f32 = 0.551915024494;
 /// Calculates and returns the points for an approximated circle, given a radius and an
 /// offset into the centre of circle (starting from bottom left corner of page).
 #[inline]
-pub fn calculate_points_for_circle<P: Into<Pt>>(
-    radius: P,
-    offset_x: P,
-    offset_y: P,
-) -> Vec<(Point, bool)> {
+pub fn calculate_points_for_circle<P: Into<Pt>>(radius: P, offset_x: P, offset_y: P) -> Vec<(Point, bool)> {
     let (radius, offset_x, offset_y) = (radius.into(), offset_x.into(), offset_y.into());
     let radius = radius.0;
 
@@ -116,18 +112,8 @@ pub fn calculate_points_for_circle<P: Into<Pt>>(
 /// Calculates and returns the points for a rectangle, given a horizontal and vertical scale.
 /// and an offset into the centre of rectangle (starting from bottom left corner of page).
 #[inline]
-pub fn calculate_points_for_rect<P: Into<Pt>>(
-    scale_x: P,
-    scale_y: P,
-    offset_x: P,
-    offset_y: P,
-) -> Vec<(Point, bool)> {
-    let (scale_x, scale_y, offset_x, offset_y) = (
-        scale_x.into(),
-        scale_y.into(),
-        offset_x.into(),
-        offset_y.into(),
-    );
+pub fn calculate_points_for_rect<P: Into<Pt>>(scale_x: P, scale_y: P, offset_x: P, offset_y: P) -> Vec<(Point, bool)> {
+    let (scale_x, scale_y, offset_x, offset_y) = (scale_x.into(), scale_y.into(), offset_x.into(), offset_y.into());
     let top = Pt(offset_y.0 + (scale_y.0 / 2.0));
     let bottom = Pt(offset_y.0 - (scale_y.0 / 2.0));
     let left = Pt(offset_x.0 - (scale_x.0 / 2.0));
@@ -135,10 +121,7 @@ pub fn calculate_points_for_rect<P: Into<Pt>>(
 
     let top_left_pt = Point { x: left, y: top };
     let top_right_pt = Point { x: right, y: top };
-    let bottom_right_pt = Point {
-        x: right,
-        y: bottom,
-    };
+    let bottom_right_pt = Point { x: right, y: bottom };
     let bottom_left_pt = Point { x: left, y: bottom };
 
     vec![

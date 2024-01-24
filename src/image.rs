@@ -65,8 +65,7 @@ impl Image {
     /// You can use the "transform.dpi" parameter to specify a scaling -
     /// the default is 300dpi
     pub fn add_to_layer(self, layer: PdfLayerReference, transform: ImageTransform) {
-        use crate::CurTransMat;
-        use crate::Pt;
+        use crate::{CurTransMat, Pt};
 
         // PDF maps an image to a 1x1 square, we have to adjust the transform matrix
         // to fix the distortion

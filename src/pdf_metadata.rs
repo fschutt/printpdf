@@ -1,7 +1,6 @@
 //! Wapper type for shared metadata between XMP Metadata and the `DocumentInfo` dictionary
 
-use crate::OffsetDateTime;
-use crate::{DocumentInfo, IccProfile, IccProfileType, PdfConformance, XmpMetadata};
+use crate::{DocumentInfo, IccProfile, IccProfileType, OffsetDateTime, PdfConformance, XmpMetadata};
 use lopdf;
 
 use crate::glob_defines::ICC_PROFILE_ECI_V2;
@@ -46,12 +45,7 @@ pub struct PdfMetadata {
 
 impl PdfMetadata {
     /// Creates a new metadata object
-    pub fn new<S>(
-        title: S,
-        document_version: u32,
-        trapping: bool,
-        conformance: PdfConformance,
-    ) -> Self
+    pub fn new<S>(title: S, document_version: u32, trapping: bool, conformance: PdfConformance) -> Self
     where
         S: Into<String>,
     {

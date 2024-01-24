@@ -3,8 +3,7 @@
 use crate::utils::random_character_string_32;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io::BufWriter;
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::rc::Rc;
 
 use crate::OffsetDateTime;
@@ -12,8 +11,8 @@ use lopdf;
 
 use crate::indices::*;
 use crate::{
-    BuiltinFont, DirectFontRef, Error, ExternalFont, Font, FontData, FontList, IccProfileList,
-    IndirectFontRef, Mm, PdfConformance, PdfMetadata, PdfPage, PdfPageReference,
+    BuiltinFont, DirectFontRef, Error, ExternalFont, Font, FontData, FontList, IccProfileList, IndirectFontRef, Mm,
+    PdfConformance, PdfMetadata, PdfPage, PdfPageReference,
 };
 
 /// PDF document
@@ -70,22 +69,13 @@ impl PdfDocument {
 
         let doc_ref = Rc::new(RefCell::new(doc));
 
-        let (initial_page, layer_index) = PdfPage::new(
-            initial_page_width,
-            initial_page_height,
-            initial_layer_name,
-            0,
-        );
+        let (initial_page, layer_index) = PdfPage::new(initial_page_width, initial_page_height, initial_layer_name, 0);
 
         {
             doc_ref.borrow_mut().pages.push(initial_page);
         }
 
-        (
-            PdfDocumentReference { document: doc_ref },
-            PdfPageIndex(0),
-            layer_index,
-        )
+        (PdfDocumentReference { document: doc_ref }, PdfPageIndex(0), layer_index)
     }
 
     pub fn empty<S: Into<String>>(document_title: S) -> PdfDocumentReference {
@@ -181,8 +171,7 @@ impl PdfDocumentReference {
     where
         S: Into<String>,
     {
-        self.document.borrow_mut().metadata.keywords =
-            keywords.into_iter().map(|s| s.into()).collect();
+        self.document.borrow_mut().metadata.keywords = keywords.into_iter().map(|s| s.into()).collect();
         self
     }
 
@@ -265,18 +254,12 @@ impl PdfDocumentReference {
 
     /// Create a new pdf page and returns the index of the page
     #[inline]
-    pub fn add_page<S>(
-        &self,
-        x_mm: Mm,
-        y_mm: Mm,
-        inital_layer_name: S,
-    ) -> (PdfPageIndex, PdfLayerIndex)
+    pub fn add_page<S>(&self, x_mm: Mm, y_mm: Mm, inital_layer_name: S) -> (PdfPageIndex, PdfLayerIndex)
     where
         S: Into<String>,
     {
         let mut doc = self.document.borrow_mut();
-        let (pdf_page, pdf_layer_index) =
-            PdfPage::new(x_mm, y_mm, inital_layer_name, doc.pages.len());
+        let (pdf_page, pdf_layer_index) = PdfPage::new(x_mm, y_mm, inital_layer_name, doc.pages.len());
         doc.pages.push(pdf_page);
         let page_index = PdfPageIndex(doc.pages.len() - 1);
         (page_index, pdf_layer_index)
@@ -292,10 +275,7 @@ impl PdfDocumentReference {
         doc.bookmarks.insert(page.0, name.into());
     }
     /// Add a font from a font stream
-    pub fn add_external_font<R>(
-        &self,
-        font_stream: R,
-    ) -> ::std::result::Result<IndirectFontRef, Error>
+    pub fn add_external_font<R>(&self, font_stream: R) -> ::std::result::Result<IndirectFontRef, Error>
     where
         R: ::std::io::Read,
     {
@@ -332,11 +312,7 @@ impl PdfDocumentReference {
     }
 
     /// Add a font from a custom font backend
-    pub fn add_external_font_data<F>(
-        &self,
-        bytes: Vec<u8>,
-        data: F,
-    ) -> Result<IndirectFontRef, Error>
+    pub fn add_external_font_data<F>(&self, bytes: Vec<u8>, data: F) -> Result<IndirectFontRef, Error>
     where
         F: FontData + 'static,
     {
@@ -380,10 +356,7 @@ impl PdfDocumentReference {
     /// [Windows-1252][] encoding.  All other characters will be ignored.
     ///
     /// [Windows-1252]: https://en.wikipedia.org/wiki/Windows-1252
-    pub fn add_builtin_font(
-        &self,
-        builtin_font: BuiltinFont,
-    ) -> ::std::result::Result<IndirectFontRef, Error> {
+    pub fn add_builtin_font(&self, builtin_font: BuiltinFont) -> ::std::result::Result<IndirectFontRef, Error> {
         let builtin_font_name: &'static str = builtin_font.into();
         implement_adding_fonts!(self, builtin_font_name, Font::BuiltinFont(builtin_font))
     }
@@ -482,14 +455,8 @@ impl PdfDocumentReference {
             ("S", Name("GTS_PDFX".into())),
             ("OutputCondition", String(icc_profile_descr.into(), Literal)),
             ("Type", Name("OutputIntent".into())),
-            (
-                "OutputConditionIdentifier",
-                String(icc_profile_short.into(), Literal),
-            ),
-            (
-                "RegistryName",
-                String("http://www.color.org".into(), Literal),
-            ),
+            ("OutputConditionIdentifier", String(icc_profile_short.into(), Literal)),
+            ("RegistryName", String("http://www.color.org".into(), Literal)),
             ("Info", String(icc_profile_str.into(), Literal)),
         ]);
 
@@ -535,12 +502,7 @@ impl PdfDocumentReference {
         let page_layer_names: Vec<(usize, Vec<::std::string::String>)> = doc
             .pages
             .iter()
-            .map(|page| {
-                (
-                    page.index,
-                    page.layers.iter().map(|layer| layer.name.clone()).collect(),
-                )
-            })
+            .map(|page| (page.index, page.layers.iter().map(|layer| layer.name.clone()).collect()))
             .collect();
 
         // add optional content groups (layers) to the /Catalog
@@ -573,14 +535,12 @@ impl PdfDocumentReference {
                         .map(|(layer_idx, layer_name)| {
                             (
                                 layer_idx,
-                                Reference(doc.inner_doc.add_object(Dictionary(
-                                    LoDictionary::from_iter(vec![
-                                        ("Type", Name("OCG".into())),
-                                        ("Name", String(layer_name.into(), Literal)),
-                                        ("Intent", Reference(intent_arr_ref)),
-                                        ("Usage", Reference(usage_ocg_dict_ref)),
-                                    ]),
-                                ))),
+                                Reference(doc.inner_doc.add_object(Dictionary(LoDictionary::from_iter(vec![
+                                    ("Type", Name("OCG".into())),
+                                    ("Name", String(layer_name.into(), Literal)),
+                                    ("Intent", Reference(intent_arr_ref)),
+                                    ("Usage", Reference(usage_ocg_dict_ref)),
+                                ])))),
                             )
                         })
                         .collect(),
@@ -619,9 +579,7 @@ impl PdfDocumentReference {
         let mut font_dict_id = None;
 
         // add all fonts / other resources shared in the whole document
-        let fonts_dict: lopdf::Dictionary = doc
-            .fonts
-            .into_with_document(&mut doc.inner_doc, &mut doc.pages);
+        let fonts_dict: lopdf::Dictionary = doc.fonts.into_with_document(&mut doc.inner_doc, &mut doc.pages);
 
         if !fonts_dict.is_empty() {
             font_dict_id = Some(doc.inner_doc.add_object(Dictionary(fonts_dict)));
@@ -665,9 +623,9 @@ impl PdfDocumentReference {
             ]);
 
             if let Some(extension) = &page.extend_with {
-              for (key, value) in extension.iter() {
-                p.set(key.to_vec(), value.clone());
-              }
+                for (key, value) in extension.iter() {
+                    p.set(key.to_vec(), value.clone());
+                }
             }
 
             // this will collect the resources needed for rendering this page
@@ -690,8 +648,7 @@ impl PdfDocumentReference {
                 layer_streams_merged_vec.append(&mut stream.content);
             }
 
-            let merged_layer_stream =
-                lopdf::Stream::new(lopdf::Dictionary::new(), layer_streams_merged_vec);
+            let merged_layer_stream = lopdf::Stream::new(lopdf::Dictionary::new(), layer_streams_merged_vec);
             let page_content_id = doc.inner_doc.add_object(merged_layer_stream);
 
             p.set("Contents", Reference(page_content_id));
@@ -707,27 +664,24 @@ impl PdfDocumentReference {
             if len == 1 {
                 let page_index = doc.bookmarks.iter().next().unwrap().0.to_owned();
                 let title = doc.bookmarks.iter().next().unwrap().1.to_owned();
-                let obj_ref = doc
-                    .inner_doc
-                    .add_object(Dictionary(LoDictionary::from_iter(vec![
-                        ("Parent", Reference(bookmarks_id)),
-                        ("Title", String(title.into(), Literal)),
-                        (
-                            "Dest",
-                            Array(vec![
-                                Reference(page_id_to_obj.get(&page_index).unwrap().to_owned()),
-                                "XYZ".into(),
-                                Null,
-                                Null,
-                                Null,
-                            ]),
-                        ),
-                    ])));
+                let obj_ref = doc.inner_doc.add_object(Dictionary(LoDictionary::from_iter(vec![
+                    ("Parent", Reference(bookmarks_id)),
+                    ("Title", String(title.into(), Literal)),
+                    (
+                        "Dest",
+                        Array(vec![
+                            Reference(page_id_to_obj.get(&page_index).unwrap().to_owned()),
+                            "XYZ".into(),
+                            Null,
+                            Null,
+                            Null,
+                        ]),
+                    ),
+                ])));
                 bookmarks_list.set("First", Reference(obj_ref));
                 bookmarks_list.set("Last", Reference(obj_ref));
             } else {
-                let mut sorted_bmarks: Vec<(&usize, &std::string::String)> =
-                    doc.bookmarks.iter().collect();
+                let mut sorted_bmarks: Vec<(&usize, &std::string::String)> = doc.bookmarks.iter().collect();
                 sorted_bmarks.sort();
                 for (i, (page_index, b_name)) in sorted_bmarks.iter().enumerate() {
                     let dest = (
@@ -740,41 +694,31 @@ impl PdfDocumentReference {
                             Null,
                         ]),
                     );
-                    doc.inner_doc
-                        .add_object(Dictionary(LoDictionary::from_iter(if i == 0 {
-                            bookmarks_list.set("First", Reference((doc.inner_doc.max_id + 1, 0)));
-                            vec![
-                                ("Parent", Reference(bookmarks_id)),
-                                (
-                                    "Title",
-                                    String(b_name.to_owned().to_owned().into(), Literal),
-                                ),
-                                ("Next", Reference((doc.inner_doc.max_id + 2, 0))),
-                                dest,
-                            ]
-                        } else if i == len - 1 {
-                            bookmarks_list.set("Last", Reference((doc.inner_doc.max_id + 1, 0)));
-                            vec![
-                                ("Parent", Reference(bookmarks_id)),
-                                (
-                                    "Title",
-                                    String(b_name.to_owned().to_owned().into(), Literal),
-                                ),
-                                ("Prev", Reference((doc.inner_doc.max_id, 0))),
-                                dest,
-                            ]
-                        } else {
-                            vec![
-                                ("Parent", Reference(bookmarks_id)),
-                                (
-                                    "Title",
-                                    String(b_name.to_owned().to_owned().into(), Literal),
-                                ),
-                                ("Prev", Reference((doc.inner_doc.max_id, 0))),
-                                ("Next", Reference((doc.inner_doc.max_id + 2, 0))),
-                                dest,
-                            ]
-                        })));
+                    doc.inner_doc.add_object(Dictionary(LoDictionary::from_iter(if i == 0 {
+                        bookmarks_list.set("First", Reference((doc.inner_doc.max_id + 1, 0)));
+                        vec![
+                            ("Parent", Reference(bookmarks_id)),
+                            ("Title", String(b_name.to_owned().to_owned().into(), Literal)),
+                            ("Next", Reference((doc.inner_doc.max_id + 2, 0))),
+                            dest,
+                        ]
+                    } else if i == len - 1 {
+                        bookmarks_list.set("Last", Reference((doc.inner_doc.max_id + 1, 0)));
+                        vec![
+                            ("Parent", Reference(bookmarks_id)),
+                            ("Title", String(b_name.to_owned().to_owned().into(), Literal)),
+                            ("Prev", Reference((doc.inner_doc.max_id, 0))),
+                            dest,
+                        ]
+                    } else {
+                        vec![
+                            ("Parent", Reference(bookmarks_id)),
+                            ("Title", String(b_name.to_owned().to_owned().into(), Literal)),
+                            ("Prev", Reference((doc.inner_doc.max_id, 0))),
+                            ("Next", Reference((doc.inner_doc.max_id + 2, 0))),
+                            dest,
+                        ]
+                    })));
                 }
             }
         }
@@ -784,18 +728,14 @@ impl PdfDocumentReference {
         // ----- END PAGE CONTENT
 
         doc.inner_doc.objects.insert(pages_id, Dictionary(pages));
-        doc.inner_doc
-            .objects
-            .insert(bookmarks_id, Dictionary(bookmarks_list));
+        doc.inner_doc.objects.insert(bookmarks_id, Dictionary(bookmarks_list));
 
         // save inner document
         let catalog_id = doc.inner_doc.add_object(catalog);
         let instance_id = random_character_string_32();
 
         doc.inner_doc.trailer.set("Root", Reference(catalog_id));
-        doc.inner_doc
-            .trailer
-            .set("Info", Reference(document_info_id));
+        doc.inner_doc.trailer.set("Info", Reference(document_info_id));
         doc.inner_doc.trailer.set(
             "ID",
             Array(vec![

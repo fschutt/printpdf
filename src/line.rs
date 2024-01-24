@@ -1,7 +1,6 @@
 use crate::glob_defines::{
-    OP_PATH_CONST_3BEZIER_V1, OP_PATH_CONST_3BEZIER_V2, OP_PATH_CONST_4BEZIER,
-    OP_PATH_CONST_LINE_TO, OP_PATH_CONST_MOVE_TO, OP_PATH_PAINT_END, OP_PATH_PAINT_STROKE,
-    OP_PATH_PAINT_STROKE_CLOSE,
+    OP_PATH_CONST_3BEZIER_V1, OP_PATH_CONST_3BEZIER_V2, OP_PATH_CONST_4BEZIER, OP_PATH_CONST_LINE_TO,
+    OP_PATH_CONST_MOVE_TO, OP_PATH_PAINT_END, OP_PATH_PAINT_STROKE, OP_PATH_PAINT_STROKE_CLOSE,
 };
 use crate::path::{PaintMode, WindingOrder};
 use crate::Point;
@@ -150,7 +149,6 @@ impl Polygon {
         };
 
         for ring in &self.rings {
-
             operations.push(Operation::new(
                 OP_PATH_CONST_MOVE_TO,
                 vec![ring[0].0.x.into(), ring[0].0.y.into()],
@@ -177,23 +175,13 @@ impl Polygon {
                                 // first control point coincides with initial point of curve
                                 operations.push(Operation::new(
                                     OP_PATH_CONST_3BEZIER_V1,
-                                    vec![
-                                        p3.0.x.into(),
-                                        p3.0.y.into(),
-                                        p4.0.x.into(),
-                                        p4.0.y.into(),
-                                    ],
+                                    vec![p3.0.x.into(), p3.0.y.into(), p4.0.x.into(), p4.0.y.into()],
                                 ));
                             } else if p2.0 == p3.0 {
                                 // first control point coincides with final point of curve
                                 operations.push(Operation::new(
                                     OP_PATH_CONST_3BEZIER_V2,
-                                    vec![
-                                        p2.0.x.into(),
-                                        p2.0.y.into(),
-                                        p4.0.x.into(),
-                                        p4.0.y.into(),
-                                    ],
+                                    vec![p2.0.x.into(), p2.0.y.into(), p4.0.x.into(), p4.0.y.into()],
                                 ));
                             } else {
                                 // regular bezier curve with four points
@@ -239,10 +227,7 @@ impl Polygon {
                 operations.push(Operation::new(OP_PATH_PAINT_STROKE_CLOSE, vec![]));
             }
             PaintMode::FillStroke => {
-                operations.push(Operation::new(
-                    self.winding_order.get_fill_stroke_close_op(),
-                    vec![],
-                ));
+                operations.push(Operation::new(self.winding_order.get_fill_stroke_close_op(), vec![]));
             }
         }
 
@@ -253,4 +238,3 @@ impl Polygon {
         operations
     }
 }
-

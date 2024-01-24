@@ -1,6 +1,6 @@
+use crate::Rect;
 use lopdf::{self, Object};
 use std::collections::HashMap;
-use crate::Rect;
 
 #[derive(Debug, Clone)]
 pub struct LinkAnnotation {
@@ -117,9 +117,7 @@ impl Into<Object> for ColorArray {
     fn into(self) -> Object {
         match self {
             ColorArray::Transparent => Object::Array(vec![]),
-            ColorArray::Gray(arr) => Object::Array(vec![
-                Object::Real(arr[0].into()),
-            ]),
+            ColorArray::Gray(arr) => Object::Array(vec![Object::Real(arr[0].into())]),
             ColorArray::RGB(arr) => Object::Array(vec![
                 Object::Real(arr[0].into()),
                 Object::Real(arr[1].into()),
@@ -154,7 +152,10 @@ impl Into<Object> for Actions {
     fn into(self) -> Object {
         let mut dict = lopdf::Dictionary::new();
         dict.set("S", Object::Name(self.s.into_bytes().to_vec()));
-        dict.set("URI", Object::String(self.uri.into_bytes().to_vec(), lopdf::StringFormat::Literal));
+        dict.set(
+            "URI",
+            Object::String(self.uri.into_bytes().to_vec(), lopdf::StringFormat::Literal),
+        );
         Object::Dictionary(dict)
     }
 }
@@ -230,7 +231,7 @@ impl From<LinkAnnotationList> for lopdf::Dictionary {
         if _val.link_annotations.is_empty() {
             return lopdf::Dictionary::new();
         }
-        
+
         let mut dict = lopdf::Dictionary::new();
         dict.set("Type", lopdf::Object::Name("Annot".as_bytes().to_vec()));
         dict.set("Subtype", lopdf::Object::Name("Link".as_bytes().to_vec()));

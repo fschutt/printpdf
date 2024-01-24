@@ -6,8 +6,7 @@ use std::fs::File;
 use std::io::BufWriter;
 
 fn main() {
-    let (doc, page1, layer1) =
-        PdfDocument::new("printpdf circle test", Mm(210.0), Mm(297.0), "Layer 1");
+    let (doc, page1, layer1) = PdfDocument::new("printpdf circle test", Mm(210.0), Mm(297.0), "Layer 1");
     let current_layer = doc.get_page(page1).get_layer(layer1);
 
     let radius_1 = Pt(40.0);
@@ -44,8 +43,6 @@ fn main() {
 
     current_layer.add_polygon(line);
 
-    doc.save(&mut BufWriter::new(
-        File::create("test_circle.pdf").unwrap(),
-    ))
-    .unwrap();
+    doc.save(&mut BufWriter::new(File::create("test_circle.pdf").unwrap()))
+        .unwrap();
 }

@@ -8,9 +8,9 @@ use usvg::TreeParsing;
 
 /// SVG - wrapper around an `XObject` to allow for more
 /// control within the library.
-/// 
-/// When placing multiple copies of the same SVG on the 
-/// same layer, it is better to use the `into_xobject` 
+///
+/// When placing multiple copies of the same SVG on the
+/// same layer, it is better to use the `into_xobject`
 /// method to get a reference, rather than a clone
 #[derive(Debug, Clone)]
 pub struct Svg {
@@ -67,7 +67,7 @@ pub struct SvgRotation {
 }
 
 fn export_svg_to_xobject_pdf(svg: &str) -> Result<Stream, String> {
-    use pdf_writer::{Content, Finish, Name, Rect, Ref, Pdf};
+    use pdf_writer::{Content, Finish, Name, Pdf, Rect, Ref};
 
     // Allocate the indirect reference IDs and names.
     let catalog_id = Ref::new(1);
@@ -97,8 +97,7 @@ fn export_svg_to_xobject_pdf(svg: &str) -> Result<Stream, String> {
 
     // Let's add an SVG graphic to this file.
     // We need to load its source first and manually parse it into a usvg Tree.
-    let tree = usvg::Tree::from_str(svg, &usvg::Options::default())
-        .map_err(|err| format!("usvg parse: {err}"))?;
+    let tree = usvg::Tree::from_str(svg, &usvg::Options::default()).map_err(|err| format!("usvg parse: {err}"))?;
 
     // Then, we will write it to the page as the 6th indirect object.
     //
@@ -112,8 +111,7 @@ fn export_svg_to_xobject_pdf(svg: &str) -> Result<Stream, String> {
     writer.stream(content_id, &content.finish());
 
     let bytes = writer.finish();
-    let document = lopdf::Document::load_mem(&bytes)
-        .map_err(|err| format!("lopdf load generated pdf: {err}"))?;
+    let document = lopdf::Document::load_mem(&bytes).map_err(|err| format!("lopdf load generated pdf: {err}"))?;
     let svg_xobject = document
         .get_object((5, 0))
         .map_err(|err| format!("grab xobject from generated pdf: {err}"))?;
@@ -183,20 +181,15 @@ impl Svg {
     /// I wish there was a more direct way, but handling SVG is very tricky.
     pub fn parse(svg_string: &str) -> Result<Self, SvgParseError> {
         // SVG -> PDF bytes
-        let svg_xobject = export_svg_to_xobject_pdf(svg_string).map_err(|err| {
-            SvgParseError::Svg2PdfConversionError(format!("create xobject from svg: {err}"))
-        })?;
+        let svg_xobject = export_svg_to_xobject_pdf(svg_string)
+            .map_err(|err| SvgParseError::Svg2PdfConversionError(format!("create xobject from svg: {err}")))?;
 
         let bbox = svg_xobject
             .dict
             .get(b"BBox")
-            .map_err(|err| {
-                SvgParseError::Svg2PdfConversionError(format!("extract xobject bbox: {err}"))
-            })?
+            .map_err(|err| SvgParseError::Svg2PdfConversionError(format!("extract xobject bbox: {err}")))?
             .as_array()
-            .map_err(|err| {
-                SvgParseError::Svg2PdfConversionError(format!("xobject bbox not an array: {err}"))
-            })?;
+            .map_err(|err| SvgParseError::Svg2PdfConversionError(format!("xobject bbox not an array: {err}")))?;
 
         let width_px = match bbox.get(2) {
             Some(Object::Integer(px)) => Ok(*px),

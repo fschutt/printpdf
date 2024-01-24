@@ -1,14 +1,11 @@
-use allsorts::{
-    binary::read::ReadScope,
-    font::read_cmap_subtable,
-    font_data::FontData,
-    tables::{cmap::Cmap, FontTableProvider},
-    tag,
-};
-use std::{
-    collections::{HashMap, HashSet},
-    error::Error,
-};
+use allsorts::binary::read::ReadScope;
+use allsorts::font::read_cmap_subtable;
+use allsorts::font_data::FontData;
+use allsorts::tables::cmap::Cmap;
+use allsorts::tables::FontTableProvider;
+use allsorts::tag;
+use std::collections::{HashMap, HashSet};
+use std::error::Error;
 
 pub(crate) struct FontSubset {
     pub(crate) new_font_bytes: Vec<u8>,
@@ -16,16 +13,12 @@ pub(crate) struct FontSubset {
     pub(crate) gid_mapping: HashMap<u16, u16>,
 }
 
-pub(crate) fn subset(
-    font_bytes: &[u8],
-    used_glyphs: &mut HashSet<u16>,
-) -> Result<FontSubset, Box<dyn Error>> {
+pub(crate) fn subset(font_bytes: &[u8], used_glyphs: &mut HashSet<u16>) -> Result<FontSubset, Box<dyn Error>> {
     let font_file = ReadScope::new(font_bytes).read::<FontData<'_>>()?;
     let provider = font_file.table_provider(0)?;
     let cmap_data = provider.read_table_data(tag::CMAP)?;
     let cmap = ReadScope::new(&cmap_data).read::<Cmap<'_>>()?;
-    let (_, cmap_subtable) =
-        read_cmap_subtable(&cmap)?.ok_or(allsorts::error::ParseError::MissingValue)?;
+    let (_, cmap_subtable) = read_cmap_subtable(&cmap)?.ok_or(allsorts::error::ParseError::MissingValue)?;
 
     let mut non_macroman_char = None;
 

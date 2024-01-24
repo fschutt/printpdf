@@ -1,9 +1,7 @@
 //! Utilities for rectangle paths.
 
-use crate::{
-    path::{PaintMode, WindingOrder},
-    Mm, Point, OP_PATH_CONST_RECT, OP_PATH_PAINT_END, OP_PATH_PAINT_STROKE,
-};
+use crate::path::{PaintMode, WindingOrder};
+use crate::{Mm, Point, OP_PATH_CONST_RECT, OP_PATH_PAINT_END, OP_PATH_PAINT_STROKE};
 
 /// A helper struct to insert rectangular shapes into a PDF.
 ///
@@ -70,12 +68,7 @@ impl Rect {
 
         let rect_op = Operation::new(
             OP_PATH_CONST_RECT,
-            vec![
-                self.ll.x.into(),
-                self.ll.y.into(),
-                width.into(),
-                height.into(),
-            ],
+            vec![self.ll.x.into(), self.ll.y.into(), width.into(), height.into()],
         );
 
         let paint_op = match self.mode {

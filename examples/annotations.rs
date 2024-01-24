@@ -1,25 +1,24 @@
 //! Uses the extend_with feature to add a link to the page.
 extern crate printpdf;
 
+use lopdf::StringFormat::Literal;
+use lopdf::{Dictionary, Object};
 use printpdf::*;
 use std::fs::File;
 use std::io::BufWriter;
-use lopdf::{
-  StringFormat::Literal,
-  Dictionary,
-  Object
-};
 
 fn main() {
-    let (doc, page1, layer1) =
-        PdfDocument::new("printpdf graphics test", Mm(210.0), Mm(297.0), "Layer 1");
+    let (doc, page1, layer1) = PdfDocument::new("printpdf graphics test", Mm(210.0), Mm(297.0), "Layer 1");
     let page = doc.get_page(page1);
     let current_layer = page.get_layer(layer1);
 
     let action = Dictionary::from_iter(vec![
-      ("Type", "Action".into()),
-      ("S", Object::Name(b"URI".to_vec())),
-      ("URI", Object::String(b"https://github.com/fschutt/printpdf".to_vec(), Literal)),
+        ("Type", "Action".into()),
+        ("S", Object::Name(b"URI".to_vec())),
+        (
+            "URI",
+            Object::String(b"https://github.com/fschutt/printpdf".to_vec(), Literal),
+        ),
     ]);
 
     let annotation = Dictionary::from_iter(vec![
@@ -31,9 +30,7 @@ fn main() {
         ("A", action.into()),
     ]);
 
-    let annotations = Dictionary::from_iter(vec![
-        ("Annots", Object::Array(vec![annotation.into()]))
-    ]);
+    let annotations = Dictionary::from_iter(vec![("Annots", Object::Array(vec![annotation.into()]))]);
 
     page.extend_with(annotations);
 

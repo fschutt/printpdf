@@ -23,11 +23,7 @@ impl Point {
 impl PartialEq for Point {
     // custom compare function because of floating point inaccuracy
     fn eq(&self, other: &Point) -> bool {
-        if self.x.0.is_normal()
-            && other.x.0.is_normal()
-            && self.y.0.is_normal()
-            && other.y.0.is_normal()
-        {
+        if self.x.0.is_normal() && other.x.0.is_normal() && self.y.0.is_normal() && other.y.0.is_normal() {
             // four floating point numbers have to match
             let x_eq = self.x == other.x;
             if !x_eq {

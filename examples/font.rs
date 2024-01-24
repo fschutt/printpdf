@@ -4,15 +4,13 @@ use std::fs::File;
 use std::io::BufWriter;
 
 fn main() {
-    let (doc, page1, layer1) =
-        PdfDocument::new("PDF_Document_title", Mm(500.0), Mm(300.0), "Layer 1");
+    let (doc, page1, layer1) = PdfDocument::new("PDF_Document_title", Mm(500.0), Mm(300.0), "Layer 1");
     let current_layer = doc.get_page(page1).get_layer(layer1);
 
     let text = "Lorem ipsum";
     let text2 = "dolor sit amet";
 
-    let mut font_reader =
-        std::io::Cursor::new(include_bytes!("../assets/fonts/RobotoMedium.ttf").as_ref());
+    let mut font_reader = std::io::Cursor::new(include_bytes!("../assets/fonts/RobotoMedium.ttf").as_ref());
 
     let font = doc.add_external_font(&mut font_reader).unwrap();
 

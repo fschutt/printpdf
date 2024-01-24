@@ -1,14 +1,16 @@
 //! Scaling types for reducing errors between conversions between point (pt) and millimeter (mm)
 
-use std::num::FpCategory;
 use std::cmp::Ordering;
+use std::num::FpCategory;
 
 macro_rules! impl_partialeq {
     ($t:ty) => {
         impl PartialEq for $t {
             // custom compare function because of floating point inaccuracy
             fn eq(&self, other: &$t) -> bool {
-                if (self.0.classify() == FpCategory::Zero || self.0.classify() == FpCategory::Normal) &&  (other.0.classify() == FpCategory::Zero || other.0.classify() == FpCategory::Normal) {
+                if (self.0.classify() == FpCategory::Zero || self.0.classify() == FpCategory::Normal)
+                    && (other.0.classify() == FpCategory::Zero || other.0.classify() == FpCategory::Normal)
+                {
                     // four floating point numbers have to match
                     (self.0 * 1000.0).round() == (other.0 * 1000.0).round()
                 } else {
@@ -89,17 +91,14 @@ impl Px {
     }
 }
 
-use std::ops::{Add, Div, Mul, Sub};
-use std::ops::{AddAssign, DivAssign, MulAssign, SubAssign};
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 
 macro_rules! impl_add_self {
     ($type:ident) => {
         impl Add for $type {
             type Output = Self;
             fn add(self, other: Self) -> Self {
-                Self {
-                    0: self.0 + other.0,
-                }
+                Self { 0: self.0 + other.0 }
             }
         }
     };
@@ -130,9 +129,7 @@ macro_rules! impl_sub_self {
         impl Sub for $type {
             type Output = Self;
             fn sub(self, other: Self) -> Self {
-                Self {
-                    0: self.0 - other.0,
-                }
+                Self { 0: self.0 - other.0 }
             }
         }
     };
@@ -250,7 +247,6 @@ fn min_mm() {
     let mm_vector = vec![Mm(0.0), Mm(1.0), Mm(2.0)];
     assert_eq!(mm_vector.iter().min().unwrap(), &Mm(0.0));
 }
-
 
 #[test]
 fn pt_eq_zero_check() {

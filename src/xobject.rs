@@ -1,13 +1,12 @@
 // clippy lints when serializing PDF strings, in this case its wrong
 #![cfg_attr(feature = "cargo-clippy", allow(clippy::string_lit_as_bytes))]
 
-use crate::OffsetDateTime;
 #[cfg(feature = "embedded_images")]
 use crate::rgba_to_rgb;
-use crate::{ColorBits, ColorSpace, CurTransMat, Px};
+use crate::{ColorBits, ColorSpace, CurTransMat, OffsetDateTime, Px};
 
 #[cfg(feature = "embedded_images")]
-use image_crate::{DynamicImage, GenericImageView, ImageDecoder, ImageError, ColorType};
+use image_crate::{ColorType, DynamicImage, GenericImageView, ImageDecoder, ImageError};
 use lopdf;
 use lopdf::Stream as LoPdfStream;
 use std::collections::HashMap;
@@ -200,11 +199,8 @@ impl ImageXObject {
         let mut image_data = vec![0; num_image_bytes as usize];
         image.read_image(&mut image_data)?;
 
-        let (processed_color_type, processed_image_data, smask) = preprocess_image_with_alpha(
-            color_type,
-            image_data,
-            dim
-        );
+        let (processed_color_type, processed_image_data, smask) =
+            preprocess_image_with_alpha(color_type, image_data, dim);
 
         let color_bits = ColorBits::from(processed_color_type);
         let color_space = ColorSpace::from(processed_color_type);
@@ -228,11 +224,7 @@ impl ImageXObject {
         let color_type = image.color();
         let data = image.as_bytes().to_vec();
 
-        let (processed_color_type, processed_image_data, smask) = preprocess_image_with_alpha(
-            color_type,
-            data,
-            dim
-        );
+        let (processed_color_type, processed_image_data, smask) = preprocess_image_with_alpha(color_type, data, dim);
 
         let color_bits = ColorBits::from(processed_color_type);
         let color_space = ColorSpace::from(processed_color_type);
@@ -305,9 +297,7 @@ impl From<ImageXObject> for lopdf::Stream {
                 _ => unimplemented!("Encountered filter type is not supported"),
             };
 
-            params
-                .into_iter()
-                .for_each(|param| dict.set(param.0, param.1));
+            params.into_iter().for_each(|param| dict.set(param.0, param.1));
         }
 
         lopdf::Stream::new(dict, img.image_data)
@@ -632,7 +622,11 @@ impl From<PostScriptXObject> for lopdf::Stream {
 }
 
 #[cfg(feature = "embedded_images")]
-fn preprocess_image_with_alpha(color_type: ColorType, image_data: Vec<u8>, dim: (u32, u32)) -> (ColorType, Vec<u8>, Option<SMask>) {
+fn preprocess_image_with_alpha(
+    color_type: ColorType,
+    image_data: Vec<u8>,
+    dim: (u32, u32),
+) -> (ColorType, Vec<u8>, Option<SMask>) {
     match color_type {
         image_crate::ColorType::Rgba8 => {
             let (rgb, alpha) = rgba_to_rgb(image_data);
@@ -644,7 +638,7 @@ fn preprocess_image_with_alpha(color_type: ColorType, image_data: Vec<u8>, dim: 
                 matte: alpha.into_iter().map(|b| b as i64).collect(),
             });
             (ColorType::Rgb8, rgb, smask)
-        },
-        _ => (color_type, image_data, None)
+        }
+        _ => (color_type, image_data, None),
     }
 }

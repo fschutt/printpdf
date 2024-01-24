@@ -38,8 +38,7 @@ use crate::indices::FontIndex;
 use lopdf;
 use lopdf::content::Operation;
 use lopdf::Object::*;
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::string::String;
 
 // identifiers for tracking the changed fields
@@ -87,10 +86,7 @@ impl ExtendedGraphicsStateList {
     }
 
     /// Adds a graphics state
-    pub fn add_graphics_state(
-        &mut self,
-        added_state: ExtendedGraphicsState,
-    ) -> ExtendedGraphicsStateRef {
+    pub fn add_graphics_state(&mut self, added_state: ExtendedGraphicsState) -> ExtendedGraphicsStateRef {
         let gs_ref = ExtendedGraphicsStateRef::new(self.all_graphics_states.len());
         self.all_graphics_states.insert(
             gs_ref.gs_name.clone(),
@@ -375,10 +371,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the black generation
     #[inline]
-    pub fn with_black_generation(
-        mut self,
-        black_generation: Option<BlackGenerationFunction>,
-    ) -> Self {
+    pub fn with_black_generation(mut self, black_generation: Option<BlackGenerationFunction>) -> Self {
         self.gs.black_generation = black_generation;
         self.gs.changed_fields.insert(BLACK_GENERATION);
         self
@@ -386,10 +379,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the black generation extra function
     #[inline]
-    pub fn with_black_generation_extra(
-        mut self,
-        black_generation_extra: Option<BlackGenerationExtraFunction>,
-    ) -> Self {
+    pub fn with_black_generation_extra(mut self, black_generation_extra: Option<BlackGenerationExtraFunction>) -> Self {
         self.gs.black_generation_extra = black_generation_extra;
         self.gs.changed_fields.insert(BLACK_GENERATION_EXTRA);
         self
@@ -397,10 +387,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the undercolor removal function
     #[inline]
-    pub fn with_undercolor_removal(
-        mut self,
-        under_color_removal: Option<UnderColorRemovalFunction>,
-    ) -> Self {
+    pub fn with_undercolor_removal(mut self, under_color_removal: Option<UnderColorRemovalFunction>) -> Self {
         self.gs.under_color_removal = under_color_removal;
         self.gs.changed_fields.insert(UNDERCOLOR_REMOVAL);
         self
@@ -427,10 +414,7 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Sets the transfer extra function
     #[inline]
-    pub fn with_transfer_extra(
-        mut self,
-        transfer_extra_function: Option<TransferExtraFunction>,
-    ) -> Self {
+    pub fn with_transfer_extra(mut self, transfer_extra_function: Option<TransferExtraFunction>) -> Self {
         self.gs.transfer_extra_function = transfer_extra_function;
         self.gs.changed_fields.insert(TRANSFER_FUNCTION_EXTRA);
         self
@@ -1407,14 +1391,12 @@ pub struct LineDashPattern {
 impl From<LineDashPattern> for (Vec<i64>, i64) {
     fn from(val: LineDashPattern) -> Self {
         (
-            [
-                val.dash_1, val.gap_1, val.dash_2, val.gap_2, val.dash_3, val.gap_3,
-            ]
-            .iter()
-            .copied()
-            .take_while(Option::is_some)
-            .flatten()
-            .collect(),
+            [val.dash_1, val.gap_1, val.dash_2, val.gap_2, val.dash_3, val.gap_3]
+                .iter()
+                .copied()
+                .take_while(Option::is_some)
+                .flatten()
+                .collect(),
             val.offset,
         )
     }

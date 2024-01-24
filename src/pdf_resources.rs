@@ -1,7 +1,6 @@
 use crate::{
-    ExtendedGraphicsState, ExtendedGraphicsStateList, ExtendedGraphicsStateRef, LinkAnnotation,
-    LinkAnnotationList, LinkAnnotationRef, OCGList, OCGRef, Pattern, PatternList, PatternRef,
-    XObject, XObjectList, XObjectRef,
+    ExtendedGraphicsState, ExtendedGraphicsStateList, ExtendedGraphicsStateRef, LinkAnnotation, LinkAnnotationList,
+    LinkAnnotationRef, OCGList, OCGRef, Pattern, PatternList, PatternRef, XObject, XObjectList, XObjectRef,
 };
 use lopdf;
 
@@ -28,10 +27,7 @@ impl PdfResources {
 
     /// Add a graphics state to the resources
     #[inline]
-    pub fn add_graphics_state(
-        &mut self,
-        added_state: ExtendedGraphicsState,
-    ) -> ExtendedGraphicsStateRef {
+    pub fn add_graphics_state(&mut self, added_state: ExtendedGraphicsState) -> ExtendedGraphicsStateRef {
         self.graphics_states.add_graphics_state(added_state)
     }
 

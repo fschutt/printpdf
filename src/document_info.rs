@@ -1,7 +1,6 @@
 //! Info dictionary of a PDF document
 
-use crate::OffsetDateTime;
-use crate::PdfMetadata;
+use crate::{OffsetDateTime, PdfMetadata};
 use lopdf;
 /// "Info" dictionary of a PDF document.
 /// Actual data is contained in `DocumentMetadata`, to keep it in sync with the `XmpMetadata`
@@ -73,10 +72,7 @@ impl DocumentInfo {
 
         Dictionary(LoDictionary::from_iter(vec![
             ("Trapped", trapping.into()),
-            (
-                "CreationDate",
-                String(info_create_date.into_bytes(), Literal),
-            ),
+            ("CreationDate", String(info_create_date.into_bytes(), Literal)),
             ("ModDate", String(info_mod_date.into_bytes(), Literal)),
             ("GTS_PDFXVersion", String(gts_pdfx_version.into(), Literal)),
             (
@@ -87,14 +83,8 @@ impl DocumentInfo {
             ("Creator", String(m.creator.as_bytes().to_vec(), Literal)),
             ("Producer", String(m.producer.as_bytes().to_vec(), Literal)),
             ("Subject", String(m.subject.as_bytes().to_vec(), Literal)),
-            (
-                "Identifier",
-                String(m.identifier.as_bytes().to_vec(), Literal),
-            ),
-            (
-                "Keywords",
-                String(m.keywords.join(",").as_bytes().to_vec(), Literal),
-            ),
+            ("Identifier", String(m.identifier.as_bytes().to_vec(), Literal)),
+            ("Keywords", String(m.keywords.join(",").as_bytes().to_vec(), Literal)),
         ]))
     }
 }
@@ -130,9 +120,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            to_pdf_time_stamp_metadata(
-                &datetime.assume_offset(UtcOffset::from_hms(2, 28, 15).unwrap())
-            ),
+            to_pdf_time_stamp_metadata(&datetime.assume_offset(UtcOffset::from_hms(2, 28, 15).unwrap())),
             "D:20170508150224+02'28'"
         );
 
@@ -150,9 +138,6 @@ mod tests {
             .unwrap()
             .assume_offset(UtcOffset::from_hms(-2, -20, -30).unwrap());
 
-        assert_eq!(
-            to_pdf_time_stamp_metadata(&datetime),
-            "D:20170508150224-02'20'"
-        );
+        assert_eq!(to_pdf_time_stamp_metadata(&datetime), "D:20170508150224-02'20'");
     }
 }

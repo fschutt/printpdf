@@ -6,8 +6,7 @@ use std::fs::File;
 use std::io::BufWriter;
 
 fn main() {
-    let (doc, page1, layer1) =
-        PdfDocument::new("printpdf graphics test", Mm(400.0), Mm(400.0), "Layer 1");
+    let (doc, page1, layer1) = PdfDocument::new("printpdf graphics test", Mm(400.0), Mm(400.0), "Layer 1");
     let current_layer = doc.get_page(page1).get_layer(layer1);
 
     // Quadratic shape. The "false" determines if the next (following)
@@ -98,8 +97,6 @@ fn main() {
 
     // If this is successful, you should see a PDF two shapes, one rectangle
     // and a dotted line
-    doc.save(&mut BufWriter::new(
-        File::create("test_graphics.pdf").unwrap(),
-    ))
-    .unwrap();
+    doc.save(&mut BufWriter::new(File::create("test_graphics.pdf").unwrap()))
+        .unwrap();
 }

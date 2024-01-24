@@ -5,9 +5,8 @@ use image_crate;
 use lopdf::content::Operation;
 
 use crate::glob_defines::{
-    OP_COLOR_SET_FILL_CS_DEVICECMYK, OP_COLOR_SET_FILL_CS_DEVICEGRAY,
-    OP_COLOR_SET_FILL_CS_DEVICERGB, OP_COLOR_SET_STROKE_CS_DEVICECMYK,
-    OP_COLOR_SET_STROKE_CS_DEVICEGRAY, OP_COLOR_SET_STROKE_CS_DEVICERGB,
+    OP_COLOR_SET_FILL_CS_DEVICECMYK, OP_COLOR_SET_FILL_CS_DEVICEGRAY, OP_COLOR_SET_FILL_CS_DEVICERGB,
+    OP_COLOR_SET_STROKE_CS_DEVICECMYK, OP_COLOR_SET_STROKE_CS_DEVICEGRAY, OP_COLOR_SET_STROKE_CS_DEVICERGB,
 };
 use crate::IccProfileRef;
 
@@ -172,12 +171,7 @@ pub struct Rgb {
 
 impl Rgb {
     pub fn new(r: f32, g: f32, b: f32, icc_profile: Option<IccProfileRef>) -> Self {
-        Self {
-            r,
-            g,
-            b,
-            icc_profile,
-        }
+        Self { r, g, b, icc_profile }
     }
 }
 
@@ -213,10 +207,7 @@ pub struct Greyscale {
 
 impl Greyscale {
     pub fn new(percent: f32, icc_profile: Option<IccProfileRef>) -> Self {
-        Self {
-            percent,
-            icc_profile,
-        }
+        Self { percent, icc_profile }
     }
 }
 

@@ -5,8 +5,7 @@ use std::fs::File;
 use std::io::BufWriter;
 
 fn main() {
-    let (doc, page1, layer1) =
-        PdfDocument::new("printpdf graphics test", Mm(595.276), Mm(841.89), "Layer 1");
+    let (doc, page1, layer1) = PdfDocument::new("printpdf graphics test", Mm(595.276), Mm(841.89), "Layer 1");
     let current_layer = doc.get_page(page1).get_layer(layer1);
 
     let text = "Lorem ipsum";
@@ -21,8 +20,6 @@ fn main() {
         Some(printpdf::HighlightingMode::Invert),
     ));
 
-    doc.save(&mut BufWriter::new(
-        File::create("test_hyperlink.pdf").unwrap(),
-    ))
-    .unwrap();
+    doc.save(&mut BufWriter::new(File::create("test_hyperlink.pdf").unwrap()))
+        .unwrap();
 }
