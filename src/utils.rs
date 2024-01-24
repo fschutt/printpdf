@@ -201,3 +201,17 @@ pub(crate) fn random_character_string_32() -> String {
 fn u8_to_char(input: u8) -> char {
     (b'A' + input) as char
 }
+
+/// Takes a Vec<u8> of RGBA data and returns two Vec<u8> of RGB and alpha data
+pub(crate) fn rgba_to_rgb(data: Vec<u8>) -> (Vec<u8>, Vec<u8>) {
+    let mut rgb = Vec::with_capacity(data.len() / 4 * 3);
+    let mut alpha = Vec::with_capacity(data.len() / 4);
+    for i in (0..data.len()).step_by(4) {
+        rgb.push(data[i]);
+        rgb.push(data[i + 1]);
+        rgb.push(data[i + 2]);
+        alpha.push(data[i + 3]);
+    }
+
+    (rgb, alpha)
+}
