@@ -13,6 +13,8 @@ pub use time::OffsetDateTime;
 #[cfg(all(feature = "js-sys", target_arch = "wasm32", target_os = "unknown"))]
 mod js_sys_date {
     use js_sys::Date;
+    use time::Month;
+
     #[derive(Debug, Clone)]
     pub struct OffsetDateTime(Date);
     impl OffsetDateTime {
@@ -35,33 +37,61 @@ mod js_sys_date {
         }
 
         #[inline(always)]
-        pub fn year(&self) -> u32 {
-            self.0.get_full_year()
+        pub fn year(&self) -> i32 {
+            self.0.get_full_year() as i32
         }
 
         #[inline(always)]
-        pub fn month(&self) -> u32 {
-            self.0.get_month() + 1u32
+        pub fn month(&self) -> Month {
+            match self.0.get_month() {
+                0 => Month::January,
+                1 => Month::February,
+                2 => Month::March,
+                3 => Month::April,
+                4 => Month::May,
+                5 => Month::June,
+                6 => Month::July,
+                7 => Month::August,
+                8 => Month::September,
+                9 => Month::October,
+                10 => Month::November,
+                11 => Month::December,
+                _ => unreachable!(),
+            }
         }
 
         #[inline(always)]
-        pub fn day(&self) -> u32 {
-            self.0.get_date()
+        pub fn day(&self) -> u8 {
+            self.0.get_date() as u8
         }
 
         #[inline(always)]
-        pub fn hour(&self) -> u32 {
-            self.0.get_hours()
+        pub fn hour(&self) -> u8 {
+            self.0.get_hours() as u8
         }
 
         #[inline(always)]
-        pub fn minute(&self) -> u32 {
-            self.0.get_minutes()
+        pub fn minute(&self) -> u8 {
+            self.0.get_minutes() as u8
         }
 
         #[inline(always)]
-        pub fn second(&self) -> u32 {
-            self.0.get_seconds()
+        pub fn second(&self) -> u8 {
+            self.0.get_seconds() as u8
+        }
+
+        #[inline]
+        pub fn offset(&self) -> super::UtcOffset {
+            let offset = self.0.get_timezone_offset();
+            let truncated_offset = offset as i32;
+            let hours = (truncated_offset % 60).try_into().unwrap();
+            let minutes = (truncated_offset / 60).try_into().unwrap();
+            let seconds = ((offset * 60.) % 60.) as i8;
+            super::UtcOffset {
+                hours,
+                minutes,
+                seconds,
+            }
         }
     }
 }
@@ -69,6 +99,8 @@ mod js_sys_date {
 #[cfg(not(feature = "js-sys"))]
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 mod unix_epoch_stub_date {
+    use time::Month;
+
     #[derive(Debug, Clone)]
     pub struct OffsetDateTime;
     impl OffsetDateTime {
@@ -89,32 +121,32 @@ mod unix_epoch_stub_date {
         }
 
         #[inline(always)]
-        pub fn year(&self) -> u32 {
+        pub fn year(&self) -> i32 {
             1970
         }
 
         #[inline(always)]
-        pub fn month(&self) -> u32 {
+        pub fn month(&self) -> Month {
+            Month::January
+        }
+
+        #[inline(always)]
+        pub fn day(&self) -> u8 {
             1
         }
 
         #[inline(always)]
-        pub fn day(&self) -> u32 {
-            1
-        }
-
-        #[inline(always)]
-        pub fn hour(&self) -> u32 {
+        pub fn hour(&self) -> u8 {
             0
         }
 
         #[inline(always)]
-        pub fn minute(&self) -> u32 {
+        pub fn minute(&self) -> u8 {
             0
         }
 
         #[inline(always)]
-        pub fn second(&self) -> u32 {
+        pub fn second(&self) -> u8 {
             0
         }
     }
