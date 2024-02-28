@@ -8,7 +8,7 @@ pub use self::js_sys_date::OffsetDateTime;
 pub use self::unix_epoch_stub_date::OffsetDateTime;
 
 #[cfg(not(any(target_arch = "wasm32", target_os = "unknown")))]
-pub use time::OffsetDateTime;
+pub use time::{OffsetDateTime, UtcOffset};
 
 #[cfg(all(feature = "js-sys", target_arch = "wasm32", target_os = "unknown"))]
 mod js_sys_date {
@@ -149,5 +149,37 @@ mod unix_epoch_stub_date {
         pub fn second(&self) -> u8 {
             0
         }
+
+        #[inline]
+        pub fn offset(&self) -> super::UtcOffset {
+            super::UtcOffset {
+                hours: 0,
+                minutes: 0,
+                seconds: 0,
+            }
+        }
+    }
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct UtcOffset {
+    hours: i8,
+    minutes: i8,
+    seconds: i8,
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+impl UtcOffset {
+    pub const fn whole_hours(self) -> i8 {
+        self.hours
+    }
+
+    pub const fn is_negative(self) -> bool {
+        self.hours < 0 || self.minutes < 0 || self.seconds < 0
+    }
+
+    pub const fn minutes_past_hour(self) -> i8 {
+        self.minutes
     }
 }
