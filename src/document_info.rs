@@ -117,6 +117,7 @@ fn to_pdf_time_stamp_metadata(date: &OffsetDateTime) -> String {
 }
 
 #[cfg(test)]
+#[cfg(not(any(target_arch = "wasm32", target_os = "unknown")))]
 mod tests {
     use time::{Date, Month, UtcOffset};
 
