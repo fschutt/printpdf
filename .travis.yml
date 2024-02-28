@@ -14,11 +14,17 @@ cache: cargo
 matrix:
   fast_finish: true
 
+install:
+  - rustup target wasm32-unknown-unknown
+
 script:
   - cargo check --verbose --examples
   - cargo check --verbose --no-default-features
   - cargo check --verbose --features="embedded_images"
   - cargo test --verbose
+  - cargo check --verbose --examples --target wasm32-unknown-unknown
+  - cargo check --verbose --no-default-features --target wasm32-unknown-unknown
+  - cargo check --verbose --features="embedded_images" --target wasm32-unknown-unknown
 
 notifications:
   email: false
