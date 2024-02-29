@@ -1,0 +1,73 @@
+name: Build and test
+on: [push, pull_request]
+
+jobs:
+  check-and-test-unix:
+    name: Cargo check and test on Unix systems
+    strategy:
+      matrix:
+        channel: [stable, beta, nightly]
+        os: [ubuntu-latest, macos-latest]
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ${{ matrix.channel }} toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.channel }}
+
+      - run: cargo check --verbose --examples
+      - run: cargo check --verbose --no-default-features
+      - run: cargo check --verbose --features="embedded_images"
+      - run: cargo test --verbose
+
+  check-and-test-windows:
+    name: Cargo check and test on Windows
+    strategy:
+      matrix:
+        target-sys: ["i686-pc-windows", "x86_64-pc-windows"]
+        target-abi: ["gnu", "msvc"]
+
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up MinGW
+        if: ${{ matrix.target-abi == 'gnu' }}
+        uses: egor-tensin/setup-mingw@v2
+        with:
+          platform: "${{ contains(matrix.target-sys, 'x86_64') && 'x64' || 'i686' }}"
+          version: 12.2.0
+
+      - name: Install toolchain for ${{ matrix.target-sys }}-${{ matrix.target-abi }}
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target-sys }}-${{ matrix.target-abi }}
+
+      - run: cargo check --verbose --target ${{ matrix.target-sys }}-${{ matrix.target-abi }} --examples
+      - run: cargo check --verbose --target ${{ matrix.target-sys }}-${{ matrix.target-abi }} --no-default-features
+      - run: cargo check --verbose --target ${{ matrix.target-sys }}-${{ matrix.target-abi }} --features="embedded_images"
+      - run: cargo test --verbose --target ${{ matrix.target-sys }}-${{ matrix.target-abi }}
+
+  check-wasm32:
+    name: Cargo check on wasm32
+    strategy:
+      matrix:
+        channel: [stable, beta, nightly]
+
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain using wasm32-unknown-unknown target
+        uses: dtolnay/rust-toolchain@master
+        with:
+          target: wasm32-unknown-unknown
+          toolchain: ${{ matrix.channel }}
+
+      - run: cargo check --verbose --target wasm32-unknown-unknown --examples
+      - run: cargo check --verbose --target wasm32-unknown-unknown --no-default-features
+      - run: cargo check --verbose --target wasm32-unknown-unknown --features="embedded_images"
+
