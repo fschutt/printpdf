@@ -264,7 +264,7 @@ impl From<ImageXObject> for lopdf::Stream {
             // This is using the "Soft-Mask Images" approach. See page 447 of the adobe PDF 1.4 reference
             XObject::Image(ImageXObject {
                 width: img.width,
-                height: img.width,
+                height: img.height,
                 color_space: ColorSpace::Greyscale,
                 bits_per_component: ColorBits::Bit8,
                 interpolate: false,
