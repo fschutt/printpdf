@@ -11,25 +11,29 @@ use image_crate::{self, DynamicImage, ImageDecoder};
 pub struct Image {
     /// The actual image
     pub image: ImageXObject,
+    /// The soft mask (transparency layer)
+    pub smask: Option<ImageXObject>,
 }
 
 impl From<ImageXObject> for Image {
     fn from(image: ImageXObject) -> Self {
-        Self { image }
+        Self {
+            image,
+            smask: None,
+        }
     }
 }
 
 #[cfg(feature = "embedded_images")]
 impl<'a> Image {
     pub fn try_from<T: ImageDecoder<'a>>(image: T) -> Result<Self, image_crate::ImageError> {
-        let image = ImageXObject::try_from(image)?;
-        Ok(Self { image })
+        let (image, smask) = ImageXObject::try_from(image)?;
+        Ok(Self { image, smask })
     }
 
     pub fn from_dynamic_image(image: &DynamicImage) -> Self {
-        Self {
-            image: ImageXObject::from_dynamic_image(image),
-        }
+        let (image, smask) = ImageXObject::from_dynamic_image(image);
+        Self { image, smask }
     }
 }
 
@@ -64,7 +68,7 @@ impl Image {
     ///
     /// You can use the "transform.dpi" parameter to specify a scaling -
     /// the default is 300dpi
-    pub fn add_to_layer(self, layer: PdfLayerReference, transform: ImageTransform) {
+    pub fn add_to_layer(mut self, layer: PdfLayerReference, transform: ImageTransform) {
         use crate::CurTransMat;
         use crate::Pt;
 
@@ -76,6 +80,16 @@ impl Image {
         let image_w = self.image.width.into_pt(dpi);
         let image_h = self.image.height.into_pt(dpi);
 
+        self.image.smask = match self.smask {
+            None => None,
+            Some(smask) => {
+                let doc = layer.document.upgrade().unwrap();
+                let mut doc = doc.borrow_mut();
+                let stream = lopdf::Stream::from(smask);
+                let id = doc.inner_doc.add_object(stream);
+                Some(id)
+            }
+        };
         let image = layer.add_image(self.image);
 
         let scale_x = transform.scale_x.unwrap_or(1.0);

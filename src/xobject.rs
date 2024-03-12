@@ -150,7 +150,7 @@ pub struct ImageXObject {
     /// Decompression filter for `image_data`, if `None` assumes uncompressed raw pixels in the expected color format.
     pub image_filter: Option<ImageFilter>,
     // SoftMask for transparency, if `None` assumes no transparency. See page 444 of the adope pdf 1.4 reference
-    pub smask: Option<SMask>,
+    pub smask: Option<lopdf::ObjectId>,
     /* /BBox << dictionary >> */
     /* todo: find out if this is really required */
     /// Required bounds to clip the image, in unit space
@@ -183,7 +183,7 @@ impl ImageXObject {
     // }
 
     #[cfg(feature = "embedded_images")]
-    pub fn try_from<'a, T: ImageDecoder<'a>>(image: T) -> Result<Self, ImageError> {
+    pub fn try_from<'a, T: ImageDecoder<'a>>(image: T) -> Result<(Self, Option<Self>), ImageError> {
         use image_crate::error::{LimitError, LimitErrorKind};
         use std::usize;
 
@@ -200,56 +200,24 @@ impl ImageXObject {
         let mut image_data = vec![0; num_image_bytes as usize];
         image.read_image(&mut image_data)?;
 
-        let (processed_color_type, processed_image_data, smask) = preprocess_image_with_alpha(
+        Ok(preprocess_image_with_alpha(
             color_type,
             image_data,
             dim
-        );
-
-        let color_bits = ColorBits::from(processed_color_type);
-        let color_space = ColorSpace::from(processed_color_type);
-
-        Ok(Self {
-            width: Px(dim.0 as usize),
-            height: Px(dim.1 as usize),
-            color_space,
-            bits_per_component: color_bits,
-            image_data: processed_image_data,
-            interpolate: true,
-            image_filter: None,
-            clipping_bbox: None,
-            smask,
-        })
+        ))
     }
 
     #[cfg(feature = "embedded_images")]
-    pub fn from_dynamic_image(image: &DynamicImage) -> Self {
-        use image_crate::EncodableLayout;
-
+    pub fn from_dynamic_image(image: &DynamicImage) -> (Self, Option<Self>) {
         let dim = image.dimensions();
         let color_type = image.color();
         let data = image.as_bytes().to_vec();
 
-        let (processed_color_type, processed_image_data, smask) = preprocess_image_with_alpha(
+        preprocess_image_with_alpha(
             color_type,
             data,
             dim
-        );
-
-        let color_bits = ColorBits::from(processed_color_type);
-        let color_space = ColorSpace::from(processed_color_type);
-
-        Self {
-            width: Px(dim.0 as usize),
-            height: Px(dim.1 as usize),
-            color_space,
-            bits_per_component: color_bits,
-            image_data: processed_image_data,
-            interpolate: true,
-            image_filter: None,
-            clipping_bbox: None,
-            smask,
-        }
+        )
     }
 }
 
@@ -260,24 +228,6 @@ impl From<ImageXObject> for lopdf::Stream {
         let cs: &'static str = img.color_space.into();
         let bbox: lopdf::Object = img.clipping_bbox.unwrap_or(CurTransMat::Identity).into();
 
-        let smask = if let Some(mask) = img.smask {
-            // This is using the "Soft-Mask Images" approach. See page 447 of the adobe PDF 1.4 reference
-            XObject::Image(ImageXObject {
-                width: img.width,
-                height: img.height,
-                color_space: ColorSpace::Greyscale,
-                bits_per_component: ColorBits::Bit8,
-                interpolate: false,
-                image_data: mask.matte.into_iter().map(|i| i as u8).collect(),
-                image_filter: None,
-                smask: None,
-                clipping_bbox: None,
-            })
-            .into()
-        } else {
-            Null
-        };
-
         let mut dict = lopdf::Dictionary::from_iter(vec![
             ("Type", Name("XObject".as_bytes().to_vec())),
             ("Subtype", Name("Image".as_bytes().to_vec())),
@@ -286,9 +236,12 @@ impl From<ImageXObject> for lopdf::Stream {
             ("Interpolate", img.interpolate.into()),
             ("BitsPerComponent", Integer(img.bits_per_component.into())),
             ("ColorSpace", Name(cs.as_bytes().to_vec())),
-            ("SMask", smask),
             ("BBox", bbox),
         ]);
+        if let Some(mask) = img.smask {
+            dict.set("SMask", mask);
+        }
+
 
         if let Some(filter) = img.image_filter {
             let params = match filter {
@@ -515,38 +468,6 @@ impl From<FormType> for i64 {
     /Matte                                      % if present, the SMask must have the same w / h as the picture.
 */
 
-/* Parent: XObject with /Subtype /Image */
-/// `SMask` dictionary. A soft mask (or `SMask`) is a greyscale image
-/// that is used to mask another image
-#[derive(Debug, Clone)]
-pub struct SMask {
-    /* /Type /XObject */
-    /* /Subtype /Image */
-    /* /ColorSpace /DeviceGray */
-
-    /* /Intent (is ignored, don't set) */
-    /* /ImageMask (fals or not set, is ignored, don't set) */
-    /* /Mask (must be absent) */
-    /* /SMask (must be absent) */
-    /* /Decode (must be [0 1]) */
-    /* /Alternates (ignored, don't set) */
-    /* /Name (ignored, don't set) */
-    /* /StructParent (ignored, don't set) */
-    /* /ID (ignored, don't set) */
-    /* /OPI (ignored, don't set) */
-    /// If `self.matte` is set to true, this entry must be the same
-    /// width as the parent image. If not, the `SMask` is resampled to the parent unit square
-    pub width: i64,
-    /// See width
-    pub height: i64,
-    /* /Interpolate (optional, set to true)*/
-    pub interpolate: bool,
-    /// Bits per component, required (warning: this is a grayscale image)
-    pub bits_per_component: i64,
-    /// Vec of component values
-    pub matte: Vec<i64>,
-}
-
 // in the PDF content stream, reference an XObject like this
 
 /*
@@ -634,19 +555,40 @@ impl From<PostScriptXObject> for lopdf::Stream {
 }
 
 #[cfg(feature = "embedded_images")]
-fn preprocess_image_with_alpha(color_type: ColorType, image_data: Vec<u8>, dim: (u32, u32)) -> (ColorType, Vec<u8>, Option<SMask>) {
-    match color_type {
+fn preprocess_image_with_alpha(color_type: ColorType, image_data: Vec<u8>, dim: (u32, u32)) -> (ImageXObject, Option<ImageXObject>) {
+    let (color_type, image_data, smask_data) = match color_type {
         image_crate::ColorType::Rgba8 => {
             let (rgb, alpha) = rgba_to_rgb(image_data);
-            let smask = Some(SMask {
-                bits_per_component: 8,
-                width: dim.0 as i64,
-                height: dim.1 as i64,
-                interpolate: false,
-                matte: alpha.into_iter().map(|b| b as i64).collect(),
-            });
-            (ColorType::Rgb8, rgb, smask)
+            (ColorType::Rgb8, rgb, Some(alpha))
         },
         _ => (color_type, image_data, None)
-    }
+    };
+    let color_bits = ColorBits::from(color_type);
+    let color_space = ColorSpace::from(color_type);
+
+    let img = ImageXObject {
+        width: Px(dim.0 as usize),
+        height: Px(dim.1 as usize),
+        color_space,
+        bits_per_component: color_bits,
+        image_data,
+        interpolate: true,
+        image_filter: None,
+        clipping_bbox: None,
+        smask: None,
+    };
+    let img_mask = smask_data.map(|smask| {
+        ImageXObject {
+            width: img.width,
+            height: img.height,
+            color_space: ColorSpace::Greyscale,
+            bits_per_component: ColorBits::Bit8,
+            interpolate: false,
+            image_data: smask,
+            image_filter: None,
+            clipping_bbox: None,
+            smask: None,
+        }
+    });
+    (img, img_mask)
 }
