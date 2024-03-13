@@ -43,75 +43,155 @@ impl CurTransMat {
 
         let result = [
             [
-                a[0][0].mul_add(
+                mul_add(
+                    a[0][0],
                     b[0][0],
-                    a[0][1].mul_add(b[1][0], a[0][2].mul_add(b[2][0], a[0][3] * b[3][0])),
+                    mul_add(
+                        a[0][1],
+                        b[1][0],
+                        mul_add(a[0][2], b[2][0], a[0][3] * b[3][0]),
+                    ),
                 ),
-                a[0][0].mul_add(
+                mul_add(
+                    a[0][0],
                     b[0][1],
-                    a[0][1].mul_add(b[1][1], a[0][2].mul_add(b[2][1], a[0][3] * b[3][1])),
+                    mul_add(
+                        a[0][1],
+                        b[1][1],
+                        mul_add(a[0][2], b[2][1], a[0][3] * b[3][1]),
+                    ),
                 ),
-                a[0][0].mul_add(
+                mul_add(
+                    a[0][0],
                     b[0][2],
-                    a[0][1].mul_add(b[1][2], a[0][2].mul_add(b[2][2], a[0][3] * b[3][2])),
+                    mul_add(
+                        a[0][1],
+                        b[1][2],
+                        mul_add(a[0][2], b[2][2], a[0][3] * b[3][2]),
+                    ),
                 ),
-                a[0][0].mul_add(
+                mul_add(
+                    a[0][0],
                     b[0][3],
-                    a[0][1].mul_add(b[1][3], a[0][2].mul_add(b[2][3], a[0][3] * b[3][3])),
+                    mul_add(
+                        a[0][1],
+                        b[1][3],
+                        mul_add(a[0][2], b[2][3], a[0][3] * b[3][3]),
+                    ),
                 ),
             ],
             [
-                a[1][0].mul_add(
+                mul_add(
+                    a[1][0],
                     b[0][0],
-                    a[1][1].mul_add(b[1][0], a[1][2].mul_add(b[2][0], a[1][3] * b[3][0])),
+                    mul_add(
+                        a[1][1],
+                        b[1][0],
+                        mul_add(a[1][2], b[2][0], a[1][3] * b[3][0]),
+                    ),
                 ),
-                a[1][0].mul_add(
+                mul_add(
+                    a[1][0],
                     b[0][1],
-                    a[1][1].mul_add(b[1][1], a[1][2].mul_add(b[2][1], a[1][3] * b[3][1])),
+                    mul_add(
+                        a[1][1],
+                        b[1][1],
+                        mul_add(a[1][2], b[2][1], a[1][3] * b[3][1]),
+                    ),
                 ),
-                a[1][0].mul_add(
+                mul_add(
+                    a[1][0],
                     b[0][2],
-                    a[1][1].mul_add(b[1][2], a[1][2].mul_add(b[2][2], a[1][3] * b[3][2])),
+                    mul_add(
+                        a[1][1],
+                        b[1][2],
+                        mul_add(a[1][2], b[2][2], a[1][3] * b[3][2]),
+                    ),
                 ),
-                a[1][0].mul_add(
+                mul_add(
+                    a[1][0],
                     b[0][3],
-                    a[1][1].mul_add(b[1][3], a[1][2].mul_add(b[2][3], a[1][3] * b[3][3])),
+                    mul_add(
+                        a[1][1],
+                        b[1][3],
+                        mul_add(a[1][2], b[2][3], a[1][3] * b[3][3]),
+                    ),
                 ),
             ],
             [
-                a[2][0].mul_add(
+                mul_add(
+                    a[2][0],
                     b[0][0],
-                    a[2][1].mul_add(b[1][0], a[2][2].mul_add(b[2][0], a[2][3] * b[3][0])),
+                    mul_add(
+                        a[2][1],
+                        b[1][0],
+                        mul_add(a[2][2], b[2][0], a[2][3] * b[3][0]),
+                    ),
                 ),
-                a[2][0].mul_add(
+                mul_add(
+                    a[2][0],
                     b[0][1],
-                    a[2][1].mul_add(b[1][1], a[2][2].mul_add(b[2][1], a[2][3] * b[3][1])),
+                    mul_add(
+                        a[2][1],
+                        b[1][1],
+                        mul_add(a[2][2], b[2][1], a[2][3] * b[3][1]),
+                    ),
                 ),
-                a[2][0].mul_add(
+                mul_add(
+                    a[2][0],
                     b[0][2],
-                    a[2][1].mul_add(b[1][2], a[2][2].mul_add(b[2][2], a[2][3] * b[3][2])),
+                    mul_add(
+                        a[2][1],
+                        b[1][2],
+                        mul_add(a[2][2], b[2][2], a[2][3] * b[3][2]),
+                    ),
                 ),
-                a[2][0].mul_add(
+                mul_add(
+                    a[2][0],
                     b[0][3],
-                    a[2][1].mul_add(b[1][3], a[2][2].mul_add(b[2][3], a[2][3] * b[3][3])),
+                    mul_add(
+                        a[2][1],
+                        b[1][3],
+                        mul_add(a[2][2], b[2][3], a[2][3] * b[3][3]),
+                    ),
                 ),
             ],
             [
-                a[3][0].mul_add(
+                mul_add(
+                    a[3][0],
                     b[0][0],
-                    a[3][1].mul_add(b[1][0], a[3][2].mul_add(b[2][0], a[3][3] * b[3][0])),
+                    mul_add(
+                        a[3][1],
+                        b[1][0],
+                        mul_add(a[3][2], b[2][0], a[3][3] * b[3][0]),
+                    ),
                 ),
-                a[3][0].mul_add(
+                mul_add(
+                    a[3][0],
                     b[0][1],
-                    a[3][1].mul_add(b[1][1], a[3][2].mul_add(b[2][1], a[3][3] * b[3][1])),
+                    mul_add(
+                        a[3][1],
+                        b[1][1],
+                        mul_add(a[3][2], b[2][1], a[3][3] * b[3][1]),
+                    ),
                 ),
-                a[3][0].mul_add(
+                mul_add(
+                    a[3][0],
                     b[0][2],
-                    a[3][1].mul_add(b[1][2], a[3][2].mul_add(b[2][2], a[3][3] * b[3][2])),
+                    mul_add(
+                        a[3][1],
+                        b[1][2],
+                        mul_add(a[3][2], b[2][2], a[3][3] * b[3][2]),
+                    ),
                 ),
-                a[3][0].mul_add(
+                mul_add(
+                    a[3][0],
                     b[0][3],
-                    a[3][1].mul_add(b[1][3], a[3][2].mul_add(b[2][3], a[3][3] * b[3][3])),
+                    mul_add(
+                        a[3][1],
+                        b[1][3],
+                        mul_add(a[3][2], b[2][3], a[3][3] * b[3][3]),
+                    ),
                 ),
             ],
         ];
@@ -124,6 +204,26 @@ impl CurTransMat {
             result[3][0],
             result[3][1],
         ]
+    }
+}
+
+/// Multiply add. Computes `(self * a) + b` with workaround for
+/// arm-unknown-linux-gnueabi.
+///
+/// `{f32, f64}::mul_add` is completly broken on arm-unknown-linux-gnueabi.
+/// See issue https://github.com/rust-lang/rust/issues/46950.
+#[inline(always)]
+fn mul_add(a: f32, b: f32, c: f32) -> f32 {
+    if cfg!(all(
+        target_arch = "arm",
+        target_os = "linux",
+        target_env = "gnu"
+    )) {
+        // Workaround has two rounding errors and less accurate result,
+        // but for PDF it doesn't matter much.
+        (a * b) + c
+    } else {
+        a.mul_add(b, c)
     }
 }
 
