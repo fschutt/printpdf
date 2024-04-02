@@ -15,15 +15,15 @@ edition = "2021"
 
 [dependencies]
 # minimum dependencies
-lopdf = { version = "0.31.0", default-features = false, features = [
+lopdf = { version = "0.32.0", default-features = false, features = [
     "pom_parser",
 ] }
-owned_ttf_parser = { version = "0.19.0", default-features = false }
-time = { version = "0.3.25", default-features = false, features = ["std"] }
+owned_ttf_parser = { version = "0.20.0", default-features = false }
+time = { version = "0.3.34", default-features = false, features = ["std"] }
 # optional: logging
-log = { version = "0.4.8", optional = true }
+log = { version = "0.4.21", optional = true }
 # image reading (png / jpeg)
-image = { version = "0.24.3", optional = true, default-features = false, features = [
+image = { version = "0.25.1", optional = true, default-features = false, features = [
     "gif",
     "jpeg",
     "png",
@@ -32,9 +32,9 @@ image = { version = "0.24.3", optional = true, default-features = false, feature
     "bmp",
 ] }
 # svg support (svg -> pdf xobject)
-svg2pdf = { version = "0.8", optional = true }
+svg2pdf = { version = "0.9.1", optional = true }
 pdf-writer = { version = "0.9", optional = true }
-usvg = { version = "0.35.0", optional = true }
+usvg = { version = "0.36.0", optional = true }
 allsorts = { version = "0.14", optional = true, default-features = false, features = ["flate2_rust"]  }
 
 [features]
@@ -49,8 +49,7 @@ embedded_images = ["image"]
 ico = ["image/ico", "embedded_images"]
 tga = ["image/tga", "embedded_images"]
 hdr = ["image/hdr", "embedded_images"]
-jpeg_rayon = ["image/jpeg_rayon", "embedded_images"]
-dxt = ["image/dxt", "embedded_images"]
+rayon = ["image/rayon", "embedded_images"]
 dds = ["image/dds", "embedded_images"]
 webp = ["image/webp", "embedded_images"]
 # enables svg
@@ -65,7 +64,7 @@ js-sys = ["dep:js-sys"]
 all-features = true
 
 [target.'cfg(all(target_arch="wasm32",target_os="unknown"))'.dependencies]
-js-sys = { version = "0.3.40", optional = true }
+js-sys = { version = "0.3.69", optional = true }
 
 [[example]]
 name = "bookmark"

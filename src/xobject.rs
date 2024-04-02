@@ -183,7 +183,7 @@ impl ImageXObject {
     // }
 
     #[cfg(feature = "embedded_images")]
-    pub fn try_from<'a, T: ImageDecoder<'a>>(image: T) -> Result<(Self, Option<Self>), ImageError> {
+    pub fn try_from<T: ImageDecoder>(image: T) -> Result<(Self, Option<Self>), ImageError> {
         use image_crate::error::{LimitError, LimitErrorKind};
         use std::usize;
 
