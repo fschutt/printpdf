@@ -757,8 +757,10 @@ impl FontData for TtfFace {
     fn glyph_ids(&self) -> HashMap<u16, char> {
         let subtables = self
             .face()
-            .tables().cmap.map(|cmap| cmap.subtables.into_iter().filter(|v| v.is_unicode()));
-         let Some(subtables) = subtables else{
+            .tables()
+            .cmap
+            .map(|cmap| cmap.subtables.into_iter().filter(|v| v.is_unicode()));
+        let Some(subtables) = subtables else {
             return HashMap::new();
         };
         let mut map = HashMap::with_capacity(self.face().number_of_glyphs().into());

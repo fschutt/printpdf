@@ -17,16 +17,13 @@ pub struct Image {
 
 impl From<ImageXObject> for Image {
     fn from(image: ImageXObject) -> Self {
-        Self {
-            image,
-            smask: None,
-        }
+        Self { image, smask: None }
     }
 }
 
 #[cfg(feature = "embedded_images")]
 impl<'a> Image {
-    pub fn try_from<T: ImageDecoder<'a>>(image: T) -> Result<Self, image_crate::ImageError> {
+    pub fn try_from<T: ImageDecoder>(image: T) -> Result<Self, image_crate::ImageError> {
         let (image, smask) = ImageXObject::try_from(image)?;
         Ok(Self { image, smask })
     }

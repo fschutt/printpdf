@@ -1,13 +1,13 @@
 // clippy lints when serializing PDF strings, in this case its wrong
 #![allow(clippy::string_lit_as_bytes)]
 
-use crate::OffsetDateTime;
 #[cfg(feature = "embedded_images")]
 use crate::rgba_to_rgb;
+use crate::OffsetDateTime;
 use crate::{ColorBits, ColorSpace, CurTransMat, Px};
 
 #[cfg(feature = "embedded_images")]
-use image_crate::{DynamicImage, GenericImageView, ImageDecoder, ImageError, ColorType};
+use image_crate::{ColorType, DynamicImage, GenericImageView, ImageDecoder, ImageError};
 use lopdf;
 use lopdf::Stream as LoPdfStream;
 use std::collections::HashMap;
@@ -183,7 +183,7 @@ impl ImageXObject {
     // }
 
     #[cfg(feature = "embedded_images")]
-    pub fn try_from<'a, T: ImageDecoder<'a>>(image: T) -> Result<(Self, Option<Self>), ImageError> {
+    pub fn try_from<'a, T: ImageDecoder>(image: T) -> Result<(Self, Option<Self>), ImageError> {
         use image_crate::error::{LimitError, LimitErrorKind};
         use std::usize;
 
@@ -200,11 +200,7 @@ impl ImageXObject {
         let mut image_data = vec![0; num_image_bytes as usize];
         image.read_image(&mut image_data)?;
 
-        Ok(preprocess_image_with_alpha(
-            color_type,
-            image_data,
-            dim
-        ))
+        Ok(preprocess_image_with_alpha(color_type, image_data, dim))
     }
 
     #[cfg(feature = "embedded_images")]
@@ -213,11 +209,7 @@ impl ImageXObject {
         let color_type = image.color();
         let data = image.as_bytes().to_vec();
 
-        preprocess_image_with_alpha(
-            color_type,
-            data,
-            dim
-        )
+        preprocess_image_with_alpha(color_type, data, dim)
     }
 }
 
@@ -241,7 +233,6 @@ impl From<ImageXObject> for lopdf::Stream {
         if let Some(mask) = img.smask {
             dict.set("SMask", mask);
         }
-
 
         if let Some(filter) = img.image_filter {
             let params = match filter {
@@ -555,13 +546,17 @@ impl From<PostScriptXObject> for lopdf::Stream {
 }
 
 #[cfg(feature = "embedded_images")]
-fn preprocess_image_with_alpha(color_type: ColorType, image_data: Vec<u8>, dim: (u32, u32)) -> (ImageXObject, Option<ImageXObject>) {
+fn preprocess_image_with_alpha(
+    color_type: ColorType,
+    image_data: Vec<u8>,
+    dim: (u32, u32),
+) -> (ImageXObject, Option<ImageXObject>) {
     let (color_type, image_data, smask_data) = match color_type {
-        image_crate::ColorType::Rgba8 => {
+        ColorType::Rgba8 => {
             let (rgb, alpha) = rgba_to_rgb(image_data);
             (ColorType::Rgb8, rgb, Some(alpha))
-        },
-        _ => (color_type, image_data, None)
+        }
+        _ => (color_type, image_data, None),
     };
     let color_bits = ColorBits::from(color_type);
     let color_space = ColorSpace::from(color_type);
@@ -577,18 +572,16 @@ fn preprocess_image_with_alpha(color_type: ColorType, image_data: Vec<u8>, dim: 
         clipping_bbox: None,
         smask: None,
     };
-    let img_mask = smask_data.map(|smask| {
-        ImageXObject {
-            width: img.width,
-            height: img.height,
-            color_space: ColorSpace::Greyscale,
-            bits_per_component: ColorBits::Bit8,
-            interpolate: false,
-            image_data: smask,
-            image_filter: None,
-            clipping_bbox: None,
-            smask: None,
-        }
+    let img_mask = smask_data.map(|smask| ImageXObject {
+        width: img.width,
+        height: img.height,
+        color_space: ColorSpace::Greyscale,
+        bits_per_component: ColorBits::Bit8,
+        interpolate: false,
+        image_data: smask,
+        image_filter: None,
+        clipping_bbox: None,
+        smask: None,
     });
     (img, img_mask)
 }
