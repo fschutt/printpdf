@@ -191,7 +191,7 @@ impl PdfLayerReference {
         // add gs operator to stream
         page_mut.layers[self.layer.0]
             .operations
-            .push(lopdf::content::Operation::new(
+            .push(Operation::new(
                 "gs",
                 vec![lopdf::Object::Name(new_ref.gs_name.as_bytes().to_vec())],
             ));
@@ -212,7 +212,7 @@ impl PdfLayerReference {
         let new_ref = page_mut.add_graphics_state(new_overprint_state);
         page_mut.layers[self.layer.0]
             .operations
-            .push(lopdf::content::Operation::new(
+            .push(Operation::new(
                 "gs",
                 vec![lopdf::Object::Name(new_ref.gs_name.as_bytes().to_vec())],
             ));
@@ -234,7 +234,7 @@ impl PdfLayerReference {
 
         page_mut.layers[self.layer.0]
             .operations
-            .push(lopdf::content::Operation::new(
+            .push(Operation::new(
                 "gs",
                 vec![lopdf::Object::Name(new_ref.gs_name.as_bytes().to_vec())],
             ));
@@ -343,7 +343,7 @@ impl PdfLayerReference {
         self.add_operation(Operation::new("Tz", vec![lopdf::Object::Real(scaling)]));
     }
 
-    /// Offsets the current text positon (used for superscript
+    /// Offsets the current text position (used for superscript
     /// and subscript). To reset the superscript / subscript, call this
     /// function with 0 as the offset. For superscript, use a positive
     /// number, for subscript, use a negative number. This does not
@@ -543,7 +543,7 @@ impl PdfLayerReference {
 
         page_mut.layers[self.layer.0]
             .operations
-            .push(lopdf::content::Operation::new(
+            .push(Operation::new(
                 "Do",
                 vec![lopdf::Object::Name(name.as_bytes().to_vec())],
             ));
