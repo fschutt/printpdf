@@ -1,14 +1,18 @@
 //! Scaling types for reducing errors between conversions between point (pt) and millimeter (mm)
 
-use std::num::FpCategory;
 use std::cmp::Ordering;
+use std::num::FpCategory;
 
 macro_rules! impl_partialeq {
     ($t:ty) => {
         impl PartialEq for $t {
             // custom compare function because of floating point inaccuracy
             fn eq(&self, other: &$t) -> bool {
-                if (self.0.classify() == FpCategory::Zero || self.0.classify() == FpCategory::Normal) &&  (other.0.classify() == FpCategory::Zero || other.0.classify() == FpCategory::Normal) {
+                if (self.0.classify() == FpCategory::Zero
+                    || self.0.classify() == FpCategory::Normal)
+                    && (other.0.classify() == FpCategory::Zero
+                        || other.0.classify() == FpCategory::Normal)
+                {
                     // four floating point numbers have to match
                     (self.0 * 1000.0).round() == (other.0 * 1000.0).round()
                 } else {
@@ -250,7 +254,6 @@ fn min_mm() {
     let mm_vector = vec![Mm(0.0), Mm(1.0), Mm(2.0)];
     assert_eq!(mm_vector.iter().min().unwrap(), &Mm(0.0));
 }
-
 
 #[test]
 fn pt_eq_zero_check() {

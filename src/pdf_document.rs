@@ -665,9 +665,9 @@ impl PdfDocumentReference {
             ]);
 
             if let Some(extension) = &page.extend_with {
-              for (key, value) in extension.iter() {
-                p.set(key.to_vec(), value.clone())
-              }
+                for (key, value) in extension.iter() {
+                    p.set(key.to_vec(), value.clone())
+                }
             }
 
             // this will collect the resources needed for rendering this page

@@ -6,8 +6,9 @@ use std::rc::Weak;
 
 use crate::indices::{PdfLayerIndex, PdfPageIndex};
 use crate::{
-    ExtendedGraphicsState, ExtendedGraphicsStateRef, Mm, Pattern, PatternRef, PdfDocument,
-    PdfLayer, PdfLayerReference, PdfResources, Pt, XObject, XObjectRef, LinkAnnotation, LinkAnnotationRef,
+    ExtendedGraphicsState, ExtendedGraphicsStateRef, LinkAnnotation, LinkAnnotationRef, Mm,
+    Pattern, PatternRef, PdfDocument, PdfLayer, PdfLayerReference, PdfResources, Pt, XObject,
+    XObjectRef,
 };
 
 /// PDF page
@@ -52,7 +53,7 @@ impl PdfPage {
             height: height.into(),
             layers: Vec::new(),
             resources: PdfResources::new(),
-            extend_with: None
+            extend_with: None,
         };
 
         let initial_layer = PdfLayer::new(layer_name);
@@ -152,8 +153,6 @@ impl PdfPage {
     pub fn add_link_annotation(&mut self, annotation: LinkAnnotation) -> LinkAnnotationRef {
         self.resources.add_link_annotation(annotation)
     }
-
-    
 }
 
 impl PdfPageReference {

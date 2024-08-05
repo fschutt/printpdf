@@ -1,6 +1,6 @@
-use lopdf::{self, Object};
-use std::collections::HashMap;
 use crate::Rect;
+use lopdf::{self, Dictionary, Object};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct LinkAnnotation {
@@ -32,12 +32,12 @@ impl LinkAnnotation {
 
 impl Into<Object> for LinkAnnotation {
     fn into(self) -> Object {
-        let mut dict = lopdf::Dictionary::new();
-        dict.set("Type", lopdf::Object::Name("Annot".as_bytes().to_vec()));
-        dict.set("Subtype", lopdf::Object::Name("Link".as_bytes().to_vec()));
+        let mut dict = Dictionary::new();
+        dict.set("Type", Object::Name("Annot".as_bytes().to_vec()));
+        dict.set("Subtype", Object::Name("Link".as_bytes().to_vec()));
         dict.set(
             "Rect",
-            lopdf::Object::Array(vec![
+            Object::Array(vec![
                 self.rect.ll.x.into(),
                 self.rect.ll.y.into(),
                 self.rect.ur.x.into(),
@@ -93,7 +93,12 @@ pub struct DashPhase {
 impl Into<Object> for DashPhase {
     fn into(self) -> Object {
         Object::Array(vec![
-            Object::Array(self.dash_array.into_iter().map(|x| Object::Real(x.into())).collect()),
+            Object::Array(
+                self.dash_array
+                    .into_iter()
+                    .map(|x| Object::Real(x.into()))
+                    .collect(),
+            ),
             Object::Real(self.phase.into()),
         ])
     }
@@ -117,9 +122,7 @@ impl Into<Object> for ColorArray {
     fn into(self) -> Object {
         match self {
             ColorArray::Transparent => Object::Array(vec![]),
-            ColorArray::Gray(arr) => Object::Array(vec![
-                Object::Real(arr[0].into()),
-            ]),
+            ColorArray::Gray(arr) => Object::Array(vec![Object::Real(arr[0].into())]),
             ColorArray::RGB(arr) => Object::Array(vec![
                 Object::Real(arr[0].into()),
                 Object::Real(arr[1].into()),
@@ -152,9 +155,12 @@ impl Actions {
 
 impl Into<Object> for Actions {
     fn into(self) -> Object {
-        let mut dict = lopdf::Dictionary::new();
+        let mut dict = Dictionary::new();
         dict.set("S", Object::Name(self.s.into_bytes().to_vec()));
-        dict.set("URI", Object::String(self.uri.into_bytes().to_vec(), lopdf::StringFormat::Literal));
+        dict.set(
+            "URI",
+            Object::String(self.uri.into_bytes().to_vec(), lopdf::StringFormat::Literal),
+        );
         Object::Dictionary(dict)
     }
 }
@@ -230,18 +236,18 @@ impl LinkAnnotationList {
     }
 }
 
-impl From<LinkAnnotationList> for lopdf::Dictionary {
+impl From<LinkAnnotationList> for Dictionary {
     fn from(_val: LinkAnnotationList) -> Self {
         if _val.link_annotations.is_empty() {
-            return lopdf::Dictionary::new();
+            return Dictionary::new();
         }
-        
-        let mut dict = lopdf::Dictionary::new();
-        dict.set("Type", lopdf::Object::Name("Annot".as_bytes().to_vec()));
-        dict.set("Subtype", lopdf::Object::Name("Link".as_bytes().to_vec()));
+
+        let mut dict = Dictionary::new();
+        dict.set("Type", Object::Name("Annot".as_bytes().to_vec()));
+        dict.set("Subtype", Object::Name("Link".as_bytes().to_vec()));
         dict.set(
             "Rect",
-            lopdf::Object::Array(vec![
+            Object::Array(vec![
                 _val.link_annotations["PT0"].rect.ll.x.into(),
                 _val.link_annotations["PT0"].rect.ll.y.into(),
                 _val.link_annotations["PT0"].rect.ur.x.into(),

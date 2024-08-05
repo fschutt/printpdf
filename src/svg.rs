@@ -8,9 +8,9 @@ use usvg::TreeParsing;
 
 /// SVG - wrapper around an `XObject` to allow for more
 /// control within the library.
-/// 
-/// When placing multiple copies of the same SVG on the 
-/// same layer, it is better to use the `into_xobject` 
+///
+/// When placing multiple copies of the same SVG on the
+/// same layer, it is better to use the `into_xobject`
 /// method to get a reference, rather than a clone
 #[derive(Debug, Clone)]
 pub struct Svg {
@@ -67,7 +67,7 @@ pub struct SvgRotation {
 }
 
 fn export_svg_to_xobject_pdf(svg: &str) -> Result<Stream, String> {
-    use pdf_writer::{Content, Finish, Name, Rect, Ref, Pdf};
+    use pdf_writer::{Content, Finish, Name, Pdf, Rect, Ref};
 
     // Allocate the indirect reference IDs and names.
     let catalog_id = Ref::new(1);

@@ -1,14 +1,10 @@
 //! Uses the extend_with feature to add a link to the page.
 extern crate printpdf;
 
+use lopdf::{Dictionary, Object, StringFormat::Literal};
 use printpdf::*;
 use std::fs::File;
 use std::io::BufWriter;
-use lopdf::{
-  StringFormat::Literal,
-  Dictionary,
-  Object
-};
 
 fn main() {
     let (doc, page1, layer1) =
@@ -17,23 +13,28 @@ fn main() {
     let current_layer = page.get_layer(layer1);
 
     let action = Dictionary::from_iter(vec![
-      ("Type", "Action".into()),
-      ("S", Object::Name(b"URI".to_vec())),
-      ("URI", Object::String(b"https://github.com/fschutt/printpdf".to_vec(), Literal)),
+        ("Type", "Action".into()),
+        ("S", Object::Name(b"URI".to_vec())),
+        (
+            "URI",
+            Object::String(b"https://github.com/fschutt/printpdf".to_vec(), Literal),
+        ),
     ]);
 
     let annotation = Dictionary::from_iter(vec![
         ("Type", "Annot".into()),
         ("Subtype", Object::Name(b"Link".to_vec())),
-        ("Rect", vec![20.into(), 580.into(), 300.into(), 560.into()].into()),
+        (
+            "Rect",
+            vec![20.into(), 580.into(), 300.into(), 560.into()].into(),
+        ),
         ("C", vec![].into()),
         ("Contents", Object::String("Hello World".into(), Literal)),
         ("A", action.into()),
     ]);
 
-    let annotations = Dictionary::from_iter(vec![
-        ("Annots", Object::Array(vec![annotation.into()]))
-    ]);
+    let annotations =
+        Dictionary::from_iter(vec![("Annots", Object::Array(vec![annotation.into()]))]);
 
     page.extend_with(annotations);
 
@@ -41,6 +42,8 @@ fn main() {
     let font = doc.add_builtin_font(BuiltinFont::Helvetica).unwrap();
     current_layer.use_text(text, 10.0, Mm(10.0), Mm(200.0), &font);
 
-    doc.save(&mut BufWriter::new(File::create("test_annotations.pdf").unwrap()))
-        .unwrap();
+    doc.save(&mut BufWriter::new(
+        File::create("test_annotations.pdf").unwrap(),
+    ))
+    .unwrap();
 }
