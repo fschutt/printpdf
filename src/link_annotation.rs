@@ -192,6 +192,7 @@ impl Actions {
                                     .expect("page index should be valid object")
                                     .to_owned(),
                             ),
+                            "XYZ".into(),
                             left.map(Object::Real).unwrap_or(Object::Null),
                             top.map(Object::Real).unwrap_or(Object::Null),
                             zoom.map(Object::Real).unwrap_or(Object::Null),
