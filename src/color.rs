@@ -1,0 +1,185 @@
+use crate::IccProfileId;
+
+/// Color space (enum for marking the number of bits a color has)
+#[derive(Debug, Copy, PartialEq, Clone)]
+pub enum ColorSpace {
+    Rgb,
+    Rgba,
+    Palette,
+    Cmyk,
+    Greyscale,
+    GreyscaleAlpha,
+}
+
+#[cfg(feature = "images")]
+impl From<image_crate::ColorType> for ColorSpace {
+    fn from(color_type: image_crate::ColorType) -> Self {
+        use image_crate::ColorType::*;
+        match color_type {
+            L8 | L16 => ColorSpace::Greyscale,
+            La8 | La16 => ColorSpace::GreyscaleAlpha,
+            Rgb8 | Rgb16 => ColorSpace::Rgb,
+            Rgba8 | Rgba16 => ColorSpace::Rgba,
+            _ => ColorSpace::Greyscale, // unreachable
+        }
+    }
+}
+
+impl From<ColorSpace> for &'static str {
+    fn from(val: ColorSpace) -> Self {
+        use self::ColorSpace::*;
+        match val {
+            Rgb => "DeviceRGB",
+            Cmyk => "DeviceCMYK",
+            Greyscale => "DeviceGray",
+            Palette => "Indexed",
+            Rgba | GreyscaleAlpha => "DeviceN",
+        }
+    }
+}
+
+/// How many bits does a color have?
+#[derive(Debug, Copy, PartialEq, Clone)]
+pub enum ColorBits {
+    Bit1,
+    Bit8,
+    Bit16,
+}
+
+#[cfg(feature = "images")]
+impl From<image_crate::ColorType> for ColorBits {
+    fn from(color_type: image_crate::ColorType) -> ColorBits {
+        use image_crate::ColorType::*;
+        use ColorBits::*;
+
+        match color_type {
+            L8 | La8 | Rgb8 | Rgba8 => Bit8,
+            L16 | La16 | Rgb16 | Rgba16 => Bit16,
+            _ => Bit8, // unreachable
+        }
+    }
+}
+
+impl From<ColorBits> for i64 {
+    fn from(val: ColorBits) -> Self {
+        match val {
+            ColorBits::Bit1 => 1,
+            ColorBits::Bit8 => 8,
+            ColorBits::Bit16 => 16,
+        }
+    }
+}
+
+/// Wrapper for Rgb, Cmyk and other color types
+#[derive(Debug, Clone, PartialEq)]
+pub enum Color {
+    Rgb(Rgb),
+    Cmyk(Cmyk),
+    Greyscale(Greyscale),
+    SpotColor(SpotColor),
+}
+
+impl Color {
+    /// Consumes the color and converts into into a vector of numbers
+    pub fn into_vec(self) -> Vec<f32> {
+        match self {
+            Color::Rgb(rgb) => {
+                vec![rgb.r, rgb.g, rgb.b]
+            }
+            Color::Cmyk(cmyk) => {
+                vec![cmyk.c, cmyk.m, cmyk.y, cmyk.k]
+            }
+            Color::Greyscale(gs) => {
+                vec![gs.percent]
+            }
+            Color::SpotColor(spot) => {
+                vec![spot.c, spot.m, spot.y, spot.k]
+            }
+        }
+    }
+
+    /// Returns if the color has an icc profile attached
+    pub fn get_icc_profile(&self) -> Option<&Option<IccProfileId>> {
+        match *self {
+            Color::Rgb(ref rgb) => Some(&rgb.icc_profile),
+            Color::Cmyk(ref cmyk) => Some(&cmyk.icc_profile),
+            Color::Greyscale(ref gs) => Some(&gs.icc_profile),
+            Color::SpotColor(_) => None,
+        }
+    }
+}
+
+/// RGB color
+#[derive(Debug, Clone, PartialEq)]
+pub struct Rgb {
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub icc_profile: Option<IccProfileId>,
+}
+
+impl Rgb {
+    pub fn new(r: f32, g: f32, b: f32, icc_profile: Option<IccProfileId>) -> Self {
+        Self {
+            r,
+            g,
+            b,
+            icc_profile,
+        }
+    }
+}
+
+/// CMYK color
+#[derive(Debug, Clone, PartialEq)]
+pub struct Cmyk {
+    pub c: f32,
+    pub m: f32,
+    pub y: f32,
+    pub k: f32,
+    pub icc_profile: Option<IccProfileId>,
+}
+
+impl Cmyk {
+    /// Creates a new CMYK color
+    pub fn new(c: f32, m: f32, y: f32, k: f32, icc_profile: Option<IccProfileId>) -> Self {
+        Self {
+            c,
+            m,
+            y,
+            k,
+            icc_profile,
+        }
+    }
+}
+
+/// Greyscale color
+#[derive(Debug, Clone, PartialEq)]
+pub struct Greyscale {
+    pub percent: f32,
+    pub icc_profile: Option<IccProfileId>,
+}
+
+impl Greyscale {
+    pub fn new(percent: f32, icc_profile: Option<IccProfileId>) -> Self {
+        Self {
+            percent,
+            icc_profile,
+        }
+    }
+}
+
+/// Spot colors are like Cmyk, but without color space. They are essentially "named" colors 
+/// from specific vendors - currently they are the same as a CMYK color.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct SpotColor {
+    pub c: f32,
+    pub m: f32,
+    pub y: f32,
+    pub k: f32,
+}
+
+impl SpotColor {
+    pub fn new(c: f32, m: f32, y: f32, k: f32) -> Self {
+        Self { c, m, y, k }
+    }
+}

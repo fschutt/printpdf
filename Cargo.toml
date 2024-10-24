@@ -9,7 +9,7 @@ repository = "https://github.com/fschutt/printpdf"
 homepage = "https://github.com/fschutt/printpdf"
 license = "MIT"
 readme = "README.md"
-description = "Rust library for writing PDF files"
+description = "Rust library for reading and writing PDF files"
 keywords = ["pdf", "gui", "graphics", "wkhtmltopdf"]
 categories = ["gui"]
 exclude = ["./assets/*", "./doc/*", "./examples/*"]
@@ -17,61 +17,48 @@ autoexamples = false
 edition = "2021"
 
 [dependencies]
-# minimum dependencies
-lopdf = { version = "0.33.0", default-features = false, features = [
-    "pom_parser",
-] }
-owned_ttf_parser = { version = "0.24.0", default-features = false, features = [
-    "std",
-] }
+lopdf = { version = "0.33.0", default-features = false, features = ["pom_parser"] }
+owned_ttf_parser = { version = "0.24.0", default-features = false, features = ["std"] }
 time = { version = "0.3.25", default-features = false, features = ["std"] }
-# optional: logging
-log = { version = "0.4.8", optional = true }
-# image reading (png / jpeg)
-image = { version = "0.25", optional = true, default-features = false, features = [
-    "gif",
-    "jpeg",
-    "png",
-    "pnm",
-    "tiff",
-    "bmp",
-] }
-# svg support (svg -> pdf xobject)
+allsorts = { version = "0.15", default-features = false, features = ["flate2_rust"] }
+pdf-writer = { version = "0.10" }
+# optional deps
+image = { version = "0.25", optional = true, default-features = false, features = ["gif", "jpeg", "png", "pnm", "tiff", "bmp"] }
 svg2pdf = { version = "0.11", optional = true }
-pdf-writer = { version = "0.10", optional = true }
 usvg = { version = "0.42", optional = true }
-allsorts = { version = "0.15", optional = true, default-features = false, features = [
-    "flate2_rust",
-] }
+ttf-parser = "0.25.0"
 
 [features]
 default = ["js-sys"]
-# do not compress PDF streams, useful for debugging
-less-optimization = []
-# enables logging
-logging = ["log"]
-# enables image support with some basic formats
-embedded_images = ["image"]
-# enables extra image formats
-ico = ["image/ico", "embedded_images"]
-tga = ["image/tga", "embedded_images"]
-hdr = ["image/hdr", "embedded_images"]
-rayon = ["image/rayon", "embedded_images"]
-dds = ["image/dds", "embedded_images"]
-webp = ["image/webp", "embedded_images"]
-# enables svg
-svg = ["svg2pdf", "usvg", "pdf-writer"]
-font_subsetting = ["dep:allsorts"]
-# enables annotations
-annotations = ["pdf-writer"]
-# enables js-sys features on wasm
-js-sys = ["dep:js-sys"]
+less-optimization = [] # do not compress PDF streams, useful for debugging
+images = ["image"] # enables image support with some basic formats
+ico = ["image/ico", "images"] # enables extra image format .ICO
+tga = ["image/tga", "images"] # enables extra image format .TGA
+hdr = ["image/hdr", "images"] # enables extra image format .HDR
+dds = ["image/dds", "images"] # enables extra image format .DDS
+webp = ["image/webp", "images"] # enables extra image format .WEBP
+rayon = ["image/rayon", "images"]  # enables multithreading for decoding images
+svg = ["svg2pdf", "usvg"] # enables SVG embedding
+js-sys = ["dep:js-sys"] # enables js-sys features on wasm
+rendering = [] # enables experimental rendering module (renders PDF pages to image::DynamicImage)
 
 [package.metadata.docs.rs]
 all-features = true
 
 [target.'cfg(all(target_arch="wasm32",target_os="unknown"))'.dependencies]
 js-sys = { version = "0.3.40", optional = true }
+
+[[example]]
+name = "image"
+required-features = ["images"]
+
+[[example]]
+name = "image_alpha"
+required-features = ["images"]
+
+[[example]]
+name = "svg"
+required-features = ["svg"]
 
 [[example]]
 name = "bookmark"
@@ -86,14 +73,6 @@ name = "font"
 required-features = []
 
 [[example]]
-name = "image"
-required-features = ["embedded_images"]
-
-[[example]]
-name = "image_alpha"
-required-features = ["embedded_images"]
-
-[[example]]
 name = "no_icc"
 required-features = []
 
@@ -106,16 +85,12 @@ name = "shape"
 required-features = []
 
 [[example]]
-name = "svg"
-required-features = ["svg"]
-
-[[example]]
 name = "annotations"
 required-features = []
 
 [[example]]
 name = "hyperlink"
-required-features = ["annotations"]
+required-features = []
 
 [[example]]
 name = "rect"

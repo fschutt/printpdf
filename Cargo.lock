@@ -633,12 +633,12 @@ dependencies = [
  "allsorts",
  "image",
  "js-sys",
- "log",
  "lopdf",
  "owned_ttf_parser",
  "pdf-writer",
  "svg2pdf",
  "time",
+ "ttf-parser 0.25.0",
  "usvg",
 ]
 
@@ -1033,6 +1033,12 @@ name = "ttf-parser"
 version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8686b91785aff82828ed725225925b33b4fde44c4bb15876e5f7c832724c420a"
+
+[[package]]
+name = "ttf-parser"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5902c5d130972a0000f60860bfbf46f7ca3db5391eddfedd1b8728bd9dc96c0e"
 
 [[package]]
 name = "typenum"
