@@ -20,6 +20,17 @@ pub struct Rect {
     pub height: Pt,
 }
 
+impl Rect {
+    pub fn from_wh(width: Pt, height: Pt) -> Self {
+        Self {
+            x: Pt(0.0),
+            y: Pt(0.0),
+            width,
+            height,
+        }
+    }
+}
+
 /// The rule to use in filling/clipping paint operations.
 ///
 /// This is meaningful in the following cases:
@@ -160,6 +171,8 @@ impl PartialEq for Point {
 pub struct Line {
     /// 2D Points for the line
     pub points: Vec<(Point, bool)>,
+    /// Whether the line should automatically be closed
+    pub is_closed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -179,7 +192,7 @@ impl FromIterator<(Point, bool)> for Polygon {
             points.push(i);
         }
         Polygon {
-            rings: vec![Line { points }],
+            rings: vec![Line { points, is_closed: true }],
             ..Default::default()
         }
     }

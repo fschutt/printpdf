@@ -79,7 +79,23 @@ pub struct PdfDocument {
     pub pages: Vec<PdfPage>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+impl PdfDocument {
+    pub fn new(name: &str) -> Self {
+        Self {
+            metadata: PdfMetadata { 
+                info: PdfDocumentInfo {
+                    document_title: name.to_string(),
+                    .. Default::default()
+                }, xmp: None 
+            },
+            resources: PdfResources::default(),
+            bookmarks: PageAnnotMap::default(),
+            pages: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Default, PartialEq, Clone)]
 pub struct PdfResources {
     /// Fonts found in the PDF file, indexed by the sha256 of their contents
     pub fonts: PdfFontMap,

@@ -1,4 +1,4 @@
-use crate::{color::Color, graphics::{Line, Point, Polygon, Rect}, matrix::{CurTransMat, TextMatrix}, units::Pt, ExtendedGraphicsStateId, FontId, LayerInternalId, LinkAnnotId, PageAnnotId, XObjectId};
+use crate::{color::Color, graphics::{Line, Point, Polygon, Rect}, matrix::{CurTransMat, TextMatrix}, units::{Mm, Pt}, ExtendedGraphicsStateId, FontId, LayerInternalId, LinkAnnotId, PageAnnotId, XObjectId};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct PdfPage {
@@ -6,6 +6,17 @@ pub struct PdfPage {
     pub trim_box: Rect,
     pub crop_box: Rect,
     pub ops: Vec<Op>,
+}
+
+impl PdfPage {
+    pub fn new(width: Mm, height: Mm, ops: Vec<Op>) -> Self {
+        Self {
+            media_box: Rect::from_wh(width.into(), height.into()),
+            trim_box: Rect::from_wh(width.into(), height.into()),
+            crop_box: Rect::from_wh(width.into(), height.into()),
+            ops,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]

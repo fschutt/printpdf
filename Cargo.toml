@@ -49,49 +49,5 @@ all-features = true
 js-sys = { version = "0.3.40", optional = true }
 
 [[example]]
-name = "image"
-required-features = ["images"]
-
-[[example]]
-name = "image_alpha"
-required-features = ["images"]
-
-[[example]]
-name = "svg"
-required-features = ["svg"]
-
-[[example]]
-name = "bookmark"
-required-features = []
-
-[[example]]
-name = "circle"
-required-features = []
-
-[[example]]
-name = "font"
-required-features = []
-
-[[example]]
-name = "no_icc"
-required-features = []
-
-[[example]]
-name = "page"
-required-features = []
-
-[[example]]
-name = "shape"
-required-features = []
-
-[[example]]
-name = "annotations"
-required-features = []
-
-[[example]]
-name = "hyperlink"
-required-features = []
-
-[[example]]
-name = "rect"
+name = "simple"
 required-features = []
