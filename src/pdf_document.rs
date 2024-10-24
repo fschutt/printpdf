@@ -12,8 +12,8 @@ use lopdf;
 
 use crate::indices::*;
 use crate::{
-    BuiltinFont, DirectFontRef, Error, ExternalFont, Font, FontData, FontList, IccProfileList,
-    IndirectFontRef, Mm, PdfConformance, PdfMetadata, PdfPage, PdfPageReference,
+    AnnotationContext, BuiltinFont, DirectFontRef, Error, ExternalFont, Font, FontData, FontList,
+    IccProfileList, IndirectFontRef, Mm, PdfConformance, PdfMetadata, PdfPage, PdfPageReference,
 };
 
 /// PDF document
@@ -627,15 +627,31 @@ impl PdfDocumentReference {
             font_dict_id = Some(doc.inner_doc.add_object(Dictionary(fonts_dict)));
         }
 
+        // Mapping of a page's index to its object id.
+        //
+        // Pre-populate an object for each page, which we will replace with the
+        // actual object during the next iteration.
+        let mut page_index_to_object_id: HashMap<usize, (u32, u16)> = HashMap::new();
+        for index in doc.pages.iter().map(|page| page.index) {
+            page_index_to_object_id.insert(index, doc.inner_doc.new_object_id());
+        }
+
+        // Mapping of a page's ordered position in the doc to its object id.
         let mut page_id_to_obj: HashMap<usize, (u32, u16)> = HashMap::new();
 
         for (idx, page) in doc.pages.into_iter().enumerate() {
+            let page_index = page.index;
             let annotation_ids = page
                 .resources
                 .link_annotations
                 .clone()
                 .into_iter()
-                .map(|(_, annotation)| doc.inner_doc.add_object(annotation))
+                .map(|(_, annotation)| {
+                    doc.inner_doc
+                        .add_object(annotation.into_object(AnnotationContext {
+                            page_id_to_obj: &page_index_to_object_id,
+                        }))
+                })
                 .collect::<Vec<_>>();
 
             let mut p = LoDictionary::from_iter(vec![
@@ -695,11 +711,14 @@ impl PdfDocumentReference {
             let page_content_id = doc.inner_doc.add_object(merged_layer_stream);
 
             p.set("Contents", Reference(page_content_id));
-            let page_obj = doc.inner_doc.add_object(p);
+
+            let page_obj_id = page_index_to_object_id.get(&page_index).unwrap().to_owned();
+            doc.inner_doc.set_object(page_obj_id, p);
+
             if doc.bookmarks.contains_key(&idx) {
-                page_id_to_obj.insert(idx, page_obj);
+                page_id_to_obj.insert(idx, page_obj_id);
             }
-            page_ids.push(Reference(page_obj))
+            page_ids.push(Reference(page_obj_id))
         }
 
         if !doc.bookmarks.is_empty() {

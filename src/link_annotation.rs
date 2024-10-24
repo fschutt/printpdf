@@ -1,4 +1,4 @@
-use crate::Rect;
+use crate::{PdfPageIndex, Rect};
 use lopdf::{self, Dictionary, Object};
 use std::collections::HashMap;
 
@@ -28,10 +28,8 @@ impl LinkAnnotation {
             h: h.unwrap_or_default(),
         }
     }
-}
 
-impl Into<Object> for LinkAnnotation {
-    fn into(self) -> Object {
+    pub fn into_object(self, ctx: AnnotationContext) -> Object {
         let mut dict = Dictionary::new();
         dict.set("Type", Object::Name("Annot".as_bytes().to_vec()));
         dict.set("Subtype", Object::Name("Link".as_bytes().to_vec()));
@@ -45,13 +43,18 @@ impl Into<Object> for LinkAnnotation {
             ]),
         );
 
-        dict.set::<&str, Object>("A", self.a.into());
+        dict.set::<&str, Object>("A", self.a.into_object(ctx));
         dict.set::<&str, Object>("Border", self.border.into());
         dict.set::<&str, Object>("C", self.c.into());
         dict.set::<&str, Object>("H", self.h.into());
 
         Object::Dictionary(dict)
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct AnnotationContext<'a> {
+    pub page_id_to_obj: &'a HashMap<usize, (u32, u16)>,
 }
 
 #[derive(Debug, Clone)]
@@ -139,28 +142,72 @@ impl Into<Object> for ColorArray {
 }
 
 #[derive(Debug, Clone)]
-pub struct Actions {
-    pub s: String,
-    pub uri: String,
+#[non_exhaustive]
+pub enum Destination {
+    /// Display `page` with coordinates `top` and `left` positioned at the upper-left corner of the
+    /// window and the contents of the page magnified by `zoom`.
+    ///
+    /// A value of `None` for any parameter indicates to leave the current value unchanged, and a
+    /// `zoom` value of 0 has the same meaning as `None`.
+    XYZ {
+        page: PdfPageIndex,
+        left: Option<f32>,
+        top: Option<f32>,
+        zoom: Option<f32>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum Actions {
+    GoTo(Destination),
+    URI(String),
 }
 
 impl Actions {
-    pub fn uri(uri: String) -> Self {
-        Self {
-            s: "URI".to_string(),
-            uri,
-        }
+    pub fn go_to(destination: Destination) -> Self {
+        Self::GoTo(destination)
     }
-}
 
-impl Into<Object> for Actions {
-    fn into(self) -> Object {
+    pub fn uri(uri: String) -> Self {
+        Self::URI(uri)
+    }
+
+    pub fn into_object(self, ctx: AnnotationContext) -> Object {
         let mut dict = Dictionary::new();
-        dict.set("S", Object::Name(self.s.into_bytes().to_vec()));
-        dict.set(
-            "URI",
-            Object::String(self.uri.into_bytes().to_vec(), lopdf::StringFormat::Literal),
-        );
+        match self {
+            Self::GoTo(destination) => {
+                dict.set("S", Object::Name("GoTo".as_bytes().to_vec()));
+                dict.set(
+                    "D",
+                    match destination {
+                        Destination::XYZ {
+                            page,
+                            left,
+                            top,
+                            zoom,
+                        } => Object::Array(vec![
+                            Object::Reference(
+                                ctx.page_id_to_obj
+                                    .get(&page.0)
+                                    .expect("page index should be valid object")
+                                    .to_owned(),
+                            ),
+                            "XYZ".into(),
+                            left.map(Object::Real).unwrap_or(Object::Null),
+                            top.map(Object::Real).unwrap_or(Object::Null),
+                            zoom.map(Object::Real).unwrap_or(Object::Null),
+                        ]),
+                    },
+                );
+            }
+            Self::URI(uri) => {
+                dict.set("S", Object::Name("URI".as_bytes().to_vec()));
+                dict.set(
+                    "URI",
+                    Object::String(uri.into_bytes().to_vec(), lopdf::StringFormat::Literal),
+                );
+            }
+        }
         Object::Dictionary(dict)
     }
 }
