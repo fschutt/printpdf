@@ -68,7 +68,7 @@ fn main() {
     ops.extend_from_slice(&[
         Op::StartTextSection,
 
-        Op::SetFont { font: font_id.clone(), size: Pt(33.0) },
+        Op::SetFontSize { font: font_id.clone(), size: Pt(33.0) },
         Op::SetTextCursor { pos: Point { x: Mm(10.0).into(), y: Mm(100.0).into() } }, // from bottom left
         Op::SetLineHeight { lh: Pt(33.0) },
         Op::SetWordSpacing { percent: 3000.0 },
@@ -86,7 +86,7 @@ fn main() {
         Op::WriteText { text: "Lorem ipsum".to_string(), font: font_id.clone() },
         Op::SetLineOffset { multiplier: 10.0 },
         Op::SetTextRenderingMode { mode: TextRenderingMode::Stroke },
-        Op::SetFont { font: font_id.clone(), size: Pt(18.0) },
+        Op::SetFontSize { font: font_id.clone(), size: Pt(18.0) },
         Op::WriteText { text: "dolor sit amet".to_string(), font: font_id.clone() },
 
         Op::EndTextSection,

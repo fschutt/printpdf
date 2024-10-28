@@ -172,15 +172,15 @@ impl PartialEq for Point {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Line {
-    /// 2D Points for the line
-    pub points: Vec<(Point, bool)>,
+    /// 2D Points for the line. The `bool` indicates whether the next point is a bezier control point.
+    pub points: Vec<(Point, bool)> ,
     /// Whether the line should automatically be closed
     pub is_closed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Polygon {
-    /// 2D Points for the line
+    /// 2D Points for the line. The `bool` indicates whether the next point is a bezier control point.
     pub rings: Vec<Vec<(Point, bool)>>,
     /// What type of polygon is this?
     pub mode: PaintMode,

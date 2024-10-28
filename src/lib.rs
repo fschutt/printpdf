@@ -2,9 +2,6 @@
 
 use std::collections::BTreeMap;
 
-/// Default ICC profile, necessary if `PdfMetadata::must_have_icc_profile()` return true
-pub const ICC_PROFILE_ECI_V2: &[u8] = include_bytes!("../assets/CoatedFOGRA39.icc");
-
 /// Link / bookmark annotation handling
 pub mod annotation;
 pub use annotation::*;
@@ -17,6 +14,7 @@ pub use matrix::*;
 /// Units (Pt, Mm, Px, etc.)
 pub mod units;
 use pdf_writer::writers::ExtGraphicsState;
+use serialize::SaveOptions;
 pub use units::*;
 /// Date handling (stubs for platforms that don't support access to time clocks, such as wasm32-unknown)
 pub mod date;
@@ -189,7 +187,7 @@ impl PdfDocument {
 
     /// Serializes the PDF document to bytes
     pub fn save_to_bytes(&self) -> Vec<u8> {
-        self::serialize::serialize_pdf_into_bytes(self)
+        self::serialize::serialize_pdf_into_bytes(self, &SaveOptions::default())
     }
 }
 
@@ -197,8 +195,6 @@ impl PdfDocument {
 pub struct PdfResources {
     /// Fonts found in the PDF file, indexed by the sha256 of their contents
     pub fonts: PdfFontMap,
-    /// ICC profiles in this document, indexed by the sha256 of their contents
-    pub icc: IccProfileMap,
     /// XObjects (forms, images, embedded PDF contents, etc.)
     pub xobjects: XObjectMap,
     /// Annotations for links between rects on pages
@@ -217,11 +213,6 @@ pub struct PdfLayerMap {
 #[derive(Debug, PartialEq, Default, Clone)]
 pub struct PdfFontMap {
     pub map: BTreeMap<FontId, ParsedFont>,  
-}
-
-#[derive(Debug, PartialEq, Default, Clone)]
-pub struct IccProfileMap {
-    pub map: BTreeMap<IccProfileId, ParsedIccProfile>,  
 }
 
 #[derive(Debug, PartialEq, Default, Clone)]
@@ -262,7 +253,7 @@ pub struct PdfMetadata {
 impl PdfMetadata {
     /// Consumes the XmpMetadata and turns it into a PDF Object.
     /// This is similar to the
-    pub(crate) fn xmp_metadata_string(self) -> String {
+    pub(crate) fn xmp_metadata_string(&self) -> String {
 
         // Shared between XmpMetadata and DocumentInfo
         let trapping = if self.info.trapped { "True" } else { "False" };

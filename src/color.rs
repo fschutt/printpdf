@@ -183,3 +183,51 @@ impl SpotColor {
         Self { c, m, y, k }
     }
 }
+
+/// Type of the icc profile
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum IccProfileType {
+    Cmyk,
+    Rgb,
+    Greyscale,
+}
+
+/// Icc profile
+#[derive(Debug, Clone, PartialEq)]
+pub struct IccProfile {
+    /// Binary Icc profile
+    pub icc: Vec<u8>,
+    /// CMYK or RGB or LAB icc profile?
+    pub icc_type: IccProfileType,
+    /// Does the ICC profile have an "Alternate" version or not?
+    pub has_alternate: bool,
+    /// Does the ICC profile have an "Range" dictionary
+    /// Really not sure why this is needed, but this is needed on the documents Info dictionary
+    pub has_range: bool,
+}
+
+impl IccProfile {
+    /// Creates a new Icc Profile
+    pub fn new(icc: Vec<u8>, icc_type: IccProfileType) -> Self {
+        Self {
+            icc,
+            icc_type,
+            has_alternate: true,
+            has_range: false,
+        }
+    }
+
+    /// Does the ICC profile have an alternate version (such as "DeviceCMYk")?
+    #[inline]
+    pub fn with_alternate_profile(mut self, has_alternate: bool) -> Self {
+        self.has_alternate = has_alternate;
+        self
+    }
+
+    /// Does the ICC profile have an "Range" dictionary?
+    #[inline]
+    pub fn with_range(mut self, has_range: bool) -> Self {
+        self.has_range = has_range;
+        self
+    }
+}
