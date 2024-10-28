@@ -21,11 +21,10 @@ lopdf = { version = "0.33.0", default-features = false, features = ["pom_parser"
 owned_ttf_parser = { version = "0.24.0", default-features = false, features = ["std"] }
 time = { version = "0.3.25", default-features = false, features = ["std"] }
 allsorts = { version = "0.15", default-features = false, features = ["flate2_rust"] }
-pdf-writer = { version = "0.10" }
+pdf-writer = { version = "0.9" }
 # optional deps
 image = { version = "0.25", optional = true, default-features = false, features = ["gif", "jpeg", "png", "pnm", "tiff", "bmp"] }
-svg2pdf = { version = "0.11", optional = true }
-usvg = { version = "0.42", optional = true }
+svg2pdf = { version = "0.10" }
 ttf-parser = "0.25.0"
 
 [features]
@@ -38,7 +37,7 @@ hdr = ["image/hdr", "images"] # enables extra image format .HDR
 dds = ["image/dds", "images"] # enables extra image format .DDS
 webp = ["image/webp", "images"] # enables extra image format .WEBP
 rayon = ["image/rayon", "images"]  # enables multithreading for decoding images
-svg = ["svg2pdf", "usvg"] # enables SVG embedding
+# svg = ["svg2pdf", "usvg"] # enables SVG embedding
 js-sys = ["dep:js-sys"] # enables js-sys features on wasm
 rendering = [] # enables experimental rendering module (renders PDF pages to image::DynamicImage)
 

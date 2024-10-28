@@ -1,4 +1,4 @@
-use crate::{color::{ColorBits, ColorSpace}, matrix::CurTransMat, units::Px, OffsetDateTime};
+use crate::{color::{ColorBits, ColorSpace}, units::Pt, matrix::CurTransMat, units::Px, OffsetDateTime};
 
 /* Parent: Resources dictionary of the page */
 /// External object that gets reference outside the PDF content stream
@@ -26,9 +26,19 @@ pub enum XObject {
     /// the /Resources dictionary of the page. The `XObjectRef` returned
     /// by `add_xobject()` is the unique name that can be used to invoke
     /// the `/Do` operator (by the `use_xobject`)
-    External(lopdf::Stream),
+    External(ExternalXObject),
 }
 
+/// External XObject, invoked by `/Do` graphics operator
+#[derive(Debug, PartialEq, Clone)]
+pub struct ExternalXObject {
+    /// External stream of graphics operations
+    pub stream: lopdf::Stream,
+    /// Optional width
+    pub width: Option<Px>,
+    /// Optional height
+    pub height: Option<Px>,
+}
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ImageXObject {
@@ -210,3 +220,24 @@ pub struct PostScriptXObject {
     level1: Option<Vec<u8>>,
 }
 
+/// Transform that is applied immediately before the
+/// image gets painted. Does not affect anything other
+/// than the image.
+#[derive(Debug, Copy, Clone, PartialEq, Default)]
+pub struct XObjectTransform {
+    pub translate_x: Option<Pt>,
+    pub translate_y: Option<Pt>,
+    /// Rotate (clockwise), in degree angles
+    pub rotate: Option<XObjectRotation>,
+    pub scale_x: Option<f32>,
+    pub scale_y: Option<f32>,
+    /// If set to None, will be set to 300.0 for images
+    pub dpi: Option<f32>,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Default)]
+pub struct XObjectRotation {
+    pub angle_ccw_degrees: f32,
+    pub rotation_center_x: Pt,
+    pub rotation_center_y: Pt,
+}

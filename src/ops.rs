@@ -1,4 +1,4 @@
-use crate::{color::Color, graphics::{Line, Point, Polygon, Rect}, matrix::{CurTransMat, TextMatrix}, units::{Mm, Pt}, ExtendedGraphicsStateId, FontId, LayerInternalId, LinkAnnotId, PageAnnotId, XObjectId};
+use crate::{color::Color, graphics::{Line, Point, Polygon, Rect, LineDashPattern, LineJoinStyle, TextRenderingMode, LineCapStyle}, matrix::{CurTransMat, TextMatrix}, units::{Mm, Pt}, ExtendedGraphicsStateId, FontId, LayerInternalId, LinkAnnotId, PageAnnotId, XObjectId, XObjectTransform};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct PdfPage {
@@ -46,16 +46,26 @@ pub enum Op {
 
     SaveGraphicsState,
     RestoreGraphicsState,
-    UseGraphicsState { id: ExtendedGraphicsStateId },
+    LoadGraphicsState { gs: ExtendedGraphicsStateId },
 
-    BeginTextSection,
+    StartTextSection,
     EndTextSection,
-
     WriteText { text: String, font: FontId },
-    SetFont { font: FontId },
+    AddLineBreak,
+    SetLineHeight { lh: Pt },
+    SetWordSpacing { percent: f32 },
+
+    SetFont { font: FontId, size: Pt },
     SetTextCursor { pos: Point },
     SetFillColor { col: Color },
     SetOutlineColor { col: Color },
+    SetOutlineThickness { pt: Pt },
+    SetLineDashPattern { dash: LineDashPattern },
+    SetLineJoinStyle { join: LineJoinStyle },
+    SetLineCapStyle { cap: LineCapStyle },
+    SetTextRenderingMode { mode: TextRenderingMode },
+    SetCharacterSpacing { multiplier: f32 },
+    SetLineOffset { multiplier: f32 },
 
     DrawLine { line: Line },
     DrawPolygon { polygon: Polygon },
@@ -63,7 +73,7 @@ pub enum Op {
     SetTextMatrix { matrix: TextMatrix },
 
     LinkAnnotation { link_ref: LinkAnnotId },
-    InstantiateXObject { xobj_id: XObjectId, transformations: Vec<CurTransMat> },
+    UseXObject { id: XObjectId, transform: XObjectTransform },
     Unknown { key: String, value: lopdf::content::Operation },
 }
 
@@ -72,19 +82,26 @@ impl PartialEq for Op {
         match (self, other) {
             (Self::BeginLayer { layer_id: l_layer_id }, Self::BeginLayer { layer_id: r_layer_id }) => l_layer_id == r_layer_id,
             (Self::EndLayer { layer_id: l_layer_id }, Self::EndLayer { layer_id: r_layer_id }) => l_layer_id == r_layer_id,
-            (Self::UseGraphicsState { id: l_id }, Self::UseGraphicsState { id: r_id }) => l_id == r_id,
+            (Self::LoadGraphicsState { gs: l_id }, Self::LoadGraphicsState { gs: r_id }) => l_id == r_id,
             (Self::WriteText { text: l_text, font: l_font }, Self::WriteText { text: r_text, font: r_font }) => l_text == r_text && l_font == r_font,
-            (Self::SetFont { font: l_font }, Self::SetFont { font: r_font }) => l_font == r_font,
+            (Self::SetFont { font: l_font, size: l_size }, Self::SetFont { font: r_font, size: r_size }) => l_font == r_font && l_size == r_size,
             (Self::SetTextCursor { pos: l_pos }, Self::SetTextCursor { pos: r_pos }) => l_pos == r_pos,
             (Self::SetFillColor { col: l_col }, Self::SetFillColor { col: r_col }) => l_col == r_col,
             (Self::SetOutlineColor { col: l_col }, Self::SetOutlineColor { col: r_col }) => l_col == r_col,
+            (Self::SetOutlineThickness { pt: l_pt }, Self::SetOutlineThickness { pt: r_pt }) => l_pt == r_pt,
+            (Self::SetLineDashPattern { dash: l_pattern }, Self::SetLineDashPattern { dash: r_pattern }) => l_pattern == r_pattern,
+            (Self::SetLineJoinStyle { join: l_join }, Self::SetLineJoinStyle { join: r_join }) => l_join == r_join,
+            (Self::SetLineCapStyle { cap: l_cap }, Self::SetLineCapStyle { cap: r_cap }) => l_cap == r_cap,
+            (Self::SetTextRenderingMode { mode: l_mode }, Self::SetTextRenderingMode { mode: r_mode }) => l_mode == r_mode,
+            (Self::SetCharacterSpacing { multiplier: l_multiplier }, Self::SetCharacterSpacing { multiplier: r_multiplier }) => l_multiplier == r_multiplier,
+            (Self::SetLineOffset { multiplier: l_multiplier }, Self::SetLineOffset { multiplier: r_multiplier }) => l_multiplier == r_multiplier,
             (Self::DrawLine { line: l_line }, Self::DrawLine { line: r_line }) => l_line == r_line,
             (Self::DrawPolygon { polygon: l_polygon }, Self::DrawPolygon { polygon: r_polygon }) => l_polygon == r_polygon,
             (Self::SetTransformationMatrix { matrix: l_matrix }, Self::SetTransformationMatrix { matrix: r_matrix }) => l_matrix == r_matrix,
             (Self::SetTextMatrix { matrix: l_matrix }, Self::SetTextMatrix { matrix: r_matrix }) => l_matrix == r_matrix,
             (Self::LinkAnnotation { link_ref: l_link_ref }, Self::LinkAnnotation { link_ref: r_link_ref }) => l_link_ref == r_link_ref,
-            (Self::InstantiateXObject { xobj_id: l_xobj_id, transformations: l_transformations }, Self::InstantiateXObject { xobj_id: r_xobj_id, transformations: r_transformations }) => l_xobj_id == r_xobj_id && l_transformations == r_transformations,
-            (Self::Unknown { key: l_key, value: l_value }, Self::Unknown { key: r_key, value: r_value }) => l_key == r_key && l_value.operator == r_value.operator && l_value.operands == l_value.operands,
+            (Self::UseXObject { id: l_xobj_id, transform: l_transform }, Self::UseXObject { id: r_xobj_id, transform: r_transform }) => l_xobj_id == r_xobj_id && l_transform == r_transform,
+            (Self::Unknown { key: l_key, value: _ }, Self::Unknown { key: r_key, value: r_value }) => l_key == r_key,
             _ => core::mem::discriminant(self) == core::mem::discriminant(other),
         }
     }

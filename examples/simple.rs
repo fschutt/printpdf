@@ -1,5 +1,4 @@
-use pdf_writer::{types::TextRenderingMode, writers::ExtGraphicsState};
-use printpdf::{graphics::{Line, Point}, units::Mm, PdfDocument};
+use printpdf::*;
 
 static ROBOTO_TTF: &[u8] = include_bytes!("../assets/fonts/RobotoMedium.ttf");
 static SVG: &str = include_str!("../assets/svg/tiger.svg");
@@ -21,7 +20,7 @@ fn main() {
     let outline_color = Color::Rgb(Rgb::new(0.75, 1.0, 0.64, None));
 
     let mut ops = vec![
-        Op::SetOutlineColor { color: outline_color },
+        Op::SetOutlineColor { col: outline_color },
         Op::SetOutlineThickness { pt: Pt(10.0) },
         Op::DrawLine { line: line1 },
     ];
@@ -44,30 +43,33 @@ fn main() {
         ..Default::default()
     };
 
+    let extgstate = ExtendedGraphicsStateBuilder::new()
+    .with_overprint_stroke(true)
+    .with_blend_mode(BlendMode::multiply())
+    .build();
+
     ops.extend_from_slice(&[
         Op::SaveGraphicsState,
-        Op::LoadGraphicsState { gs: doc.add_graphics_state(
-            ExtGraphicsState::new_overprint_stroke(true) + 
-            ExtGraphicsState::new_blend_mode(BlendMode::Multiply)
-        ) },
+        Op::LoadGraphicsState { gs: doc.add_graphics_state(extgstate) },
         Op::SetLineDashPattern { dash: dash_pattern },
         Op::SetLineJoinStyle { join: LineJoinStyle::Round },
-        Op::SetLineCapStyle { join: LineCapStyle::Round },
-        Op::SetFillColor { color: fill_color_2 },
+        Op::SetLineCapStyle { cap: LineCapStyle::Round },
+        Op::SetFillColor { col: fill_color_2 },
         Op::SetOutlineThickness { pt: Pt(15.0) },
+        Op::SetOutlineColor { col: outline_color_2 },
+        Op::DrawPolygon { polygon: line2 },
         Op::RestoreGraphicsState,
     ]);
 
     // font loading
-    let font_id = doc.add_external_font(ROBOTO_TTF).unwrap();
+    let font = ParsedFont::from_bytes(ROBOTO_TTF, 0).unwrap();
+    let font_id = doc.add_font(&font);
     
-    current_layer.begin_text_section();
-
     ops.extend_from_slice(&[
         Op::StartTextSection,
 
         Op::SetFont { font: font_id.clone(), size: Pt(33.0) },
-        Op::SetTextCursor { point: Point { x: Mm(10.0).into(), y: Mm(100.0).into() } }, // from bottom left
+        Op::SetTextCursor { pos: Point { x: Mm(10.0).into(), y: Mm(100.0).into() } }, // from bottom left
         Op::SetLineHeight { lh: Pt(33.0) },
         Op::SetWordSpacing { percent: 3000.0 },
         Op::SetCharacterSpacing { multiplier: 10.0 },
@@ -91,21 +93,26 @@ fn main() {
     ]);
 
     let svg = Svg::parse(SVG).unwrap();
+    let rotation_center_x = Px((svg.width.unwrap_or_default().0 as f32 / 2.0) as usize);
+    let rotation_center_y = Px((svg.height.unwrap_or_default().0 as f32 / 2.0) as usize);
     let xobject_id = doc.add_xobject(&svg);
-    let transform = SvgTransform {
-        rotate: Some(SvgRotation {
-            angle_ccw_degrees: i as f32 * 36.0,
-            rotation_center_x: rotation_center_x.into_pt(300.0),
-            rotation_center_y: rotation_center_y.into_pt(300.0),
-        }),
-        translate_x: Some(Mm(i as f32 * 20.0 % 50.0).into()),
-        translate_y: Some(Mm(i as f32 * 30.0).into()),
-        ..Default::default()
-    };
-
-    ops.extend_from_slice(&[
-        Op::InstantiateXObject { xobject_id: xobject_id, transform: transform }
-    ]);
+    
+    for i in 0..10 {
+        let transform = XObjectTransform {
+            rotate: Some(XObjectRotation {
+                angle_ccw_degrees: i as f32 * 36.0,
+                rotation_center_x: rotation_center_x.into_pt(300.0),
+                rotation_center_y: rotation_center_y.into_pt(300.0),
+            }),
+            translate_x: Some(Mm(i as f32 * 20.0 % 50.0).into()),
+            translate_y: Some(Mm(i as f32 * 30.0).into()),
+            ..Default::default()
+        };
+    
+        ops.extend_from_slice(&[
+            Op::UseXObject { id: xobject_id.clone(), transform: transform }
+        ]);
+    }
 
     let _bookmark_id = doc.add_bookmark("Chapter 1", /* page */ 0);
 
@@ -113,7 +120,7 @@ fn main() {
     let pages = vec![
         PdfPage::new(Mm(210.0), Mm(297.0), ops)
     ];
-    
-    let bytes = doc.save_to_bytes().unwrap();
-    std::fs::write("./simple.pdf", bytes);
+
+    let bytes = doc.with_pages(pages).save_to_bytes();
+    std::fs::write("./simple.pdf", bytes).unwrap();
 }

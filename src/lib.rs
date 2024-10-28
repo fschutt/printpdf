@@ -2,69 +2,108 @@
 
 use std::collections::BTreeMap;
 
-use annotation::{LinkAnnotation, PageAnnotation};
-use conformance::PdfConformance;
-use font::ParsedFont;
-use ops::PdfPage;
-use time::OffsetDateTime;
-use utils::{random_character_string_32, to_pdf_xmp_date};
-use xobject::XObject;
-
 /// Default ICC profile, necessary if `PdfMetadata::must_have_icc_profile()` return true
 pub const ICC_PROFILE_ECI_V2: &[u8] = include_bytes!("../assets/CoatedFOGRA39.icc");
 
 /// Link / bookmark annotation handling
 pub mod annotation;
+pub use annotation::*;
 /// PDF standard handling
 pub mod conformance;
+pub use conformance::*;
 /// Transformation and text matrices
 pub mod matrix;
+pub use matrix::*;
 /// Units (Pt, Mm, Px, etc.)
 pub mod units;
+use pdf_writer::writers::ExtGraphicsState;
+pub use units::*;
 /// Date handling (stubs for platforms that don't support access to time clocks, such as wasm32-unknown)
 pub mod date;
+pub use date::*;
 /// Font and codepoint handling
 pub mod font;
+pub use font::*;
 /// Point / line / polygon handling
 pub mod graphics;
+pub use graphics::*;
 /// Page operations
 pub mod ops;
+pub use ops::*;
 /// Color handling
 pub mod color;
+pub use color::*;
 /// XObject handling
 pub mod xobject;
+pub use xobject::*;
+/// SVG handling
+pub mod svg;
+pub use svg::*;
 /// Constants and library includes
 pub(crate) mod constants;
 /// Utility functions (random strings, numbers, timestamp formatting)
 pub(crate) mod utils;
+use utils::*;
+/// Writing PDF
+pub(crate) mod serialize;
+/// Parsing PDF
+pub(crate) mod deserialize;
 
 /// Internal ID for page annotations
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord)]
 pub struct PageAnnotId(pub String);
 
+impl PageAnnotId {
+    pub fn new() -> Self { Self(crate::utils::random_character_string_32()) }
+}
+
 /// Internal ID for link annotations
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord)]
 pub struct LinkAnnotId(pub String);
 
+impl LinkAnnotId {
+    pub fn new() -> Self { Self(crate::utils::random_character_string_32()) }
+}
+
 /// Internal ID for XObjects
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord)]
 pub struct XObjectId(pub String);
 
+impl XObjectId {
+    pub fn new() -> Self { Self(crate::utils::random_character_string_32()) }
+}
+
 /// Internal ID for Fonts
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord)]
 pub struct FontId(pub String);
 
+impl FontId {
+    pub fn new() -> Self { Self(crate::utils::random_character_string_32()) }
+}
+
 /// Internal ID for Layers
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord)]
 pub struct LayerInternalId(pub String);
 
+impl LayerInternalId {
+    pub fn new() -> Self { Self(crate::utils::random_character_string_32()) }
+}
+
 /// Internal ID for extended graphic states
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord)]
 pub struct ExtendedGraphicsStateId(pub String);
 
+impl ExtendedGraphicsStateId {
+    pub fn new() -> Self { Self(crate::utils::random_character_string_32()) }
+}
+
 /// Internal ID for ICC profiles
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord)]
 pub struct IccProfileId(pub String);
+
+impl IccProfileId {
+    pub fn new() -> Self { Self(crate::utils::random_character_string_32()) }
+}
 
 /// Parsed PDF document
 #[derive(Debug, PartialEq, Clone)]
@@ -93,6 +132,65 @@ impl PdfDocument {
             pages: Vec::new(),
         }
     }
+
+    pub fn add_graphics_state(&mut self, gs: ExtendedGraphicsState) -> ExtendedGraphicsStateId {
+        let id = ExtendedGraphicsStateId::new();
+        self.resources.extgstates.map.insert(id.clone(), gs);
+        id
+    }
+
+    pub fn add_layer(&mut self, name: &str, creator: &str, intent: LayerIntent, usage: LayerSubtype) -> LayerInternalId {
+        let id = LayerInternalId::new();
+        self.resources.layers.map.insert(id.clone(), Layer {
+            name: name.to_string(),
+            creator: creator.to_string(),
+            intent,
+            usage,
+        });
+        id
+    }
+
+    pub fn add_font(&mut self, font: &ParsedFont) -> FontId {
+        let id = FontId::new();
+        self.resources.fonts.map.insert(id.clone(), font.clone());
+        id
+    }
+
+    /// Adds an external XObject stream (usually SVG or other stream) to the PDF resources
+    /// so that it can be later be invoked with `UseXObject { id }`
+    pub fn add_xobject(&mut self, parsed_svg: &ExternalXObject) -> XObjectId {
+        let id = XObjectId::new();
+        self.resources.xobjects.map.insert(id.clone(), XObject::External(parsed_svg.clone()));
+        id
+    }
+
+    // Adds a link (hyperlink or self-referential link) to the document resources, returning the links internal ID
+    pub fn add_link(&mut self, link: LinkAnnotation) -> LinkAnnotId {
+        let id = LinkAnnotId::new();
+        self.resources.links.map.insert(id.clone(), link);
+        id
+    }
+
+    /// Adds a new page-level bookmark on page `$page`, returning the bookmarks internal ID
+    pub fn add_bookmark(&mut self, name: &str, page: usize) -> PageAnnotId {
+        let id = PageAnnotId::new();
+        self.bookmarks.map.insert(id.clone(), PageAnnotation {
+            name: name.to_string(),
+            page,
+        });
+        id
+    }
+
+    /// Replaces `document.pages` with the new pages
+    pub fn with_pages(&mut self, pages: Vec<PdfPage>) -> &mut Self {
+        self.pages = pages;
+        self
+    }
+
+    /// Serializes the PDF document to bytes
+    pub fn save_to_bytes(&self) -> Vec<u8> {
+        self::serialize::serialize_pdf_into_bytes(self)
+    }
 }
 
 #[derive(Debug, Default, PartialEq, Clone)]
@@ -105,6 +203,15 @@ pub struct PdfResources {
     pub xobjects: XObjectMap,
     /// Annotations for links between rects on pages
     pub links: LinkAnnotMap,
+    /// Map of explicit extended graphics states
+    pub extgstates: ExtendedGraphicsStateMap,
+    /// Map of optional content groups
+    pub layers: PdfLayerMap,
+}
+
+#[derive(Debug, PartialEq, Default, Clone)]
+pub struct PdfLayerMap {
+    pub map: BTreeMap<LayerInternalId, Layer>,  
 }
 
 #[derive(Debug, PartialEq, Default, Clone)]
@@ -137,6 +244,10 @@ pub struct LinkAnnotMap {
     pub map: BTreeMap<LinkAnnotId, LinkAnnotation>,  
 }
 
+#[derive(Debug, PartialEq, Default, Clone)]
+pub struct ExtendedGraphicsStateMap {
+    pub map: BTreeMap<ExtendedGraphicsStateId, ExtendedGraphicsState>,  
+}
 
 /// This is a wrapper in order to keep shared data between the documents XMP metadata and
 /// the "Info" dictionary in sync

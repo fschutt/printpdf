@@ -212,7 +212,7 @@ impl OwnedGlyph {
 
 impl ParsedFont {
 
-    pub fn from_bytes(font_bytes: &[u8], font_index: usize, parse_glyph_outlines: bool) -> Option<Self> {
+    pub fn from_bytes(font_bytes: &[u8], font_index: usize) -> Option<Self> {
 
         use allsorts::tag;
 
