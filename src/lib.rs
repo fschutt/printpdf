@@ -13,8 +13,6 @@ pub mod matrix;
 pub use matrix::*;
 /// Units (Pt, Mm, Px, etc.)
 pub mod units;
-use pdf_writer::writers::ExtGraphicsState;
-use serialize::SaveOptions;
 pub use units::*;
 /// Date handling (stubs for platforms that don't support access to time clocks, such as wasm32-unknown)
 pub mod date;
@@ -187,7 +185,7 @@ impl PdfDocument {
 
     /// Serializes the PDF document to bytes
     pub fn save_to_bytes(&self) -> Vec<u8> {
-        self::serialize::serialize_pdf_into_bytes(self, &SaveOptions::default())
+        self::serialize::serialize_pdf_into_bytes(self, &serialize::SaveOptions::default())
     }
 }
 
@@ -274,7 +272,7 @@ impl PdfMetadata {
         };
 
         format!(
-            include_str!("../assets/catalog_xmp_metadata.txt"),
+            include_str!("./catalog_xmp_metadata.txt"),
             create = create_date,
             modify = modification_date,
             mdate = metadata_date,

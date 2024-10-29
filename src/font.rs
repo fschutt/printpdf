@@ -1,3 +1,6 @@
+
+use lopdf::Object::{Integer, Array};
+
 /// Builtin or external font
 #[derive(Debug, Clone, PartialEq)]
 pub enum Font {
@@ -8,7 +11,7 @@ pub enum Font {
 }
 
 /// Standard built-in PDF fonts
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BuiltinFont {
     TimesRoman,
     TimesBold,
@@ -27,9 +30,29 @@ pub enum BuiltinFont {
 }
 
 impl BuiltinFont {
-    pub fn get_id(val: BuiltinFont) -> &'static str {
+    pub fn get_pdf_id(&self) -> &'static str {
         use self::BuiltinFont::*;
-        match val {
+        match self {
+            TimesRoman => "F1",
+            TimesBold => "F2",
+            TimesItalic => "F3",
+            TimesBoldItalic => "F4",
+            Helvetica => "F5",
+            HelveticaBold => "F6",
+            HelveticaOblique => "F7",
+            HelveticaBoldOblique => "F8",
+            Courier => "F9",
+            CourierOblique => "F10",
+            CourierBold => "F11",
+            CourierBoldOblique => "F12",
+            Symbol => "F13",
+            ZapfDingbats => "F14",
+        }
+    }
+
+    pub fn get_id(&self) -> &'static str {
+        use self::BuiltinFont::*;
+        match self {
             TimesRoman => "Times-Roman",
             TimesBold => "Times-Bold",
             TimesItalic => "Times-Italic",
@@ -51,22 +74,20 @@ impl BuiltinFont {
 
 use time::error::Parse;
 use core::fmt;
-use std::collections::btree_map::BTreeMap;
+use std::collections::{btree_map::BTreeMap, BTreeSet};
 use std::rc::Rc;
 use std::vec::Vec;
 use std::boxed::Box;
 use allsorts::{
     binary::read::ReadScope,
     font_data::FontData,
-    layout::{LayoutCache, GDEFTable, GPOS, GSUB},
+    layout::{GDEFTable, LayoutCache, GPOS, GSUB},
     tables::{
-        FontTableProvider, HheaTable, MaxpTable, HeadTable,
-        loca::LocaTable,
-        cmap::CmapSubtable,
-        glyf::{GlyfTable, Glyph, GlyfRecord},
+        cmap::{owned::CmapSubtable as OwnedCmapSubtable, CmapSubtable}, glyf::{GlyfRecord, GlyfTable, Glyph}, loca::LocaTable, FontTableProvider, HeadTable, HheaTable, MaxpTable
     },
-    tables::cmap::owned::CmapSubtable as OwnedCmapSubtable,
 };
+
+use crate::{FontId, Op, PdfPage};
 
 #[derive(Clone)]
 pub struct ParsedFont {
@@ -81,6 +102,8 @@ pub struct ParsedFont {
     pub glyph_records_decoded: BTreeMap<u16, OwnedGlyph>,
     pub space_width: Option<usize>,
     pub cmap_subtable: OwnedCmapSubtable,
+    pub original_bytes: Vec<u8>,
+    pub original_index: usize,
 }
 
 impl PartialEq for ParsedFont {
@@ -91,7 +114,8 @@ impl PartialEq for ParsedFont {
         self.hmtx_data == other.hmtx_data && 
         self.maxp_table == other.maxp_table && 
         self.space_width == other.space_width && 
-        self.cmap_subtable == other.cmap_subtable
+        self.cmap_subtable == other.cmap_subtable &&
+        self.original_bytes.len() == other.original_bytes.len()
     }
 }
 
@@ -107,6 +131,181 @@ impl fmt::Debug for ParsedFont {
         .field("space_width", &self.space_width)
         .field("cmap_subtable", &self.cmap_subtable)
         .finish()
+    }
+}
+
+impl ParsedFont {
+
+    /// Returns the glyph IDs used in the PDF file
+    pub(crate) fn get_used_glyph_ids(&self, font_id: &FontId, pages: &[PdfPage]) -> BTreeMap<u16, char> {
+
+        const DEFAULT_ALPHABET: &[&str;5] = &[
+            r#"a b c d e f g h i j k l m n o p q r s t u v w x y z A B C D E F G H I J K L M N"#,
+            r#"O P Q R S T U V W X Y Z 0 1 2 3 4 5 6 7 8 9 ¹ ² ³ ª º % $ € ¥ £ ¢ & * @ # | á â"#,
+            r#"à ä å ã æ ç é ê è ë í î ì ï ı ñ ó ô ò ö õ ø œ š ß ú û ù ü ý ÿ ž Â À Ä Å Ã Æ Ç É"#,
+            r#"Ê È Ë Í Î Ì Ï Ñ Ó Ô Ò Ö Õ Ø Œ Š Û Ù Ü Ý Ÿ , : ; - – — • . … “ ‘ ’ ‘ ‚ “ ” „ ‹ ›"#,
+            r#"« » / \ ? ! ¿ ¡ ( )[ ]{ } © ® § + × = _ °"#,
+        ];
+
+        enum CharsOrCodepoint {
+            Chars(String),
+            Cp(Vec<(u16, char)>),
+        }
+
+        let chars_or_codepoints = pages.iter().flat_map(|p| {
+            p.ops.iter().filter_map(|s| match s {
+                Op::WriteText { font, text} => 
+                    if font_id == font { Some(CharsOrCodepoint::Chars(text.clone())) } else { None },
+                Op::WriteCodepoints { font, cp} => 
+                    if font_id == font { Some(CharsOrCodepoint::Cp(cp.clone())) } else { None },
+                Op::WriteCodepointsWithKerning { font, cpk} => 
+                    if font_id == font { Some(CharsOrCodepoint::Cp(cpk.iter().map(|s| (s.1, s.2)).collect())) } else { None },
+                _ => None,
+            })
+        }).collect::<Vec<_>>();
+
+        if chars_or_codepoints.is_empty() {
+            return BTreeMap::new(); // font added, but never used
+        }
+
+        let mut chars_to_resolve = chars_or_codepoints.iter().flat_map(|s| match s {
+            CharsOrCodepoint::Chars(c) => c.chars().collect(),
+            _ => Vec::new(),
+        }).collect::<BTreeSet<_>>();
+
+        chars_to_resolve.extend(DEFAULT_ALPHABET.iter().flat_map(|line| {
+            line.chars().skip_while(|c| char::is_whitespace(*c))
+        }));
+
+        let mut map = chars_to_resolve.iter()
+        .filter_map(|c| self.lookup_glyph_index(*c as u32).map(|f| (f, *c)))
+        .collect::<BTreeMap<_, _>>();
+
+        map.extend(chars_or_codepoints.iter().flat_map(|s| match s {
+            CharsOrCodepoint::Cp(c) => c.clone(),
+            _ => Vec::new(),
+        }));
+
+        if let Some(sp) = self.lookup_glyph_index(' ' as u32) { 
+            map.insert(sp, ' ');
+        }
+
+        map
+    }
+
+    /// Generates a new font file from the used glyph IDs
+    pub(crate) fn subset(&self, glyph_ids: &BTreeMap<u16, char>) -> Result<Vec<u8>, String> {
+
+        let scope = ReadScope::new(&self.original_bytes);
+        
+        let font_file = scope.read::<FontData<'_>>()
+        .map_err(|e| e.to_string())?;
+        
+        let provider = font_file.table_provider(self.original_index)
+        .map_err(|e| e.to_string())?;
+
+        allsorts::subset::subset(
+            &provider, 
+            &glyph_ids.keys().copied().collect::<Vec<_>>()
+        ).map_err(|e| e.to_string())
+    }
+
+    pub(crate) fn generate_cid_to_unicode_map(&self, font_id: &FontId, glyph_ids: &BTreeMap<u16, char>) -> String {
+
+        // current first bit of the glyph id (0x10 or 0x12) for example
+        let mut cur_first_bit: u16 = 0_u16;
+        let mut all_cmap_blocks = Vec::new();
+        let mut current_cmap_block = Vec::new();
+
+        for (glyph_id, unicode) in glyph_ids.iter() {
+
+            // end the current (beginbfchar endbfchar) block if necessary
+            if (*glyph_id >> 8) as u16 != cur_first_bit || current_cmap_block.len() >= 100 {
+                all_cmap_blocks.push(current_cmap_block.clone());
+                current_cmap_block = Vec::new();
+                cur_first_bit = (*glyph_id >> 8) as u16;
+            }
+
+            current_cmap_block.push((*glyph_id, *unicode as u32));
+        }
+
+        all_cmap_blocks.push(current_cmap_block);
+
+        generate_cid_to_unicode_map(font_id.0.clone(), all_cmap_blocks)
+    }
+
+    pub(crate) fn get_normalized_widths(&self, glyph_ids: &BTreeMap<u16, char>) -> Vec<lopdf::Object> {
+
+        let mut widths_list = Vec::new();
+        let mut current_low_gid = 0;
+        let mut current_high_gid = 0;
+        let mut current_width_vec = Vec::new();
+
+        // scale the font width so that it sort-of fits into an 1000 unit square
+        let percentage_font_scaling = 1000.0 / (self.font_metrics.units_per_em as f32);
+
+        for gid in glyph_ids.keys() {
+            let (width, _) = match self.get_glyph_size(*gid) {
+                Some(s) => s,
+                None => continue,
+            };
+
+            if *gid == current_high_gid { // subsequent GID
+                current_width_vec
+                    .push(Integer((width as f32 * percentage_font_scaling) as i64));
+                current_high_gid += 1;
+            } else { // non-subsequent GID
+                widths_list.push(Integer(current_low_gid as i64));
+                widths_list.push(Array(current_width_vec.drain(..).collect()));
+
+                current_width_vec
+                    .push(Integer((width as f32 * percentage_font_scaling) as i64));
+                current_low_gid = *gid;
+                current_high_gid = gid + 1;
+            }
+        }
+
+        // push the last widths, because the loop is delayed by one iteration
+        widths_list.push(Integer(current_low_gid as i64));
+        widths_list.push(Array(current_width_vec.drain(..).collect()));
+        
+        widths_list
+        /*
+        let mut cmap = glyph_ids.iter()
+        .filter_map(|(glyph_id, c)| {
+            let (glyph_width, glyph_height) = self.get_glyph_size(*glyph_id)?;
+            let k = *glyph_id as u32;
+            let v = (*c as u32, glyph_width.abs() as u32, glyph_height.abs() as u32);
+            Some((k, v))
+        }).collect::<BTreeMap<_, _>>();
+        
+        cmap.insert(0, (0, 1000, 1000));
+
+        widths.push((*glyph_id, width));
+        */
+
+    }
+
+    /// Returns the maximum height in UNSCALED units of the used glyph IDs
+    pub(crate) fn get_max_height(&self, glyph_ids: &BTreeMap<u16, char>) -> i64 {
+        let mut max_height = 0;
+        for (glyph_id, _) in glyph_ids.iter() {
+            if let Some((_, glyph_height)) = self.get_glyph_size(*glyph_id) {
+                max_height = max_height.max(glyph_height as i64);
+            }
+        }
+        max_height
+    }
+
+    /// Returns the total width in UNSCALED units of the used glyph IDs
+    pub(crate) fn get_total_width(&self, glyph_ids: &BTreeMap<u16, char>) -> i64 {
+        let mut total_width = 0;
+        for (glyph_id, _) in glyph_ids.iter() {
+            if let Some((glyph_width, _)) = self.get_glyph_size(*glyph_id) {
+                total_width += glyph_width as i64;
+            }
+        }
+        total_width
     }
 }
 
@@ -286,6 +485,8 @@ impl ParsedFont {
             opt_gdef_table,
             cmap_subtable,
             glyph_records_decoded,
+            original_bytes: font_bytes.to_vec(),
+            original_index: font_index,
             space_width: None,
         };
 
@@ -327,14 +528,14 @@ impl ParsedFont {
     }
 }
 
-type GlyphId = u32;
+type GlyphId = u16;
 type UnicodeCodePoint = u32;
 type CmapBlock = Vec<(GlyphId, UnicodeCodePoint)>;
 
 /// Generates a CMAP (character map) from valid cmap blocks
 fn generate_cid_to_unicode_map(face_name: String, all_cmap_blocks: Vec<CmapBlock>) -> String {
     let mut cid_to_unicode_map =
-        format!(include_str!("../assets/gid_to_unicode_beg.txt"), face_name);
+        format!(include_str!("./gid_to_unicode_beg.txt"), face_name);
 
     for cmap_block in all_cmap_blocks
         .into_iter()
@@ -347,7 +548,7 @@ fn generate_cid_to_unicode_map(face_name: String, all_cmap_blocks: Vec<CmapBlock
         cid_to_unicode_map.push_str("endbfchar\r\n");
     }
 
-    cid_to_unicode_map.push_str(include_str!("../assets/gid_to_unicode_end.txt"));
+    cid_to_unicode_map.push_str(include_str!("./gid_to_unicode_end.txt"));
     cid_to_unicode_map
 }
 

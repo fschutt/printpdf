@@ -1,11 +1,19 @@
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
+use crate::BuiltinFont;
+use crate::FontId;
 use crate::IccProfileType;
+use crate::Op;
+use crate::ParsedFont;
 use crate::PdfDocument;
 use crate::PdfDocumentInfo;
 use crate::color::IccProfile;
+use crate::PdfFontMap;
+use crate::PdfPage;
+use crate::PdfResources;
 use lopdf::Dictionary as LoDictionary;
-use lopdf::Object::*;
+use lopdf::Object::{Name, Integer, Null, Dictionary, Array, Real, Stream, Reference, String as LoString};
 use lopdf::StringFormat::{Hexadecimal, Literal};
 use lopdf::Stream as LoStream;
 
@@ -23,7 +31,6 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &SaveOptions) -> Vec<u8
 
     let mut doc = lopdf::Document::with_version("1.3");
     let pages_id = doc.new_object_id();
-
     let mut catalog = LoDictionary::from_iter(vec![
         ("Type", "Catalog".into()),
         ("PageLayout", "OneColumn".into()),
@@ -31,33 +38,37 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &SaveOptions) -> Vec<u8
         ("Pages", Reference(pages_id)),
     ]);
 
+    // (Optional): Add OutputIntents to catalog
     if pdf.metadata.info.conformance.must_have_icc_profile() {
 
         /// Default ICC profile, necessary if `PdfMetadata::must_have_icc_profile()` return true
-        const ICC_PROFILE_ECI_V2: &[u8] = include_bytes!("../assets/CoatedFOGRA39.icc");
+        const ICC_PROFILE_ECI_V2: &[u8] = include_bytes!("./CoatedFOGRA39.icc");
+        const ICC_PROFILE_LICENSE: &str = include_str!("./CoatedFOGRA39.icc.LICENSE.txt");
 
         let icc_profile_descr = "Commercial and special offset print acccording to ISO \
             12647-2:2004 / Amd 1, paper type 1 or 2 (matte or gloss-coated \
             offset paper, 115 g/m2), screen ruling 60/cm";     
         let icc_profile_str = "Coated FOGRA39 (ISO 12647-2:2004)";
-        let icc_profile_short = String("FOGRA39".into(), Literal);
-        let registry = String("http://www.color.org".into(), Literal);
+        let icc_profile_short = LoString("FOGRA39".into(), Literal);
+        let registry = LoString("http://www.color.org".into(), Literal);
         let icc = IccProfile::new(ICC_PROFILE_ECI_V2.to_vec(), IccProfileType::Cmyk)
             .with_alternate_profile(false)
             .with_range(true);
         let icc_profile_id = doc.add_object(Stream(icc_to_stream(&icc)));
         let output_intents = LoDictionary::from_iter(vec![
             ("S", Name("GTS_PDFX".into())),
-            ("OutputCondition", String(icc_profile_descr.into(), Literal)),
+            ("OutputCondition", LoString(icc_profile_descr.into(), Literal)),
+            ("License", LoString(ICC_PROFILE_LICENSE.into(), Literal)),
             ("Type", Name("OutputIntent".into())),
             ("OutputConditionIdentifier", icc_profile_short),
             ("RegistryName", registry),
-            ("Info", String(icc_profile_str.into(), Literal)),
+            ("Info", LoString(icc_profile_str.into(), Literal)),
             ("DestinationOutputProfile", Reference(icc_profile_id)),
         ]);
         catalog.set("OutputIntents", Array(vec![Dictionary(output_intents)]));
     }
 
+    // (Optional): Add XMP Metadata to catalog
     if pdf.metadata.info.conformance.must_have_xmp_metadata() {
         let xmp_obj = Stream(LoStream::new(
             LoDictionary::from_iter(vec![
@@ -70,12 +81,7 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &SaveOptions) -> Vec<u8
         catalog.set("Metadata", Reference(metadata_id));
     }
 
-    // Pre-allocated IDs of the pages
-    let page_ids = pdf.pages.iter()
-        .map(|_| doc.new_object_id())
-        .collect::<Vec<_>>();
-
-    // Add layers
+    // (Optional): Add "OCProperties" (layers) to catalog
     if !pdf.resources.layers.map.is_empty() {
 
         let layer_ids = pdf.resources.layers.map.iter().map(|(id, s)| {
@@ -85,7 +91,7 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &SaveOptions) -> Vec<u8
                 (
                     "CreatorInfo",
                     Dictionary(LoDictionary::from_iter(vec![
-                        ("Creator", String(s.creator.clone().into(), Literal)),
+                        ("Creator", LoString(s.creator.clone().into(), Literal)),
                         ("Subtype", Name(s.usage.to_string().into())),
                     ])),
                 ),
@@ -98,7 +104,7 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &SaveOptions) -> Vec<u8
             let pdf_id = doc.add_object(Dictionary(
                 LoDictionary::from_iter(vec![
                     ("Type", Name("OCG".into())),
-                    ("Name", String(s.name.to_string().into(), Literal)), // TODO: non-ASCII layer names!
+                    ("Name", LoString(s.name.to_string().into(), Literal)), // TODO: non-ASCII layer names!
                     ("Intent", Reference(intent_arr_ref)),
                     ("Usage", Reference(usage_ocg_dict_ref)),
                 ]),
@@ -131,7 +137,46 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &SaveOptions) -> Vec<u8
         );
     }
 
-    // Add bookmarks
+    // Build fonts dictionary
+    let mut global_font_dict = LoDictionary::new();
+    for (font_id, prepared) in prepare_fonts(&pdf.resources, &pdf.pages) {
+        let font_dict = add_font_to_pdf(&mut doc, &font_id, &prepared);
+        let font_dict_id = doc.add_object(font_dict);
+        global_font_dict.set(font_id.0, Reference(font_dict_id));
+    }
+
+    for internal_font in get_used_internal_fonts(&pdf.pages) {
+        let font_dict = builtin_font_to_dict(&internal_font);
+        let font_dict_id = doc.add_object(font_dict);
+        global_font_dict.set(internal_font.get_pdf_id(), Reference(font_dict_id));
+    }
+    let global_font_dict_id = doc.add_object(global_font_dict);
+
+    // Render pages
+    let page_ids = pdf.pages.iter().map(|page| {
+
+        let mut page_resources = get_page_resources(&mut doc, &page);
+        page_resources.set("Font", Reference(global_font_dict_id));
+
+        let layer_stream = translate_operations(&page.ops, &pdf.resources.fonts); // Vec<u8>
+        let merged_layer_stream = LoStream::new(LoDictionary::new(), layer_stream)
+        .with_compression(false);
+
+        let mut page_obj = LoDictionary::from_iter(vec![
+            ("Type", "Page".into()),
+            ("Rotate", Integer(0)),
+            ("MediaBox", page.get_media_box()),
+            ("TrimBox", page.get_trim_box()),
+            ("CropBox", page.get_crop_box()),
+            ("Parent", Reference(pages_id)),
+            ("Resources", Reference(doc.add_object(page_resources))),
+            ("Contents", Reference(doc.add_object(merged_layer_stream)))
+        ]);
+
+        doc.add_object(page_obj)
+    }).collect::<Vec<_>>();
+
+    // Now that the page objs are rendered, resolve which bookmarks reference which page objs
     if !pdf.bookmarks.map.is_empty() {
         
         let bookmarks_id = doc.new_object_id();
@@ -163,7 +208,7 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &SaveOptions) -> Vec<u8
             ]);
             let mut dict = LoDictionary::from_iter(vec![
                 ("Parent", Reference(bookmarks_id)),
-                ("Title", String(name.to_string().into(), Literal)),
+                ("Title", LoString(name.to_string().into(), Literal)),
                 ("Dest", dest),
             ]);
             if let Some(prev) = prev {
@@ -184,71 +229,27 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &SaveOptions) -> Vec<u8
 
         doc.set_object(bookmarks_id, bookmarks_list);
         catalog.set("Outlines", Reference(bookmarks_id));
-        catalog.set("PageMode", String("UseOutlines".into(), Literal));
+        catalog.set("PageMode", LoString("UseOutlines".into(), Literal));
     }
 
-    // Add fonts and other resources
-    /*
-    pdf.resources.extgstates
-    pdf.resources.fonts
-
-    let xobjects_dict: lopdf::Dictionary = pdf.resources.xobjects.into_with_document(doc);
-    let graphics_state_dict: lopdf::Dictionary = pdf.resources.extgstates.into();
-    let annotations_dict: lopdf::Dictionary = link_annot_to_dict(pdf.resources.links);
-
-    if !xobjects_dict.is_empty() {
-        dict.set("XObject", lopdf::Object::Dictionary(xobjects_dict));
-    }
-
-    if !graphics_state_dict.is_empty() {
-        dict.set("ExtGState", lopdf::Object::Dictionary(graphics_state_dict));
-    }
-
-    if !annotations_dict.is_empty() {
-        dict.set("Annots", lopdf::Object::Dictionary(annotations_dict))
-    }
-    */
-
-    /*
-    // add all pages with contents
-    let mut page_ids = Vec::<LoObject>::new();
-
-    // add fonts (shared resources)
-    let mut font_dict_id = None;
-
-    // add all fonts / other resources shared in the whole document
-    let fonts_dict: lopdf::Dictionary = doc
-        .fonts
-        .into_with_document(&mut doc.inner_doc, &mut doc.pages);
-
-    if !fonts_dict.is_empty() {
-        font_dict_id = Some(doc.inner_doc.add_object(Dictionary(fonts_dict)));
-    }
-    */
-
-    //-- END
-
-    let pages = LoDictionary::from_iter(vec![
+    doc.set_object(pages_id, LoDictionary::from_iter(vec![
         ("Type", "Pages".into()),
         ("Count", Integer(page_ids.len() as i64)),
         ("Kids", Array(page_ids.iter().map(|q| Reference(q.clone())).collect::<Vec<_>>())),
-    ]);
-
-    doc.objects.insert(pages_id, Dictionary(pages));
+    ]));
 
     let catalog_id = doc.add_object(catalog);
+    let document_info_id = doc.add_object(Dictionary(docinfo_to_dict(&pdf.metadata.info)));
     let instance_id = crate::utils::random_character_string_32();
     let document_id = crate::utils::random_character_string_32();
-
-    let document_info_id = doc.add_object(Dictionary(docinfo_to_dict(&pdf.metadata.info)));
 
     doc.trailer.set("Root", Reference(catalog_id));
     doc.trailer.set("Info", Reference(document_info_id));
     doc.trailer.set(
         "ID",
         Array(vec![
-            String(document_id.as_bytes().to_vec(), Literal),
-            String(instance_id.as_bytes().to_vec(), Literal),
+            LoString(document_id.as_bytes().to_vec(), Literal),
+            LoString(instance_id.as_bytes().to_vec(), Literal),
         ]),
     );
 
@@ -264,6 +265,268 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &SaveOptions) -> Vec<u8
     bytes
 }
 
+fn get_used_internal_fonts(pages: &[PdfPage]) -> BTreeSet<BuiltinFont> {
+    pages.iter().flat_map(|p| p.ops.iter().filter_map(|op| match op {
+        Op::WriteTextBuiltinFont { font, .. } => Some(*font),
+        _ => None,
+    })).collect()
+}
+
+fn builtin_font_to_dict(font: &BuiltinFont) -> LoDictionary {
+    LoDictionary::from_iter(vec![
+        ("Type", Name("Font".into())),
+        ("Subtype", Name("Type1".into())),
+        ("BaseFont", Name(font.get_id().into())),
+        ("Encoding", Name("WinAnsiEncoding".into())),
+    ])
+}
+
+fn translate_operations(ops: &[Op], fonts: &PdfFontMap) -> Vec<u8> {
+    
+    use lopdf::content::Operation as LoOp;
+    
+    let mut content = Vec::new();
+
+    for op in ops {
+        match op {
+            Op::Marker { id } => {
+                content.push(LoOp::new("MP", vec![Name(id.clone().into())]));
+            },
+            Op::BeginLayer { layer_id } => {
+                content.push(LoOp::new("q", vec![]));
+                content.push(LoOp::new("BDC", vec![
+                    Name("OC".into()), 
+                    Name(layer_id.0.clone().into())
+                ]));
+            },
+            Op::EndLayer { layer_id } => {
+                content.push(LoOp::new("EMC", vec![]));
+                content.push(LoOp::new("Q", vec![]));
+            },
+            Op::SaveGraphicsState => {
+                content.push(LoOp::new("q", vec![]));
+            },
+            Op::RestoreGraphicsState => {
+                content.push(LoOp::new("Q", vec![]));
+            },
+            Op::LoadGraphicsState { gs } => {
+                content.push(LoOp::new("gs", vec![
+                    Name(gs.0.as_bytes().to_vec())
+                ]));
+            },
+            Op::StartTextSection => {
+                content.push(LoOp::new("BT", vec![]));
+            },
+            Op::EndTextSection => {
+                content.push(LoOp::new("ET", vec![]));
+            },
+            Op::WriteText { text, font } => {
+                if let Some(font) = fonts.map.get(&font) {
+                    
+                    let glyph_ids = text.chars().filter_map(|s| {
+                        font.lookup_glyph_index(s as u32)
+                    }).collect::<Vec<_>>();
+    
+                    let bytes = glyph_ids
+                        .iter()
+                        .flat_map(|x| vec![(x >> 8) as u8, (x & 255) as u8])
+                        .collect::<Vec<u8>>();
+    
+                    content.push(LoOp::new("Tj", vec![LoString(bytes, Hexadecimal)]));
+                }
+            },
+            Op::WriteTextBuiltinFont { text, font } => {
+                let bytes = lopdf::Document::encode_text(Some("WinAnsiEncoding"), &text);
+                content.push(LoOp::new("Tj", vec![LoString(bytes, Hexadecimal)]));
+            },
+            Op::WriteCodepoints { font, cp } => {
+    
+                let bytes = cp
+                .into_iter()
+                .flat_map(|(x, _)| {
+                    let [b0, b1] = x.to_be_bytes();
+                    std::iter::once(b0).chain(std::iter::once(b1))
+                })
+                .collect::<Vec<u8>>();
+    
+                content.push(LoOp::new("Tj", vec![LoString(bytes, Hexadecimal)]));
+            },
+            Op::WriteCodepointsWithKerning { font, cpk } => {
+
+                let mut list = Vec::new();
+
+                for (pos, codepoint, _) in cpk.iter() {
+                    if *pos != 0 {
+                        list.push(Integer(*pos));
+                    }
+                    let bytes = codepoint.to_be_bytes().to_vec();
+                    list.push(LoString(bytes, Hexadecimal));
+                }
+
+                content.push(LoOp::new("TJ", vec![Array(list)]));
+            },
+            Op::AddLineBreak => {
+                content.push(LoOp::new("T*", vec![]));
+            },
+            Op::SetLineHeight { lh } => {
+                content.push(LoOp::new("TL", vec![Real(lh.0)]));
+            },
+            Op::SetWordSpacing { percent } => {
+                content.push(LoOp::new("Tw", vec![Real(*percent)]));
+            },
+            Op::SetFontSize { size, font } => {
+                content.push(LoOp::new("Tf", vec![font.0.clone().into(), (size.0).into()]));
+            },
+            Op::SetTextCursor { pos } => {
+                content.push(LoOp::new("Td", vec![pos.x.0.into(), pos.y.0.into()]));
+            },
+            Op::SetFillColor { col } => {
+
+            },
+            Op::SetOutlineColor { col } => {
+                
+            },
+            Op::SetOutlineThickness { pt } => {
+                
+            },
+            Op::SetLineDashPattern { dash } => {
+                
+            },
+            Op::SetLineJoinStyle { join } => {
+                
+            },
+            Op::SetLineCapStyle { cap } => {
+                
+            },
+            Op::SetTextRenderingMode { mode } => {
+                
+            },
+            Op::SetCharacterSpacing { multiplier } => todo!(),
+            Op::SetLineOffset { multiplier } => todo!(),
+            Op::DrawLine { line } => todo!(),
+            Op::DrawPolygon { polygon } => todo!(),
+            Op::SetTransformationMatrix { matrix } => todo!(),
+            Op::SetTextMatrix { matrix } => todo!(),
+            Op::LinkAnnotation { link } => todo!(),
+            Op::UseXObject { id, transform } => {
+                content.push(LoOp::new("q", vec![]));
+                // self.add_operation(transform);
+                content.push(LoOp::new("Do", vec![Name(id.0.as_bytes().to_vec())]));
+                content.push(LoOp::new("Q", vec![]));
+            },
+            Op::Unknown { key, value } => {
+                content.push(LoOp::new(key.as_str(), value.clone()));
+            },
+        }
+    }
+
+    lopdf::content::Content {
+        operations: content,
+    }.encode().unwrap_or_default()
+}
+
+struct PreparedFont {
+    original: ParsedFont,
+    subset_font_bytes: Vec<u8>,
+    cid_to_unicode_map: String,
+    vertical_writing: bool, // default: false
+    ascent: i64,
+    descent: i64,
+    max_height: i64,
+    total_width: i64,
+    // encode widths / heights so that they fit into what PDF expects
+    // see page 439 in the PDF 1.7 reference
+    // basically widths_list will contain objects like this:
+    // 20 [21, 99, 34, 25]
+    // which means that the character with the GID 20 has a width of 21 units
+    // and the character with the GID 21 has a width of 99 units
+    widths_list: Vec<lopdf::Object>,
+}
+
+const DEFAULT_CHARACTER_WIDTH: i64 = 1000;
+
+fn prepare_fonts(resources: &PdfResources, pages: &[PdfPage]) -> BTreeMap<FontId, PreparedFont> {
+    let mut fonts_in_pdf = BTreeMap::new();
+
+    for (font_id, font) in resources.fonts.map.iter() {
+        let glyph_ids = font.get_used_glyph_ids(font_id, pages);
+        if glyph_ids.is_empty() {
+            continue; // unused font
+        }
+        let font_bytes = font.subset(&glyph_ids).unwrap_or_default();
+        let cid_to_unicode = font.generate_cid_to_unicode_map(font_id, &glyph_ids);
+        let widths = font.get_normalized_widths(&glyph_ids);
+        fonts_in_pdf.insert(font_id.clone(), PreparedFont {
+            original: font.clone(),
+            subset_font_bytes: font_bytes,
+            cid_to_unicode_map: cid_to_unicode,
+            vertical_writing: false, // TODO
+            ascent: font.font_metrics.ascender as i64,
+            descent: font.font_metrics.descender as i64,
+            widths_list: widths,
+            max_height: font.get_max_height(&glyph_ids),
+            total_width: font.get_total_width(&glyph_ids),
+        });
+    }
+
+    fonts_in_pdf
+}
+
+fn add_font_to_pdf(doc: &mut lopdf::Document, font_id: &FontId, prepared: &PreparedFont) -> LoDictionary {
+    
+    let face_name = font_id.0.clone();
+
+    let vertical = false;
+
+    // WARNING: Font stream MAY NOT be compressed
+    let font_stream = LoStream::new(
+        LoDictionary::from_iter(vec![("Length1", Integer(prepared.subset_font_bytes.len() as i64))]),
+        prepared.subset_font_bytes.clone(),
+    ).with_compression(false); 
+
+    let font_stream_ref = doc.add_object(font_stream);
+
+    LoDictionary::from_iter(vec![
+        ("Type", Name("Font".into())),
+        ("Subtype", Name("Type0".into())),
+        ("BaseFont", Name(face_name.clone().into_bytes())),
+        ("Encoding", Name(if vertical { "Identity-V" } else { "Identity-H" }.into())),
+        ("ToUnicode", Reference(doc.add_object(LoStream::new(LoDictionary::new(), prepared.cid_to_unicode_map.as_bytes().to_vec())))),
+        ("DescendantFonts", Array(vec![Dictionary(LoDictionary::from_iter(vec![
+            ("Type", Name("Font".into())),
+            ("Subtype", Name("CIDFontType2".into())),
+            ("BaseFont", Name(face_name.clone().into_bytes())),
+            (
+                "CIDSystemInfo",
+                Dictionary(LoDictionary::from_iter(vec![
+                    ("Registry", LoString("Adobe".into(), Literal)),
+                    ("Ordering", LoString("Identity".into(), Literal)),
+                    ("Supplement", Integer(0)),
+                ])),
+            ),
+            (if vertical { "W2" } else { "W" }.into(), Array(prepared.widths_list.clone())),
+            (if vertical { "DW2" } else { "DW" }.into(), Integer(DEFAULT_CHARACTER_WIDTH)),
+                ("FontDescriptor", Reference(doc.add_object(LoDictionary::from_iter(vec![
+                    ("Type", Name("FontDescriptor".into())),
+                    ("FontName", Name(face_name.clone().into_bytes())),
+                    ("Ascent", Integer(prepared.ascent)),
+                    ("Descent", Integer(prepared.descent)),
+                    ("CapHeight", Integer(prepared.ascent)),
+                    ("ItalicAngle", Integer(0)),
+                    ("Flags", Integer(32)),
+                    ("StemV", Integer(80)),
+                    ("FontFile2", Reference(font_stream_ref)),
+                    ("FontBBox", Array(vec![
+                        Integer(0),
+                        Integer(prepared.max_height),
+                        Integer(prepared.total_width),
+                        Integer(prepared.max_height),
+                    ]))
+                ]))))
+        ]))])),
+    ])
+}
+
 
 fn docinfo_to_dict(m: &PdfDocumentInfo) -> LoDictionary {
 
@@ -273,21 +536,21 @@ fn docinfo_to_dict(m: &PdfDocumentInfo) -> LoDictionary {
     let info_mod_date = crate::utils::to_pdf_time_stamp_metadata(&m.modification_date);
     let info_create_date = crate::utils::to_pdf_time_stamp_metadata(&m.creation_date);
 
-    let creation_date = String(info_create_date.into_bytes(), Literal);
-    let title = String(m.document_title.to_string().as_bytes().to_vec(), Literal);
-    let identifier = String(m.identifier.as_bytes().to_vec(), Literal);
-    let keywords = String(m.keywords.join(",").as_bytes().to_vec(), Literal);
+    let creation_date = LoString(info_create_date.into_bytes(), Literal);
+    let title = LoString(m.document_title.to_string().as_bytes().to_vec(), Literal);
+    let identifier = LoString(m.identifier.as_bytes().to_vec(), Literal);
+    let keywords = LoString(m.keywords.join(",").as_bytes().to_vec(), Literal);
 
     LoDictionary::from_iter(vec![
         ("Trapped", trapping.into()),
         ("CreationDate", creation_date),
-        ("ModDate", String(info_mod_date.into_bytes(), Literal)),
-        ("GTS_PDFXVersion", String(gts_pdfx_version.into(), Literal)),
+        ("ModDate", LoString(info_mod_date.into_bytes(), Literal)),
+        ("GTS_PDFXVersion", LoString(gts_pdfx_version.into(), Literal)),
         ("Title", title),
-        ("Author", String(m.author.as_bytes().to_vec(), Literal)),
-        ("Creator", String(m.creator.as_bytes().to_vec(), Literal)),
-        ("Producer", String(m.producer.as_bytes().to_vec(), Literal)),
-        ("Subject", String(m.subject.as_bytes().to_vec(), Literal)),
+        ("Author", LoString(m.author.as_bytes().to_vec(), Literal)),
+        ("Creator", LoString(m.creator.as_bytes().to_vec(), Literal)),
+        ("Producer", LoString(m.producer.as_bytes().to_vec(), Literal)),
+        ("Subject", LoString(m.subject.as_bytes().to_vec(), Literal)),
         ("Identifier", identifier),
         ("Keywords", keywords),
     ])

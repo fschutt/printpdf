@@ -32,6 +32,14 @@ impl Rect {
             height,
         }
     }
+    pub fn to_array(&self) -> Vec<lopdf::Object> {
+        vec![
+            (self.x.0.round() as i64).into(), 
+            (self.y.0.round() as i64).into(), 
+            (self.width.0.round() as i64).into(), 
+            (self.height.0.round() as i64).into(),
+        ]
+    }
 }
 
 /// The rule to use in filling/clipping paint operations.

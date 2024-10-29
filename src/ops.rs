@@ -1,4 +1,5 @@
-use crate::{color::Color, graphics::{Line, LineCapStyle, LineDashPattern, LineJoinStyle, Point, Polygon, Rect, TextRenderingMode}, matrix::{CurTransMat, TextMatrix}, units::{Mm, Pt}, BuiltinFont, ExtendedGraphicsStateId, FontId, LayerInternalId, LinkAnnotId, PageAnnotId, XObjectId, XObjectTransform};
+use crate::{color::Color, graphics::{Line, LineCapStyle, LineDashPattern, LineJoinStyle, Point, Polygon, Rect, TextRenderingMode}, matrix::{CurTransMat, TextMatrix}, units::{Mm, Pt}, BuiltinFont, ExtendedGraphicsStateId, FontId, LayerInternalId, LinkAnnotId, XObjectId, XObjectTransform};
+use lopdf::Object as LoObject;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct PdfPage {
@@ -16,6 +17,18 @@ impl PdfPage {
             crop_box: Rect::from_wh(width.into(), height.into()),
             ops,
         }
+    }
+
+    pub(crate) fn get_media_box(&self) -> lopdf::Object {
+        self.media_box.to_array().into()
+    }
+
+    pub(crate) fn get_trim_box(&self) -> lopdf::Object {
+        self.trim_box.to_array().into()
+    }
+
+    pub(crate) fn get_crop_box(&self) -> lopdf::Object {
+        self.crop_box.to_array().into()
     }
 }
 
@@ -79,9 +92,15 @@ pub enum Op {
     /// Writes text using a builtin font.
     WriteTextBuiltinFont { text: String, font: BuiltinFont },
     /// Add text to the file at the current position by specifying font codepoints for an ExternalFont
-    WriteCodepoints { font: FontId, cp: Vec<u16> },
+    /// 
+    /// NOTE: the `char` defines which codepoint this value is being mapped to (otherwise the 
+    /// user would not be able to copy-paste text from the PDF)
+    WriteCodepoints { font: FontId, cp: Vec<(u16, char)> },
     /// Add text to the file at the current position by specifying font codepoints with additional kerning offset
-    WriteCodepointsWithKerning { font: FontId, cpk: Vec<(i16, u16)> },
+    /// 
+    /// NOTE: the `char` defines which codepoint this value is being mapped to (otherwise the 
+    /// user would not be able to copy-paste text from the PDF)
+    WriteCodepointsWithKerning { font: FontId, cpk: Vec<(i64, u16, char)> },
     /// Adds a line break to the text, depends on the line height
     AddLineBreak,
     /// Sets the line height for the text
@@ -124,7 +143,7 @@ pub enum Op {
     /// Use `PdfDocument::add_xobject` to register the object and get the ID.
     UseXObject { id: XObjectId, transform: XObjectTransform },
     /// Unknown, custom key / value operation
-    Unknown { key: String, value: lopdf::content::Operation },
+    Unknown { key: String, value: Vec<LoObject> },
 }
 
 impl PartialEq for Op {

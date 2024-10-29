@@ -1,8 +1,6 @@
 //! Current transformation matrix, for transforming shapes (rotate, translate, scale)
 
 use crate::units::Pt;
-use lopdf;
-use lopdf::content::Operation;
 
 /// PDF "current transformation matrix". Once set, will operate on all following shapes,
 /// until the `layer.restore_graphics_state()` is called. It is important to
