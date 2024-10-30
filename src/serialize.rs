@@ -743,7 +743,6 @@ fn prepare_fonts(resources: &PdfResources, pages: &[PdfPage]) -> BTreeMap<FontId
 
     for (font_id, font) in resources.fonts.map.iter() {
         let glyph_ids = font.get_used_glyph_ids(font_id, pages);
-        println!("glyph ids 1 {glyph_ids:#?}");
         if glyph_ids.is_empty() {
             continue; // unused font
         }
@@ -759,7 +758,6 @@ fn prepare_fonts(resources: &PdfResources, pages: &[PdfPage]) -> BTreeMap<FontId
             None => continue,
         };
         let glyph_ids = font.get_used_glyph_ids(font_id, pages);
-        println!("glyph ids 2 {glyph_ids:#?}");
         let cid_to_unicode = font.generate_cid_to_unicode_map(font_id, &glyph_ids);
         let widths = font.get_normalized_widths(&glyph_ids);
         fonts_in_pdf.insert(font_id.clone(), PreparedFont {

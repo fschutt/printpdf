@@ -1,5 +1,4 @@
 use crate::IccProfileId;
-use image as image_crate;
 
 /// Color space (enum for marking the number of bits a color has)
 #[derive(Debug, Copy, PartialEq, Clone)]
@@ -13,9 +12,9 @@ pub enum ColorSpace {
 }
 
 #[cfg(feature = "images")]
-impl From<image_crate::ColorType> for ColorSpace {
-    fn from(color_type: image_crate::ColorType) -> Self {
-        use image_crate::ColorType::*;
+impl From<image::ColorType> for ColorSpace {
+    fn from(color_type: image::ColorType) -> Self {
+        use image::ColorType::*;
         match color_type {
             L8 | L16 => ColorSpace::Greyscale,
             La8 | La16 => ColorSpace::GreyscaleAlpha,
@@ -48,9 +47,9 @@ pub enum ColorBits {
 }
 
 #[cfg(feature = "images")]
-impl From<image_crate::ColorType> for ColorBits {
-    fn from(color_type: image_crate::ColorType) -> ColorBits {
-        use image_crate::ColorType::*;
+impl From<image::ColorType> for ColorBits {
+    fn from(color_type: image::ColorType) -> ColorBits {
+        use image::ColorType::*;
         use ColorBits::*;
 
         match color_type {

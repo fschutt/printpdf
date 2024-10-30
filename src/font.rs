@@ -105,7 +105,7 @@ pub struct ParsedFont {
     pub opt_gdef_table: Option<Rc<GDEFTable>>,
     pub glyph_records_decoded: BTreeMap<u16, OwnedGlyph>,
     pub space_width: Option<usize>,
-    pub cmap_subtable: OwnedCmapSubtable,
+    pub cmap_subtable: Option<OwnedCmapSubtable>,
     pub original_bytes: Vec<u8>,
     pub original_index: usize,
 }
@@ -499,16 +499,12 @@ impl ParsedFont {
 
         // required for font layout: gsub_cache, gpos_cache and gdef_table
         let gsub_cache = font_data_impl.gsub_cache().ok().and_then(|s| s);
-        println!("parsing font 12...");
         let gpos_cache = font_data_impl.gpos_cache().ok().and_then(|s| s);
-        println!("parsing font 13...");
         let opt_gdef_table = font_data_impl.gdef_table().ok().and_then(|o| o);
-        println!("parsing font 14...");
         let num_glyphs = font_data_impl.num_glyphs();
-        println!("parsing font 15...");
 
-        let cmap_subtable = ReadScope::new(font_data_impl.cmap_subtable_data()).read::<CmapSubtable<'_>>().ok()?.to_owned()?;
-        println!("parsing font 16...");
+        let cmap_subtable = ReadScope::new(font_data_impl.cmap_subtable_data());
+        let cmap_subtable = cmap_subtable.read::<CmapSubtable<'_>>().ok().and_then(|s| s.to_owned());
 
         let mut font = ParsedFont {
             font_metrics,
@@ -557,7 +553,7 @@ impl ParsedFont {
     }
 
     pub fn lookup_glyph_index(&self, c: u32) -> Option<u16> {
-        match self.cmap_subtable.map_glyph(c) {
+        match self.cmap_subtable.as_ref()?.map_glyph(c) {
             Ok(Some(c)) => Some(c),
             _ => None,
         }
