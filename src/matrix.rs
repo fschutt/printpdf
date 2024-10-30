@@ -244,10 +244,10 @@ pub enum TextMatrix {
     Raw([f32; 6]),
 }
 
-impl From<TextMatrix> for [f32; 6] {
-    fn from(val: TextMatrix) -> Self {
+impl TextMatrix {
+    pub fn as_array(&self) -> [f32; 6] {
         use self::TextMatrix::*;
-        match val {
+        match self {
             Translate(x, y) => {
                 // 1 0 0 1 x y cm
                 [1.0, 0.0, 0.0, 1.0, x.0, y.0]
@@ -256,7 +256,7 @@ impl From<TextMatrix> for [f32; 6] {
                 let rad = (360.0 - rot).to_radians();
                 [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), 0.0, 0.0] /* cos sin -sin cos 0 0 cm */
             }
-            Raw(r) => r,
+            Raw(r) => *r,
             TranslateRotate(x, y, rot) => {
                 let rad = (360.0 - rot).to_radians();
                 [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), x.0, y.0] /* cos sin -sin cos x y cm */
@@ -265,10 +265,10 @@ impl From<TextMatrix> for [f32; 6] {
     }
 }
 
-impl From<CurTransMat> for [f32; 6] {
-    fn from(val: CurTransMat) -> Self {
+impl CurTransMat {
+    pub fn as_array(&self) -> [f32; 6] {
         use self::CurTransMat::*;
-        match val {
+        match self {
             Translate(x, y) => {
                 // 1 0 0 1 x y cm
                 [1.0, 0.0, 0.0, 1.0, x.0, y.0]
@@ -282,10 +282,10 @@ impl From<CurTransMat> for [f32; 6] {
                 let rad = (360.0 - rot).to_radians();
                 [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), 0.0, 0.0]
             }
-            Raw(r) => r,
+            Raw(r) => *r,
             Scale(x, y) => {
                 // x 0 0 y 0 0 cm
-                [x, 0.0, 0.0, y, 0.0, 0.0]
+                [*x, 0.0, 0.0, *y, 0.0, 0.0]
             }
             Identity => [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
         }
@@ -298,15 +298,15 @@ fn test_ctm_translate() {
 
     // test that the translation matrix look like what PDF expects
     let ctm_trans = CurTransMat::Translate(Pt(150.0), Pt(50.0));
-    let ctm_trans_arr: [f32; 6] = ctm_trans.into();
+    let ctm_trans_arr: [f32; 6] = ctm_trans.as_array();
     assert_eq!([1.0_f32, 0.0, 0.0, 1.0, 150.0, 50.0], ctm_trans_arr);
 
     let ctm_scale = CurTransMat::Scale(2.0, 4.0);
-    let ctm_scale_arr: [f32; 6] = ctm_scale.into();
+    let ctm_scale_arr: [f32; 6] = ctm_scale.as_array();
     assert_eq!([2.0_f32, 0.0, 0.0, 4.0, 0.0, 0.0], ctm_scale_arr);
 
     let ctm_rot = CurTransMat::Rotate(30.0);
-    let ctm_rot_arr: [f32; 6] = ctm_rot.into();
+    let ctm_rot_arr: [f32; 6] = ctm_rot.as_array();
     assert_eq!(
         [0.8660253, 0.5000002, -0.5000002, 0.8660253, 0.0, 0.0],
         ctm_rot_arr

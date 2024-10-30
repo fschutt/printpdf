@@ -81,7 +81,7 @@ pub enum Color {
 
 impl Color {
     /// Consumes the color and converts into into a vector of numbers
-    pub fn into_vec(self) -> Vec<f32> {
+    pub fn into_vec(&self) -> Vec<f32> {
         match self {
             Color::Rgb(rgb) => {
                 vec![rgb.r, rgb.g, rgb.b]

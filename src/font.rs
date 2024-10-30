@@ -173,10 +173,12 @@ impl ParsedFont {
             _ => Vec::new(),
         }).collect::<BTreeSet<_>>();
 
+        /* 
         chars_to_resolve.extend(DEFAULT_ALPHABET.iter().flat_map(|line| {
             line.chars().skip_while(|c| char::is_whitespace(*c))
         }));
-
+        */
+        
         let mut map = chars_to_resolve.iter()
         .filter_map(|c| self.lookup_glyph_index(*c as u32).map(|f| (f, *c)))
         .collect::<BTreeMap<_, _>>();

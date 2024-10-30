@@ -230,6 +230,24 @@ pub struct LineDashPattern {
     pub gap_3: Option<i64>,
 }
 
+impl LineDashPattern {
+    pub fn as_array(&self) -> Vec<i64> {
+        [
+            self.dash_1, 
+            self.gap_1, 
+            self.dash_2, 
+            self.gap_2, 
+            self.dash_3, 
+            self.gap_3,
+        ]
+        .iter()
+        .copied()
+        .take_while(Option::is_some)
+        .flatten()
+        .collect()
+    }
+}
+
 /// __See PDF Reference Page 216__ - Line join style
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LineJoinStyle {
