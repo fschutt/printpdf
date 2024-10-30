@@ -1,4 +1,7 @@
 
+use allsorts::binary::read::ReadArray;
+use allsorts::tables::loca::LocaOffsets;
+use allsorts::tables::IndexToLocFormat;
 use lopdf::Object::{Integer, Array};
 
 /// Builtin or external font
@@ -75,6 +78,7 @@ impl BuiltinFont {
 use time::error::Parse;
 use core::fmt;
 use std::collections::{btree_map::BTreeMap, BTreeSet};
+use std::mem;
 use std::rc::Rc;
 use std::vec::Vec;
 use std::boxed::Box;
@@ -94,10 +98,10 @@ pub struct ParsedFont {
     pub font_metrics: FontMetrics,
     pub num_glyphs: u16,
     pub hhea_table: HheaTable,
-    pub hmtx_data: Box<[u8]>,
+    pub hmtx_data: Vec<u8>,
     pub maxp_table: MaxpTable,
-    pub gsub_cache: LayoutCache<GSUB>,
-    pub gpos_cache: LayoutCache<GPOS>,
+    pub gsub_cache: Option<LayoutCache<GSUB>>,
+    pub gpos_cache: Option<LayoutCache<GPOS>>,
     pub opt_gdef_table: Option<Rc<GDEFTable>>,
     pub glyph_records_decoded: BTreeMap<u16, OwnedGlyph>,
     pub space_width: Option<usize>,
@@ -178,7 +182,7 @@ impl ParsedFont {
             line.chars().skip_while(|c| char::is_whitespace(*c))
         }));
         */
-        
+
         let mut map = chars_to_resolve.iter()
         .filter_map(|c| self.lookup_glyph_index(*c as u32).map(|f| (f, *c)))
         .collect::<BTreeMap<_, _>>();
@@ -421,22 +425,47 @@ impl ParsedFont {
         let font_file = scope.read::<FontData<'_>>().ok()?;
         let provider = font_file.table_provider(font_index).ok()?;
 
-        let head_data = provider.table_data(tag::HEAD).ok()??.into_owned();
-        let head_table = ReadScope::new(&head_data).read::<HeadTable>().ok()?;
+        let head_table = provider
+        .table_data(tag::HEAD).ok()
+        .and_then(|head_data| {
+            ReadScope::new(&head_data?)
+            .read::<HeadTable>().ok()
+        });
 
-        let maxp_data = provider.table_data(tag::MAXP).ok()??.into_owned();
-        let maxp_table = ReadScope::new(&maxp_data).read::<MaxpTable>().ok()?;
+        let maxp_table = provider
+        .table_data(tag::MAXP).ok()
+        .and_then(|maxp_data| {
+            ReadScope::new(&maxp_data?)
+            .read::<MaxpTable>().ok()
+        }).unwrap_or(MaxpTable { num_glyphs: 0, version1_sub_table: None });
 
-        let loca_data = provider.table_data(tag::LOCA).ok()??.into_owned();
-        let loca_table = ReadScope::new(&loca_data).read_dep::<LocaTable<'_>>((maxp_table.num_glyphs as usize, head_table.index_to_loc_format)).ok()?;
+        let index_to_loc = head_table.map(|s| s.index_to_loc_format).unwrap_or(IndexToLocFormat::Long);
+        let num_glyphs = maxp_table.num_glyphs as usize;
 
-        let glyf_data = provider.table_data(tag::GLYF).ok()??.into_owned();
-        let mut glyf_table = ReadScope::new(&glyf_data).read_dep::<GlyfTable<'_>>(&loca_table).ok()?;
+        let loca_table = provider.table_data(tag::LOCA).ok();
+        let loca_table = loca_table.as_ref()
+        .and_then(|loca_data| {
+            ReadScope::new(&loca_data.as_ref()?)
+            .read_dep::<LocaTable<'_>>((num_glyphs, index_to_loc)).ok()
+        }).unwrap_or(LocaTable {
+            offsets: LocaOffsets::Long(ReadArray::empty())
+        });
 
-        let hmtx_data = provider.table_data(tag::HMTX).ok()??.into_owned().into_boxed_slice();
+        let glyf_table = provider.table_data(tag::GLYF).ok();
+        let mut glyf_table = glyf_table.as_ref()
+        .and_then(|glyf_data| {
+            ReadScope::new(&glyf_data.as_ref()?).read_dep::<GlyfTable<'_>>(&loca_table).ok()
+        }).unwrap_or(GlyfTable::new(Vec::new()).unwrap());
 
-        let hhea_data = provider.table_data(tag::HHEA).ok()??.into_owned();
-        let hhea_table = ReadScope::new(&hhea_data).read::<HheaTable>().ok()?;
+        let hmtx_data = provider
+        .table_data(tag::HMTX).ok()
+        .and_then(|s| Some(s?.into_owned()))
+        .unwrap_or_default();
+
+        let hhea_table = provider.table_data(tag::HHEA).ok()
+        .and_then(|hhea_data| {
+            ReadScope::new(&hhea_data?).read::<HheaTable>().ok()
+        }).unwrap_or(unsafe { std::mem::zeroed() });
 
         let font_metrics = FontMetrics::from_bytes(font_bytes, font_index);
 
@@ -469,12 +498,17 @@ impl ParsedFont {
         let mut font_data_impl = allsorts::font::Font::new(provider).ok()?;
 
         // required for font layout: gsub_cache, gpos_cache and gdef_table
-        let gsub_cache = font_data_impl.gsub_cache().ok()??;
-        let gpos_cache = font_data_impl.gpos_cache().ok()??;
+        let gsub_cache = font_data_impl.gsub_cache().ok().and_then(|s| s);
+        println!("parsing font 12...");
+        let gpos_cache = font_data_impl.gpos_cache().ok().and_then(|s| s);
+        println!("parsing font 13...");
         let opt_gdef_table = font_data_impl.gdef_table().ok().and_then(|o| o);
+        println!("parsing font 14...");
         let num_glyphs = font_data_impl.num_glyphs();
+        println!("parsing font 15...");
 
         let cmap_subtable = ReadScope::new(font_data_impl.cmap_subtable_data()).read::<CmapSubtable<'_>>().ok()?.to_owned()?;
+        println!("parsing font 16...");
 
         let mut font = ParsedFont {
             font_metrics,

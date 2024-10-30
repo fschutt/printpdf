@@ -144,10 +144,11 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &SaveOptions) -> Vec<u8
 
     // Build fonts dictionary
     let mut global_font_dict = LoDictionary::new();
-    for (font_id, prepared) in prepare_fonts(&pdf.resources, &pdf.pages) {
+    let prepared_fonts = prepare_fonts(&pdf.resources, &pdf.pages);
+    for (font_id, prepared) in prepared_fonts.iter() {
         let font_dict = add_font_to_pdf(&mut doc, &font_id, &prepared);
         let font_dict_id = doc.add_object(font_dict);
-        global_font_dict.set(font_id.0, Reference(font_dict_id));
+        global_font_dict.set(font_id.0.clone(), Reference(font_dict_id));
     }
 
     for internal_font in get_used_internal_fonts(&pdf.pages) {
@@ -200,7 +201,7 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &SaveOptions) -> Vec<u8
         let mut page_resources = LoDictionary::new(); // get_page_resources(&mut doc, &page);
         page_resources.set("Font", Reference(global_font_dict_id));
 
-        let layer_stream = translate_operations(&page.ops, &pdf.resources.fonts); // Vec<u8>
+        let layer_stream = translate_operations(&page.ops, &prepared_fonts); // Vec<u8>
         let merged_layer_stream = LoStream::new(LoDictionary::new(), layer_stream)
         .with_compression(false);
 
@@ -323,7 +324,7 @@ fn builtin_font_to_dict(font: &BuiltinFont) -> LoDictionary {
     ])
 }
 
-fn translate_operations(ops: &[Op], fonts: &PdfFontMap) -> Vec<u8> {
+fn translate_operations(ops: &[Op], fonts: &BTreeMap<FontId, PreparedFont>) -> Vec<u8> {
     
     let mut content = Vec::new();
 
@@ -361,10 +362,10 @@ fn translate_operations(ops: &[Op], fonts: &PdfFontMap) -> Vec<u8> {
                 content.push(LoOp::new("ET", vec![]));
             },
             Op::WriteText { text, font } => {
-                if let Some(font) = fonts.map.get(&font) {
+                if let Some(font) = fonts.get(&font) {
                     
                     let glyph_ids = text.chars().filter_map(|s| {
-                        font.lookup_glyph_index(s as u32)
+                        font.original.lookup_glyph_index(s as u32)
                     }).collect::<Vec<_>>();
     
                     let bytes = glyph_ids
@@ -609,7 +610,6 @@ fn line_to_stream_ops(line: &Line) -> Vec<LoOp> {
     operations
 }
 
-
 fn polygon_to_stream_ops(poly: &Polygon) -> Vec<LoOp> {
 
     /// Cubic bezier over four following points
@@ -738,16 +738,28 @@ fn polygon_to_stream_ops(poly: &Polygon) -> Vec<LoOp> {
     operations
 }
 
-
 fn prepare_fonts(resources: &PdfResources, pages: &[PdfPage]) -> BTreeMap<FontId, PreparedFont> {
     let mut fonts_in_pdf = BTreeMap::new();
 
     for (font_id, font) in resources.fonts.map.iter() {
         let glyph_ids = font.get_used_glyph_ids(font_id, pages);
+        println!("glyph ids 1 {glyph_ids:#?}");
         if glyph_ids.is_empty() {
             continue; // unused font
         }
-        let font_bytes = font.subset(&glyph_ids).unwrap_or_default();
+        let font_bytes = match font.subset(&glyph_ids) {
+            Ok(o) => o,
+            Err(e) => {
+                println!("{e}");
+                continue;
+            }
+        };
+        let font = match ParsedFont::from_bytes(&font_bytes, 0) {
+            Some(s) => s,
+            None => continue,
+        };
+        let glyph_ids = font.get_used_glyph_ids(font_id, pages);
+        println!("glyph ids 2 {glyph_ids:#?}");
         let cid_to_unicode = font.generate_cid_to_unicode_map(font_id, &glyph_ids);
         let widths = font.get_normalized_widths(&glyph_ids);
         fonts_in_pdf.insert(font_id.clone(), PreparedFont {
@@ -820,7 +832,6 @@ fn add_font_to_pdf(doc: &mut lopdf::Document, font_id: &FontId, prepared: &Prepa
         ]))])),
     ])
 }
-
 
 fn docinfo_to_dict(m: &PdfDocumentInfo) -> LoDictionary {
 

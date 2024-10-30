@@ -1,6 +1,14 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use crate::date::OffsetDateTime;
+#[cfg(feature = "images")]
+use image::ColorType;
+#[cfg(feature = "images")]
+use crate::xobject::ImageXObject;
+#[cfg(feature = "images")]
+use crate::color::{ColorSpace, ColorBits};
+#[cfg(feature = "images")]
+use crate::units::Px;
 
 /// Since the random number generator doesn't have to be cryptographically secure
 /// it doesn't make sense to import the entire rand library, so this is just a
@@ -138,4 +146,19 @@ fn preprocess_image_with_alpha(
         smask: None,
     });
     (img, img_mask)
+}
+
+/// Takes a Vec<u8> of RGBA data and returns two Vec<u8> of RGB and alpha data
+#[cfg(feature = "images")]
+pub(crate) fn rgba_to_rgb(data: Vec<u8>) -> (Vec<u8>, Vec<u8>) {
+    let mut rgb = Vec::with_capacity(data.len() / 4 * 3);
+    let mut alpha = Vec::with_capacity(data.len() / 4);
+    for i in (0..data.len()).step_by(4) {
+        rgb.push(data[i]);
+        rgb.push(data[i + 1]);
+        rgb.push(data[i + 2]);
+        alpha.push(data[i + 3]);
+    }
+
+    (rgb, alpha)
 }

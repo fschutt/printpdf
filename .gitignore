@@ -5,3 +5,4 @@ test_*
 .vscode/*
 .cargo/*
 .idea/
+*.pdf

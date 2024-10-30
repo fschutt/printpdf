@@ -1,4 +1,5 @@
 use crate::IccProfileId;
+use image as image_crate;
 
 /// Color space (enum for marking the number of bits a color has)
 #[derive(Debug, Copy, PartialEq, Clone)]
