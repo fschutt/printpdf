@@ -1,27 +1,20 @@
-#![allow(trivial_numeric_casts)]
 
-//! Embedding fonts in 2D for Pdf
-use crate::{Error, PdfPage};
-use lopdf;
-use lopdf::StringFormat;
-use lopdf::{Dictionary as LoDictionary, Stream as LoStream};
-use owned_ttf_parser::{AsFaceRef as _, Face, OwnedFace};
-use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap};
-use std::iter::FromIterator;
-use std::rc::Rc;
+use allsorts::binary::read::ReadArray;
+use allsorts::tables::loca::LocaOffsets;
+use allsorts::tables::IndexToLocFormat;
+use lopdf::Object::{Integer, Array};
 
-/// The font
+/// Builtin or external font
 #[derive(Debug, Clone, PartialEq)]
 pub enum Font {
     /// Represents one of the 14 built-in fonts (Arial, Helvetica, etc.)
     BuiltinFont(BuiltinFont),
     /// Represents a font loaded from an external file
-    ExternalFont(ExternalFont),
+    ExternalFont(Parse),
 }
 
 /// Standard built-in PDF fonts
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BuiltinFont {
     TimesRoman,
     TimesBold,
@@ -39,10 +32,30 @@ pub enum BuiltinFont {
     ZapfDingbats,
 }
 
-impl From<BuiltinFont> for &'static str {
-    fn from(val: BuiltinFont) -> Self {
-        use crate::BuiltinFont::*;
-        match val {
+impl BuiltinFont {
+    pub fn get_pdf_id(&self) -> &'static str {
+        use self::BuiltinFont::*;
+        match self {
+            TimesRoman => "F1",
+            TimesBold => "F2",
+            TimesItalic => "F3",
+            TimesBoldItalic => "F4",
+            Helvetica => "F5",
+            HelveticaBold => "F6",
+            HelveticaOblique => "F7",
+            HelveticaBoldOblique => "F8",
+            Courier => "F9",
+            CourierOblique => "F10",
+            CourierBold => "F11",
+            CourierBoldOblique => "F12",
+            Symbol => "F13",
+            ZapfDingbats => "F14",
+        }
+    }
+
+    pub fn get_id(&self) -> &'static str {
+        use self::BuiltinFont::*;
+        match self {
             TimesRoman => "Times-Roman",
             TimesBold => "Times-Bold",
             TimesItalic => "Times-Italic",
@@ -61,500 +74,500 @@ impl From<BuiltinFont> for &'static str {
     }
 }
 
-impl From<BuiltinFont> for LoDictionary {
-    fn from(val: BuiltinFont) -> Self {
-        use lopdf::Object;
-        use lopdf::Object::*;
 
-        let font_id: &'static str = val.into();
+use time::error::Parse;
+use core::fmt;
+use std::collections::{btree_map::BTreeMap, BTreeSet};
+use std::rc::Rc;
+use std::vec::Vec;
+use allsorts::{
+    binary::read::ReadScope,
+    font_data::FontData,
+    layout::{GDEFTable, LayoutCache, GPOS, GSUB},
+    tables::{
+        cmap::{owned::CmapSubtable as OwnedCmapSubtable, CmapSubtable}, glyf::{GlyfRecord, GlyfTable, Glyph}, loca::LocaTable, FontTableProvider, HeadTable, HheaTable, MaxpTable
+    },
+};
 
-        // Begin setting required font attributes
-        let font_vec: Vec<(::std::string::String, Object)> = vec![
-            ("Type".into(), Name("Font".into())),
-            ("Subtype".into(), Name("Type1".into())),
-            ("BaseFont".into(), Name(font_id.into())),
-            ("Encoding".into(), Name("WinAnsiEncoding".into())),
-            // Missing DescendantFonts and ToUnicode
+use crate::{FontId, Op, PdfPage};
+
+#[derive(Clone)]
+pub struct ParsedFont {
+    pub font_metrics: FontMetrics,
+    pub num_glyphs: u16,
+    pub hhea_table: HheaTable,
+    pub hmtx_data: Vec<u8>,
+    pub maxp_table: MaxpTable,
+    pub gsub_cache: Option<LayoutCache<GSUB>>,
+    pub gpos_cache: Option<LayoutCache<GPOS>>,
+    pub opt_gdef_table: Option<Rc<GDEFTable>>,
+    pub glyph_records_decoded: BTreeMap<u16, OwnedGlyph>,
+    pub space_width: Option<usize>,
+    pub cmap_subtable: Option<OwnedCmapSubtable>,
+    pub original_bytes: Vec<u8>,
+    pub original_index: usize,
+}
+
+impl PartialEq for ParsedFont {
+    fn eq(&self, other: &Self) -> bool {
+        self.font_metrics == other.font_metrics && 
+        self.num_glyphs == other.num_glyphs && 
+        self.hhea_table == other.hhea_table && 
+        self.hmtx_data == other.hmtx_data && 
+        self.maxp_table == other.maxp_table && 
+        self.space_width == other.space_width && 
+        self.cmap_subtable == other.cmap_subtable &&
+        self.original_bytes.len() == other.original_bytes.len()
+    }
+}
+
+impl fmt::Debug for ParsedFont {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ParsedFont")
+        .field("font_metrics", &self.font_metrics)
+        .field("num_glyphs", &self.num_glyphs)
+        .field("hhea_table", &self.hhea_table)
+        .field("hmtx_data", &self.hmtx_data)
+        .field("maxp_table", &self.maxp_table)
+        .field("glyph_records_decoded", &self.glyph_records_decoded)
+        .field("space_width", &self.space_width)
+        .field("cmap_subtable", &self.cmap_subtable)
+        .finish()
+    }
+}
+
+impl ParsedFont {
+
+    /// Returns the glyph IDs used in the PDF file
+    pub(crate) fn get_used_glyph_ids(&self, font_id: &FontId, pages: &[PdfPage]) -> BTreeMap<u16, char> {
+
+        const DEFAULT_ALPHABET: &[&str;5] = &[
+            r#"a b c d e f g h i j k l m n o p q r s t u v w x y z A B C D E F G H I J K L M N"#,
+            r#"O P Q R S T U V W X Y Z 0 1 2 3 4 5 6 7 8 9 ¹ ² ³ ª º % $ € ¥ £ ¢ & * @ # | á â"#,
+            r#"à ä å ã æ ç é ê è ë í î ì ï ı ñ ó ô ò ö õ ø œ š ß ú û ù ü ý ÿ ž Â À Ä Å Ã Æ Ç É"#,
+            r#"Ê È Ë Í Î Ì Ï Ñ Ó Ô Ò Ö Õ Ø Œ Š Û Ù Ü Ý Ÿ , : ; - – — • . … “ ‘ ’ ‘ ‚ “ ” „ ‹ ›"#,
+            r#"« » / \ ? ! ¿ ¡ ( )[ ]{ } © ® § + × = _ °"#,
         ];
 
-        LoDictionary::from_iter(font_vec)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ExternalFont {
-    /// Raw font data
-    pub(crate) font_bytes: Vec<u8>,
-    /// Parsed font data
-    pub(crate) font_data: Box<dyn FontData>,
-    /// Font name, for adding as a resource on the document
-    pub(crate) face_name: String,
-    /// Is the font written vertically? Default: false
-    pub(crate) vertical_writing: bool,
-    /// Is the font allowed to be subsetted (removing unused glyphs before embedding)? Default: true
-    #[allow(unused)]
-    pub(crate) allow_subsetting: Rc<RefCell<bool>>,
-}
-
-/// The text rendering mode determines how a text is drawn
-/// The default rendering mode is `Fill`. The color of the
-/// fill / stroke is determine by the current pages outline /
-/// fill color.
-///
-/// See PDF Reference 1.7 Page 402
-#[derive(Debug, Copy, Clone)]
-pub enum TextRenderingMode {
-    Fill,
-    Stroke,
-    FillStroke,
-    Invisible,
-    FillClip,
-    StrokeClip,
-    FillStrokeClip,
-    Clip,
-}
-
-impl From<TextRenderingMode> for i64 {
-    fn from(val: TextRenderingMode) -> Self {
-        use crate::TextRenderingMode::*;
-        match val {
-            Fill => 0,
-            Stroke => 1,
-            FillStroke => 2,
-            Invisible => 3,
-            FillClip => 4,
-            StrokeClip => 5,
-            FillStrokeClip => 6,
-            Clip => 7,
-        }
-    }
-}
-
-impl ExternalFont {
-    /// Creates a new font. The `index` is used for naming / identifying the font
-    ///
-    /// This method uses [`owned_ttf_parser`][] to parse the font data.  If you want to use a different
-    /// font backend, use the [`with_font_data`][] method instead.
-    ///
-    /// [`owned_ttf_parser`]: https://docs.rs/owned_ttf_parser/latest/owned_ttf_parser/
-    /// [`with_font_data`]: #method.with_font_data
-    pub fn new<R>(mut font_stream: R, font_index: usize) -> Result<Self, Error>
-    where
-        R: ::std::io::Read,
-    {
-        // read font from stream and parse font metrics
-        let mut buf = Vec::<u8>::new();
-        font_stream.read_to_end(&mut buf)?;
-
-        let font = TtfFace::from_vec(buf.clone())?;
-
-        Ok(Self::with_font_data(buf, font_index, Box::new(font)))
-    }
-
-    /// Creates a new font. The `index` is used for naming / identifying the font
-    pub fn with_font_data(bytes: Vec<u8>, font_index: usize, font_data: Box<dyn FontData>) -> Self {
-        let face_name = format!("F{font_index}");
-        Self {
-            font_bytes: bytes,
-            font_data,
-            face_name,
-            vertical_writing: false,
-            allow_subsetting: Rc::new(RefCell::new(true)),
-        }
-    }
-
-    /// Set whether or not to allow subsetting for the font. If subsetting is set to true, unused
-    /// glyphs will be removed before embedding the font into the PDF file. By default this is set
-    /// to `true`
-    #[cfg(feature = "font_subsetting")]
-    pub fn set_allow_subsetting(&self, allow_subsetting: bool) {
-        *self.allow_subsetting.borrow_mut() = allow_subsetting;
-    }
-
-    /// Set whether or not to allow subsetting for the font. If subsetting is set to true, unused
-    /// glyphs will be removed before embedding the font into the PDF file. By default this is set
-    /// to `true`
-    #[cfg(feature = "font_subsetting")]
-    pub fn with_allow_subsetting(self, allow_subsetting: bool) -> Self {
-        *self.allow_subsetting.borrow_mut() = allow_subsetting;
-        self
-    }
-
-    /// Iterate through all layers of the provided pages and build a Set of all Glyph IDs that were
-    /// used at least once
-    #[cfg(feature = "font_subsetting")]
-    fn find_used_glyphs(&self, pages: &[PdfPage]) -> std::collections::HashSet<u16> {
-        // TODO: This is almost the same code as `replace_glyphs`. Somehow reduce redundancy
-        let mut used_glyphs = std::collections::HashSet::new();
-
-        let layers = pages.iter().map(|page| page.layers.iter()).flatten();
-        for layer in layers {
-            let operations = layer
-                .operations
-                .iter()
-                .map(|op| (&op.operator, &op.operands));
-
-            let mut font_active = false;
-
-            for (operator, operands) in operations {
-                match operator.as_str() {
-                    "Tf" => {
-                        let font_name = operands[0]
-                            .as_name_str()
-                            .expect("PDF Command 'Tf' not followed by Name operand");
-                        font_active = font_name == &self.face_name;
-                    }
-                    "Tj" if font_active => {
-                        let gid_stream = operands[0]
-                            .as_str()
-                            .expect("PDF Command 'Tj' not followed by String operand");
-                        for b in gid_stream.chunks_exact(2) {
-                            let gid = b[1] as u16 | ((b[0] as u16) << 8);
-                            used_glyphs.insert(gid);
-                        }
-                    }
-                    "TJ" if font_active => {
-                        let text_sections = operands[0]
-                            .as_array()
-                            .expect("PDF Command 'TJ' not followed by Array operand")
-                            .into_iter()
-                            .filter_map(|obj| obj.as_str().ok());
-
-                        for gid_stream in text_sections {
-                            for b in gid_stream.chunks_exact(2) {
-                                let gid = b[1] as u16 | ((b[0] as u16) << 8);
-                                used_glyphs.insert(gid);
-                            }
-                        }
-                    }
-                    _ => (),
-                }
-            }
+        enum CharsOrCodepoint {
+            Chars(String),
+            Cp(Vec<(u16, char)>),
         }
 
-        used_glyphs
+        let chars_or_codepoints = pages.iter().flat_map(|p| {
+            p.ops.iter().filter_map(|s| match s {
+                Op::WriteText { font, text} => 
+                    if font_id == font { Some(CharsOrCodepoint::Chars(text.clone())) } else { None },
+                Op::WriteCodepoints { font, cp} => 
+                    if font_id == font { Some(CharsOrCodepoint::Cp(cp.clone())) } else { None },
+                Op::WriteCodepointsWithKerning { font, cpk} => 
+                    if font_id == font { Some(CharsOrCodepoint::Cp(cpk.iter().map(|s| (s.1, s.2)).collect())) } else { None },
+                _ => None,
+            })
+        }).collect::<Vec<_>>();
+
+        if chars_or_codepoints.is_empty() {
+            return BTreeMap::new(); // font added, but never used
+        }
+
+        let mut chars_to_resolve = chars_or_codepoints.iter().flat_map(|s| match s {
+            CharsOrCodepoint::Chars(c) => c.chars().collect(),
+            _ => Vec::new(),
+        }).collect::<BTreeSet<_>>();
+
+        /* 
+        chars_to_resolve.extend(DEFAULT_ALPHABET.iter().flat_map(|line| {
+            line.chars().skip_while(|c| char::is_whitespace(*c))
+        }));
+        */
+
+        let mut map = chars_to_resolve.iter()
+        .filter_map(|c| self.lookup_glyph_index(*c as u32).map(|f| (f, *c)))
+        .collect::<BTreeMap<_, _>>();
+
+        map.extend(chars_or_codepoints.iter().flat_map(|s| match s {
+            CharsOrCodepoint::Cp(c) => c.clone(),
+            _ => Vec::new(),
+        }));
+
+        if let Some(sp) = self.lookup_glyph_index(' ' as u32) { 
+            map.insert(sp, ' ');
+        }
+
+        map
     }
 
-    /// Iterate through all layers of the provided pages and replace the Glyph ID according to the
-    /// mapping
-    #[cfg(feature = "font_subsetting")]
-    fn replace_glyphs(&self, pages: &mut [PdfPage], gid_mapping: &HashMap<u16, u16>) {
-        // TODO: This is almost the same code as `find_used_glyphs`. Somehow reduce redundancy
-        let layers = pages
-            .iter_mut()
-            .map(|page| page.layers.iter_mut())
-            .flatten();
-        for layer in layers {
-            let operations = layer
-                .operations
-                .iter_mut()
-                .map(|op| (&mut op.operator, &mut op.operands));
+    /// Generates a new font file from the used glyph IDs
+    pub(crate) fn subset(&self, glyph_ids: &BTreeMap<u16, char>) -> Result<Vec<u8>, String> {
 
-            let mut font_active = false;
+        let scope = ReadScope::new(&self.original_bytes);
+        
+        let font_file = scope.read::<FontData<'_>>()
+        .map_err(|e| e.to_string())?;
+        
+        let provider = font_file.table_provider(self.original_index)
+        .map_err(|e| e.to_string())?;
 
-            for (operator, operands) in operations {
-                match operator.as_str() {
-                    "Tf" => {
-                        let font_name = operands[0]
-                            .as_name_str()
-                            .expect("PDF Command 'Tf' not followed by Name operand");
-                        font_active = font_name == &self.face_name;
-                    }
-                    "Tj" if font_active => {
-                        let gid_stream = operands[0]
-                            .as_str_mut()
-                            .expect("PDF Command 'Tj' not followed by String operand");
-                        for b in gid_stream.chunks_exact_mut(2) {
-                            let gid = b[1] as u16 | ((b[0] as u16) << 8);
-
-                            let new_gid = gid_mapping.get(&gid).unwrap_or(&0);
-                            b[0] = (new_gid >> 8) as u8;
-                            b[1] = (new_gid & 0xff) as u8;
-                        }
-                    }
-                    "TJ" if font_active => {
-                        let text_sections = operands[0]
-                            .as_array_mut()
-                            .expect("PDF Command 'TJ' not followed by Array operand")
-                            .into_iter()
-                            .filter_map(|obj| obj.as_str_mut().ok());
-
-                        for gid_stream in text_sections {
-                            for b in gid_stream.chunks_exact_mut(2) {
-                                let gid = b[1] as u16 | ((b[0] as u16) << 8);
-
-                                let new_gid = gid_mapping.get(&gid).unwrap_or(&0);
-                                b[0] = (new_gid >> 8) as u8;
-                                b[1] = (new_gid & 0xff) as u8;
-                            }
-                        }
-                    }
-                    _ => (),
-                }
-            }
-        }
+        allsorts::subset::subset(
+            &provider, 
+            &glyph_ids.keys().copied().collect::<Vec<_>>()
+        ).map_err(|e| e.to_string())
     }
 
-    /// Takes the font and adds it to the document and consumes the font.
-    ///
-    /// Returns None if the font doesn't need to be embedded
-    pub(crate) fn into_with_document(
-        self,
-        doc: &mut lopdf::Document,
-        _pages: &mut [PdfPage],
-    ) -> Option<LoDictionary> {
-        use lopdf::Object;
-        use lopdf::Object::*;
+    pub(crate) fn generate_cid_to_unicode_map(&self, font_id: &FontId, glyph_ids: &BTreeMap<u16, char>) -> String {
 
-        let face_name = self.face_name.clone();
-
-        let font_data;
-        let font_bytes;
-
-        #[cfg(feature = "font_subsetting")]
-        {
-            if *self.allow_subsetting.borrow() {
-                let mut used_glyphs = self.find_used_glyphs(_pages);
-                // Don't include font if none of its glyphs are utilized
-                if used_glyphs.is_empty() {
-                    return None;
-                }
-
-                // TODO: This is ugly and will silently fall back to no subsetting on errors
-                match crate::subsetting::subset(&self.font_bytes, &mut used_glyphs) {
-                    Ok(font_subset) => {
-                        match TtfFace::from_vec(font_subset.new_font_bytes.clone()) {
-                            Ok(face) => {
-                                let font: Box<dyn FontData> = Box::new(face);
-
-                                self.replace_glyphs(_pages, &font_subset.gid_mapping);
-
-                                font_data = font;
-                                font_bytes = font_subset.new_font_bytes;
-                            }
-                            Err(_) => {
-                                font_data = self.font_data;
-                                font_bytes = self.font_bytes;
-                            }
-                        }
-                    }
-                    Err(_) => {
-                        font_data = self.font_data;
-                        font_bytes = self.font_bytes;
-                    }
-                }
-            } else {
-                font_data = self.font_data;
-                font_bytes = self.font_bytes;
-            }
-        }
-
-        #[cfg(not(feature = "font_subsetting"))]
-        {
-            font_data = self.font_data;
-            font_bytes = self.font_bytes;
-        }
-
-        // Extract basic font information
-        let face_metrics = font_data.font_metrics();
-
-        let font_stream = LoStream::new(
-            LoDictionary::from_iter(vec![("Length1", Integer(font_bytes.len() as i64))]),
-            font_bytes,
-        )
-        .with_compression(false); /* important! font stream must not be compressed! */
-
-        // Begin setting required font attributes
-        let mut font_vec: Vec<(::std::string::String, Object)> = vec![
-            ("Type".into(), Name("Font".into())),
-            ("Subtype".into(), Name("Type0".into())),
-            ("BaseFont".into(), Name(face_name.clone().into_bytes())),
-            // Identity-H for horizontal writing, Identity-V for vertical writing
-            ("Encoding".into(), Name("Identity-H".into())),
-            // Missing DescendantFonts and ToUnicode
-        ];
-
-        let mut font_descriptor_vec: Vec<(::std::string::String, Object)> = vec![
-            ("Type".into(), Name("FontDescriptor".into())),
-            ("FontName".into(), Name(face_name.clone().into_bytes())),
-            ("Ascent".into(), Integer(i64::from(face_metrics.ascent))),
-            ("Descent".into(), Integer(i64::from(face_metrics.descent))),
-            ("CapHeight".into(), Integer(i64::from(face_metrics.ascent))),
-            ("ItalicAngle".into(), Integer(0)),
-            ("Flags".into(), Integer(32)),
-            ("StemV".into(), Integer(80)),
-        ];
-
-        // End setting required font arguments
-
-        // Maximum height of a single character in the font
-        let mut max_height = 0;
-        // Total width of all characters
-        let mut total_width = 0;
-        // Widths (or heights, depends on self.vertical_writing)
-        // of the individual characters, indexed by glyph id
-        let mut widths = Vec::<(u32, u32)>::new();
-
-        // Glyph IDs - (Unicode IDs - character width, character height)
-        let mut cmap = BTreeMap::<u32, (u32, u32, u32)>::new();
-        cmap.insert(0, (0, 1000, 1000));
-
-        for (glyph_id, c) in font_data.glyph_ids() {
-            if let Some(glyph_metrics) = font_data.glyph_metrics(glyph_id) {
-                if glyph_metrics.height > max_height {
-                    max_height = glyph_metrics.height;
-                }
-
-                total_width += glyph_metrics.width;
-                cmap.insert(
-                    glyph_id as u32,
-                    (c as u32, glyph_metrics.width, glyph_metrics.height),
-                );
-            }
-        }
-
-        // Maps the character index to a unicode value - add this to the "ToUnicode" dictionary!
-        //
-        // To explain this structure: Glyph IDs have to be in segments where the first byte of the
-        // first and last element have to be the same. A range from 0x1000 - 0x10FF is valid
-        // but a range from 0x1000 - 0x12FF is not (0x10 != 0x12)
-        // Plus, the maximum number of Glyph-IDs in one range is 100
-        //
-        // Since the glyph IDs are sequential, all we really have to do is to enumerate the vector
-        // and create buckets of 100 / rest to 256 if needed
-
-        let mut cur_first_bit: u16 = 0_u16; // current first bit of the glyph id (0x10 or 0x12) for example
-
+        // current first bit of the glyph id (0x10 or 0x12) for example
+        let mut cur_first_bit: u16 = 0_u16;
         let mut all_cmap_blocks = Vec::new();
+        let mut current_cmap_block = Vec::new();
 
-        {
-            let mut current_cmap_block = Vec::new();
+        for (glyph_id, unicode) in glyph_ids.iter() {
 
-            for (glyph_id, unicode_width_tuple) in &cmap {
-                if (*glyph_id >> 8) as u16 != cur_first_bit || current_cmap_block.len() >= 100 {
-                    // end the current (beginbfchar endbfchar) block
-                    all_cmap_blocks.push(current_cmap_block.clone());
-                    current_cmap_block = Vec::new();
-                    cur_first_bit = (*glyph_id >> 8) as u16;
-                }
-
-                let (unicode, width, _) = *unicode_width_tuple;
-                current_cmap_block.push((*glyph_id, unicode));
-                widths.push((*glyph_id, width));
+            // end the current (beginbfchar endbfchar) block if necessary
+            if (*glyph_id >> 8) as u16 != cur_first_bit || current_cmap_block.len() >= 100 {
+                all_cmap_blocks.push(current_cmap_block.clone());
+                current_cmap_block = Vec::new();
+                cur_first_bit = (*glyph_id >> 8) as u16;
             }
 
-            all_cmap_blocks.push(current_cmap_block);
+            current_cmap_block.push((*glyph_id, *unicode as u32));
         }
 
-        let cid_to_unicode_map = generate_cid_to_unicode_map(face_name.clone(), all_cmap_blocks);
+        all_cmap_blocks.push(current_cmap_block);
 
-        let cid_to_unicode_map_stream =
-            LoStream::new(LoDictionary::new(), cid_to_unicode_map.as_bytes().to_vec());
-        let cid_to_unicode_map_stream_id = doc.add_object(cid_to_unicode_map_stream);
+        generate_cid_to_unicode_map(font_id.0.clone(), all_cmap_blocks)
+    }
 
-        // encode widths / heights so that they fit into what PDF expects
-        // see page 439 in the PDF 1.7 reference
-        // basically widths_list will contain objects like this:
-        // 20 [21, 99, 34, 25]
-        // which means that the character with the GID 20 has a width of 21 units
-        // and the character with the GID 21 has a width of 99 units
-        let mut widths_list = Vec::<Object>::new();
+    pub(crate) fn get_normalized_widths(&self, glyph_ids: &BTreeMap<u16, char>) -> Vec<lopdf::Object> {
+
+        let mut widths_list = Vec::new();
         let mut current_low_gid = 0;
         let mut current_high_gid = 0;
-        let mut current_width_vec = Vec::<Object>::new();
+        let mut current_width_vec = Vec::new();
 
         // scale the font width so that it sort-of fits into an 1000 unit square
-        let percentage_font_scaling = 1000.0 / (face_metrics.units_per_em as f32);
+        let percentage_font_scaling = 1000.0 / (self.font_metrics.units_per_em as f32);
 
-        for gid in 0..font_data.glyph_count() {
-            if let Some(GlyphMetrics { width, .. }) = font_data.glyph_metrics(gid) {
-                if gid == current_high_gid {
-                    current_width_vec
-                        .push(Integer((width as f32 * percentage_font_scaling) as i64));
-                    current_high_gid += 1;
-                } else {
-                    widths_list.push(Integer(current_low_gid as i64));
-                    widths_list.push(Array(current_width_vec.drain(..).collect()));
+        for gid in glyph_ids.keys() {
+            let (width, _) = match self.get_glyph_size(*gid) {
+                Some(s) => s,
+                None => continue,
+            };
 
-                    current_width_vec
-                        .push(Integer((width as f32 * percentage_font_scaling) as i64));
-                    current_low_gid = gid;
-                    current_high_gid = gid + 1;
-                }
-            } else {
-                continue;
+            if *gid == current_high_gid { // subsequent GID
+                current_width_vec
+                    .push(Integer((width as f32 * percentage_font_scaling) as i64));
+                current_high_gid += 1;
+            } else { // non-subsequent GID
+                widths_list.push(Integer(current_low_gid as i64));
+                widths_list.push(Array(current_width_vec.drain(..).collect()));
+
+                current_width_vec
+                    .push(Integer((width as f32 * percentage_font_scaling) as i64));
+                current_low_gid = *gid;
+                current_high_gid = gid + 1;
             }
         }
+
         // push the last widths, because the loop is delayed by one iteration
         widths_list.push(Integer(current_low_gid as i64));
         widths_list.push(Array(current_width_vec.drain(..).collect()));
+        
+        widths_list
+        /*
+        let mut cmap = glyph_ids.iter()
+        .filter_map(|(glyph_id, c)| {
+            let (glyph_width, glyph_height) = self.get_glyph_size(*glyph_id)?;
+            let k = *glyph_id as u32;
+            let v = (*c as u32, glyph_width.abs() as u32, glyph_height.abs() as u32);
+            Some((k, v))
+        }).collect::<BTreeMap<_, _>>();
+        
+        cmap.insert(0, (0, 1000, 1000));
 
-        let w = {
-            if self.vertical_writing {
-                ("W2", Array(widths_list))
-            } else {
-                ("W", Array(widths_list))
+        widths.push((*glyph_id, width));
+        */
+
+    }
+
+    /// Returns the maximum height in UNSCALED units of the used glyph IDs
+    pub(crate) fn get_max_height(&self, glyph_ids: &BTreeMap<u16, char>) -> i64 {
+        let mut max_height = 0;
+        for (glyph_id, _) in glyph_ids.iter() {
+            if let Some((_, glyph_height)) = self.get_glyph_size(*glyph_id) {
+                max_height = max_height.max(glyph_height as i64);
             }
-        };
+        }
+        max_height
+    }
 
-        // default width for characters
-        let dw = {
-            if self.vertical_writing {
-                ("DW2", Integer(1000))
-            } else {
-                ("DW", Integer(1000))
+    /// Returns the total width in UNSCALED units of the used glyph IDs
+    pub(crate) fn get_total_width(&self, glyph_ids: &BTreeMap<u16, char>) -> i64 {
+        let mut total_width = 0;
+        for (glyph_id, _) in glyph_ids.iter() {
+            if let Some((glyph_width, _)) = self.get_glyph_size(*glyph_id) {
+                total_width += glyph_width as i64;
             }
-        };
-
-        let mut desc_fonts = LoDictionary::from_iter(vec![
-            ("Type", Name("Font".into())),
-            ("Subtype", Name("CIDFontType2".into())),
-            ("BaseFont", Name(face_name.into())),
-            (
-                "CIDSystemInfo",
-                Dictionary(LoDictionary::from_iter(vec![
-                    ("Registry", String("Adobe".into(), StringFormat::Literal)),
-                    ("Ordering", String("Identity".into(), StringFormat::Literal)),
-                    ("Supplement", Integer(0)),
-                ])),
-            ),
-            w,
-            dw,
-        ]);
-
-        let font_bbox = vec![
-            Integer(0),
-            Integer(max_height as i64),
-            Integer(total_width as i64),
-            Integer(max_height as i64),
-        ];
-        font_descriptor_vec.push(("FontFile2".into(), Reference(doc.add_object(font_stream))));
-
-        // although the following entry is technically not needed, Adobe Reader needs it
-        font_descriptor_vec.push(("FontBBox".into(), Array(font_bbox)));
-
-        let font_descriptor_vec_id = doc.add_object(LoDictionary::from_iter(font_descriptor_vec));
-
-        desc_fonts.set("FontDescriptor", Reference(font_descriptor_vec_id));
-
-        font_vec.push((
-            "DescendantFonts".into(),
-            Array(vec![Dictionary(desc_fonts)]),
-        ));
-        font_vec.push(("ToUnicode".into(), Reference(cid_to_unicode_map_stream_id)));
-
-        Some(LoDictionary::from_iter(font_vec))
+        }
+        total_width
     }
 }
 
-type GlyphId = u32;
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C, u8)]
+pub enum GlyphOutlineOperation {
+    MoveTo(OutlineMoveTo),
+    LineTo(OutlineLineTo),
+    QuadraticCurveTo(OutlineQuadTo),
+    CubicCurveTo(OutlineCubicTo),
+    ClosePath,
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct OutlineMoveTo {
+    pub x: f32,
+    pub y: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct OutlineLineTo {
+    pub x: f32,
+    pub y: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct OutlineQuadTo {
+    pub ctrl_1_x: f32,
+    pub ctrl_1_y: f32,
+    pub end_x: f32,
+    pub end_y: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct OutlineCubicTo {
+    pub ctrl_1_x: f32,
+    pub ctrl_1_y: f32,
+    pub ctrl_2_x: f32,
+    pub ctrl_2_y: f32,
+    pub end_x: f32,
+    pub end_y: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub struct GlyphOutline {
+    pub operations: Vec<GlyphOutlineOperation>,
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+struct GlyphOutlineBuilder {
+    operations: Vec<GlyphOutlineOperation>
+}
+
+impl Default for GlyphOutlineBuilder {
+    fn default() -> Self {
+        GlyphOutlineBuilder { operations: Vec::new() }
+    }
+}
+
+/*
+impl ttf_parser::OutlineBuilder for GlyphOutlineBuilder {
+    fn move_to(&mut self, x: f32, y: f32) { self.operations.push(GlyphOutlineOperation::MoveTo(OutlineMoveTo { x, y })); }
+    fn line_to(&mut self, x: f32, y: f32) { self.operations.push(GlyphOutlineOperation::LineTo(OutlineLineTo { x, y })); }
+    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) { self.operations.push(GlyphOutlineOperation::QuadraticCurveTo(OutlineQuadTo { ctrl_1_x: x1, ctrl_1_y: y1, end_x: x, end_y: y })); }
+    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) { self.operations.push(GlyphOutlineOperation::CubicCurveTo(OutlineCubicTo { ctrl_1_x: x1, ctrl_1_y: y1, ctrl_2_x: x2, ctrl_2_y: y2, end_x: x, end_y: y })); }
+    fn close(&mut self) { self.operations.push(GlyphOutlineOperation::ClosePath); }
+}
+*/
+
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct OwnedGlyphBoundingBox {
+    pub max_x: i16,
+    pub max_y: i16,
+    pub min_x: i16,
+    pub min_y: i16,
+}
+
+#[derive(Debug, Clone)]
+pub struct OwnedGlyph {
+    pub bounding_box: OwnedGlyphBoundingBox,
+    pub horz_advance: u16,
+    pub outline: Option<GlyphOutline>,
+}
+
+impl OwnedGlyph {
+    fn from_glyph_data<'a>(glyph: &Glyph<'a>, horz_advance: u16) -> Option<Self> {
+        let bbox = glyph.bounding_box()?;
+        Some(Self {
+            bounding_box: OwnedGlyphBoundingBox {
+                max_x: bbox.x_max,
+                max_y: bbox.y_max,
+                min_x: bbox.x_min,
+                min_y: bbox.y_min,
+            },
+            horz_advance,
+            outline: None,
+        })
+    }
+}
+
+impl ParsedFont {
+
+    pub fn from_bytes(font_bytes: &[u8], font_index: usize) -> Option<Self> {
+
+        use allsorts::tag;
+
+        let scope = ReadScope::new(font_bytes);
+        let font_file = scope.read::<FontData<'_>>().ok()?;
+        let provider = font_file.table_provider(font_index).ok()?;
+
+        let head_table = provider
+        .table_data(tag::HEAD).ok()
+        .and_then(|head_data| {
+            ReadScope::new(&head_data?)
+            .read::<HeadTable>().ok()
+        });
+
+        let maxp_table = provider
+        .table_data(tag::MAXP).ok()
+        .and_then(|maxp_data| {
+            ReadScope::new(&maxp_data?)
+            .read::<MaxpTable>().ok()
+        }).unwrap_or(MaxpTable { num_glyphs: 0, version1_sub_table: None });
+
+        let index_to_loc = head_table.map(|s| s.index_to_loc_format).unwrap_or(IndexToLocFormat::Long);
+        let num_glyphs = maxp_table.num_glyphs as usize;
+
+        let loca_table = provider.table_data(tag::LOCA).ok();
+        let loca_table = loca_table.as_ref()
+        .and_then(|loca_data| {
+            ReadScope::new(&loca_data.as_ref()?)
+            .read_dep::<LocaTable<'_>>((num_glyphs, index_to_loc)).ok()
+        }).unwrap_or(LocaTable {
+            offsets: LocaOffsets::Long(ReadArray::empty())
+        });
+
+        let glyf_table = provider.table_data(tag::GLYF).ok();
+        let mut glyf_table = glyf_table.as_ref()
+        .and_then(|glyf_data| {
+            ReadScope::new(&glyf_data.as_ref()?).read_dep::<GlyfTable<'_>>(&loca_table).ok()
+        }).unwrap_or(GlyfTable::new(Vec::new()).unwrap());
+
+        let hmtx_data = provider
+        .table_data(tag::HMTX).ok()
+        .and_then(|s| Some(s?.into_owned()))
+        .unwrap_or_default();
+
+        let hhea_table = provider.table_data(tag::HHEA).ok()
+        .and_then(|hhea_data| {
+            ReadScope::new(&hhea_data?).read::<HheaTable>().ok()
+        }).unwrap_or(unsafe { std::mem::zeroed() });
+
+        let font_metrics = FontMetrics::from_bytes(font_bytes, font_index);
+
+        // not parsing glyph outlines can save lots of memory
+        let glyph_records_decoded = glyf_table.records_mut()
+            .into_iter()
+            .enumerate()
+            .filter_map(|(glyph_index, glyph_record)| {
+                if glyph_index > (u16::MAX as usize) {
+                    return None;
+                }
+                glyph_record.parse().ok()?;
+                let glyph_index = glyph_index as u16;
+                let horz_advance = allsorts::glyph_info::advance(
+                    &maxp_table,
+                    &hhea_table,
+                    &hmtx_data,
+                    glyph_index
+                ).unwrap_or_default();
+
+                match glyph_record {
+                    GlyfRecord::Present { .. } => None,
+                    GlyfRecord::Parsed(g) => OwnedGlyph::from_glyph_data(g, horz_advance)
+                        .map(|s| (glyph_index, s)),
+                }
+            }).collect::<Vec<_>>();
+
+        let glyph_records_decoded = glyph_records_decoded.into_iter().collect();
+
+        let mut font_data_impl = allsorts::font::Font::new(provider).ok()?;
+
+        // required for font layout: gsub_cache, gpos_cache and gdef_table
+        let gsub_cache = font_data_impl.gsub_cache().ok().and_then(|s| s);
+        let gpos_cache = font_data_impl.gpos_cache().ok().and_then(|s| s);
+        let opt_gdef_table = font_data_impl.gdef_table().ok().and_then(|o| o);
+        let num_glyphs = font_data_impl.num_glyphs();
+
+        let cmap_subtable = ReadScope::new(font_data_impl.cmap_subtable_data());
+        let cmap_subtable = cmap_subtable.read::<CmapSubtable<'_>>().ok().and_then(|s| s.to_owned());
+
+        let mut font = ParsedFont {
+            font_metrics,
+            num_glyphs,
+            hhea_table,
+            hmtx_data,
+            maxp_table,
+            gsub_cache,
+            gpos_cache,
+            opt_gdef_table,
+            cmap_subtable,
+            glyph_records_decoded,
+            original_bytes: font_bytes.to_vec(),
+            original_index: font_index,
+            space_width: None,
+        };
+
+        let space_width = font.get_space_width_internal();
+        font.space_width = space_width;
+
+        Some(font)
+    }
+
+    fn get_space_width_internal(&mut self) -> Option<usize> {
+        let glyph_index = self.lookup_glyph_index(' ' as u32)?;
+        allsorts::glyph_info::advance(&self.maxp_table, &self.hhea_table, &self.hmtx_data, glyph_index).ok().map(|s| s as usize)
+    }
+
+    /// Returns the width of the space " " character (unscaled units)
+    #[inline]
+    pub const fn get_space_width(&self) -> Option<usize> {
+        self.space_width
+    }
+
+    /// Get the horizontal advance of a glyph index (unscaled units)
+    pub fn get_horizontal_advance(&self, glyph_index: u16) -> u16 {
+        self.glyph_records_decoded.get(&glyph_index).map(|gi| gi.horz_advance).unwrap_or_default()
+    }
+
+    // get the x and y size of a glyph (unscaled units)
+    pub fn get_glyph_size(&self, glyph_index: u16) -> Option<(i32, i32)> {
+        let g = self.glyph_records_decoded.get(&glyph_index)?;
+        let glyph_width = g.bounding_box.max_x as i32 - g.bounding_box.min_x as i32; // width
+        let glyph_height = g.bounding_box.max_y as i32 - g.bounding_box.min_y as i32; // height
+        Some((glyph_width, glyph_height))
+    }
+
+    pub fn lookup_glyph_index(&self, c: u32) -> Option<u16> {
+        match self.cmap_subtable.as_ref()?.map_glyph(c) {
+            Ok(Some(c)) => Some(c),
+            _ => None,
+        }
+    }
+}
+
+type GlyphId = u16;
 type UnicodeCodePoint = u32;
 type CmapBlock = Vec<(GlyphId, UnicodeCodePoint)>;
 
 /// Generates a CMAP (character map) from valid cmap blocks
 fn generate_cid_to_unicode_map(face_name: String, all_cmap_blocks: Vec<CmapBlock>) -> String {
     let mut cid_to_unicode_map =
-        format!(include_str!("../assets/gid_to_unicode_beg.txt"), face_name);
+        format!(include_str!("./gid_to_unicode_beg.txt"), face_name);
 
     for cmap_block in all_cmap_blocks
         .into_iter()
@@ -567,251 +580,476 @@ fn generate_cid_to_unicode_map(face_name: String, all_cmap_blocks: Vec<CmapBlock
         cid_to_unicode_map.push_str("endbfchar\r\n");
     }
 
-    cid_to_unicode_map.push_str(include_str!("../assets/gid_to_unicode_end.txt"));
+    cid_to_unicode_map.push_str(include_str!("./gid_to_unicode_end.txt"));
     cid_to_unicode_map
 }
 
-impl PartialEq for ExternalFont {
-    /// Two fonts are equal if their names are equal, the contents aren't checked
-    fn eq(&self, other: &ExternalFont) -> bool {
-        self.face_name == other.face_name
-    }
-}
-
-/// Indexed reference to a font that was added to the document
-/// This is a "reference by postscript name"
-#[derive(Debug, Hash, Eq, Ord, Clone, PartialEq, PartialOrd)]
-pub struct IndirectFontRef {
-    /// Name of the font (postscript name)
-    pub(crate) name: String,
-}
-
-/// Direct reference (wrapper for `lopdf::Object::Reference`)
-/// for increased type safety
-#[derive(Debug, Clone)]
-pub struct DirectFontRef {
-    /// Reference to the content in the document stream
-    pub(crate) inner_obj: lopdf::ObjectId,
-    /// Actual font data
-    pub(crate) data: Font,
-}
-
-impl IndirectFontRef {
-    /// Creates a new IndirectFontRef from an index
-    pub fn new<S>(name: S) -> Self
-    where
-        S: Into<String>,
-    {
-        Self { name: name.into() }
-    }
-}
-
-/// Font list for tracking fonts within a single PDF document
-#[derive(Default, Debug, Clone)]
-pub struct FontList {
-    fonts: BTreeMap<IndirectFontRef, DirectFontRef>,
-}
-
-impl FontList {
-    /// Creates a new FontList
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Adds a font to the FontList
-    pub fn add_font(&mut self, font_ref: IndirectFontRef, font: DirectFontRef) -> IndirectFontRef {
-        self.fonts.insert(font_ref.clone(), font);
-        font_ref
-    }
-
-    /// Turns an indirect font reference into a direct one
-    /// (Warning): clones the direct font reference
-    #[inline]
-    pub fn get_font(&self, font: &IndirectFontRef) -> Option<DirectFontRef> {
-        self.fonts.get(font).cloned()
-    }
-
-    /// Returns the number of fonts currenly in use
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.fonts.len()
-    }
-
-    /// Returns if the font list is empty
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.fonts.is_empty()
-    }
-
-    /// Converts the fonts into a dictionary
-    pub(crate) fn into_with_document(
-        self,
-        doc: &mut lopdf::Document,
-        pages: &mut [PdfPage],
-    ) -> lopdf::Dictionary {
-        let mut font_dict = lopdf::Dictionary::new();
-
-        for (indirect_ref, direct_font_ref) in self.fonts {
-            let font_dict_collected = match direct_font_ref.data {
-                Font::ExternalFont(font) => match font.into_with_document(doc, pages) {
-                    Some(dict) => dict,
-                    None => continue,
-                },
-                Font::BuiltinFont(font) => font.into(),
-            };
-
-            doc.objects.insert(
-                direct_font_ref.inner_obj,
-                lopdf::Object::Dictionary(font_dict_collected),
-            );
-            font_dict.set(
-                indirect_ref.name,
-                lopdf::Object::Reference(direct_font_ref.inner_obj),
-            );
-        }
-
-        font_dict
-    }
-}
-
-/// The unscaled base metrics for a font provided by a [`FontData`](trait.FontData.html)
-/// implementation.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct FontMetrics {
-    /// The ascent of the font.
-    pub ascent: i16,
-    /// The descent of the font.
-    pub descent: i16,
-    /// The units per em square for this font.
+    // head table
     pub units_per_em: u16,
+    pub font_flags: u16,
+    pub x_min: i16,
+    pub y_min: i16,
+    pub x_max: i16,
+    pub y_max: i16,
+
+    // hhea table
+    pub ascender: i16,
+    pub descender: i16,
+    pub line_gap: i16,
+    pub advance_width_max: u16,
+    pub min_left_side_bearing: i16,
+    pub min_right_side_bearing: i16,
+    pub x_max_extent: i16,
+    pub caret_slope_rise: i16,
+    pub caret_slope_run: i16,
+    pub caret_offset: i16,
+    pub num_h_metrics: u16,
+
+    // os/2 table
+    pub x_avg_char_width: i16,
+    pub us_weight_class: u16,
+    pub us_width_class: u16,
+    pub fs_type: u16,
+    pub y_subscript_x_size: i16,
+    pub y_subscript_y_size: i16,
+    pub y_subscript_x_offset: i16,
+    pub y_subscript_y_offset: i16,
+    pub y_superscript_x_size: i16,
+    pub y_superscript_y_size: i16,
+    pub y_superscript_x_offset: i16,
+    pub y_superscript_y_offset: i16,
+    pub y_strikeout_size: i16,
+    pub y_strikeout_position: i16,
+    pub s_family_class: i16,
+    pub panose: [u8; 10],
+    pub ul_unicode_range1: u32,
+    pub ul_unicode_range2: u32,
+    pub ul_unicode_range3: u32,
+    pub ul_unicode_range4: u32,
+    pub ach_vend_id: u32,
+    pub fs_selection: u16,
+    pub us_first_char_index: u16,
+    pub us_last_char_index: u16,
+
+    // os/2 version 0 table
+    pub s_typo_ascender: Option<i16>,
+    pub s_typo_descender: Option<i16>,
+    pub s_typo_line_gap: Option<i16>,
+    pub us_win_ascent: Option<u16>,
+    pub us_win_descent: Option<u16>,
+
+    // os/2 version 1 table
+    pub ul_code_page_range1: Option<u32>,
+    pub ul_code_page_range2: Option<u32>,
+
+    // os/2 version 2 table
+    pub sx_height: Option<i16>,
+    pub s_cap_height: Option<i16>,
+    pub us_default_char: Option<u16>,
+    pub us_break_char: Option<u16>,
+    pub us_max_context: Option<u16>,
+
+    // os/2 version 3 table
+    pub us_lower_optical_point_size: Option<u16>,
+    pub us_upper_optical_point_size: Option<u16>,
 }
 
-/// The metrics for a glyph provided by a [`FontData`](trait.FontData.html) implementation.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct GlyphMetrics {
-    /// The width of the glyph, typically the horizontal advance.
-    pub width: u32,
-    /// The height of the glyph, typically the difference between the ascent and the descent.
-    pub height: u32,
-}
-
-/// Provides access to font metrics.
-///
-/// Per default, printpdf uses [`owned_ttf_parser`][] to extract the font data.  You can implement
-/// this trait for other types if you want to use a different font backend.
-///
-/// [`owned_ttf_parser`]: https://docs.rs/owned_ttf_parser/latest/owned_ttf_parser/
-pub trait FontData: FontDataClone + std::fmt::Debug {
-    /// Returns the unscaled metrics for this font.
-    fn font_metrics(&self) -> FontMetrics;
-
-    /// Returns the glyph id for a Unicode character if it is present in this font.
-    fn glyph_id(&self, c: char) -> Option<u16>;
-
-    /// Returns a mapping from glyph IDs to Unicode characters for all supported characters.
-    fn glyph_ids(&self) -> HashMap<u16, char>;
-
-    /// Returns the number of glyphs in this font.
-    fn glyph_count(&self) -> u16;
-
-    /// Returns the glyph metrics for a glyph of this font, if available.
-    fn glyph_metrics(&self, glyph_id: u16) -> Option<GlyphMetrics>;
-}
-
-/// Wrapper struct for `owned_ttf_parser::OwnedFace` that implements `Clone` and that makes sure
-/// that the font is scalable.
-#[derive(Clone, Debug)]
-struct TtfFace {
-    inner: std::sync::Arc<OwnedFace>,
-    units_per_em: u16,
-}
-
-impl TtfFace {
-    pub fn from_vec(v: Vec<u8>) -> Result<Self, Error> {
-        let face = OwnedFace::from_vec(v, 0)?;
-        let units_per_em = face.as_face_ref().units_per_em();
-        Ok(Self {
-            inner: std::sync::Arc::new(face),
-            units_per_em,
-        })
+impl Default for FontMetrics {
+    fn default() -> Self {
+        FontMetrics::zero()
     }
-
-    fn face(&self) -> &Face<'_> {
-        self.inner.as_face_ref()
-    }
 }
 
-impl FontData for TtfFace {
-    fn font_metrics(&self) -> FontMetrics {
+impl FontMetrics {
+
+    /// Only for testing, zero-sized font, will always return 0 for every metric (`units_per_em = 1000`)
+    pub const fn zero() -> Self {
         FontMetrics {
-            ascent: self.face().ascender(),
-            descent: self.face().descender(),
-            units_per_em: self.units_per_em,
+            units_per_em: 1000,
+            font_flags: 0,
+            x_min: 0,
+            y_min: 0,
+            x_max: 0,
+            y_max: 0,
+            ascender: 0,
+            descender: 0,
+            line_gap: 0,
+            advance_width_max: 0,
+            min_left_side_bearing: 0,
+            min_right_side_bearing: 0,
+            x_max_extent: 0,
+            caret_slope_rise: 0,
+            caret_slope_run: 0,
+            caret_offset: 0,
+            num_h_metrics: 0,
+            x_avg_char_width: 0,
+            us_weight_class: 0,
+            us_width_class: 0,
+            fs_type: 0,
+            y_subscript_x_size: 0,
+            y_subscript_y_size: 0,
+            y_subscript_x_offset: 0,
+            y_subscript_y_offset: 0,
+            y_superscript_x_size: 0,
+            y_superscript_y_size: 0,
+            y_superscript_x_offset: 0,
+            y_superscript_y_offset: 0,
+            y_strikeout_size: 0,
+            y_strikeout_position: 0,
+            s_family_class: 0,
+            panose: [0; 10],
+            ul_unicode_range1: 0,
+            ul_unicode_range2: 0,
+            ul_unicode_range3: 0,
+            ul_unicode_range4: 0,
+            ach_vend_id: 0,
+            fs_selection: 0,
+            us_first_char_index: 0,
+            us_last_char_index: 0,
+            s_typo_ascender: None,
+            s_typo_descender: None,
+            s_typo_line_gap: None,
+            us_win_ascent: None,
+            us_win_descent: None,
+            ul_code_page_range1: None,
+            ul_code_page_range2: None,
+            sx_height: None,
+            s_cap_height: None,
+            us_default_char: None,
+            us_break_char: None,
+            us_max_context: None,
+            us_lower_optical_point_size: None,
+            us_upper_optical_point_size: None,
         }
     }
 
-    fn glyph_id(&self, c: char) -> Option<u16> {
-        self.face().glyph_index(c).map(|id| id.0)
-    }
+    /// Parses `FontMetrics` from a font
+    pub fn from_bytes(font_bytes: &[u8], font_index: usize) -> Self {
 
-    fn glyph_ids(&self) -> HashMap<u16, char> {
-        let subtables = self
-            .face()
-            .tables()
-            .cmap
-            .map(|cmap| cmap.subtables.into_iter().filter(|v| v.is_unicode()));
-        let Some(subtables) = subtables else {
-            return HashMap::new();
+        #[derive(Default)]
+        struct Os2Info {
+            x_avg_char_width: i16,
+            us_weight_class: u16,
+            us_width_class: u16,
+            fs_type: u16,
+            y_subscript_x_size: i16,
+            y_subscript_y_size: i16,
+            y_subscript_x_offset: i16,
+            y_subscript_y_offset: i16,
+            y_superscript_x_size: i16,
+            y_superscript_y_size: i16,
+            y_superscript_x_offset: i16,
+            y_superscript_y_offset: i16,
+            y_strikeout_size: i16,
+            y_strikeout_position: i16,
+            s_family_class: i16,
+            panose: [u8; 10],
+            ul_unicode_range1: u32,
+            ul_unicode_range2: u32,
+            ul_unicode_range3: u32,
+            ul_unicode_range4: u32,
+            ach_vend_id: u32,
+            fs_selection: u16,
+            us_first_char_index: u16,
+            us_last_char_index: u16,
+            s_typo_ascender: Option<i16>,
+            s_typo_descender: Option<i16>,
+            s_typo_line_gap: Option<i16>,
+            us_win_ascent: Option<u16>,
+            us_win_descent: Option<u16>,
+            ul_code_page_range1: Option<u32>,
+            ul_code_page_range2: Option<u32>,
+            sx_height: Option<i16>,
+            s_cap_height: Option<i16>,
+            us_default_char: Option<u16>,
+            us_break_char: Option<u16>,
+            us_max_context: Option<u16>,
+            us_lower_optical_point_size: Option<u16>,
+            us_upper_optical_point_size: Option<u16>,
+        }
+
+        let scope = ReadScope::new(font_bytes);
+        let font_file = match scope.read::<FontData<'_>>() {
+            Ok(o) => o,
+            Err(_) => return FontMetrics::default(),
         };
-        let mut map = HashMap::with_capacity(self.face().number_of_glyphs().into());
-        for subtable in subtables {
-            subtable.codepoints(|c| {
-                use std::convert::TryFrom as _;
+        let provider = match font_file.table_provider(font_index) {
+            Ok(o) => o,
+            Err(_) => return FontMetrics::default(),
+        };
+        let font = match allsorts::font::Font::new(provider).ok() {
+            Some(s) => s,
+            _ => return FontMetrics::default(),
+        };
 
-                if let Ok(ch) = char::try_from(c) {
-                    if let Some(idx) = subtable.glyph_index(c).filter(|idx| idx.0 > 0) {
-                        map.entry(idx.0).or_insert(ch);
-                    }
+        // read the HHEA table to get the metrics for horizontal layout
+        let hhea_table = &font.hhea_table;
+        let head_table = match font.head_table().ok() {
+            Some(Some(s)) => s,
+            _ => return FontMetrics::default(),
+        };
+
+        let os2_table = match font.os2_table().ok() {
+            Some(Some(s)) => {
+                Os2Info {
+                    x_avg_char_width: s.x_avg_char_width,
+                    us_weight_class: s.us_weight_class,
+                    us_width_class: s.us_width_class,
+                    fs_type: s.fs_type,
+                    y_subscript_x_size: s.y_subscript_x_size,
+                    y_subscript_y_size: s.y_subscript_y_size,
+                    y_subscript_x_offset: s.y_subscript_x_offset,
+                    y_subscript_y_offset: s.y_subscript_y_offset,
+                    y_superscript_x_size: s.y_superscript_x_size,
+                    y_superscript_y_size: s.y_superscript_y_size,
+                    y_superscript_x_offset: s.y_superscript_x_offset,
+                    y_superscript_y_offset: s.y_superscript_y_offset,
+                    y_strikeout_size: s.y_strikeout_size,
+                    y_strikeout_position: s.y_strikeout_position,
+                    s_family_class: s.s_family_class,
+                    panose: s.panose,
+                    ul_unicode_range1: s.ul_unicode_range1,
+                    ul_unicode_range2: s.ul_unicode_range2,
+                    ul_unicode_range3: s.ul_unicode_range3,
+                    ul_unicode_range4: s.ul_unicode_range4,
+                    ach_vend_id: s.ach_vend_id,
+                    fs_selection: s.fs_selection.bits(),
+                    us_first_char_index: s.us_first_char_index,
+                    us_last_char_index: s.us_last_char_index,
+
+                    s_typo_ascender: s.version0.as_ref().map(|q| q.s_typo_ascender),
+                    s_typo_descender: s.version0.as_ref().map(|q| q.s_typo_descender),
+                    s_typo_line_gap: s.version0.as_ref().map(|q| q.s_typo_line_gap),
+                    us_win_ascent: s.version0.as_ref().map(|q| q.us_win_ascent),
+                    us_win_descent: s.version0.as_ref().map(|q| q.us_win_descent),
+
+                    ul_code_page_range1: s.version1.as_ref().map(|q| q.ul_code_page_range1),
+                    ul_code_page_range2: s.version1.as_ref().map(|q| q.ul_code_page_range2),
+
+                    sx_height: s.version2to4.as_ref().map(|q| q.sx_height),
+                    s_cap_height: s.version2to4.as_ref().map(|q| q.s_cap_height),
+                    us_default_char: s.version2to4.as_ref().map(|q| q.us_default_char),
+                    us_break_char: s.version2to4.as_ref().map(|q| q.us_break_char),
+                    us_max_context: s.version2to4.as_ref().map(|q| q.us_max_context),
+
+                    us_lower_optical_point_size: s.version5.as_ref().map(|q| q.us_lower_optical_point_size),
+                    us_upper_optical_point_size: s.version5.as_ref().map(|q| q.us_upper_optical_point_size),
                 }
-            })
+            },
+            _ => Os2Info::default(),
+        };
+
+        FontMetrics {
+
+            // head table
+            units_per_em: if head_table.units_per_em == 0 {
+                1000_u16
+            } else {
+                head_table.units_per_em
+            },
+            font_flags: head_table.flags,
+            x_min: head_table.x_min,
+            y_min: head_table.y_min,
+            x_max: head_table.x_max,
+            y_max: head_table.y_max,
+
+            // hhea table
+            ascender: hhea_table.ascender,
+            descender: hhea_table.descender,
+            line_gap: hhea_table.line_gap,
+            advance_width_max: hhea_table.advance_width_max,
+            min_left_side_bearing: hhea_table.min_left_side_bearing,
+            min_right_side_bearing: hhea_table.min_right_side_bearing,
+            x_max_extent: hhea_table.x_max_extent,
+            caret_slope_rise: hhea_table.caret_slope_rise,
+            caret_slope_run: hhea_table.caret_slope_run,
+            caret_offset: hhea_table.caret_offset,
+            num_h_metrics: hhea_table.num_h_metrics,
+
+            // os/2 table
+
+            x_avg_char_width: os2_table.x_avg_char_width,
+            us_weight_class: os2_table.us_weight_class,
+            us_width_class: os2_table.us_width_class,
+            fs_type: os2_table.fs_type,
+            y_subscript_x_size: os2_table.y_subscript_x_size,
+            y_subscript_y_size: os2_table.y_subscript_y_size,
+            y_subscript_x_offset: os2_table.y_subscript_x_offset,
+            y_subscript_y_offset: os2_table.y_subscript_y_offset,
+            y_superscript_x_size: os2_table.y_superscript_x_size,
+            y_superscript_y_size: os2_table.y_superscript_y_size,
+            y_superscript_x_offset: os2_table.y_superscript_x_offset,
+            y_superscript_y_offset: os2_table.y_superscript_y_offset,
+            y_strikeout_size: os2_table.y_strikeout_size,
+            y_strikeout_position: os2_table.y_strikeout_position,
+            s_family_class: os2_table.s_family_class,
+            panose: os2_table.panose,
+            ul_unicode_range1: os2_table.ul_unicode_range1,
+            ul_unicode_range2: os2_table.ul_unicode_range2,
+            ul_unicode_range3: os2_table.ul_unicode_range3,
+            ul_unicode_range4: os2_table.ul_unicode_range4,
+            ach_vend_id: os2_table.ach_vend_id,
+            fs_selection: os2_table.fs_selection,
+            us_first_char_index: os2_table.us_first_char_index,
+            us_last_char_index: os2_table.us_last_char_index,
+            s_typo_ascender: os2_table.s_typo_ascender.into(),
+            s_typo_descender: os2_table.s_typo_descender.into(),
+            s_typo_line_gap: os2_table.s_typo_line_gap.into(),
+            us_win_ascent: os2_table.us_win_ascent.into(),
+            us_win_descent: os2_table.us_win_descent.into(),
+            ul_code_page_range1: os2_table.ul_code_page_range1.into(),
+            ul_code_page_range2: os2_table.ul_code_page_range2.into(),
+            sx_height: os2_table.sx_height.into(),
+            s_cap_height: os2_table.s_cap_height.into(),
+            us_default_char: os2_table.us_default_char.into(),
+            us_break_char: os2_table.us_break_char.into(),
+            us_max_context: os2_table.us_max_context.into(),
+            us_lower_optical_point_size: os2_table.us_lower_optical_point_size.into(),
+            us_upper_optical_point_size: os2_table.us_upper_optical_point_size.into(),
         }
-        map
     }
 
-    fn glyph_count(&self) -> u16 {
-        self.face().number_of_glyphs()
+    /// If set, use `OS/2.sTypoAscender - OS/2.sTypoDescender + OS/2.sTypoLineGap` to calculate the height
+    ///
+    /// See [`USE_TYPO_METRICS`](https://docs.microsoft.com/en-us/typography/opentype/spec/os2#fss)
+    pub fn use_typo_metrics(&self) -> bool {
+        self.fs_selection & (1 << 7) != 0
     }
 
-    fn glyph_metrics(&self, glyph_id: u16) -> Option<GlyphMetrics> {
-        let glyph_id = owned_ttf_parser::GlyphId(glyph_id);
-        if let Some(width) = self.face().glyph_hor_advance(glyph_id) {
-            let width = width as u32;
-            let height = self
-                .face()
-                .glyph_bounding_box(glyph_id)
-                .map(|bbox| bbox.y_max - bbox.y_min - self.face().descender())
-                .unwrap_or(1000) as u32;
-            Some(GlyphMetrics { width, height })
-        } else {
+    pub fn get_ascender_unscaled(&self) -> i16 {
+        let use_typo = if !self.use_typo_metrics() {
             None
+        } else {
+            self.s_typo_ascender.into()
+        };
+        match use_typo {
+            Some(s) => s,
+            None => self.ascender,
         }
     }
-}
 
-/// Helper trait for cloning boxed [`FontData`](trait.FontData.html) implementors.
-pub trait FontDataClone {
-    /// Clones this font data and returns a box with the cloned data.
-    fn clone_font_data(&self) -> Box<dyn FontData>;
-}
-
-impl<T: FontData + Clone + 'static> FontDataClone for T {
-    fn clone_font_data(&self) -> Box<dyn FontData> {
-        Box::new(self.clone())
+    /// NOTE: descender is NEGATIVE
+    pub fn get_descender_unscaled(&self) -> i16 {
+        let use_typo = if !self.use_typo_metrics() {
+            None
+        } else {
+            self.s_typo_descender.into()
+        };
+        match use_typo {
+            Some(s) => s,
+            None => self.descender,
+        }
     }
-}
 
-impl Clone for Box<dyn FontData> {
-    fn clone(&self) -> Box<dyn FontData> {
-        self.clone_font_data()
+    pub fn get_line_gap_unscaled(&self) -> i16 {
+        let use_typo = if !self.use_typo_metrics() {
+            None
+        } else {
+            self.s_typo_line_gap.into()
+        };
+        match use_typo {
+            Some(s) => s,
+            None => self.line_gap,
+        }
+    }
+
+    pub fn get_ascender(&self, target_font_size: f32) -> f32 {
+        self.get_ascender_unscaled() as f32 / self.units_per_em as f32 * target_font_size
+    }
+    pub fn get_descender(&self, target_font_size: f32) -> f32 {
+        self.get_descender_unscaled() as f32 / self.units_per_em as f32 * target_font_size
+    }
+    pub fn get_line_gap(&self, target_font_size: f32) -> f32 {
+        self.get_line_gap_unscaled() as f32 / self.units_per_em as f32 * target_font_size
+    }
+
+    pub fn get_x_min(&self, target_font_size: f32) -> f32 {
+        self.x_min as f32 / self.units_per_em as f32 * target_font_size
+    }
+    pub fn get_y_min(&self, target_font_size: f32) -> f32 {
+        self.y_min as f32 / self.units_per_em as f32 * target_font_size
+    }
+    pub fn get_x_max(&self, target_font_size: f32) -> f32 {
+        self.x_max as f32 / self.units_per_em as f32 * target_font_size
+    }
+    pub fn get_y_max(&self, target_font_size: f32) -> f32 {
+        self.y_max as f32 / self.units_per_em as f32 * target_font_size
+    }
+    pub fn get_advance_width_max(&self, target_font_size: f32) -> f32 {
+        self.advance_width_max as f32 / self.units_per_em as f32 * target_font_size
+    }
+    pub fn get_min_left_side_bearing(&self, target_font_size: f32) -> f32 {
+        self.min_left_side_bearing as f32 / self.units_per_em as f32 * target_font_size
+    }
+    pub fn get_min_right_side_bearing(&self, target_font_size: f32) -> f32 {
+        self.min_right_side_bearing as f32 / self.units_per_em as f32 * target_font_size
+    }
+    pub fn get_x_max_extent(&self, target_font_size: f32) -> f32 {
+        self.x_max_extent as f32 / self.units_per_em as f32 * target_font_size
+    }
+    pub fn get_x_avg_char_width(&self, target_font_size: f32) -> f32 {
+        self.x_avg_char_width as f32 / self.units_per_em as f32 * target_font_size
+    }
+    pub fn get_y_subscript_x_size(&self, target_font_size: f32) -> f32 {
+        self.y_subscript_x_size as f32 / self.units_per_em as f32 * target_font_size
+    }
+    pub fn get_y_subscript_y_size(&self, target_font_size: f32) -> f32 {
+        self.y_subscript_y_size as f32 / self.units_per_em as f32 * target_font_size
+    }
+    pub fn get_y_subscript_x_offset(&self, target_font_size: f32) -> f32 {
+        self.y_subscript_x_offset as f32 / self.units_per_em as f32 * target_font_size
+    }
+    pub fn get_y_subscript_y_offset(&self, target_font_size: f32) -> f32 {
+        self.y_subscript_y_offset as f32 / self.units_per_em as f32 * target_font_size
+    }
+    pub fn get_y_superscript_x_size(&self, target_font_size: f32) -> f32 {
+        self.y_superscript_x_size as f32 / self.units_per_em as f32 * target_font_size
+    }
+    pub fn get_y_superscript_y_size(&self, target_font_size: f32) -> f32 {
+        self.y_superscript_y_size as f32 / self.units_per_em as f32 * target_font_size
+    }
+    pub fn get_y_superscript_x_offset(&self, target_font_size: f32) -> f32 {
+        self.y_superscript_x_offset as f32 / self.units_per_em as f32 * target_font_size
+    }
+    pub fn get_y_superscript_y_offset(&self, target_font_size: f32) -> f32 {
+        self.y_superscript_y_offset as f32 / self.units_per_em as f32 * target_font_size
+    }
+    pub fn get_y_strikeout_size(&self, target_font_size: f32) -> f32 {
+        self.y_strikeout_size as f32 / self.units_per_em as f32 * target_font_size
+    }
+    pub fn get_y_strikeout_position(&self, target_font_size: f32) -> f32 {
+        self.y_strikeout_position as f32 / self.units_per_em as f32 * target_font_size
+    }
+
+    pub fn get_s_typo_ascender(&self, target_font_size: f32) -> Option<f32> {
+        self.s_typo_ascender
+            .map(|s| s as f32 / self.units_per_em as f32 * target_font_size)
+    }
+    pub fn get_s_typo_descender(&self, target_font_size: f32) -> Option<f32> {
+        self.s_typo_descender
+            .map(|s| s as f32 / self.units_per_em as f32 * target_font_size)
+    }
+    pub fn get_s_typo_line_gap(&self, target_font_size: f32) -> Option<f32> {
+        self.s_typo_line_gap
+            .map(|s| s as f32 / self.units_per_em as f32 * target_font_size)
+    }
+    pub fn get_us_win_ascent(&self, target_font_size: f32) -> Option<f32> {
+        self.us_win_ascent
+            .map(|s| s as f32 / self.units_per_em as f32 * target_font_size)
+    }
+    pub fn get_us_win_descent(&self, target_font_size: f32) -> Option<f32> {
+        self.us_win_descent
+            .map(|s| s as f32 / self.units_per_em as f32 * target_font_size)
+    }
+    pub fn get_sx_height(&self, target_font_size: f32) -> Option<f32> {
+        self.sx_height
+            .map(|s| s as f32 / self.units_per_em as f32 * target_font_size)
+    }
+    pub fn get_s_cap_height(&self, target_font_size: f32) -> Option<f32> {
+        self.s_cap_height
+            .map(|s| s as f32 / self.units_per_em as f32 * target_font_size)
     }
 }

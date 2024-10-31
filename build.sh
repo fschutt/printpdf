@@ -1,0 +1,1 @@
+wasm-pack build --target web --no-pack --no-typescript --release --no-default-features --features "js-sys" && python3 ./postbuild.py

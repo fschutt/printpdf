@@ -1,23 +1,11 @@
-// clippy lints when serializing PDF strings, in this case its wrong
-#![allow(clippy::string_lit_as_bytes)]
-
-#[cfg(feature = "embedded_images")]
-use crate::rgba_to_rgb;
-use crate::OffsetDateTime;
-use crate::{ColorBits, ColorSpace, CurTransMat, Px};
-
-#[cfg(feature = "embedded_images")]
-use image_crate::{ColorType, DynamicImage, GenericImageView, ImageDecoder, ImageError};
-use lopdf;
-use lopdf::Stream as LoPdfStream;
-use std::collections::HashMap;
+use crate::{color::{ColorBits, ColorSpace}, units::Pt, matrix::CurTransMat, units::Px, OffsetDateTime};
 
 /* Parent: Resources dictionary of the page */
 /// External object that gets reference outside the PDF content stream
 /// Gets constructed similar to the `ExtGState`, then inserted into the `/XObject` dictionary
 /// on the page. You can instantiate `XObjects` with the `/Do` operator. The `layer.add_xobject()`
 /// (or better yet, the `layer.add_image()`, `layer.add_form()`) methods will do this for you.
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum XObject {
     /* /Subtype /Image */
     /// Image XObject, for images
@@ -38,101 +26,21 @@ pub enum XObject {
     /// the /Resources dictionary of the page. The `XObjectRef` returned
     /// by `add_xobject()` is the unique name that can be used to invoke
     /// the `/Do` operator (by the `use_xobject`)
-    External(LoPdfStream),
+    External(ExternalXObject),
 }
 
-impl From<ImageXObject> for XObject {
-    fn from(i: ImageXObject) -> XObject {
-        XObject::Image(i)
-    }
+/// External XObject, invoked by `/Do` graphics operator
+#[derive(Debug, PartialEq, Clone)]
+pub struct ExternalXObject {
+    /// External stream of graphics operations
+    pub stream: lopdf::Stream,
+    /// Optional width
+    pub width: Option<Px>,
+    /// Optional height
+    pub height: Option<Px>,
 }
 
-impl XObject {
-    #[cfg(any(debug_assertions, feature = "less-optimization"))]
-    #[inline]
-    fn compress_stream(stream: lopdf::Stream) -> lopdf::Stream {
-        stream
-    }
-
-    #[cfg(all(not(debug_assertions), not(feature = "less-optimization")))]
-    #[inline]
-    fn compress_stream(mut stream: lopdf::Stream) -> lopdf::Stream {
-        let _ = stream.compress();
-        stream
-    }
-}
-
-impl From<XObject> for lopdf::Object {
-    fn from(val: XObject) -> Self {
-        match val {
-            XObject::Image(image) => lopdf::Object::Stream(XObject::compress_stream(image.into())),
-            XObject::Form(form) => {
-                let cur_form: FormXObject = *form;
-                lopdf::Object::Stream(XObject::compress_stream(cur_form.into()))
-            }
-            XObject::PostScript(ps) => lopdf::Object::Stream(XObject::compress_stream(ps.into())),
-            XObject::External(stream) => lopdf::Object::Stream(XObject::compress_stream(stream)),
-        }
-    }
-}
-
-/// List of `XObjects`
-#[derive(Debug, Default, Clone)]
-pub struct XObjectList {
-    objects: HashMap<String, XObject>,
-}
-
-impl XObjectList {
-    /// Creates a new XObjectList
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Adds a new XObject to the list
-    pub fn add_xobject(&mut self, xobj: XObject) -> XObjectRef {
-        let len = self.objects.len();
-        let xobj_ref = XObjectRef::new(len);
-        self.objects.insert(xobj_ref.name.clone(), xobj);
-        xobj_ref
-    }
-
-    /// Same as `Into<lopdf::Dictionary>`, but since the dictionary
-    /// items in an XObject dictionary are streams and must be added to
-    /// the document as __references__, this function needs an additional
-    /// access to the PDF document so that we can add the streams first and
-    /// then track the references to them.
-
-    pub fn into_with_document(self, doc: &mut lopdf::Document) -> lopdf::Dictionary {
-        self.objects
-            .into_iter()
-            .map(|(name, object)| {
-                let obj: lopdf::Object = object.into();
-                let obj_ref = doc.add_object(obj);
-                (name, lopdf::Object::Reference(obj_ref))
-            })
-            .collect()
-    }
-}
-
-/// Named reference to an `XObject`
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub struct XObjectRef {
-    pub(crate) name: String,
-}
-
-impl XObjectRef {
-    /// Creates a new reference from a number
-    pub fn new(index: usize) -> Self {
-        Self {
-            name: format!("X{index}"),
-        }
-    }
-}
-
-/* todo: inline images? (icons, logos, etc.) */
-/* todo: JPXDecode filter */
-
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct ImageXObject {
     /// Width of the image (original width, not scaled width)
     pub width: Px,
@@ -158,117 +66,8 @@ pub struct ImageXObject {
     pub clipping_bbox: Option<CurTransMat>,
 }
 
-impl ImageXObject {
-    // /// Creates a new ImageXObject
-    // pub fn new(
-    //     width: Px,
-    //     height: Px,
-    //     color_space: ColorSpace,
-    //     bits: ColorBits,
-    //     interpolate: bool,
-    //     image_filter: Option<ImageFilter>,
-    //     bbox: Option<CurTransMat>,
-    //     data: Vec<u8>,
-    // ) -> Self {
-    //     Self {
-    //         width,
-    //         height,
-    //         color_space,
-    //         bits_per_component: bits,
-    //         interpolate,
-    //         image_data: data,
-    //         image_filter,
-    //         clipping_bbox: bbox,
-    //     }
-    // }
-
-    #[cfg(feature = "embedded_images")]
-    pub fn try_from<'a, T: ImageDecoder>(image: T) -> Result<(Self, Option<Self>), ImageError> {
-        use image_crate::error::{LimitError, LimitErrorKind};
-        use std::usize;
-
-        let dim = image.dimensions();
-        let color_type = image.color_type();
-        let num_image_bytes = image.total_bytes();
-
-        if num_image_bytes > usize::MAX as u64 {
-            return Err(ImageError::Limits(LimitError::from_kind(
-                LimitErrorKind::InsufficientMemory,
-            )));
-        }
-
-        let mut image_data = vec![0; num_image_bytes as usize];
-        image.read_image(&mut image_data)?;
-
-        Ok(preprocess_image_with_alpha(color_type, image_data, dim))
-    }
-
-    #[cfg(feature = "embedded_images")]
-    pub fn from_dynamic_image(image: &DynamicImage) -> (Self, Option<Self>) {
-        let dim = image.dimensions();
-        let color_type = image.color();
-        let data = image.as_bytes().to_vec();
-
-        preprocess_image_with_alpha(color_type, data, dim)
-    }
-}
-
-impl From<ImageXObject> for lopdf::Stream {
-    fn from(img: ImageXObject) -> lopdf::Stream {
-        use lopdf::Object::*;
-
-        let cs: &'static str = img.color_space.into();
-        let bbox: lopdf::Object = img.clipping_bbox.unwrap_or(CurTransMat::Identity).into();
-
-        let mut dict = lopdf::Dictionary::from_iter(vec![
-            ("Type", Name("XObject".as_bytes().to_vec())),
-            ("Subtype", Name("Image".as_bytes().to_vec())),
-            ("Width", Integer(img.width.0 as i64)),
-            ("Height", Integer(img.height.0 as i64)),
-            ("Interpolate", img.interpolate.into()),
-            ("BitsPerComponent", Integer(img.bits_per_component.into())),
-            ("ColorSpace", Name(cs.as_bytes().to_vec())),
-            ("BBox", bbox),
-        ]);
-        if let Some(mask) = img.smask {
-            dict.set("SMask", mask);
-        }
-
-        if let Some(filter) = img.image_filter {
-            let params = match filter {
-                // TODO technically we could use multiple filters,
-                // DCT as an exception!
-                ImageFilter::DCT => {
-                    vec![
-                        ("Filter", Array(vec![Name("DCTDecode".as_bytes().to_vec())])),
-                        // not necessary, unless missing in the jpeg header
-                        (
-                            "DecodeParams",
-                            Dictionary(lopdf::dictionary!("ColorTransform" => Integer(0))),
-                        ),
-                    ]
-                }
-                _ => unimplemented!("Encountered filter type is not supported"),
-            };
-
-            params
-                .into_iter()
-                .for_each(|param| dict.set(param.0, param.1));
-        }
-
-        lopdf::Stream::new(dict, img.image_data)
-    }
-}
-
-/// Named reference to an image
-#[derive(Debug)]
-pub struct ImageXObjectRef {
-    #[allow(dead_code)]
-    name: String,
-}
-
 /// Describes the format the image bytes are compressed with.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum ImageFilter {
     /// ???
     Ascii85,
@@ -280,12 +79,13 @@ pub enum ImageFilter {
     JPX,
 }
 
+
 /// __THIS IS NOT A PDF FORM!__ A form `XObject` can be nearly everything.
 /// PDF allows you to reuse content for the graphics stream in a `FormXObject`.
 /// A `FormXObject` is basically a layer-like content stream and can contain anything
 /// as long as it's a valid strem. A `FormXObject` is intended to be used for reapeated
 /// content on one page.
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct FormXObject {
     /* /Type /XObject */
     /* /Subtype /Form */
@@ -378,105 +178,21 @@ pub struct FormXObject {
     pub name: Option<String>,
 }
 
-impl From<FormXObject> for lopdf::Stream {
-    fn from(val: FormXObject) -> Self {
-        use lopdf::Object::*;
-
-        let dict = lopdf::Dictionary::from_iter(vec![
-            ("Type", Name("XObject".as_bytes().to_vec())),
-            ("Subtype", Name("Form".as_bytes().to_vec())),
-            ("FormType", Integer(val.form_type.into())),
-        ]);
-
-        lopdf::Stream::new(dict, val.bytes)
-    }
-}
-
-/*
-    <<
-        /Type /XObject
-        /Subtype /Form
-        /FormType 1
-        /BBox [ 0 0 1000 1000 ]
-        /Matrix [ 1 0 0 1 0 0 ]
-        /Resources << /ProcSet [ /PDF ] >>
-        /Length 58
-    >>
-*/
-
-#[derive(Debug, Clone)]
-pub struct FormXObjectRef {
-    #[allow(dead_code)]
-    name: String,
-}
-
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum FormType {
     /// The only form type ever declared by Adobe
     /* Integer(1) */
     Type1,
 }
 
-impl From<FormType> for i64 {
-    fn from(val: FormType) -> Self {
-        match val {
-            FormType::Type1 => 1,
-        }
-    }
-}
 
-/*
-    see page 341
-
-    /Type /Image1
-    /Subtype /Image
-    /Width 350
-    /Height 200
-    /ColorSpace /DeviceRGB                      % required, except for JPXDecode, not allowed for image masks
-    /BitsPerComponent 8                         % if ImageMask is true, optional or 1.
-
-                                                % Optional stuff below
-
-    /Intent /RelativeColormetric
-    /ImageMask false                            % Mask and ColorSpace should not be specified
-    /Mask << >>                                 % Stream or array of colors to be masked
-    /Decode [0 1]                               % weird
-    /Interpolate true
-    /Alternate []                               % array of alternative images
-    /SMask << >>                                % (Optional; PDF 1.4) A subsidiary image XObject defining a soft-mask image
-                                                % (see “Soft-Mask Images” on page 553) to be used as a source of mask shape
-                                                % or mask opacity values in the transparent imaging model. The alpha source
-                                                % parameter in the graphics state determines whether the mask values are
-                                                % interpreted as shape or opacity.
-
-                                                % If present, this entry overrides the current soft mask in the graphics state,
-                                                % as well as the image’s Mask entry, if any. (However, the other
-                                                % transparency-related graphics state parameters—blend mode and alpha
-                                                % constant—remain in effect.) If SMask is absent, the image has no associated
-                                                % soft mask (although the current soft mask in the graphics state may still apply).
-
-    /SMaskInData                                % 0, 1, 2
-    /Matte                                      % if present, the SMask must have the same w / h as the picture.
-*/
-
-// in the PDF content stream, reference an XObject like this
-
-/*
-    q                                           % Save graphics state
-    1 0 0 1 100 200 cm                          % Translate
-    0. 7071 0. 7071 −0. 7071 0. 7071 0 0 cm     % Rotate
-    150 0 0 80 0 0 cm                           % Scale
-    /Image1 Do                                  % Paint image
-    Q                                           % Restore graphics state
-*/
-
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub struct GroupXObject {
     /* /Type /Group */
     /* /S /Transparency */ /* currently the only valid GroupXObject */
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum GroupXObjectType {
     /// Transparency group XObject
     TransparencyGroup,
@@ -484,7 +200,7 @@ pub enum GroupXObjectType {
 
 /// PDF 1.4 and higher
 /// Contains a PDF file to be embedded in the current PDF
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct ReferenceXObject {
     /// (Required) The file containing the target document. (?)
     pub file: Vec<u8>,
@@ -494,42 +210,8 @@ pub struct ReferenceXObject {
     pub id: [i64; 2],
 }
 
-/* parent: Catalog dictionary, I think, not sure */
-/// Optional content group, for PDF layers. Only available in PDF 1.4
-/// but (I think) lower versions of PDF allow this, too. Used to create
-/// Adobe Illustrator-like layers in PDF
-#[derive(Debug)]
-pub struct OptionalContentGroup {
-    /* /Type /OCG */
-    /* /Name (Layer 1) */
-    /// (Required) The name of the optional content group, suitable for
-    /// presentation in a viewer application’s user interface.
-    pub name: String,
-    /* /Intent [/View /Design] */
-    /// (Optional) A single intent name or an array containing any
-    /// combination of names. PDF 1.5 defines two names, View and Design,
-    /// that indicate the intended use of the graphics in the group.
-    /// Future versions may define others. A processing application can choose
-    /// to use only groups that have a specific intent and ignore others.
-    /// Default value: View. See “Intent” on page 368 for more information.
-    pub intent: Vec<OCGIntent>,
-    /* /Usage << dictionary >> */
-    /// (Optional) A usage dictionary describing the nature of the content controlled
-    /// by the group. It may be used by features that automatically control the state
-    /// of the group based on outside factors. See “Usage and Usage Application
-    /// Dictionaries” on page 380 for more information.
-    pub usage: Option<lopdf::Dictionary>,
-}
-
-/// Intent to use for the optional content groups
-#[derive(Debug, Copy, Clone)]
-pub enum OCGIntent {
-    View,
-    Design,
-}
-
 /// TODO, very low priority
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct PostScriptXObject {
     /// __(Optional)__ A stream whose contents are to be used in
     /// place of the PostScript XObject’s stream when the target
@@ -538,50 +220,24 @@ pub struct PostScriptXObject {
     level1: Option<Vec<u8>>,
 }
 
-impl From<PostScriptXObject> for lopdf::Stream {
-    fn from(_val: PostScriptXObject) -> Self {
-        // todo!
-        lopdf::Stream::new(lopdf::Dictionary::new(), Vec::new())
-    }
+/// Transform that is applied immediately before the
+/// image gets painted. Does not affect anything other
+/// than the image.
+#[derive(Debug, Copy, Clone, PartialEq, Default)]
+pub struct XObjectTransform {
+    pub translate_x: Option<Pt>,
+    pub translate_y: Option<Pt>,
+    /// Rotate (clockwise), in degree angles
+    pub rotate: Option<XObjectRotation>,
+    pub scale_x: Option<f32>,
+    pub scale_y: Option<f32>,
+    /// If set to None, will be set to 300.0 for images
+    pub dpi: Option<f32>,
 }
 
-#[cfg(feature = "embedded_images")]
-fn preprocess_image_with_alpha(
-    color_type: ColorType,
-    image_data: Vec<u8>,
-    dim: (u32, u32),
-) -> (ImageXObject, Option<ImageXObject>) {
-    let (color_type, image_data, smask_data) = match color_type {
-        ColorType::Rgba8 => {
-            let (rgb, alpha) = rgba_to_rgb(image_data);
-            (ColorType::Rgb8, rgb, Some(alpha))
-        }
-        _ => (color_type, image_data, None),
-    };
-    let color_bits = ColorBits::from(color_type);
-    let color_space = ColorSpace::from(color_type);
-
-    let img = ImageXObject {
-        width: Px(dim.0 as usize),
-        height: Px(dim.1 as usize),
-        color_space,
-        bits_per_component: color_bits,
-        image_data,
-        interpolate: true,
-        image_filter: None,
-        clipping_bbox: None,
-        smask: None,
-    };
-    let img_mask = smask_data.map(|smask| ImageXObject {
-        width: img.width,
-        height: img.height,
-        color_space: ColorSpace::Greyscale,
-        bits_per_component: ColorBits::Bit8,
-        interpolate: false,
-        image_data: smask,
-        image_filter: None,
-        clipping_bbox: None,
-        smask: None,
-    });
-    (img, img_mask)
+#[derive(Debug, Copy, Clone, PartialEq, Default)]
+pub struct XObjectRotation {
+    pub angle_ccw_degrees: f32,
+    pub rotation_center_x: Pt,
+    pub rotation_center_y: Pt,
 }

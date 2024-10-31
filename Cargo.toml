@@ -9,7 +9,7 @@ repository = "https://github.com/fschutt/printpdf"
 homepage = "https://github.com/fschutt/printpdf"
 license = "MIT"
 readme = "README.md"
-description = "Rust library for writing PDF files"
+description = "Rust library for reading and writing PDF files"
 keywords = ["pdf", "gui", "graphics", "wkhtmltopdf"]
 categories = ["gui"]
 exclude = ["./assets/*", "./doc/*", "./examples/*"]
@@ -17,106 +17,50 @@ autoexamples = false
 edition = "2021"
 
 [dependencies]
-# minimum dependencies
-lopdf = { version = "0.33.0", default-features = false, features = [
-    "pom_parser",
-] }
-owned_ttf_parser = { version = "0.24.0", default-features = false, features = [
-    "std",
-] }
+lopdf = { version = "0.33.0", default-features = false, features = ["pom_parser"] }
 time = { version = "0.3.25", default-features = false, features = ["std"] }
-# optional: logging
-log = { version = "0.4.8", optional = true }
-# image reading (png / jpeg)
-image = { version = "0.25", optional = true, default-features = false, features = [
-    "gif",
-    "jpeg",
-    "png",
-    "pnm",
-    "tiff",
-    "bmp",
-] }
-# svg support (svg -> pdf xobject)
-svg2pdf = { version = "0.11", optional = true }
-pdf-writer = { version = "0.10", optional = true }
-usvg = { version = "0.42", optional = true }
-allsorts = { version = "0.15", optional = true, default-features = false, features = [
-    "flate2_rust",
-] }
+allsorts = { version = "0.15", default-features = false, features = ["flate2_rust"] }
+xmlparser = { version = "0.13.6", default-features = false }
+azul-css = { git = "https://github.com/fschutt/azul", rev = "e306619a820236caf7a01bd7719715fa31f9a8f0", default-features = false }
+azul-css-parser = {  git = "https://github.com/fschutt/azul", rev = "e306619a820236caf7a01bd7719715fa31f9a8f0", default-features = false }
+azul-core = {  git = "https://github.com/fschutt/azul", rev = "e306619a820236caf7a01bd7719715fa31f9a8f0", default-features = false, features = ["std"] }
+azul-layout = {  git = "https://github.com/fschutt/azul", rev = "e306619a820236caf7a01bd7719715fa31f9a8f0", default-features = false, features = ["std", "text_layout"] }
+azul-text-layout = {  git = "https://github.com/fschutt/azul", rev = "e306619a820236caf7a01bd7719715fa31f9a8f0", default-features = false }
+azulc = {  git = "https://github.com/fschutt/azul", rev = "e306619a820236caf7a01bd7719715fa31f9a8f0", default-features = false, features = ["std", "xml", "text_layout", "font_loading"] }
+pdf-writer = { version = "0.9" }
+image = { version = "0.25", default-features = false} 
+svg2pdf = { version = "0.10" }
+rust-fontconfig = { version = "0.1.12", default-features = false }
 
 [features]
 default = ["js-sys"]
-# do not compress PDF streams, useful for debugging
-less-optimization = []
-# enables logging
-logging = ["log"]
-# enables image support with some basic formats
-embedded_images = ["image"]
-# enables extra image formats
-ico = ["image/ico", "embedded_images"]
-tga = ["image/tga", "embedded_images"]
-hdr = ["image/hdr", "embedded_images"]
-rayon = ["image/rayon", "embedded_images"]
-dds = ["image/dds", "embedded_images"]
-webp = ["image/webp", "embedded_images"]
-# enables svg
-svg = ["svg2pdf", "usvg", "pdf-writer"]
-font_subsetting = ["dep:allsorts"]
-# enables annotations
-annotations = ["pdf-writer"]
-# enables js-sys features on wasm
-js-sys = ["dep:js-sys"]
+gif = ["image/gif"]
+jpeg = ["image/jpeg"]
+png = ["image/png"]
+pnm = ["image/pnm"]
+tiff = ["image/tiff"]
+bmp = ["image/bmp"]
+ico = ["image/ico"]
+tga = ["image/tga"]
+hdr = ["image/hdr"]
+dds = ["image/dds"]
+webp = ["image/webp"]
+rayon = ["image/rayon"]  # enables multithreading for decoding images
+js-sys = ["dep:js-sys"] # enables js-sys features on wasm
 
 [package.metadata.docs.rs]
 all-features = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
 
 [target.'cfg(all(target_arch="wasm32",target_os="unknown"))'.dependencies]
 js-sys = { version = "0.3.40", optional = true }
 
 [[example]]
-name = "bookmark"
+name = "simple"
 required-features = []
 
 [[example]]
-name = "circle"
-required-features = []
-
-[[example]]
-name = "font"
-required-features = []
-
-[[example]]
-name = "image"
-required-features = ["embedded_images"]
-
-[[example]]
-name = "image_alpha"
-required-features = ["embedded_images"]
-
-[[example]]
-name = "no_icc"
-required-features = []
-
-[[example]]
-name = "page"
-required-features = []
-
-[[example]]
-name = "shape"
-required-features = []
-
-[[example]]
-name = "svg"
-required-features = ["svg"]
-
-[[example]]
-name = "annotations"
-required-features = []
-
-[[example]]
-name = "hyperlink"
-required-features = ["annotations"]
-
-[[example]]
-name = "rect"
+name = "html"
 required-features = []

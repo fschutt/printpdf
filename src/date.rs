@@ -15,9 +15,15 @@ mod js_sys_date {
     use js_sys::Date;
     use time::Month;
 
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, PartialEq)]
     pub struct OffsetDateTime(Date);
+    
     impl OffsetDateTime {
+
+        pub fn from_unix_timestamp(_: i64) -> Option<Self> {
+            Some(Self(Date::new_with_year_month(0, 0)))
+        }
+
         #[inline(always)]
         pub fn now_utc() -> Self {
             let date = Date::new_0();
