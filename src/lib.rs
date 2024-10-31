@@ -35,6 +35,9 @@ pub use xobject::*;
 /// SVG handling
 pub mod svg;
 pub use svg::*;
+/// HTML handling
+pub mod html;
+pub use html::*;
 /// Constants and library includes
 pub(crate) mod constants;
 /// Utility functions (random strings, numbers, timestamp formatting)
@@ -335,9 +338,9 @@ impl Default for PdfDocumentInfo {
         Self {
             trapped: false,
             version: 1,
-            creation_date: OffsetDateTime::UNIX_EPOCH,
-            modification_date: OffsetDateTime::UNIX_EPOCH,
-            metadata_date: OffsetDateTime::UNIX_EPOCH,
+            creation_date: OffsetDateTime::from_unix_timestamp(0).unwrap(),
+            modification_date: OffsetDateTime::from_unix_timestamp(0).unwrap(),
+            metadata_date: OffsetDateTime::from_unix_timestamp(0).unwrap(),
             conformance: PdfConformance::default(),
             document_title: String::new(),
             author: String::new(),

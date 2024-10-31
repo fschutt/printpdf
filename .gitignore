@@ -6,3 +6,5 @@ test_*
 .cargo/*
 .idea/
 *.pdf
+out.txt
+/pkg

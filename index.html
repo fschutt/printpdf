@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Transform HTML to PDF in WASM! (printpdf v0.8)</title>
+    <style>
+
+    </style>
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no">
+    <script type="module">
+    function base64ToArrayBuffer(base64) {
+        var binaryString = atob(base64);
+        var bytes = new Uint8Array(binaryString.length);
+        for (var i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes.buffer;
+    }
+    window.base64ToArrayBuffer = base64ToArrayBuffer;
+
+    // PUT_WASM_JS_HERE
+
+    window.init = __wbg_init;
+
+    // UI FUNCTIONS
+
+    function reinitialize_pdf() {
+      var html = document.getElementById('input').value;
+      var images = {};
+      var fonts = {};
+      var pdf = printpdfRenderPdf(html, images, fonts);
+      
+    }
+
+    init()
+      .then(() => { 
+        document.body.innerHTML = ui_render_entire_screen(
+          JSON.stringify(window.info),
+          JSON.stringify(window.risse),
+          JSON.stringify(window.uidata),
+          JSON.stringify(window.csv_data),
+          JSON.stringify(window.aenderungen),
+          JSON.stringify(window.configuration),
+        );
+        initializeOrUpdateMap(); // add leaflet map
+      });
+
+    </script>
+  </head>
+  <body>
+    <h1>Transform HTML to PDF in WASM! (printpdf v0.8)</h1>
+    <textarea id="input" style="min-width:300px;">
+
+    </textarea>
+    <div id="result">OK: PDF rendered in 25 millis. (size = 9.5 KB)</div>
+    <!-- PDFJS_OUTPUT -->
+    <div id="output">
+
+    </div>
+  </body>
+</html>

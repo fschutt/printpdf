@@ -78,10 +78,8 @@ impl BuiltinFont {
 use time::error::Parse;
 use core::fmt;
 use std::collections::{btree_map::BTreeMap, BTreeSet};
-use std::mem;
 use std::rc::Rc;
 use std::vec::Vec;
-use std::boxed::Box;
 use allsorts::{
     binary::read::ReadScope,
     font_data::FontData,
@@ -375,6 +373,7 @@ impl Default for GlyphOutlineBuilder {
     }
 }
 
+/*
 impl ttf_parser::OutlineBuilder for GlyphOutlineBuilder {
     fn move_to(&mut self, x: f32, y: f32) { self.operations.push(GlyphOutlineOperation::MoveTo(OutlineMoveTo { x, y })); }
     fn line_to(&mut self, x: f32, y: f32) { self.operations.push(GlyphOutlineOperation::LineTo(OutlineLineTo { x, y })); }
@@ -382,6 +381,7 @@ impl ttf_parser::OutlineBuilder for GlyphOutlineBuilder {
     fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) { self.operations.push(GlyphOutlineOperation::CubicCurveTo(OutlineCubicTo { ctrl_1_x: x1, ctrl_1_y: y1, ctrl_2_x: x2, ctrl_2_y: y2, end_x: x, end_y: y })); }
     fn close(&mut self) { self.operations.push(GlyphOutlineOperation::ClosePath); }
 }
+*/
 
 #[derive(Debug, Clone)]
 #[repr(C)]
