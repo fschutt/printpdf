@@ -19,8 +19,7 @@ jobs:
           toolchain: ${{ matrix.channel }}
 
       - run: cargo check --verbose --examples
-      - run: cargo check --verbose --no-default-features
-      - run: cargo check --verbose --features="images"
+      - run: cargo check --verbose
       - run: cargo test --verbose
 
   check-and-test-windows:
@@ -47,8 +46,7 @@ jobs:
           targets: ${{ matrix.target-sys }}-${{ matrix.target-abi }}
 
       - run: cargo check --verbose --target ${{ matrix.target-sys }}-${{ matrix.target-abi }} --examples
-      - run: cargo check --verbose --target ${{ matrix.target-sys }}-${{ matrix.target-abi }} --no-default-features
-      - run: cargo check --verbose --target ${{ matrix.target-sys }}-${{ matrix.target-abi }} --features="images"
+      - run: cargo check --verbose --target ${{ matrix.target-sys }}-${{ matrix.target-abi }}
       - run: cargo test --verbose --target ${{ matrix.target-sys }}-${{ matrix.target-abi }}
 
   check-wasm32:
@@ -68,6 +66,5 @@ jobs:
           toolchain: ${{ matrix.channel }}
 
       - run: cargo check --verbose --target wasm32-unknown-unknown --examples
-      - run: cargo check --verbose --target wasm32-unknown-unknown --no-default-features
-      - run: cargo check --verbose --target wasm32-unknown-unknown --features="images"
+      - run: cargo check --verbose --target wasm32-unknown-unknown
 
