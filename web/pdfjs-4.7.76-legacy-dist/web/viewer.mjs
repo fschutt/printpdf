@@ -4460,13 +4460,14 @@ const defaultOptions = {
     kind: OptionKind.WORKER
   },
   workerSrc: {
-    value: "../build/pdf.worker.mjs",
+    // value: "../build/pdf.worker.mjs",
+    value: "https://fschutt.github.io/printpdf/web/pdfjs-4.7.76-legacy-dist/build/pdf.worker.mjs",
     kind: OptionKind.WORKER
   }
 };
 {
   defaultOptions.defaultUrl = {
-    value: "compressed.tracemonkey-pldi-09.pdf",
+    value: "",
     kind: OptionKind.VIEWER
   };
   defaultOptions.sandboxBundleSrc = {
@@ -4491,10 +4492,11 @@ const defaultOptions = {
 class AppOptions {
   static eventBus;
   static #opts = new Map();
-  static {
+  static init(pdf_bytes) {
     for (const name in defaultOptions) {
       this.#opts.set(name, defaultOptions[name].value);
     }
+    this.#opts.set("defaultUrl", "data:application/pdf;base64," + btoa(pdf_bytes));
     for (const [name, value] of compatParams) {
       this.#opts.set(name, value);
     }
@@ -4558,6 +4560,8 @@ class AppOptions {
     }
   }
 }
+
+window.AppOptions = AppOptions;
 
 // EXTERNAL MODULE: ./node_modules/core-js/modules/esnext.json.parse.js
 var esnext_json_parse = __webpack_require__(8335);
@@ -18284,25 +18288,9 @@ initCom(PDFViewerApplication);
   PDFPrintServiceFactory.initGlobals(PDFViewerApplication);
 }
 {
-  const HOSTED_VIEWER_ORIGINS = ["null", "http://mozilla.github.io", "https://mozilla.github.io"];
   var validateFileURL = function (file) {
     if (!file) {
       return;
-    }
-    try {
-      const viewerOrigin = new URL(window.location.href).origin || "null";
-      if (HOSTED_VIEWER_ORIGINS.includes(viewerOrigin)) {
-        return;
-      }
-      const fileOrigin = new URL(file, window.location.href).origin;
-      if (fileOrigin !== viewerOrigin) {
-        throw new Error("file origin does not match viewer's");
-      }
-    } catch (ex) {
-      PDFViewerApplication._documentError("pdfjs-loading-error", {
-        message: ex.message
-      });
-      throw ex;
     }
   };
   var onFileInputChange = function (evt) {
@@ -18976,7 +18964,7 @@ const AppConstants = {
 };
 window.PDFViewerApplication = PDFViewerApplication;
 window.PDFViewerApplicationConstants = AppConstants;
-window.PDFViewerApplicationOptions = AppOptions;
+window.PDFViewerApplicationOptions = AppOptions.init(window.renderedpdfbytes);
 function getViewerConfiguration() {
   return {
     appContainer: document.body,

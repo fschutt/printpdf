@@ -72,10 +72,11 @@ index_html = read_file("./skeleton.html")
 build_mjs = read_file("./web/pdfjs-4.7.76-legacy-dist/build/pdf.mjs")
 viewer_mjs = read_file("./web/pdfjs-4.7.76-legacy-dist/web/viewer.mjs")
 pkg_viewer_wasm = ""
-if is_prod():
+is_production = is_prod();
+if is_production:
     pkg_viewer_wasm = format_wasm_file(read_file_base64("./pkg/printpdf_bg.wasm"))
 pkg_viewer_js = ""
-if is_prod():
+if is_production:
     pkg_viewer_js = fixup_js_bindings(read_file("./pkg/printpdf.js"))
 
 out_file = []
@@ -87,6 +88,11 @@ for line in index_html.splitlines():
         out_file.append(build_mjs)
     elif "// PUT_PDF_VIEWER_JS_HERE" in line:
         out_file.append(viewer_mjs)
+    elif "var is_prod = false;" in line:
+        if is_production:
+            out_file.append("var is_prod = true;")
+        else:
+            out_file.append("var is_prod = false;")
     else:
         out_file.append(line)
 

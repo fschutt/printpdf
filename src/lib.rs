@@ -2,6 +2,8 @@
 
 use std::collections::BTreeMap;
 
+// #[cfg(target_family = "wasm")]
+pub mod wasm;
 /// Link / bookmark annotation handling
 pub mod annotation;
 pub use annotation::*;

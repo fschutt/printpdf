@@ -31,6 +31,10 @@ pdf-writer = { version = "0.9" }
 image = { version = "0.25", default-features = false} 
 svg2pdf = { version = "0.10" }
 rust-fontconfig = { version = "0.1.12", default-features = false }
+serde = { version = "1" }
+serde_derive = { version = "1" }
+serde_json = { version = "1" }
+wasm-bindgen = { version = "0.2" }
 
 [features]
 default = ["js-sys"]

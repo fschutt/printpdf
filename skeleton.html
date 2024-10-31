@@ -4,7 +4,6 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
     <meta name="google" content="notranslate">
-    <link rel="resource" type="application/l10n" href="web/pdfjs-4.7.76-legacy-dist/web/locale/locale.json">
     <link rel="stylesheet" href="web/pdfjs-4.7.76-legacy-dist/web/viewer.css">
     <script type="module">
       // PUT_BUILD_MJS_HERE
@@ -36,21 +35,29 @@
     }
     window.base64ToArrayBuffer = base64ToArrayBuffer;
 
-    var __wbg_init = undefined;
+    var is_prod = false;
 
     // PUT_WASM_JS_HERE
 
-    function reinitialize_pdf() {
-      var html = document.getElementById('input').value;
-      var images = {};
-      var fonts = {};
-      var pdf = printpdfRenderPdf(html, images, fonts);
-      // initPdfViewer
-    }
+    window.PrintPdfFromXml = PrintPdfFromXml;
 
+    function reinitialize_pdf() {
+      var opts = {
+        html: document.getElementById('input').value
+      };
+      var result = JSON.parse(PrintPdfFromXml(JSON.stringify(opts)));
+      console.log(result);
+      if (result.status == 0) {
+        console.log(result.pdf.length);
+        initPdfViewer(result.pdf);
+      } else {
+        console.log("" + result.status + ": " + result.error);
+      }
+    }
     window.reinitialize_pdf = reinitialize_pdf;
 
-    function initPdfViewer() {
+    function initPdfViewer(bytes) {
+      window.PDFViewerApplicationOptions = AppOptions.init(bytes);
       const config = getViewerConfiguration();
       const event = new CustomEvent("webviewerloaded", {
         bubbles: true,
@@ -69,21 +76,8 @@
     }
     window.initPdfViewer = initPdfViewer;
 
-    if (__wbg_init !== undefined) {
-      __wbg_init()
-      .then(() => { 
-        /*
-        document.body.innerHTML = ui_render_entire_screen(
-          JSON.stringify(window.info),
-          JSON.stringify(window.risse),
-          JSON.stringify(window.uidata),
-          JSON.stringify(window.csv_data),
-          JSON.stringify(window.aenderungen),
-          JSON.stringify(window.configuration),
-        );
-        initializeOrUpdateMap(); // add leaflet map
-        */
-      });
+    if (is_prod) {
+      __wbg_init().then(() => { });
     }
     </script>
   </head>

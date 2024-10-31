@@ -119,7 +119,7 @@ fn main() {
     // collect pages
     let pages = vec![
         PdfPage::new(Mm(210.0), Mm(297.0), ops.clone()),
-        PdfPage::new(Mm(400.0), Mm(400.0), ops)
+        // PdfPage::new(Mm(400.0), Mm(400.0), ops)
     ];
 
     let bytes = doc.with_pages(pages).save_to_bytes();
