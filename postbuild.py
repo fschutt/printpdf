@@ -1,5 +1,12 @@
-import base64
+import sys, base64
 
+def is_prod():
+    l = len(sys.argv)
+    if l > 1:
+        return sys.argv[1] == "--production"
+    else:
+        return False
+    
 def read_file(path):
     text_file = open(path, 'r')
     text_file_contents = text_file.read()
@@ -62,16 +69,25 @@ def format_wasm_file(b64):
     return wasm_script_out
 
 index_html = read_file("./skeleton.html")
-pkg_viewer_wasm = format_wasm_file(read_file_base64("./pkg/printpdf_bg.wasm"))
-pkg_viewer_js = fixup_js_bindings(read_file("./pkg/printpdf.js"))
+build_mjs = read_file("./web/pdfjs-4.7.76-legacy-dist/build/pdf.mjs")
+viewer_mjs = read_file("./web/pdfjs-4.7.76-legacy-dist/web/viewer.mjs")
+pkg_viewer_wasm = ""
+if is_prod():
+    pkg_viewer_wasm = format_wasm_file(read_file_base64("./pkg/printpdf_bg.wasm"))
+pkg_viewer_js = ""
+if is_prod():
+    pkg_viewer_js = fixup_js_bindings(read_file("./pkg/printpdf.js"))
 
 out_file = []
 for line in index_html.splitlines():
-    out_file.append(line)
-    # if "// PUT_WASM_JS_HERE" in line:
-    #    out_file.append(pkg_viewer_wasm)
-    #    out_file.append(pkg_viewer_js)
-    #else:
-    #    out_file.append(line)
+    if "// PUT_WASM_JS_HERE" in line:
+        out_file.append(pkg_viewer_wasm)
+        out_file.append(pkg_viewer_js)
+    elif "// PUT_BUILD_MJS_HERE" in line:
+        out_file.append(build_mjs)
+    elif "// PUT_PDF_VIEWER_JS_HERE" in line:
+        out_file.append(viewer_mjs)
+    else:
+        out_file.append(line)
 
 write_file("\r\n".join(out_file), "index.html")
