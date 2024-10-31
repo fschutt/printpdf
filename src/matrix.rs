@@ -308,7 +308,7 @@ fn test_ctm_translate() {
     let ctm_rot = CurTransMat::Rotate(30.0);
     let ctm_rot_arr: [f32; 6] = ctm_rot.as_array();
     assert_eq!(
-        [0.8660253, 0.5000002, -0.5000002, 0.8660253, 0.0, 0.0],
+        [0.86602527, 0.5000002, -0.5000002, 0.86602527, 0.0, 0.0],
         ctm_rot_arr
     );
 }
