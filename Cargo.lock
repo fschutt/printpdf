@@ -994,6 +994,7 @@ dependencies = [
  "azul-layout",
  "azul-text-layout",
  "azulc",
+ "base64 0.22.1",
  "image 0.25.4",
  "js-sys",
  "lopdf",

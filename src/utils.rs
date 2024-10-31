@@ -57,23 +57,30 @@ pub(crate) fn random_character_string_32() -> String {
 }
 
 // D:20170505150224+02'00'
+#[cfg(target_family = "wasm")]
 pub(crate) fn to_pdf_time_stamp_metadata(date: &OffsetDateTime) -> String {
-    let offset = date.offset();
-    let offset_sign = if offset.is_negative() { '-' } else { '+' };
+    "D:19700101000000+00'00'".to_string()
+}
+
+#[cfg(not(target_family = "wasm"))]
+pub(crate) fn to_pdf_time_stamp_metadata(date: &OffsetDateTime) -> String {
     format!(
-        "D:{:04}{:02}{:02}{:02}{:02}{:02}{offset_sign}{:02}'{:02}'",
+        "D:{:04}{:02}{:02}{:02}{:02}{:02}+00'00'",
         date.year(),
         u8::from(date.month()),
         date.day(),
         date.hour(),
         date.minute(),
         date.second(),
-        offset.whole_hours().abs(),
-        offset.minutes_past_hour().abs(),
     )
+}
+#[cfg(target_family = "wasm")]
+pub(crate) fn to_pdf_xmp_date(date: &OffsetDateTime) -> String {
+    "D:1970-01-01T00:00:00+00'00'".to_string()
 }
 
 // D:2018-09-19T10:05:05+00'00'
+#[cfg(not(target_family = "wasm"))]
 pub(crate) fn to_pdf_xmp_date(date: &OffsetDateTime) -> String {
     // Since the time is in UTC, we know that the time zone
     // difference to UTC is 0 min, 0 sec, hence the 00'00

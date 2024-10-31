@@ -21,7 +21,7 @@ mod js_sys_date {
     impl OffsetDateTime {
 
         pub fn from_unix_timestamp(_: i64) -> Option<Self> {
-            Some(Self(Date::new_with_year_month(0, 0)))
+            Some(Self(Date::new(&(1000.0 * 60.0 * 24.0 * 5.0).into())))
         }
 
         #[inline(always)]
@@ -88,15 +88,10 @@ mod js_sys_date {
 
         #[inline]
         pub fn offset(&self) -> super::UtcOffset {
-            let offset = self.0.get_timezone_offset();
-            let truncated_offset = offset as i32;
-            let hours = (truncated_offset % 60).try_into().unwrap();
-            let minutes = (truncated_offset / 60).try_into().unwrap();
-            let seconds = ((offset * 60.) % 60.) as i8;
             super::UtcOffset {
-                hours,
-                minutes,
-                seconds,
+                hours: 0,
+                minutes: 0,
+                seconds: 0,
             }
         }
     }

@@ -18967,7 +18967,7 @@ window.PDFViewerApplicationConstants = AppConstants;
 window.PDFViewerApplicationOptions = AppOptions.init(window.renderedpdfbytes);
 function getViewerConfiguration() {
   return {
-    appContainer: document.body,
+    appContainer: document.getElementById("mainContainer"),
     principalContainer: document.getElementById("mainContainer"),
     mainContainer: document.getElementById("viewerContainer"),
     viewerContainer: document.getElementById("viewer"),

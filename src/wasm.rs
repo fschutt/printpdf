@@ -35,8 +35,8 @@ impl PdfGenerationOptions {
 #[serde(rename_all = "lowercase")]
 pub struct PrintPdfApiReturn {
     pub status: usize,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub pdf: Vec<u8>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub pdf: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub error: String,
 }
@@ -50,7 +50,7 @@ pub fn PrintPdfFromXml(input: String) -> String {
             Err(e) => e,
         },
         Err(e) => PrintPdfApiReturn {
-            pdf: Vec::new(),
+            pdf: String::new(),
             status: 1,
             error: format!("failed to parse input parameters: {}", e.to_string()),
         }
@@ -61,6 +61,7 @@ pub fn PrintPdfFromXml(input: String) -> String {
 fn printpdf_from_xml_internal(input: PrintPdfApiInput) -> Result<PrintPdfApiReturn, PrintPdfApiReturn> {
 
     use crate::units::Mm;
+    use base64::prelude::*;
 
     // TODO: extract document title from XML!
 
@@ -69,14 +70,14 @@ fn printpdf_from_xml_internal(input: PrintPdfApiInput) -> Result<PrintPdfApiRetu
         Mm(input.options.page_width_mm.unwrap_or(210.0)), 
         Mm(input.options.page_width_mm.unwrap_or(297.0))
     ).map_err(|e| PrintPdfApiReturn {
-        pdf: Vec::new(),
+        pdf: String::new(),
         status: 2,
         error: e,
     })?;
     
-    let pdf = crate::PdfDocument::new("PDF")
+    let pdf = crate::PdfDocument::new("HTML rendering demo")
         .with_pages(pages)
         .save_to_bytes();
     
-    Ok(PrintPdfApiReturn { pdf, status: 0, error: String::new() })
+    Ok(PrintPdfApiReturn { pdf: BASE64_STANDARD.encode(pdf), status: 0, error: String::new() })
 }

@@ -42,14 +42,20 @@
     window.PrintPdfFromXml = PrintPdfFromXml;
 
     function reinitialize_pdf() {
-      var opts = {
+      var opts = JSON.stringify({
         html: document.getElementById('input').value
-      };
-      var result = JSON.parse(PrintPdfFromXml(JSON.stringify(opts)));
-      console.log(result);
+      });
+
+      var start = Date.now();
+      var result = PrintPdfFromXml(opts);
+      var end = Date.now();
+      var result = JSON.parse(result);
       if (result.status == 0) {
-        console.log(result.pdf.length);
-        initPdfViewer(result.pdf);
+        var bytes = atob(result.pdf);
+        var kb = bytes.length / 1000.0;
+        document.getElementById("result").innerHTML = `PDF rendered in ${end - start} ms (size = ${kb} KB)`;
+        initPdfViewer(bytes);
+        document.getElementById('input').focus();
       } else {
         console.log("" + result.status + ": " + result.error);
       }
@@ -59,30 +65,20 @@
     function initPdfViewer(bytes) {
       window.PDFViewerApplicationOptions = AppOptions.init(bytes);
       const config = getViewerConfiguration();
-      const event = new CustomEvent("webviewerloaded", {
-        bubbles: true,
-        cancelable: true,
-        detail: {
-          source: window
-        }
-      });
-      try {
-        parent.document.dispatchEvent(event);
-      } catch (ex) {
-        console.error(`webviewerloaded: ${ex}`);
-        document.dispatchEvent(event);
-      }
       PDFViewerApplication.run(config);
     }
     window.initPdfViewer = initPdfViewer;
 
     if (is_prod) {
-      __wbg_init().then(() => { });
+      __wbg_init().then(() => { 
+        reinitialize_pdf();
+      });
     }
     </script>
   </head>
   <body style="display:flex;">
-    <textarea id="input" style="display: flex;flex-grow:1;">
+    <div style="display: flex;flex-grow:1;flex-direction: column;padding:20px;">
+      <textarea id="input" style="display: flex;flex-grow:1;" autofocus="true" focusable="true" tabindex="1">
 &lt;html&gt;
     &lt;head&gt;
         &lt;style&gt;
@@ -92,8 +88,9 @@
     &lt;body&gt;
         &lt;p&gt;Hello!&lt;/p&gt;
     &lt;/body&gt;
-&lt;/html&gt;
-    </textarea>
+&lt;/html&gt;</textarea>
+        <button onclick="reinitialize_pdf();" style="width:100%;max-width: none;margin-top:20px;cursor:pointer;background:rgb(2, 111, 174);color:white;font-weight:bold;font-size:16px;">Generate PDF</button>
+    </div>
     <div id="output" style="display: flex;padding: 20px;flex-direction:column;flex-grow:1;">
       <div id="result" style="font-family: monospace; background-color: lightgreen;">OK: PDF rendered in 25 millis. (size = 9.5 KB)</div>
       <div id="outerContainer" style="margin-top:10px;border:1px solid black;">
