@@ -5,9 +5,7 @@
 
 `printpdf` is a Rust library for creating PDF documents.
 
-[Crates.io](https://crates.io/crates/printpdf) | \
-[Documentation](https://docs.rs/printpdf) | \
-[Donate to this project](https://github.com/sponsors/fschutt)
+[Crates.io](https://crates.io/crates/printpdf) | [Documentation](https://docs.rs/printpdf) | [Donate to this project](https://github.com/sponsors/fschutt)
 
 ## Features
 
@@ -164,64 +162,53 @@ let pdf_bytes: Vec<u8> = doc.with_pages(page1).save_to_bytes();
 For creating tables, etc. printpdf uses a basic layout system using the `azul-layout` crate.
 
 ```rust
-// --features="html"
-
-    // how to style footnote (empty = no footnotes)
-    footnotes: "{ font-family:serif;font-size:14px; }",
-    // how to style the header of a page (here: display the section-title attribute of a node + the page number)
-    // by default `.pagenum` is set to display:none, i.e. don't display the page number
-    header: "{ 
-        min-height: 8mm; 
-        font-family:sans-serif; 
-        .section-title { font-weight: bold; } 
-        .pagenum { display:block; position:absolute; top:5mm; left: 5mm; }
-    }",
-    footer: "", // no footer
+// needs --features="html"
+use printpdf::*;
 
 let html = r#"
-    <html>
-        <head>
+<html>
+    <head>
 
-            <!-- optional: configure page header -->
-            <header>
+        <!-- optional: configure page header -->
+        <header>
 
-                <template>
-                    <h4 class="section-header">Chapter {attr:chapter} * {attr:subsection}</h4>
-                    <p class="pagenum">{builtin:pagenum}</p>
-                </template>
+            <template>
+                <h4 class="section-header">Chapter {attr:chapter} * {attr:subsection}</h4>
+                <p class="pagenum">{builtin:pagenum}</p>
+            </template>
 
-                <style>
-                    .section-header {
-                        min-height: 8mm;
-                        font-family: sans-serif;
-                        color: #2e2e2e;
-                        border-bottom: 1px solid black;
-                        width: 100%;
-                    }
-                    .pagenum {
-                        position: absolute;
-                        top: 
-                    }
-                </style>
-            </header>
+            <style>
+                .section-header {
+                    min-height: 8mm;
+                    font-family: sans-serif;
+                    color: #2e2e2e;
+                    border-bottom: 1px solid black;
+                    width: 100%;
+                }
+                .pagenum {
+                    position: absolute;
+                    top: 
+                }
+            </style>
+        </header>
 
-            <!-- same for styling footers -->
-            <footer>
-                <template>
-                    <hr/>
-                </template>
-            <footer/>
-        </head>
+        <!-- same for styling footers -->
+        <footer>
+            <template>
+                <hr/>
+            </template>
+        <footer/>
+    </head>
 
-        <!-- page content -->
-        <body margins="10mm">
-            <p style="color: red; font-family: sans-serif;" data-chapter="1" data-subsection="First subsection">Hello!</p>
-            <div style="width:200px;height:200px;background:red;" data-chapter="1" data-subsection="Second subsection">
-                <p>World!</p>
-            </div>
-        </body>
+    <!-- page content -->
+    <body margins="10mm">
+        <p style="color: red; font-family: sans-serif;" data-chapter="1" data-subsection="First subsection">Hello!</p>
+        <div style="width:200px;height:200px;background:red;" data-chapter="1" data-subsection="Second subsection">
+            <p>World!</p>
+        </div>
+    </body>
 
-    </html>
+</html>
 "#;
 
 let options = XmlRenderOptions {
@@ -236,7 +223,7 @@ let options = XmlRenderOptions {
 };
 
 let mut doc = PdfDocument::new("My PDF");
-let pages = crate::html::xml_to_pages(html, &options, &mut doc.resources).unwrap_or_defaul();
+let pages = printpdf::html::xml_to_pages(html, &options, &mut doc.resources).unwrap_or_defaul();
 let pdf = doc.with_pages(pages).save_to_bytes();
 ```
 
