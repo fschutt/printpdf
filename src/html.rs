@@ -1,8 +1,7 @@
 use std::collections::BTreeMap;
-
-use azul_core::{app_resources::{DpiScaleFactor, Epoch, IdNamespace, ImageCache, RendererResources}, callbacks::DocumentId, display_list::{DisplayListMsg, LayoutRectContent, RenderCallbacks, SolvedLayout}, styled_dom::{DomId, StyledDom}, ui_solver::LayoutResult, window::{FullWindowState, LogicalSize}, xml::{find_node_by_type, get_body_node, XmlComponentMap, XmlNode}};
-use azul_css::FloatValue;
-use crate::{Mm, Op, PdfDocument, PdfPage};
+use azul_core::{app_resources::{DpiScaleFactor, Epoch, IdNamespace, ImageCache, ImageRefHash, RendererResources, ResolvedImage}, callbacks::DocumentId, display_list::{DisplayListMsg, LayoutRectContent, RectBackground, RenderCallbacks, SolvedLayout, StyleBorderColors, StyleBorderRadius, StyleBorderStyles, StyleBorderWidths}, dom::{NodeData, NodeId}, styled_dom::{ContentGroup, DomId, StyledDom, StyledNode}, ui_solver::{LayoutResult, PositionedRectangle}, window::{FullWindowState, LogicalSize}, xml::{find_node_by_type, get_body_node, XmlComponentMap, XmlNode}};
+use azul_css::{CssPropertyValue, FloatValue, LayoutDisplay, StyleTextColor};
+use crate::{Mm, Pt, Op, PdfDocument, PdfPage};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct XmlRenderOptions {
@@ -64,7 +63,7 @@ pub(crate) fn xml_to_pages(
     );
 
     let mut ops = Vec::new(); 
-    layout_result_to_ops(document, &layout, &mut ops);
+    layout_result_to_ops(document, &layout, &renderer_resources, &mut ops, config.page_height.into_pt());
     Ok(vec![PdfPage::new(config.page_width, config.page_height, ops)])
 }
 
@@ -83,40 +82,155 @@ fn fixup_xml_nodes(
 
 fn layout_result_to_ops(
     doc: &mut PdfDocument,
-    lr: &LayoutResult,
+    layout_result: &LayoutResult,
+    renderer_resources: &RendererResources,
     ops: &mut Vec<Op>,
+    page_height: Pt,
 ) {
 
-    /*
-        Text {
-            glyphs: Vec<GlyphInstance>,
-            font_instance_key: FontInstanceKey,
-            color: ColorU,
-            glyph_options: Option<GlyphOptions>,
-            overflow: (bool, bool),
-            text_shadow: Option<StyleBoxShadow>,
-        },
-        Background {
-            content: RectBackground,
-            size: Option<StyleBackgroundSize>,
-            offset: Option<StyleBackgroundPosition>,
-            repeat: Option<StyleBackgroundRepeat>,
-        },
-        Border {
-            widths: StyleBorderWidths,
-            colors: StyleBorderColors,
-            styles: StyleBorderStyles,
-        },
-        Image {
-            size: LogicalSize,
-            offset: LogicalPosition,
-            image_rendering: ImageRendering,
-            alpha_type: AlphaType,
-            image_key: ImageKey,
-            background_color: ColorU,
-        },
-    */
+    let rects_in_rendering_order = layout_result.styled_dom.get_rects_in_rendering_order();
+    
+    // TODO: break layoutresult into pages
+    // let root_width = layout_result.width_calculated_rects.as_ref()[NodeId::ZERO].overflow_width();
+    // let root_height = layout_result.height_calculated_rects.as_ref()[NodeId::ZERO].overflow_height();
+    // let root_size = LogicalSize::new(root_width, root_height);
 
+    let _ = displaylist_handle_rect(
+        doc,
+        ops,
+        layout_result,
+        renderer_resources,
+        rects_in_rendering_order.root.into_crate_internal().unwrap(),
+        page_height,
+    );
+
+    for c in rects_in_rendering_order.children.as_slice() {
+        push_rectangles_into_displaylist(doc, ops, layout_result, renderer_resources, c, page_height);
+    }
+
+}
+
+fn push_rectangles_into_displaylist<'a>(
+    doc: &mut PdfDocument,
+    ops: &mut Vec<Op>,
+    layout_result: &LayoutResult,
+    renderer_resources: &'a RendererResources,
+    root_content_group: &ContentGroup,
+    page_height: Pt,
+) -> Option<()> {
+
+    displaylist_handle_rect(
+        doc, 
+        ops,
+        layout_result,
+        renderer_resources,
+        root_content_group.root.into_crate_internal().unwrap(),
+        page_height,
+    )?;
+
+    for c in root_content_group.children.iter() {
+        push_rectangles_into_displaylist(doc, ops, layout_result, renderer_resources, c, page_height);
+    }
+    
+    Some(())
+}
+
+fn displaylist_handle_rect(
+    doc: &mut PdfDocument,
+    ops: &mut Vec<Op>,
+    layout_result: &LayoutResult,
+    renderer_resources: &RendererResources,
+    rect_idx: NodeId,
+    page_height: Pt,
+) -> Option<()> {
+
+    use crate::units::Pt;
+
+    let mut newops = Vec::new();
+
+    let styled_node = &layout_result.styled_dom.styled_nodes.as_container()[rect_idx];
+    let html_node = &layout_result.styled_dom.node_data.as_container()[rect_idx];
+
+    if is_display_none(layout_result, html_node, rect_idx, styled_node) {
+        return None;
+    }
+
+    let positioned_rect = &layout_result.rects.as_ref()[rect_idx];
+    let border_radius = get_border_radius(layout_result, html_node, rect_idx, styled_node);
+    let background_content = get_background_content(layout_result, html_node, rect_idx, styled_node);
+    let opt_border = get_opt_border(layout_result, html_node, rect_idx, styled_node); 
+    let opt_image = get_image_node(html_node, renderer_resources);
+    let opt_text = get_text_node(layout_result, rect_idx, html_node, styled_node);
+
+    for b in background_content.iter() {
+        match &b.content {
+            RectBackground::Color(c) => {
+                let staticoffset = positioned_rect.position.get_static_offset();
+                let rect = crate::graphics::Rect {
+                    x: Pt(staticoffset.x),
+                    y: Pt(page_height.0 - staticoffset.y),
+                    width: Pt(positioned_rect.size.width),
+                    height: Pt(positioned_rect.size.height),
+                };
+                newops.push(Op::SetFillColor { 
+                    col: crate::Color::Rgb(crate::Rgb { 
+                        r: c.r as f32 / 255.0, 
+                        g: c.g as f32 / 255.0, 
+                        b: c.b as f32 / 255.0, 
+                        icc_profile: None 
+                    }) 
+                });
+                newops.push(Op::DrawPolygon { polygon: rect.to_polygon() });
+            },
+            _ => { }
+        }
+    }
+
+    if let Some(border) = opt_border.as_ref() {
+
+        let (color_top, color_right, color_bottom, color_left) = (
+            border.colors.top.and_then(|ct| ct.get_property_or_default()).unwrap_or_default(),
+            border.colors.right.and_then(|cr| cr.get_property_or_default()).unwrap_or_default(),
+            border.colors.bottom.and_then(|cb| cb.get_property_or_default()).unwrap_or_default(),
+            border.colors.left.and_then(|cl| cl.get_property_or_default()).unwrap_or_default(),
+        );
+
+        let (width_top, width_right, width_bottom, width_left) = (
+            border.widths.top.map(|w| w.map_property(|w| w.inner)).and_then(CssPropertyValue::get_property_or_default).unwrap_or_default(),
+            border.widths.right.map(|w| w.map_property(|w| w.inner)).and_then(CssPropertyValue::get_property_or_default).unwrap_or_default(),
+            border.widths.bottom.map(|w| w.map_property(|w| w.inner)).and_then(CssPropertyValue::get_property_or_default).unwrap_or_default(),
+            border.widths.left.map(|w| w.map_property(|w| w.inner)).and_then(CssPropertyValue::get_property_or_default).unwrap_or_default(),
+        );
+
+        let staticoffset = positioned_rect.position.get_static_offset();
+        let rect = crate::graphics::Rect {
+            x: Pt(staticoffset.x),
+            y: Pt(page_height.0 - staticoffset.y),
+            width: Pt(positioned_rect.size.width),
+            height: Pt(positioned_rect.size.height),
+        };
+
+        newops.push(Op::SetOutlineThickness { 
+            pt: Pt(width_top.to_pixels(positioned_rect.size.height)) 
+        });
+        newops.push(Op::SetOutlineColor { 
+            col: crate::Color::Rgb(crate::Rgb { 
+                r: color_top.inner.r as f32 / 255.0, 
+                g: color_top.inner.g as f32 / 255.0, 
+                b: color_top.inner.b as f32 / 255.0, 
+                icc_profile: None 
+            }) 
+        });
+        newops.push(Op::DrawLine { line: rect.to_line() });
+    }
+
+    if !newops.is_empty() {
+        ops.push(Op::SaveGraphicsState);
+        ops.append(&mut newops);
+        ops.push(Op::RestoreGraphicsState);
+    }
+
+    Some(())
 }
 
 fn solve_layout(
@@ -155,8 +269,284 @@ fn solve_layout(
     solved_layout.layout_results.remove(0)
 }
 
-pub fn font_source_get_bytes(font_family: &azul_css::StyleFontFamily, fc_cache: &rust_fontconfig::FcFontCache) -> Option<azul_core::app_resources::LoadedFontSource> {
-    println!("font source get bytes: {font_family:?}");
-    println!("font source get bytes: {} fonts", fc_cache.list().len());
-    None
+// test if an item is set to display:none
+fn is_display_none(
+    layout_result: &LayoutResult, 
+    html_node: &NodeData, 
+    rect_idx: NodeId, 
+    styled_node: &StyledNode
+) -> bool {
+    let display = layout_result
+    .styled_dom
+    .get_css_property_cache()
+    .get_display(&html_node, &rect_idx, &styled_node.state)
+    .cloned()
+    .unwrap_or_default();
+
+    display == CssPropertyValue::None || 
+    display == CssPropertyValue::Exact(LayoutDisplay::None)
+}
+
+fn get_border_radius(
+    layout_result: &LayoutResult, 
+    html_node: &NodeData, 
+    rect_idx: NodeId, 
+    styled_node: &StyledNode
+) -> StyleBorderRadius {
+    StyleBorderRadius {
+        top_left: layout_result
+            .styled_dom
+            .get_css_property_cache()
+            .get_border_top_left_radius(&html_node, &rect_idx, &styled_node.state)
+            .cloned(),
+        top_right: layout_result
+            .styled_dom
+            .get_css_property_cache()
+            .get_border_top_right_radius(&html_node, &rect_idx, &styled_node.state)
+            .cloned(),
+        bottom_left: layout_result
+            .styled_dom
+            .get_css_property_cache()
+            .get_border_bottom_left_radius(&html_node, &rect_idx, &styled_node.state)
+            .cloned(),
+        bottom_right: layout_result
+            .styled_dom
+            .get_css_property_cache()
+            .get_border_bottom_right_radius(&html_node, &rect_idx, &styled_node.state)
+            .cloned(),
+    }
+}
+
+#[derive(Debug)]
+struct LayoutRectContentBackground {
+    content: azul_core::display_list::RectBackground,
+    size: Option<azul_css::StyleBackgroundSize>,
+    offset: Option<azul_css::StyleBackgroundPosition>,
+    repeat: Option<azul_css::StyleBackgroundRepeat>,
+}
+
+fn get_background_content(
+    layout_result: &LayoutResult, 
+    html_node: &NodeData, 
+    rect_idx: NodeId, 
+    styled_node: &StyledNode
+) -> Vec<LayoutRectContentBackground> {
+    use azul_css::{
+        StyleBackgroundPositionVec, 
+        StyleBackgroundRepeatVec, 
+        StyleBackgroundSizeVec,
+    };
+
+    let bg_opt = layout_result
+    .styled_dom
+    .get_css_property_cache()
+    .get_background_content(&html_node, &rect_idx, &styled_node.state);
+
+    let mut v = Vec::new();
+
+    if let Some(bg) = bg_opt.as_ref().and_then(|br| br.get_property()) {
+
+        let default_bg_size_vec: StyleBackgroundSizeVec = Vec::new().into();
+        let default_bg_position_vec: StyleBackgroundPositionVec = Vec::new().into();
+        let default_bg_repeat_vec: StyleBackgroundRepeatVec = Vec::new().into();
+
+        let bg_sizes_opt = layout_result
+            .styled_dom
+            .get_css_property_cache()
+            .get_background_size(&html_node, &rect_idx, &styled_node.state);
+        let bg_positions_opt = layout_result
+            .styled_dom
+            .get_css_property_cache()
+            .get_background_position(&html_node, &rect_idx, &styled_node.state);
+        let bg_repeats_opt = layout_result
+            .styled_dom
+            .get_css_property_cache()
+            .get_background_repeat(&html_node, &rect_idx, &styled_node.state);
+
+        let bg_sizes = bg_sizes_opt
+            .as_ref()
+            .and_then(|p| p.get_property())
+            .unwrap_or(&default_bg_size_vec);
+        let bg_positions = bg_positions_opt
+            .as_ref()
+            .and_then(|p| p.get_property())
+            .unwrap_or(&default_bg_position_vec);
+        let bg_repeats = bg_repeats_opt
+            .as_ref()
+            .and_then(|p| p.get_property())
+            .unwrap_or(&default_bg_repeat_vec);
+
+        for (bg_index, bg) in bg.iter().enumerate() {
+            use azul_css::StyleBackgroundContent::*;
+
+            let background_content = match bg {
+                LinearGradient(lg) => Some(RectBackground::LinearGradient(lg.clone())),
+                RadialGradient(rg) => Some(RectBackground::RadialGradient(rg.clone())),
+                ConicGradient(cg) => Some(RectBackground::ConicGradient(cg.clone())),
+                Image(_) => None, // TODO
+                Color(c) => Some(RectBackground::Color(*c)),
+            };
+
+            let bg_size = bg_sizes.get(bg_index).or(bg_sizes.get(0)).copied();
+            let bg_position = bg_positions.get(bg_index).or(bg_positions.get(0)).copied();
+            let bg_repeat = bg_repeats.get(bg_index).or(bg_repeats.get(0)).copied();
+
+            if let Some(background_content) = background_content {
+                v.push(LayoutRectContentBackground {
+                    content: background_content,
+                    size: bg_size.clone(),
+                    offset: bg_position.clone(),
+                    repeat: bg_repeat.clone(),
+                });
+            }
+        }
+    }
+
+    v
+}
+
+fn get_image_node<'a>(
+    html_node: &NodeData, 
+    renderer_resources: &'a RendererResources
+) -> Option<(&'a ResolvedImage, ImageRefHash, LogicalSize)> {
+    
+    use azul_core::dom::NodeType;
+    use azul_core::app_resources::DecodedImage;
+
+    let image_ref = match html_node.get_node_type() {
+        NodeType::Image(image_ref) => image_ref,
+        _ => return None,
+    };
+    
+    let image_hash = image_ref.get_hash();
+    let image_size = image_ref.get_size();
+
+    let i = match image_ref.get_data() {
+        DecodedImage::Raw(_) => renderer_resources.get_image(&image_hash),
+        _ => None,
+    }?;
+
+    Some((i, image_hash, image_size))
+}
+
+fn get_text_node(
+    layout_result: &LayoutResult,
+    rect_idx: NodeId,
+    html_node: &NodeData,
+    styled_node: &StyledNode,
+) -> Option<(azul_core::callbacks::InlineText, StyleTextColor)> {
+
+    if !html_node.is_text_node() {
+        return None;
+    }
+
+    let rects = layout_result.rects.as_ref();
+    let words = layout_result.words_cache.get(&rect_idx)?;
+    let shaped_words = layout_result.shaped_words_cache.get(&rect_idx)?;
+    let word_positions = layout_result.positioned_words_cache.get(&rect_idx)?;
+    let positioned_rect = rects.get(rect_idx)?;
+    let (_, inline_text_layout) = positioned_rect.resolved_text_layout_options.as_ref()?;
+    let inline_text = azul_core::app_resources::get_inline_text(
+        &words,
+        &shaped_words,
+        &word_positions.0,
+        &inline_text_layout,
+    );
+    let text_color = layout_result
+        .styled_dom
+        .get_css_property_cache()
+        .get_text_color_or_default(&html_node, &rect_idx, &styled_node.state);
+
+    Some((inline_text, text_color))
+}
+
+#[derive(Debug)]
+struct LayoutRectContentBorder {
+    widths: StyleBorderWidths,
+    colors: StyleBorderColors,
+    styles: StyleBorderStyles,
+}
+
+fn get_opt_border(
+    layout_result: &LayoutResult, 
+    html_node: &NodeData, 
+    rect_idx: NodeId, 
+    styled_node: &StyledNode,
+) -> Option<LayoutRectContentBorder> {
+
+    if !layout_result
+    .styled_dom
+    .get_css_property_cache()
+    .has_border(&html_node, &rect_idx, &styled_node.state) {
+        return None;
+    }
+
+    Some(LayoutRectContentBorder {
+        widths: StyleBorderWidths {
+            top: layout_result
+                .styled_dom
+                .get_css_property_cache()
+                .get_border_top_width(&html_node, &rect_idx, &styled_node.state)
+                .cloned(),
+            left: layout_result
+                .styled_dom
+                .get_css_property_cache()
+                .get_border_left_width(&html_node, &rect_idx, &styled_node.state)
+                .cloned(),
+            bottom: layout_result
+                .styled_dom
+                .get_css_property_cache()
+                .get_border_bottom_width(&html_node, &rect_idx, &styled_node.state)
+                .cloned(),
+            right: layout_result
+                .styled_dom
+                .get_css_property_cache()
+                .get_border_right_width(&html_node, &rect_idx, &styled_node.state)
+                .cloned(),
+        },
+        colors: StyleBorderColors {
+            top: layout_result
+                .styled_dom
+                .get_css_property_cache()
+                .get_border_top_color(&html_node, &rect_idx, &styled_node.state)
+                .cloned(),
+            left: layout_result
+                .styled_dom
+                .get_css_property_cache()
+                .get_border_left_color(&html_node, &rect_idx, &styled_node.state)
+                .cloned(),
+            bottom: layout_result
+                .styled_dom
+                .get_css_property_cache()
+                .get_border_bottom_color(&html_node, &rect_idx, &styled_node.state)
+                .cloned(),
+            right: layout_result
+                .styled_dom
+                .get_css_property_cache()
+                .get_border_right_color(&html_node, &rect_idx, &styled_node.state)
+                .cloned(),
+        },
+        styles: StyleBorderStyles {
+            top: layout_result
+                .styled_dom
+                .get_css_property_cache()
+                .get_border_top_style(&html_node, &rect_idx, &styled_node.state)
+                .cloned(),
+            left: layout_result
+                .styled_dom
+                .get_css_property_cache()
+                .get_border_left_style(&html_node, &rect_idx, &styled_node.state)
+                .cloned(),
+            bottom: layout_result
+                .styled_dom
+                .get_css_property_cache()
+                .get_border_bottom_style(&html_node, &rect_idx, &styled_node.state)
+                .cloned(),
+            right: layout_result
+                .styled_dom
+                .get_css_property_cache()
+                .get_border_right_style(&html_node, &rect_idx, &styled_node.state)
+                .cloned(),
+        },
+    })
 }

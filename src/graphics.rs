@@ -32,6 +32,42 @@ impl Rect {
             height,
         }
     }
+
+    pub fn to_polygon(&self) -> Polygon {
+        Polygon { 
+            rings: vec![self.gen_points()], 
+            mode: PaintMode::Fill, 
+            winding_order: WindingOrder::NonZero
+        }
+    }
+
+    pub fn to_line(&self) -> Line {
+        Line { 
+            points: self.gen_points(), 
+            is_closed: true,
+        }
+    }
+
+    fn gen_points(&self) -> Vec<(Point, bool)> {
+
+        let top = self.y;
+        let bottom = Pt(self.y.0 - self.height.0);
+        let left = self.x;
+        let right = Pt(self.x.0 + self.width.0);
+    
+        let tl = Point { x: left, y: top };
+        let tr = Point { x: right, y: top };
+        let br = Point { x: right, y: bottom };
+        let bl = Point { x: left, y: bottom };
+
+        vec![
+            (tl, false),
+            (tr, false),
+            (br, false),
+            (bl, false),
+        ]
+    }
+
     pub fn to_array(&self) -> Vec<lopdf::Object> {
         vec![
             (self.x.0.round() as i64).into(), 
