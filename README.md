@@ -1,6 +1,6 @@
 ﻿# printpdf
 
-[![CI](https://github.com/fschutt/printpdf/actions/workflows/ci.yaml/badge.svg)]
+[![CI](https://github.com/fschutt/printpdf/actions/workflows/ci.yaml/badge.svg)](https://github.com/fschutt/printpdf/actions/workflows/ci.yaml)
 [![Dependencies](https://deps.rs/repo/github/fschutt/printpdf/status.svg)](https://deps.rs/repo/github/fschutt/printpdf)
 
 `printpdf` is a Rust library for creating PDF documents.
