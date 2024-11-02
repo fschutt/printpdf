@@ -8,4 +8,5 @@ test_*
 *.pdf
 out.txt
 /pkg
-./index.html
+index.html
+.DS_Store
