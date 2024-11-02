@@ -32,7 +32,9 @@ use printpdf::*;
 let mut doc = PdfDocument::new("My first PDF");
 let page1_contents = vec![Op::Marker { id: "debugging-marker".to_string() }];
 let page1 = PdfPage::new(Mm(10.0), Mm(250.0), page1_contents);
-let pdf_bytes: Vec<u8> = doc.with_pages(page1).save_to_bytes();
+let pdf_bytes: Vec<u8> = doc
+    .with_pages(page1)
+    .save(&PdfSaveOptions::default());
 ```
 
 ### Graphics
@@ -97,7 +99,9 @@ let page1_contents = vec![
 ];
 
 let page1 = PdfPage::new(Mm(10.0), Mm(250.0), page1_contents);
-let pdf_bytes: Vec<u8> = doc.with_pages(page1).save_to_bytes();
+let pdf_bytes: Vec<u8> = doc
+    .with_pages(page1)
+    .save(&PdfSaveOptions::default());
 ```
 
 ### Images
@@ -125,7 +129,9 @@ fn main() {
     ];
 
     let page1 = PdfPage::new(Mm(10.0), Mm(250.0), page1_contents);
-    let pdf_bytes: Vec<u8> = doc.with_pages(page1).save_to_bytes();
+    let pdf_bytes: Vec<u8> = doc
+        .with_pages(page1)
+        .save(&PdfSaveOptions::default());
 }
 ```
 
@@ -154,7 +160,9 @@ let page1_contents = vec![
 ];
 
 let page1 = PdfPage::new(Mm(10.0), Mm(250.0), page1_contents);
-let pdf_bytes: Vec<u8> = doc.with_pages(page1).save_to_bytes();
+let pdf_bytes: Vec<u8> = doc
+    .with_pages(page1)
+    .save(&PdfSaveOptions::default());
 ```
 
 ### Tables, HTML
@@ -223,9 +231,9 @@ let options = XmlRenderOptions {
     page_height: Mm(297.0),
 };
 
-let mut doc = PdfDocument::new("My PDF");
-let pages = printpdf::html::xml_to_pages(html, &options, &mut doc.resources).unwrap_or_defaul();
-let pdf = doc.with_pages(pages).save_to_bytes();
+let pdf = PdfDocument::new("My PDF")
+    .with_html(html, &options).unwrap()
+    .save(&PdfSaveOptions::default());
 ```
 
 ## Goals and Roadmap

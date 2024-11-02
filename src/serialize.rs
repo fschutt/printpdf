@@ -21,18 +21,25 @@ use lopdf::Object::{Name, Integer, Null, Dictionary, Array, Real, Stream, Refere
 use lopdf::StringFormat::{Hexadecimal, Literal};
 use lopdf::Stream as LoStream;
 use lopdf::content::Operation as LoOp;
+use serde_derive::Deserialize;
+use serde_derive::Serialize;
 
-pub struct SaveOptions {
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PdfSaveOptions {
     pub optimize: bool,
+    pub subset_fonts: bool,
 }
 
-impl Default for SaveOptions {
+impl Default for PdfSaveOptions {
     fn default() -> Self {
-        Self { optimize: !(std::cfg!(debug_assertions)) }
+        Self { 
+            optimize: !(std::cfg!(debug_assertions)),
+            subset_fonts: true,
+        }
     }
 }
 
-pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &SaveOptions) -> Vec<u8> {
+pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec<u8> {
 
     let mut doc = lopdf::Document::with_version("1.3");
     let pages_id = doc.new_object_id();

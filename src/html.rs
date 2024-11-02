@@ -1,15 +1,48 @@
-use azul_core::{app_resources::{DpiScaleFactor, Epoch, IdNamespace, ImageCache, RendererResources}, callbacks::DocumentId, display_list::{DisplayListMsg, LayoutRectContent, RenderCallbacks, SolvedLayout}, styled_dom::{DomId, StyledDom}, ui_solver::LayoutResult, window::{FullWindowState, LogicalSize}, xml::XmlComponentMap};
+use std::collections::BTreeMap;
+
+use azul_core::{app_resources::{DpiScaleFactor, Epoch, IdNamespace, ImageCache, RendererResources}, callbacks::DocumentId, display_list::{DisplayListMsg, LayoutRectContent, RenderCallbacks, SolvedLayout}, styled_dom::{DomId, StyledDom}, ui_solver::LayoutResult, window::{FullWindowState, LogicalSize}, xml::{find_node_by_type, get_body_node, XmlComponentMap, XmlNode}};
 use azul_css::FloatValue;
-use crate::{Mm, Op, PdfPage};
+use crate::{Mm, Op, PdfDocument, PdfPage};
 
-pub fn xml_to_pages(file_contents: &str, page_width: Mm, page_height: Mm) -> Result<Vec<PdfPage>, String> {
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct XmlRenderOptions {
+    pub images: BTreeMap<String, Vec<u8>>,
+    pub fonts: BTreeMap<String, Vec<u8>>,
+    pub page_width: Mm,
+    pub page_height: Mm,
+}
 
-    let size = LogicalSize::new(page_width.into_pt().0, page_height.into_pt().0);
+impl Default for XmlRenderOptions {
+    fn default() -> Self {
+        Self { 
+            images: Default::default(), 
+            fonts: Default::default(), 
+            page_width: Mm(210.0), 
+            page_height: Mm(297.0) 
+        }
+    }
+}
 
-    let root_nodes = azulc_lib::xml::parse_xml_string(&file_contents.trim())
+pub(crate) fn xml_to_pages(
+    file_contents: &str, 
+    config: &XmlRenderOptions,
+    document: &mut PdfDocument,
+) -> Result<Vec<PdfPage>, String> {
+
+    let size = LogicalSize::new(
+        config.page_width.into_pt().0, 
+        config.page_height.into_pt().0
+    );
+
+    let root_nodes = azulc_lib::xml::parse_xml_string(&fixup_xml(file_contents))
     .map_err(|e| format!("Error parsing XML: {}", e.to_string()))?;
 
-    let styled_dom = azul_core::xml::str_to_dom(root_nodes.as_ref(), &mut XmlComponentMap::default())
+    let fixup = fixup_xml_nodes(&root_nodes);
+
+    let styled_dom = azul_core::xml::str_to_dom(
+        fixup.as_ref(), 
+        &mut XmlComponentMap::default()
+    )
     .map_err(|e| format!("Error constructing DOM: {}", e.to_string()))?;
 
     let epoch = Epoch::new();
@@ -30,33 +63,30 @@ pub fn xml_to_pages(file_contents: &str, page_width: Mm, page_height: Mm) -> Res
         &mut renderer_resources
     );
 
-    let display_list = LayoutResult::get_cached_display_list(
-        &document_id,
-        dom_id,
-        epoch,
-        &[layout],
-        &fake_window_state,
-        &azul_core::app_resources::GlTextureCache::default(),
-        &renderer_resources,
-        &image_cache,
-    );
-
     let mut ops = Vec::new(); 
-    display_list_to_ops(&display_list.root, &mut ops);
-    Ok(vec![PdfPage::new(page_width, page_height, ops)])
+    layout_result_to_ops(document, &layout, &mut ops);
+    Ok(vec![PdfPage::new(config.page_width, config.page_height, ops)])
 }
 
-fn display_list_to_ops(
-    msg: &DisplayListMsg,
+fn fixup_xml(s: &str) -> String {
+    let s = if !s.contains("<body>") { format!("<body>{s}</body>") } else { s.trim().to_string() };
+    let s = if !s.contains("<html>") { format!("<html>{s}</html>") } else { s.trim().to_string() };
+    s.trim().to_string()
+}
+
+fn fixup_xml_nodes(
+    nodes: &[XmlNode]
+) -> Vec<XmlNode> {
+    // TODO!
+    nodes.to_vec()
+}
+
+fn layout_result_to_ops(
+    doc: &mut PdfDocument,
+    lr: &LayoutResult,
     ops: &mut Vec<Op>,
 ) {
 
-    let f = match msg {
-        DisplayListMsg::Frame(f) => f,
-        DisplayListMsg::ScrollFrame(sf) => &sf.frame,
-        DisplayListMsg::IFrame(_, _, _, _) => { return; },
-    };
-    
     /*
         Text {
             glyphs: Vec<GlyphInstance>,
@@ -87,9 +117,6 @@ fn display_list_to_ops(
         },
     */
 
-    for c in f.children.iter() {
-        display_list_to_ops(c, ops);
-    }
 }
 
 fn solve_layout(

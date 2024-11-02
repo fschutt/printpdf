@@ -1,27 +1,16 @@
 use printpdf::*;
 
-fn main() {
+const HTML_STRINGS: &[&str;2] = &[
+    "<p>Hello!</p>",
+    "<p style='color:red;font-family:sans-serif'>Hello!</p>",
+];
 
-    let s = r#"
-        <html>
-            <head>
-                <style>
-                    p { color: red; font-family: sans-serif; }
-                </style>
-            </head>
-            <body>
-                <p>Hello!</p>
-            </body>
-        </html>
-    "#;
-
-    let pages = printpdf::html::xml_to_pages(
-        s, Mm(210.0), Mm(297.0)
-    ).unwrap();
-    
-    let doc = PdfDocument::new("HTML rendering demo")
-        .with_pages(pages)
-        .save_to_bytes();
-    
-    std::fs::write("./simple.pdf", doc).unwrap();
+fn main() -> Result<(), String>{
+    for (i, h) in HTML_STRINGS.iter().enumerate() {
+        let doc = PdfDocument::new("HTML rendering demo")
+        .with_html(h, &XmlRenderOptions::default())?
+        .save(&PdfSaveOptions::default());
+        std::fs::write(format!("html{i}.pdf"), doc).unwrap();
+    }
+    Ok(())
 }

@@ -122,6 +122,6 @@ fn main() {
         // PdfPage::new(Mm(400.0), Mm(400.0), ops)
     ];
 
-    let bytes = doc.with_pages(pages).save_to_bytes();
+    let bytes = doc.with_pages(pages).save(&PdfSaveOptions::default());
     std::fs::write("./simple.pdf", bytes).unwrap();
 }

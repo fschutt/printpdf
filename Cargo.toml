@@ -20,17 +20,24 @@ edition = "2021"
 lopdf = { version = "0.33.0", default-features = false, features = ["pom_parser"] }
 time = { version = "0.3.25", default-features = false, features = ["std"] }
 allsorts = { version = "0.15", default-features = false, features = ["flate2_rust"] }
-xmlparser = { version = "0.13.6", default-features = false }
-azul-css = { git = "https://github.com/fschutt/azul", rev = "e306619a820236caf7a01bd7719715fa31f9a8f0", default-features = false }
-azul-css-parser = {  git = "https://github.com/fschutt/azul", rev = "e306619a820236caf7a01bd7719715fa31f9a8f0", default-features = false }
-azul-core = {  git = "https://github.com/fschutt/azul", rev = "e306619a820236caf7a01bd7719715fa31f9a8f0", default-features = false, features = ["std"] }
-azul-layout = {  git = "https://github.com/fschutt/azul", rev = "e306619a820236caf7a01bd7719715fa31f9a8f0", default-features = false, features = ["std", "text_layout"] }
-azul-text-layout = {  git = "https://github.com/fschutt/azul", rev = "e306619a820236caf7a01bd7719715fa31f9a8f0", default-features = false }
-azulc = {  git = "https://github.com/fschutt/azul", rev = "e306619a820236caf7a01bd7719715fa31f9a8f0", default-features = false, features = ["std", "xml", "text_layout", "font_loading"] }
 pdf-writer = { version = "0.9" }
 image = { version = "0.25", default-features = false} 
 svg2pdf = { version = "0.10" }
+# dependencies for wasm demo
+azul-css = { path = "../azul/azul-css", default-features = false }
+azul-css-parser = { path = "../azul/azul-css-parser", default-features = false }
+azul-core = {  path = "../azul/azul-core", default-features = false, features = ["std"] }
+azul-layout = {  path = "../azul/azul-layout", default-features = false, features = ["std", "text_layout"] }
+azul-text-layout = {  path = "../azul/azul-text-layout", default-features = false }
+azulc = {  path = "../azul/azulc", default-features = false, features = ["std", "xml", "text_layout", "font_loading"] }
+# azul-css = { git = "https://github.com/fschutt/azul", rev = "e306619a820236caf7a01bd7719715fa31f9a8f0", default-features = false }
+# azul-css-parser = {  git = "https://github.com/fschutt/azul", rev = "e306619a820236caf7a01bd7719715fa31f9a8f0", default-features = false }
+# azul-core = {  git = "https://github.com/fschutt/azul", rev = "e306619a820236caf7a01bd7719715fa31f9a8f0", default-features = false, features = ["std"] }
+# azul-layout = {  git = "https://github.com/fschutt/azul", rev = "e306619a820236caf7a01bd7719715fa31f9a8f0", default-features = false, features = ["std", "text_layout"] }
+# azul-text-layout = {  git = "https://github.com/fschutt/azul", rev = "e306619a820236caf7a01bd7719715fa31f9a8f0", default-features = false }
+# azulc = {  git = "https://github.com/fschutt/azul", rev = "e306619a820236caf7a01bd7719715fa31f9a8f0", default-features = false, features = ["std", "xml", "text_layout", "font_loading"] }
 rust-fontconfig = { version = "0.1.12", default-features = false }
+xmlparser = { version = "0.13.6", default-features = false }
 serde = { version = "1" }
 serde_derive = { version = "1" }
 serde_json = { version = "1" }

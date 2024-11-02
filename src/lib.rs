@@ -47,6 +47,7 @@ pub(crate) mod utils;
 use utils::*;
 /// Writing PDF
 pub(crate) mod serialize;
+pub use serialize::PdfSaveOptions;
 /// Parsing PDF
 pub(crate) mod deserialize;
 
@@ -182,15 +183,23 @@ impl PdfDocument {
         id
     }
 
+    /// Returns the `Pages` rendered by the HTML, adds resources automatically
+    pub fn with_html(&mut self, html: &str, config: &XmlRenderOptions) -> Result<&mut Self, String> {
+        let mut pages = crate::html::xml_to_pages(html, config, self)?;
+        self.pages.append(&mut pages);
+        Ok(self)
+    }
+
     /// Replaces `document.pages` with the new pages
     pub fn with_pages(&mut self, pages: Vec<PdfPage>) -> &mut Self {
-        self.pages = pages;
+        let mut pages = pages;
+        self.pages.append(&mut pages);
         self
     }
 
     /// Serializes the PDF document to bytes
-    pub fn save_to_bytes(&self) -> Vec<u8> {
-        self::serialize::serialize_pdf_into_bytes(self, &serialize::SaveOptions::default())
+    pub fn save(&self, opts: &PdfSaveOptions) -> Vec<u8> {
+        self::serialize::serialize_pdf_into_bytes(self, opts)
     }
 }
 

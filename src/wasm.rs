@@ -1,6 +1,8 @@
 use serde_derive::{Serialize, Deserialize};
 use std::collections::BTreeMap;
 
+use crate::{serialize::PdfSaveOptions, XmlRenderOptions};
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct PrintPdfApiInput {
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -64,20 +66,21 @@ fn printpdf_from_xml_internal(input: PrintPdfApiInput) -> Result<PrintPdfApiRetu
     use base64::prelude::*;
 
     // TODO: extract document title from XML!
+    let opts = XmlRenderOptions {
+        page_width: Mm(input.options.page_width_mm.unwrap_or(210.0)),
+        page_height: Mm(input.options.page_width_mm.unwrap_or(210.0)),
+        images: BTreeMap::new(),
+        fonts: BTreeMap::new(),
+    };
 
-    let pages = crate::html::xml_to_pages(
-        &input.html, 
-        Mm(input.options.page_width_mm.unwrap_or(210.0)), 
-        Mm(input.options.page_width_mm.unwrap_or(297.0))
-    ).map_err(|e| PrintPdfApiReturn {
-        pdf: String::new(),
-        status: 2,
-        error: e,
-    })?;
-    
     let pdf = crate::PdfDocument::new("HTML rendering demo")
-        .with_pages(pages)
-        .save_to_bytes();
+        .with_html(&input.html, &opts)
+        .map_err(|e| PrintPdfApiReturn {
+            pdf: String::new(),
+            status: 2,
+            error: e,
+        })?
+        .save(&PdfSaveOptions::default());
     
     Ok(PrintPdfApiReturn { pdf: BASE64_STANDARD.encode(pdf), status: 0, error: String::new() })
 }
