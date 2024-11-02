@@ -187,7 +187,8 @@ let html = r#"
                 }
                 .pagenum {
                     position: absolute;
-                    top: 
+                    top: 5mm;
+                    left: 5mm;
                 }
             </style>
         </header>
@@ -200,7 +201,7 @@ let html = r#"
         <footer/>
     </head>
 
-    <!-- page content -->
+    <!-- document content -->
     <body margins="10mm">
         <p style="color: red; font-family: sans-serif;" data-chapter="1" data-subsection="First subsection">Hello!</p>
         <div style="width:200px;height:200px;background:red;" data-chapter="1" data-subsection="Second subsection">
