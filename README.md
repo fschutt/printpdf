@@ -258,16 +258,8 @@ Here are some resources I found while working on this library:
 - [PDF X/1-a Validator](https://www.pdf-online.com/osa/validate.aspx)
 - [PDF X/3 technical notes](http://www.pdfxreport.com/lib/exe/fetch.php?media=en:technote_pdfx_checks.pdf)
 
-## Testing
+## License / Support
 
-Currently the testing is pretty much non-existent, because PDF is very hard to test.
-This should change over time: Testing should be done in two stages. First, test
-the individual PDF objects, if the conversion into a PDF object is done correctly.
-The second stage is manual inspection of PDF objects via Adobe Preflight.
+Library is licensed MIT.
 
-Put the tests of the first stage in /tests/mod.rs. The second stage tests are
-better to be handled inside the plugins' mod.rs file. `printpdf` depends highly
-on [lopdf](https://github.com/J-F-Liu/lopdf), so you can either construct your
-test object against a real type or a debug string of your serialized type.
-Either way is fine - you just have to check that the test object is conform to
-what PDF expects.
+You can donate (one-time or recurrent) at https://github.com/sponsors/fschutt. Thanks!
