@@ -136,6 +136,11 @@ impl fmt::Debug for ParsedFont {
     }
 }
 
+pub struct SubsetFont {
+    pub bytes: Vec<u8>,
+    pub glyph_mapping: BTreeMap<u16, (u16, char)>,
+}
+
 impl ParsedFont {
 
     /// Returns the glyph IDs used in the PDF file
@@ -198,7 +203,14 @@ impl ParsedFont {
     }
 
     /// Generates a new font file from the used glyph IDs
-    pub(crate) fn subset(&self, glyph_ids: &BTreeMap<u16, char>) -> Result<Vec<u8>, String> {
+    pub(crate) fn subset(&self, glyph_ids: &BTreeMap<u16, char>) -> Result<SubsetFont, String> {
+
+        let glyph_mapping = glyph_ids
+        .iter()
+        .enumerate()
+        .map(|(new_glyph_id, (original_glyph_id, ch))| {
+            (*original_glyph_id, (new_glyph_id as u16, *ch))
+        }).collect();
 
         let scope = ReadScope::new(&self.original_bytes);
         
@@ -208,10 +220,15 @@ impl ParsedFont {
         let provider = font_file.table_provider(self.original_index)
         .map_err(|e| e.to_string())?;
 
-        allsorts::subset::subset(
+        let font = allsorts::subset::subset(
             &provider, 
             &glyph_ids.keys().copied().collect::<Vec<_>>()
-        ).map_err(|e| e.to_string())
+        ).map_err(|e| e.to_string())?;
+
+        Ok(SubsetFont {
+            bytes: font,
+            glyph_mapping,
+        })
     }
 
     pub(crate) fn generate_cid_to_unicode_map(&self, font_id: &FontId, glyph_ids: &BTreeMap<u16, char>) -> String {

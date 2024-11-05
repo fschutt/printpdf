@@ -11,7 +11,6 @@ pub enum ColorSpace {
     GreyscaleAlpha,
 }
 
-#[cfg(feature = "images")]
 impl From<image::ColorType> for ColorSpace {
     fn from(color_type: image::ColorType) -> Self {
         use image::ColorType::*;
@@ -46,7 +45,6 @@ pub enum ColorBits {
     Bit16,
 }
 
-#[cfg(feature = "images")]
 impl From<image::ColorType> for ColorBits {
     fn from(color_type: image::ColorType) -> ColorBits {
         use image::ColorType::*;

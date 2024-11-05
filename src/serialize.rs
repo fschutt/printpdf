@@ -12,7 +12,7 @@ use crate::ParsedFont;
 use crate::PdfDocument;
 use crate::PdfDocumentInfo;
 use crate::color::IccProfile;
-use crate::PdfFontMap;
+use crate::font::SubsetFont;
 use crate::PdfPage;
 use crate::PdfResources;
 use crate::Polygon;
@@ -388,30 +388,46 @@ fn translate_operations(ops: &[Op], fonts: &BTreeMap<FontId, PreparedFont>) -> V
                 content.push(LoOp::new("Tj", vec![LoString(bytes, Hexadecimal)]));
             },
             Op::WriteCodepoints { font, cp } => {
-    
-                let bytes = cp
-                .into_iter()
-                .flat_map(|(x, _)| {
-                    let [b0, b1] = x.to_be_bytes();
-                    std::iter::once(b0).chain(std::iter::once(b1))
-                })
-                .collect::<Vec<u8>>();
-    
-                content.push(LoOp::new("Tj", vec![LoString(bytes, Hexadecimal)]));
+                if let Some(font) = fonts.get(&font) {
+                    
+                    let subset_codepoints = cp.iter()
+                    .filter_map(|(gid, ch)| {
+                        font.subset_font.glyph_mapping.get(gid).map(|c| (c.0, *ch))
+                    }).collect::<Vec<_>>();
+
+                    let bytes = subset_codepoints
+                    .into_iter()
+                    .flat_map(|(x, _)| {
+                        let [b0, b1] = x.to_be_bytes();
+                        std::iter::once(b0).chain(std::iter::once(b1))
+                    })
+                    .collect::<Vec<u8>>();
+        
+                    content.push(LoOp::new("Tj", vec![LoString(bytes, Hexadecimal)]));   
+                }
             },
             Op::WriteCodepointsWithKerning { font, cpk } => {
 
-                let mut list = Vec::new();
+                if let Some(font) = fonts.get(&font) {
+                    
+                    let subset_codepoints = cpk.iter()
+                    .filter_map(|(kern, gid, ch)| {
+                        font.subset_font.glyph_mapping.get(gid).map(|c| (*kern, c.0, *ch))
+                    }).collect::<Vec<_>>();
+                
+                
+                    let mut list = Vec::new();
 
-                for (pos, codepoint, _) in cpk.iter() {
-                    if *pos != 0 {
-                        list.push(Integer(*pos));
+                    for (pos, codepoint, _) in subset_codepoints.iter() {
+                        if *pos != 0 {
+                            list.push(Integer(*pos));
+                        }
+                        let bytes = codepoint.to_be_bytes().to_vec();
+                        list.push(LoString(bytes, Hexadecimal));
                     }
-                    let bytes = codepoint.to_be_bytes().to_vec();
-                    list.push(LoString(bytes, Hexadecimal));
+    
+                    content.push(LoOp::new("TJ", vec![Array(list)]));
                 }
-
-                content.push(LoOp::new("TJ", vec![Array(list)]));
             },
             Op::AddLineBreak => {
                 content.push(LoOp::new("T*", vec![]));
@@ -502,7 +518,7 @@ fn translate_operations(ops: &[Op], fonts: &BTreeMap<FontId, PreparedFont>) -> V
 
 struct PreparedFont {
     original: ParsedFont,
-    subset_font_bytes: Vec<u8>,
+    subset_font: SubsetFont,
     cid_to_unicode_map: String,
     vertical_writing: bool, // default: false
     ascent: i64,
@@ -753,14 +769,14 @@ fn prepare_fonts(resources: &PdfResources, pages: &[PdfPage]) -> BTreeMap<FontId
         if glyph_ids.is_empty() {
             continue; // unused font
         }
-        let font_bytes = match font.subset(&glyph_ids) {
+        let subset_font = match font.subset(&glyph_ids) {
             Ok(o) => o,
             Err(e) => {
                 println!("{e}");
                 continue;
             }
         };
-        let font = match ParsedFont::from_bytes(&font_bytes, 0) {
+        let font = match ParsedFont::from_bytes(&subset_font.bytes, 0) {
             Some(s) => s,
             None => continue,
         };
@@ -769,7 +785,7 @@ fn prepare_fonts(resources: &PdfResources, pages: &[PdfPage]) -> BTreeMap<FontId
         let widths = font.get_normalized_widths(&glyph_ids);
         fonts_in_pdf.insert(font_id.clone(), PreparedFont {
             original: font.clone(),
-            subset_font_bytes: font_bytes,
+            subset_font: subset_font,
             cid_to_unicode_map: cid_to_unicode,
             vertical_writing: false, // TODO
             ascent: font.font_metrics.ascender as i64,
@@ -791,8 +807,8 @@ fn add_font_to_pdf(doc: &mut lopdf::Document, font_id: &FontId, prepared: &Prepa
 
     // WARNING: Font stream MAY NOT be compressed
     let font_stream = LoStream::new(
-        LoDictionary::from_iter(vec![("Length1", Integer(prepared.subset_font_bytes.len() as i64))]),
-        prepared.subset_font_bytes.clone(),
+        LoDictionary::from_iter(vec![("Length1", Integer(prepared.subset_font.bytes.len() as i64))]),
+        prepared.subset_font.bytes.clone(),
     ).with_compression(false); 
 
     let font_stream_ref = doc.add_object(font_stream);

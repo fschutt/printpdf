@@ -1,14 +1,8 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
-use crate::date::OffsetDateTime;
-#[cfg(feature = "images")]
 use image::ColorType;
-#[cfg(feature = "images")]
-use crate::xobject::ImageXObject;
-#[cfg(feature = "images")]
-use crate::color::{ColorSpace, ColorBits};
-#[cfg(feature = "images")]
-use crate::units::Px;
+use crate::{ColorBits, ColorSpace, ImageXObject, Px};
+use crate::date::OffsetDateTime;
 
 /// Since the random number generator doesn't have to be cryptographically secure
 /// it doesn't make sense to import the entire rand library, so this is just a
@@ -101,21 +95,7 @@ fn u8_to_char(input: u8) -> char {
     (b'A' + input) as char
 }
 
-#[cfg(any(debug_assertions, feature = "less-optimization"))]
-#[inline]
-pub fn compress_stream(stream: lopdf::Stream) -> lopdf::Stream {
-    stream
-}
-
-#[cfg(all(not(debug_assertions), not(feature = "less-optimization")))]
-#[inline]
-pub fn compress_stream(mut stream: lopdf::Stream) -> lopdf::Stream {
-    let _ = stream.compress();
-    stream
-}
-
-#[cfg(feature = "images")]
-fn preprocess_image_with_alpha(
+pub(crate) fn preprocess_image_with_alpha(
     color_type: ColorType,
     image_data: Vec<u8>,
     dim: (u32, u32),
@@ -156,7 +136,6 @@ fn preprocess_image_with_alpha(
 }
 
 /// Takes a Vec<u8> of RGBA data and returns two Vec<u8> of RGB and alpha data
-#[cfg(feature = "images")]
 pub(crate) fn rgba_to_rgb(data: Vec<u8>) -> (Vec<u8>, Vec<u8>) {
     let mut rgb = Vec::with_capacity(data.len() / 4 * 3);
     let mut alpha = Vec::with_capacity(data.len() / 4);
