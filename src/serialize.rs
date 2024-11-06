@@ -304,7 +304,7 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec
     );
 
     if opts.optimize {
-        doc.compress();
+        // doc.compress();
     }
 
     let mut bytes = Vec::new();
@@ -368,11 +368,13 @@ fn translate_operations(ops: &[Op], fonts: &BTreeMap<FontId, PreparedFont>) -> V
             Op::EndTextSection => {
                 content.push(LoOp::new("ET", vec![]));
             },
-            Op::WriteText { text, font } => {
-                if let Some(font) = fonts.get(&font) {
+            Op::WriteText { text, font, size } => {
+                if let Some(prepared_font) = fonts.get(&font) {
                     
+                    content.push(LoOp::new("Tf", vec![font.0.clone().into(), (size.0).into()]));
+
                     let glyph_ids = text.chars().filter_map(|s| {
-                        font.original.lookup_glyph_index(s as u32)
+                        prepared_font.original.lookup_glyph_index(s as u32)
                     }).collect::<Vec<_>>();
     
                     let bytes = glyph_ids
@@ -383,16 +385,19 @@ fn translate_operations(ops: &[Op], fonts: &BTreeMap<FontId, PreparedFont>) -> V
                     content.push(LoOp::new("Tj", vec![LoString(bytes, Hexadecimal)]));
                 }
             },
-            Op::WriteTextBuiltinFont { text, font } => {
+            Op::WriteTextBuiltinFont { text, font, size } => {
+                content.push(LoOp::new("Tf", vec![font.get_pdf_id().into(), (size.0).into()]));
                 let bytes = lopdf::Document::encode_text(Some("WinAnsiEncoding"), &text);
                 content.push(LoOp::new("Tj", vec![LoString(bytes, Hexadecimal)]));
             },
-            Op::WriteCodepoints { font, cp } => {
-                if let Some(font) = fonts.get(&font) {
+            Op::WriteCodepoints { font, cp, size } => {
+                if let Some(prepared_font) = fonts.get(&font) {
                     
+                    content.push(LoOp::new("Tf", vec![font.0.clone().into(), (size.0).into()]));
+
                     let subset_codepoints = cp.iter()
                     .filter_map(|(gid, ch)| {
-                        font.subset_font.glyph_mapping.get(gid).map(|c| (c.0, *ch))
+                        prepared_font.subset_font.glyph_mapping.get(gid).map(|c| (c.0, *ch))
                     }).collect::<Vec<_>>();
 
                     let bytes = subset_codepoints
@@ -406,7 +411,7 @@ fn translate_operations(ops: &[Op], fonts: &BTreeMap<FontId, PreparedFont>) -> V
                     content.push(LoOp::new("Tj", vec![LoString(bytes, Hexadecimal)]));   
                 }
             },
-            Op::WriteCodepointsWithKerning { font, cpk } => {
+            Op::WriteCodepointsWithKerning { font, cpk, size } => {
 
                 if let Some(font) = fonts.get(&font) {
                     

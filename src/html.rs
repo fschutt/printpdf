@@ -1,12 +1,24 @@
 use std::collections::BTreeMap;
-use azul_core::{app_resources::{DpiScaleFactor, Epoch, IdNamespace, ImageCache, ImageRefHash, RendererResources, ResolvedImage}, callbacks::DocumentId, display_list::{DisplayListMsg, LayoutRectContent, RectBackground, RenderCallbacks, SolvedLayout, StyleBorderColors, StyleBorderRadius, StyleBorderStyles, StyleBorderWidths}, dom::{NodeData, NodeId}, styled_dom::{ContentGroup, DomId, StyledDom, StyledNode}, ui_solver::{LayoutResult, PositionedRectangle}, window::{FullWindowState, LogicalSize}, xml::{find_node_by_type, get_body_node, XmlComponentMap, XmlNode}};
+use azul_core::{app_resources::{DpiScaleFactor, Epoch, IdNamespace, ImageCache, ImageRef, ImageRefHash, RawImage, RendererResources, ResolvedImage}, callbacks::DocumentId, display_list::{DisplayListMsg, LayoutRectContent, RectBackground, RenderCallbacks, SolvedLayout, StyleBorderColors, StyleBorderRadius, StyleBorderStyles, StyleBorderWidths}, dom::{NodeData, NodeId}, styled_dom::{ContentGroup, DomId, StyledDom, StyledNode}, ui_solver::{LayoutResult, PositionedRectangle}, window::{FullWindowState, LogicalSize}, xml::{find_node_by_type, get_body_node, XmlComponentMap, XmlNode}};
 use azul_css::{CssPropertyValue, FloatValue, LayoutDisplay, StyleTextColor};
-use crate::{Mm, Pt, Op, PdfDocument, PdfPage};
+use base64::Engine;
+use rust_fontconfig::{FcFont, FcFontCache, FcPattern};
+use crate::{BuiltinFont, Mm, Op, PdfDocument, PdfPage, Pt};
+
+const DPI_SCALE: DpiScaleFactor = DpiScaleFactor { inner: FloatValue::const_new(1) };
+const ID_NAMESPACE: IdNamespace = IdNamespace(0);
+const EPOCH: Epoch = Epoch::new();
+const DOCUMENT_ID: DocumentId = DocumentId {
+    namespace_id: ID_NAMESPACE,
+    id: 0,
+};
+
+pub type Base64String = String;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct XmlRenderOptions {
-    pub images: BTreeMap<String, Vec<u8>>,
-    pub fonts: BTreeMap<String, Vec<u8>>,
+    pub images: BTreeMap<String, Base64String>,
+    pub fonts: BTreeMap<String, Base64String>,
     pub page_width: Mm,
     pub page_height: Mm,
 }
@@ -44,20 +56,91 @@ pub(crate) fn xml_to_pages(
     )
     .map_err(|e| format!("Error constructing DOM: {}", e.to_string()))?;
 
-    let epoch = Epoch::new();
-    let document_id = DocumentId {
-        namespace_id: IdNamespace(0),
-        id: 0,
-    };
     let dom_id = DomId { inner: 0 };
     let mut fake_window_state = FullWindowState::default();
     fake_window_state.size.dimensions = size;
     let mut renderer_resources = RendererResources::default();
-    let image_cache = ImageCache::default();
+    let image_cache = ImageCache {
+        image_id_map: config.images.iter().filter_map(|(id, bytes)| {
+            let bytes = base64::prelude::BASE64_STANDARD.decode(bytes).ok()?;
+            let decoded = crate::image::RawImage::decode_from_bytes(&bytes).ok()?;
+            let raw_image = crate::image::translate_to_internal_rawimage(&decoded);
+            Some((id.clone().into(), ImageRef::new_rawimage(raw_image)?))
+        }).collect()
+    };
+
+    let new_image_keys = styled_dom.scan_for_image_keys(&image_cache);
+    let fonts_in_dom = styled_dom.scan_for_font_keys(&renderer_resources);
+
+    // let builtin_fonts = get_used_builtin_fonts ;
+    let mut fc_cache = FcFontCache::default();
+    fc_cache
+    .with_memory_fonts(&get_system_fonts())
+    .with_memory_fonts(&[
+        get_fcpat(BuiltinFont::TimesRoman),
+        get_fcpat(BuiltinFont::TimesBold),
+        get_fcpat(BuiltinFont::TimesItalic),
+        get_fcpat(BuiltinFont::TimesBoldItalic),
+        get_fcpat(BuiltinFont::Helvetica),
+        get_fcpat(BuiltinFont::HelveticaBold),
+        get_fcpat(BuiltinFont::HelveticaOblique),
+        get_fcpat(BuiltinFont::HelveticaBoldOblique),
+        get_fcpat(BuiltinFont::Courier),
+        get_fcpat(BuiltinFont::CourierOblique),
+        get_fcpat(BuiltinFont::CourierBold),
+        get_fcpat(BuiltinFont::CourierBoldOblique),
+        get_fcpat(BuiltinFont::Symbol),
+        get_fcpat(BuiltinFont::ZapfDingbats),
+    ])
+    .with_memory_fonts(&config.fonts
+        .iter()
+        .filter_map(|(id, font_base64)| {
+            let bytes = base64::prelude::BASE64_STANDARD.decode(font_base64).ok()?;
+            let pat = FcPattern {
+                name: Some(id.split(".").next().unwrap_or("").to_string()),
+                .. Default::default()
+            };
+            let font = FcFont {
+                bytes: bytes,
+                font_index: 0,
+            };
+            Some((pat, font))
+        }).collect::<Vec<_>>()
+    );
+
+    let add_font_resource_updates = azul_core::app_resources::build_add_font_resource_updates(
+        &mut renderer_resources,
+        DPI_SCALE,
+        &fc_cache,
+        ID_NAMESPACE,
+        &fonts_in_dom,
+        azulc_lib::font_loading::font_source_get_bytes,
+        azul_text_layout::parse_font_fn,
+    );
+
+    let add_image_resource_updates = azul_core::app_resources::build_add_image_resource_updates(
+        &renderer_resources,
+        ID_NAMESPACE,
+        EPOCH,
+        &DOCUMENT_ID,
+        &new_image_keys,
+        azul_core::gl::insert_into_active_gl_textures,
+    );
+
+    let mut updates = Vec::new();
+    azul_core::app_resources::add_resources(
+        &mut renderer_resources,
+        &mut updates,
+        add_font_resource_updates,
+        add_image_resource_updates,
+    );
+
+    println!("updates: {updates:#?}");
+
     let layout = solve_layout(
         styled_dom, 
-        document_id, 
-        epoch, 
+        DOCUMENT_ID, 
+        EPOCH, 
         &fake_window_state, 
         &mut renderer_resources
     );
@@ -65,6 +148,37 @@ pub(crate) fn xml_to_pages(
     let mut ops = Vec::new(); 
     layout_result_to_ops(document, &layout, &renderer_resources, &mut ops, config.page_height.into_pt());
     Ok(vec![PdfPage::new(config.page_width, config.page_height, ops)])
+}
+
+fn get_system_fonts() -> Vec<(FcPattern, FcFont)> {
+    let f = vec![
+        ("serif", BuiltinFont::TimesRoman),
+        ("sans-serif", BuiltinFont::Helvetica),
+        ("cursive", BuiltinFont::TimesItalic),
+        ("fantasy", BuiltinFont::TimesItalic),
+        ("monospace", BuiltinFont::Courier),
+    ];
+    f.iter().map(|(id, f)| {
+        let subset_font = f.get_subset_font();
+        (FcPattern {
+            name: Some(id.to_string()),
+            .. Default::default()
+        }, FcFont {
+            bytes: subset_font.bytes.clone(),
+            font_index: 0,
+        })
+    }).collect()
+}
+
+fn get_fcpat(b: BuiltinFont) -> (FcPattern, FcFont) {
+    let subset_font = b.get_subset_font();
+    (FcPattern {
+        name: Some(b.get_id().to_string()),
+        .. Default::default()
+    }, FcFont {
+        bytes: subset_font.bytes.clone(),
+        font_index: 0,
+    })
 }
 
 fn fixup_xml(s: &str) -> String {
@@ -258,12 +372,12 @@ fn solve_layout(
         &document_id,
         &fake_window_state,
         &mut resource_updates,
-        IdNamespace(0),
+        ID_NAMESPACE,
         &image_cache,
         &fc_cache,
         &callbacks,
         renderer_resources,
-        DpiScaleFactor { inner: FloatValue::const_new(1) },
+        DPI_SCALE,
     );
 
     solved_layout.layout_results.remove(0)

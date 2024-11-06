@@ -24,19 +24,20 @@ pdf-writer = { version = "0.9" }
 image = { version = "0.25", default-features = false} 
 svg2pdf = { version = "0.10" }
 # dependencies for wasm demo
-azul-css = { git = "https://github.com/fschutt/azul", rev = "e61bad8ca597cc51f1783a1887c45c2972e649e2", default-features = false }
-azul-css-parser = {  git = "https://github.com/fschutt/azul", rev = "e61bad8ca597cc51f1783a1887c45c2972e649e2", default-features = false }
-azul-core = {  git = "https://github.com/fschutt/azul", rev = "e61bad8ca597cc51f1783a1887c45c2972e649e2", default-features = false, features = ["std"] }
-azul-layout = {  git = "https://github.com/fschutt/azul", rev = "e61bad8ca597cc51f1783a1887c45c2972e649e2", default-features = false, features = ["std", "text_layout"] }
-azul-text-layout = {  git = "https://github.com/fschutt/azul", rev = "e61bad8ca597cc51f1783a1887c45c2972e649e2", default-features = false }
-azulc = {  git = "https://github.com/fschutt/azul", rev = "e61bad8ca597cc51f1783a1887c45c2972e649e2", default-features = false, features = ["std", "xml", "text_layout", "font_loading"] }
-rust-fontconfig = { version = "0.1.12", default-features = false }
+azul-css = { git = "https://github.com/fschutt/azul", rev = "646b5e3030041aaebe06d2344a36bbed000c8674", default-features = false }
+azul-css-parser = {  git = "https://github.com/fschutt/azul", rev = "646b5e3030041aaebe06d2344a36bbed000c8674", default-features = false }
+azul-core = {  git = "https://github.com/fschutt/azul", rev = "646b5e3030041aaebe06d2344a36bbed000c8674", default-features = false, features = ["std"] }
+azul-layout = {  git = "https://github.com/fschutt/azul", rev = "646b5e3030041aaebe06d2344a36bbed000c8674", default-features = false, features = ["std", "text_layout"] }
+azul-text-layout = {  git = "https://github.com/fschutt/azul", rev = "646b5e3030041aaebe06d2344a36bbed000c8674", default-features = false }
+azulc = {  git = "https://github.com/fschutt/azul", rev = "646b5e3030041aaebe06d2344a36bbed000c8674", default-features = false, features = ["std", "xml", "text_layout", "font_loading"] }
+rust-fontconfig = { version = "0.1.13", default-features = false }
 xmlparser = { version = "0.13.6", default-features = false }
 serde = { version = "1" }
 serde_derive = { version = "1" }
 serde_json = { version = "1" }
 wasm-bindgen = { version = "0.2" }
 base64 = "0.22.1"
+flate2 = "1.0.23"
 
 [features]
 default = ["js-sys"]
@@ -69,4 +70,9 @@ required-features = []
 
 [[example]]
 name = "html"
+required-features = []
+
+# re-generates the /defaultfonts/*.ttf fonts
+[[example]]
+name = "subset"
 required-features = []

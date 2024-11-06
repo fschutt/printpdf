@@ -88,19 +88,19 @@ pub enum Op {
     /// Ends a text section (inserted by default at the page end)
     EndTextSection,
     /// Writes text, only valid between `StartTextSection` and `EndTextSection`
-    WriteText { text: String, font: FontId },
+    WriteText { text: String, size: Pt, font: FontId },
     /// Writes text using a builtin font.
-    WriteTextBuiltinFont { text: String, font: BuiltinFont },
+    WriteTextBuiltinFont { text: String, size: Pt, font: BuiltinFont },
     /// Add text to the file at the current position by specifying font codepoints for an ExternalFont
     /// 
     /// NOTE: the `char` defines which codepoint this value is being mapped to (otherwise the 
     /// user would not be able to copy-paste text from the PDF)
-    WriteCodepoints { font: FontId, cp: Vec<(u16, char)> },
+    WriteCodepoints { font: FontId, size: Pt, cp: Vec<(u16, char)> },
     /// Add text to the file at the current position by specifying font codepoints with additional kerning offset
     /// 
     /// NOTE: the `char` defines which codepoint this value is being mapped to (otherwise the 
     /// user would not be able to copy-paste text from the PDF)
-    WriteCodepointsWithKerning { font: FontId, cpk: Vec<(i64, u16, char)> },
+    WriteCodepointsWithKerning { font: FontId, size: Pt, cpk: Vec<(i64, u16, char)> },
     /// Adds a line break to the text, depends on the line height
     AddLineBreak,
     /// Sets the line height for the text
@@ -153,10 +153,10 @@ impl PartialEq for Op {
             (Self::BeginLayer { layer_id: l_layer_id }, Self::BeginLayer { layer_id: r_layer_id }) => l_layer_id == r_layer_id,
             (Self::EndLayer { layer_id: l_layer_id }, Self::EndLayer { layer_id: r_layer_id }) => l_layer_id == r_layer_id,
             (Self::LoadGraphicsState { gs: l_gs }, Self::LoadGraphicsState { gs: r_gs }) => l_gs == r_gs,
-            (Self::WriteText { text: l_text, font: l_font }, Self::WriteText { text: r_text, font: r_font }) => l_text == r_text && l_font == r_font,
-            (Self::WriteTextBuiltinFont { text: l_text, font: l_font }, Self::WriteTextBuiltinFont { text: r_text, font: r_font }) => l_text == r_text && l_font == r_font,
-            (Self::WriteCodepoints { font: l_font, cp: l_cp }, Self::WriteCodepoints { font: r_font, cp: r_cp }) => l_font == r_font && l_cp == r_cp,
-            (Self::WriteCodepointsWithKerning { font: l_font, cpk: l_cpk }, Self::WriteCodepointsWithKerning { font: r_font, cpk: r_cpk }) => l_font == r_font && l_cpk == r_cpk,
+            (Self::WriteText { text: l_text, size: l_size, font: l_font }, Self::WriteText { text: r_text, size: r_size, font: r_font }) => l_text == r_text && l_size == r_size && l_font == r_font,
+            (Self::WriteTextBuiltinFont { text: l_text, size: l_size, font: l_font }, Self::WriteTextBuiltinFont { text: r_text, size: r_size, font: r_font }) => l_text == r_text && l_size == r_size && l_font == r_font,
+            (Self::WriteCodepoints { font: l_font, size: l_size, cp: l_cp }, Self::WriteCodepoints { font: r_font, size: r_size, cp: r_cp }) => l_font == r_font && l_size == r_size && l_cp == r_cp,
+            (Self::WriteCodepointsWithKerning { font: l_font, size: l_size, cpk: l_cpk }, Self::WriteCodepointsWithKerning { font: r_font, size: r_size, cpk: r_cpk }) => l_font == r_font && l_size == r_size && l_cpk == r_cpk,
             (Self::SetLineHeight { lh: l_lh }, Self::SetLineHeight { lh: r_lh }) => l_lh == r_lh,
             (Self::SetWordSpacing { percent: l_percent }, Self::SetWordSpacing { percent: r_percent }) => l_percent == r_percent,
             (Self::SetFontSize { size: l_size, font: l_font }, Self::SetFontSize { size: r_size, font: r_font }) => l_size == r_size && l_font == r_font,
@@ -176,7 +176,7 @@ impl PartialEq for Op {
             (Self::SetTextMatrix { matrix: l_matrix }, Self::SetTextMatrix { matrix: r_matrix }) => l_matrix == r_matrix,
             (Self::LinkAnnotation { link: l_link }, Self::LinkAnnotation { link: r_link }) => l_link == r_link,
             (Self::UseXObject { id: l_id, transform: l_transform }, Self::UseXObject { id: r_id, transform: r_transform }) => l_id == r_id && l_transform == r_transform,
-            (Self::Unknown { key: l_key, value: _ }, Self::Unknown { key: r_key, value: _ }) => l_key == r_key,
+            (Self::Unknown { key: l_key, value: l_value }, Self::Unknown { key: r_key, value: r_value }) => l_key == r_key && l_value == r_value,
             _ => core::mem::discriminant(self) == core::mem::discriminant(other),
         }
     }

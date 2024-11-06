@@ -1,4 +1,5 @@
 
+use std::io::Read;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use image::ColorType;
 use crate::{ColorBits, ColorSpace, ImageXObject, Px};
@@ -93,6 +94,23 @@ pub(crate) fn to_pdf_xmp_date(date: &OffsetDateTime) -> String {
 #[inline(always)]
 fn u8_to_char(input: u8) -> char {
     (b'A' + input) as char
+}
+
+pub fn compress(bytes: &[u8]) -> Vec<u8> {
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use std::io::prelude::*;
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
+    let _ = encoder.write_all(bytes);
+    encoder.finish().unwrap_or_default()
+}
+
+pub fn uncompress(bytes: &[u8]) -> Vec<u8> {
+    use flate2::read::GzDecoder;
+    let mut gz = GzDecoder::new(&bytes[..]);
+    let mut s = Vec::<u8>::new();
+    let _ = gz.read_to_end(&mut s);
+    s
 }
 
 pub(crate) fn preprocess_image_with_alpha(

@@ -65,29 +65,32 @@ fn main() {
     let font = ParsedFont::from_bytes(ROBOTO_TTF, 0).unwrap();
     let font_id = doc.add_font(&font);
     
+    let fontsize = Pt(33.0);
+    let fontsize2 = Pt(18.0);
     ops.extend_from_slice(&[
         Op::StartTextSection,
 
-        Op::SetFontSize { font: font_id.clone(), size: Pt(33.0) },
         Op::SetTextCursor { pos: Point { x: Mm(10.0).into(), y: Mm(100.0).into() } }, // from bottom left
-        Op::SetLineHeight { lh: Pt(33.0) },
-        Op::SetWordSpacing { percent: 3000.0 },
+        Op::SetLineHeight { lh: fontsize },
+        Op::SetWordSpacing { percent: 300.0 },
         Op::SetCharacterSpacing { multiplier: 10.0 },
         
-        Op::WriteText { text: "Lorem ipsum".to_string(), font: font_id.clone() },
+        Op::WriteText { text: "Lorem ipsum".to_string(), font: font_id.clone(), size: fontsize },
         Op::AddLineBreak,
-        Op::WriteText { text: "dolor sit amet".to_string(), font: font_id.clone() },
+        Op::WriteText { text: "dolor sit amet".to_string(), font: font_id.clone(), size: fontsize },
         Op::AddLineBreak,
 
         Op::SetTextRenderingMode { mode: TextRenderingMode::FillStroke },
         Op::SetCharacterSpacing { multiplier: 0.0 },
         Op::SetTextMatrix { matrix: TextMatrix::Rotate(10.0 /* degrees ccw */) },
 
-        Op::WriteText { text: "Lorem ipsum".to_string(), font: font_id.clone() },
+        Op::WriteText { text: "Lorem ipsum".to_string(), font: font_id.clone(), size: fontsize2 },
         Op::SetLineOffset { multiplier: 10.0 },
         Op::SetTextRenderingMode { mode: TextRenderingMode::Stroke },
-        Op::SetFontSize { font: font_id.clone(), size: Pt(18.0) },
-        Op::WriteText { text: "dolor sit amet".to_string(), font: font_id.clone() },
+        Op::WriteText { text: "dolor sit amet".to_string(), font: font_id.clone(), size: fontsize2 },
+
+        Op::SetTextRenderingMode { mode: TextRenderingMode::FillStroke },
+        Op::WriteTextBuiltinFont { text: "dolor sit amet".to_string(), size: Pt(45.0), font: BuiltinFont::Courier },
 
         Op::EndTextSection,
     ]);

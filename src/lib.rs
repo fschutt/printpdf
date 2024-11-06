@@ -37,6 +37,9 @@ pub use xobject::*;
 /// SVG handling
 pub mod svg;
 pub use svg::*;
+/// Image decoding
+pub mod image;
+pub use image::*;
 /// HTML handling
 pub mod html;
 pub use html::*;
@@ -45,6 +48,7 @@ pub(crate) mod constants;
 /// Utility functions (random strings, numbers, timestamp formatting)
 pub(crate) mod utils;
 use utils::*;
+pub use utils::{compress, uncompress};
 /// Writing PDF
 pub(crate) mod serialize;
 pub use serialize::PdfSaveOptions;

@@ -1,4 +1,3 @@
-
 use allsorts::binary::read::ReadArray;
 use allsorts::tables::loca::LocaOffsets;
 use allsorts::tables::IndexToLocFormat;
@@ -32,7 +31,41 @@ pub enum BuiltinFont {
     ZapfDingbats,
 }
 
+include!("../defaultfonts/mapping.rs");
+
 impl BuiltinFont {
+
+    /// Returns the already-subsetted font (Win-1252 codepage)
+    pub fn get_subset_font(&self) -> SubsetFont {
+        use self::BuiltinFont::*;
+
+        SubsetFont {
+            bytes: match self {
+                TimesRoman => crate::uncompress(include_bytes!("../defaultfonts/Times-Roman.subset.ttf")),
+                TimesBold => crate::uncompress(include_bytes!("../defaultfonts/Times-Bold.subset.ttf")),
+                TimesItalic => crate::uncompress(include_bytes!("../defaultfonts/Times-Italic.subset.ttf")),
+                TimesBoldItalic => crate::uncompress(include_bytes!("../defaultfonts/Times-BoldItalic.subset.ttf")),
+                Helvetica => crate::uncompress(include_bytes!("../defaultfonts/Helvetica.subset.ttf")),
+                HelveticaBold => crate::uncompress(include_bytes!("../defaultfonts/Helvetica-Bold.subset.ttf")),
+                HelveticaOblique => crate::uncompress(include_bytes!("../defaultfonts/Helvetica-Oblique.subset.ttf")),
+                HelveticaBoldOblique => crate::uncompress(include_bytes!("../defaultfonts/Helvetica-BoldOblique.subset.ttf")),
+                Courier => crate::uncompress(include_bytes!("../defaultfonts/Courier.subset.ttf")),
+                CourierOblique => crate::uncompress(include_bytes!("../defaultfonts/Courier-Oblique.subset.ttf")),
+                CourierBold => crate::uncompress(include_bytes!("../defaultfonts/Courier-Bold.subset.ttf")),
+                CourierBoldOblique => crate::uncompress(include_bytes!("../defaultfonts/Courier-BoldOblique.subset.ttf")),
+                Symbol => crate::uncompress(include_bytes!("../defaultfonts/Symbol.subset.ttf")),
+                ZapfDingbats => crate::uncompress(include_bytes!("../defaultfonts/ZapfDingbats.subset.ttf")),
+            },
+            glyph_mapping: FONTS.iter().filter_map(|(font_id, old_gid, new_gid, char)| {
+                if *font_id == self.get_num() {
+                    Some((*old_gid, (*new_gid, *char)))
+                } else {
+                    None
+                }
+            }).collect()
+        }
+    }
+    
     pub fn get_pdf_id(&self) -> &'static str {
         use self::BuiltinFont::*;
         match self {
@@ -50,6 +83,26 @@ impl BuiltinFont {
             CourierBoldOblique => "F12",
             Symbol => "F13",
             ZapfDingbats => "F14",
+        }
+    }
+
+    pub fn get_num(&self) -> usize {
+        use self::BuiltinFont::*;
+        match self {
+            TimesRoman => 0,
+            TimesBold => 1,
+            TimesItalic => 2,
+            TimesBoldItalic => 3,
+            Helvetica => 4,
+            HelveticaBold => 5,
+            HelveticaOblique => 6,
+            HelveticaBoldOblique => 7,
+            Courier => 8,
+            CourierOblique => 9,
+            CourierBold => 10,
+            CourierBoldOblique => 11,
+            Symbol => 12,
+            ZapfDingbats => 13,
         }
     }
 
@@ -85,7 +138,9 @@ use allsorts::{
     font_data::FontData,
     layout::{GDEFTable, LayoutCache, GPOS, GSUB},
     tables::{
-        cmap::{owned::CmapSubtable as OwnedCmapSubtable, CmapSubtable}, glyf::{GlyfRecord, GlyfTable, Glyph}, loca::LocaTable, FontTableProvider, HeadTable, HheaTable, MaxpTable
+        cmap::{owned::CmapSubtable as OwnedCmapSubtable, CmapSubtable}, 
+        glyf::{GlyfRecord, GlyfTable, Glyph}, 
+        loca::LocaTable, FontTableProvider, HeadTable, HheaTable, MaxpTable
     },
 };
 
@@ -136,9 +191,23 @@ impl fmt::Debug for ParsedFont {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct SubsetFont {
     pub bytes: Vec<u8>,
     pub glyph_mapping: BTreeMap<u16, (u16, char)>,
+}
+
+impl SubsetFont {
+    /// Return the changed text so that when rendering with the subset font (instead of the original)
+    /// the renderer will end up at the same glyph IDs as if we used the original text on the original font
+    pub fn subset_text(&self, text: &str) -> String {
+        text.chars().filter_map(|c| {
+            self.glyph_mapping.values()
+            .find_map(|(ngid, ch)| if *ch == c { 
+                char::from_u32(*ngid as u32) 
+            } else { None })
+        }).collect()
+    }
 }
 
 impl ParsedFont {
@@ -161,11 +230,11 @@ impl ParsedFont {
 
         let chars_or_codepoints = pages.iter().flat_map(|p| {
             p.ops.iter().filter_map(|s| match s {
-                Op::WriteText { font, text} => 
+                Op::WriteText { font, text, size} => 
                     if font_id == font { Some(CharsOrCodepoint::Chars(text.clone())) } else { None },
-                Op::WriteCodepoints { font, cp} => 
+                Op::WriteCodepoints { font, size, cp} => 
                     if font_id == font { Some(CharsOrCodepoint::Cp(cp.clone())) } else { None },
-                Op::WriteCodepointsWithKerning { font, cpk} => 
+                Op::WriteCodepointsWithKerning { font, size, cpk} => 
                     if font_id == font { Some(CharsOrCodepoint::Cp(cpk.iter().map(|s| (s.1, s.2)).collect())) } else { None },
                 _ => None,
             })
@@ -200,6 +269,36 @@ impl ParsedFont {
         }
 
         map
+    }
+
+    pub fn subset_simple(&self, chars: &BTreeSet<char>) -> Result<SubsetFont, String> {
+
+        let scope = ReadScope::new(&self.original_bytes);
+        
+        let font_file = scope.read::<FontData<'_>>()
+        .map_err(|e| e.to_string())?;
+        
+        let provider = font_file.table_provider(self.original_index)
+        .map_err(|e| e.to_string())?;
+
+        // let p = glyphs.iter().filter(|s| self.glyph_records_decoded.get(*s).is_some()).copied().collect::<BTreeSet<_>>();
+        let p = chars.iter().filter_map(|s| self.lookup_glyph_index(*s as u32).map(|q| (q, *s))).collect::<BTreeSet<_>>();
+        
+        let glyph_mapping = p
+        .iter()
+        .enumerate()
+        .map(|(new_glyph_id, (original_glyph_id, ch))| {
+            (*original_glyph_id, (new_glyph_id as u16, *ch))
+        }).collect::<BTreeMap<_, _>>();
+
+        let bytes = allsorts::subset::subset(
+            &provider, 
+            &p.iter().map(|s| s.0).collect::<Vec<_>>()
+        ).map_err(|e| e.to_string())?;
+        Ok(SubsetFont {
+            bytes,
+            glyph_mapping
+        })
     }
 
     /// Generates a new font file from the used glyph IDs
