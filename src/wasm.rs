@@ -68,7 +68,7 @@ fn printpdf_from_xml_internal(input: PrintPdfApiInput) -> Result<PrintPdfApiRetu
     // TODO: extract document title from XML!
     let opts = XmlRenderOptions {
         page_width: Mm(input.options.page_width_mm.unwrap_or(210.0)),
-        page_height: Mm(input.options.page_width_mm.unwrap_or(210.0)),
+        page_height: Mm(input.options.page_height_mm.unwrap_or(297.0)),
         images: BTreeMap::new(),
         fonts: BTreeMap::new(),
     };
@@ -82,5 +82,9 @@ fn printpdf_from_xml_internal(input: PrintPdfApiInput) -> Result<PrintPdfApiRetu
         })?
         .save(&PdfSaveOptions::default());
     
-    Ok(PrintPdfApiReturn { pdf: BASE64_STANDARD.encode(pdf), status: 0, error: String::new() })
+    Ok(PrintPdfApiReturn { 
+        pdf: BASE64_STANDARD.encode(pdf), 
+        status: 0, 
+        error: String::new() 
+    })
 }

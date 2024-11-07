@@ -68,6 +68,12 @@ def format_wasm_file(b64):
     wasm_script_out += "\r\n].join('');\r\n"
     return wasm_script_out
 
+# unzip web/pdfjs
+
+import zipfile
+with zipfile.ZipFile("web/pdfjs-4.7.76-legacy-dist.zip","r") as zip_ref:
+    zip_ref.extractall("web")
+
 index_html = read_file("./skeleton.html")
 build_mjs = read_file("./web/pdfjs-4.7.76-legacy-dist/build/pdf.mjs")
 viewer_mjs = read_file("./web/pdfjs-4.7.76-legacy-dist/web/viewer.mjs")

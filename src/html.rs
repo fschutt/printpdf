@@ -40,10 +40,10 @@ pub(crate) fn xml_to_pages(
     document: &mut PdfDocument,
 ) -> Result<Vec<PdfPage>, String> {
 
-    let size = LogicalSize::new(
-        config.page_width.into_pt().0, 
-        config.page_height.into_pt().0
-    );
+    let size = LogicalSize {
+        width: config.page_width.into_pt().0,
+        height: config.page_height.into_pt().0,
+    };
 
     let root_nodes = azulc_lib::xml::parse_xml_string(&fixup_xml(file_contents))
     .map_err(|e| format!("Error parsing XML: {}", e.to_string()))?;
