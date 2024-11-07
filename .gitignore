@@ -10,4 +10,4 @@ out.txt
 /pkg
 index.html
 .DS_Store
-web/*
+web/pdfjs-4.7.76-legacy-dist/*
