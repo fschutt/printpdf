@@ -10,3 +10,4 @@ out.txt
 /pkg
 index.html
 .DS_Store
+web/*

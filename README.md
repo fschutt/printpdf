@@ -29,12 +29,14 @@ Currently, printpdf can only write documents, not read them.
 ```rust
 use printpdf::*;
 
-let mut doc = PdfDocument::new("My first PDF");
-let page1_contents = vec![Op::Marker { id: "debugging-marker".to_string() }];
-let page1 = PdfPage::new(Mm(10.0), Mm(250.0), page1_contents);
-let pdf_bytes: Vec<u8> = doc
-    .with_pages(page1)
-    .save(&PdfSaveOptions::default());
+fn main() {
+    let mut doc = PdfDocument::new("My first PDF");
+    let page1_contents = vec![Op::Marker { id: "debugging-marker".to_string() }];
+    let page1 = PdfPage::new(Mm(10.0), Mm(250.0), page1_contents);
+    let pdf_bytes: Vec<u8> = doc
+        .with_pages(vec![page1])
+        .save(&PdfSaveOptions::default());
+}
 ```
 
 ### Graphics
@@ -42,66 +44,69 @@ let pdf_bytes: Vec<u8> = doc
 ```rust
 use printpdf::*;
 
-let mut doc = PdfDocument::new("My first PDF");
+fn main() {
+    let mut doc = PdfDocument::new("My first PDF");
 
-let line = Line {
-    // Quadratic shape. The "false" determines if the next (following)
-    // point is a bezier handle (for curves)
-    // If you want holes, simply reorder the winding of the points to be
-    // counterclockwise instead of clockwise.
-    points: vec![
-        (Point::new(Mm(100.0), Mm(100.0)), false),
-        (Point::new(Mm(100.0), Mm(200.0)), false),
-        (Point::new(Mm(300.0), Mm(200.0)), false),
-        (Point::new(Mm(300.0), Mm(100.0)), false),
-    ],
-    is_closed: true,
-};
+    let line = Line {
+        // Quadratic shape. The "false" determines if the next (following)
+        // point is a bezier handle (for curves)
+        // If you want holes, simply reorder the winding of the points to be
+        // counterclockwise instead of clockwise.
+        points: vec![
+            (Point::new(Mm(100.0), Mm(100.0)), false),
+            (Point::new(Mm(100.0), Mm(200.0)), false),
+            (Point::new(Mm(300.0), Mm(200.0)), false),
+            (Point::new(Mm(300.0), Mm(100.0)), false),
+        ],
+        is_closed: true,
+    };
+    
+    // Triangle shape
+    let polygon = Polygon {
+        rings: vec![vec![
+            (Point::new(Mm(150.0), Mm(150.0)), false),
+            (Point::new(Mm(150.0), Mm(250.0)), false),
+            (Point::new(Mm(350.0), Mm(250.0)), false),
+        ]],
+        mode: PaintMode::FillStroke,
+        winding_order: WindingOrder::NonZero,
+    };
+    
+    // Graphics config
+    let fill_color = Color::Cmyk(Cmyk::new(0.0, 0.23, 0.0, 0.0, None));
+    let outline_color = Color::Rgb(Rgb::new(0.75, 1.0, 0.64, None));
+    let mut dash_pattern = LineDashPattern::default();
+    dash_pattern.dash_1 = Some(20);
 
-// Triangle shape
-let polygon = Polygon {
-    rings: vec![vec![
-        (Point::new(Mm(150.0), Mm(150.0)), false),
-        (Point::new(Mm(150.0), Mm(250.0)), false),
-        (Point::new(Mm(350.0), Mm(250.0)), false),
-    ]],
-    mode: PaintMode::FillStroke,
-    winding_order: WindingOrder::NonZero,
-};
-
-// Graphics config
-let fill_color = Color::Cmyk(Cmyk::new(0.0, 0.23, 0.0, 0.0, None));
-let outline_color = Color::Rgb(Rgb::new(0.75, 1.0, 0.64, None));
-let mut dash_pattern = LineDashPattern::default();
-dash_pattern.dash_1 = Some(20);
-let extgstate = doc.add_ExtendedGraphicsStateBuilder::new()
-    .with_overprint_stroke(true)
-    .with_blend_mode(BlendMode::multiply())
-    .build();
-
-let page1_contents = vec![
-    // add line1 (square)
-    Op::SetOutlineColor { col: Color::Rgb(Rgb::new(0.75, 1.0, 0.64, None)) },
-    Op::SetOutlineThickness { pt: Pt(10.0) },
-    Op::DrawLine { line: line },
-
-    // add line2 (triangle)
-    Op::SaveGraphicsState,
-    Op::LoadGraphicsState { gs: doc.add_graphics_state(extgstate) },
-    Op::SetLineDashPattern { dash: dash_pattern },
-    Op::SetLineJoinStyle { join: LineJoinStyle::Round },
-    Op::SetLineCapStyle { cap: LineCapStyle::Round },
-    Op::SetFillColor { col: fill_color_2 },
-    Op::SetOutlineThickness { pt: Pt(15.0) },
-    Op::SetOutlineColor { col: outline_color_2 },
-    Op::DrawPolygon { polygon: polygon },
-    Op::RestoreGraphicsState,
-];
-
-let page1 = PdfPage::new(Mm(10.0), Mm(250.0), page1_contents);
-let pdf_bytes: Vec<u8> = doc
-    .with_pages(page1)
-    .save(&PdfSaveOptions::default());
+    let extgstate = ExtendedGraphicsStateBuilder::new()
+        .with_overprint_stroke(true)
+        .with_blend_mode(BlendMode::multiply())
+        .build();
+    
+    let page1_contents = vec![
+        // add line1 (square)
+        Op::SetOutlineColor { col: Color::Rgb(Rgb::new(0.75, 1.0, 0.64, None)) },
+        Op::SetOutlineThickness { pt: Pt(10.0) },
+        Op::DrawLine { line: line },
+    
+        // add line2 (triangle)
+        Op::SaveGraphicsState,
+        Op::LoadGraphicsState { gs: doc.add_graphics_state(extgstate) },
+        Op::SetLineDashPattern { dash: dash_pattern },
+        Op::SetLineJoinStyle { join: LineJoinStyle::Round },
+        Op::SetLineCapStyle { cap: LineCapStyle::Round },
+        Op::SetFillColor { col: fill_color },
+        Op::SetOutlineThickness { pt: Pt(15.0) },
+        Op::SetOutlineColor { col: outline_color },
+        Op::DrawPolygon { polygon: polygon },
+        Op::RestoreGraphicsState,
+    ];
+    
+    let page1 = PdfPage::new(Mm(10.0), Mm(250.0), page1_contents);
+    let pdf_bytes: Vec<u8> = doc
+        .with_pages(vec![page1])
+        .save(&PdfSaveOptions::default());
+}
 ```
 
 ### Images
@@ -112,25 +117,25 @@ let pdf_bytes: Vec<u8> = doc
 
 ```rust
 use printpdf::*;
-use image::{Image, codecs::bmp::BmpDecoder};
 
 fn main() {
-
     let mut doc = PdfDocument::new("My first PDF");
     let image_bytes = include_bytes!("assets/img/BMP_test.bmp");
-    let image = Image::try_from(BmpDecoder::new(&mut image_file).unwrap()).unwrap();
+    let image = RawImage::decode_from_bytes(image_bytes).unwrap(); // requires --feature bmp
     
-    // In the PDF, an image is an `XObject`, in this case an `ImageXObject`.
-    // returns a random 32-bit image ID
+    // In the PDF, an image is an `XObject`, identified by a unique `ImageId`
     let image_xobject_id = doc.add_image(image);
 
     let page1_contents = vec![
-        Op::UseXObject { id: image_xobject_id.clone(), transform: XObjectTransform::default() }
+        Op::UseXObject { 
+            id: image_xobject_id.clone(), 
+            transform: XObjectTransform::default() 
+        }
     ];
 
     let page1 = PdfPage::new(Mm(10.0), Mm(250.0), page1_contents);
     let pdf_bytes: Vec<u8> = doc
-        .with_pages(page1)
+        .with_pages(vec![page1])
         .save(&PdfSaveOptions::default());
 }
 ```
@@ -140,100 +145,117 @@ fn main() {
 ```rust
 use printpdf::*;
 
-let mut doc = PdfDocument::new("My first PDF");
+fn main() {
 
-let font = ParsedFont::from_bytes(include_bytes!("assets/fonts/RobotoMedium.ttf")).unwrap();
-let font_id = doc.add_font(font);
-// let glyphs = font.shape(text);
+    let mut doc = PdfDocument::new("My first PDF");
 
-let text_pos = Point { x: Mm(10.0).into(), y: Mm(100.0).into() }; // from bottom left
-let page1_contents = vec![
-    Op::SetFontSize { font: font_id.clone(), size: Pt(33.0) },
-    Op::SetTextCursor { pos: text_pos }, 
-    Op::SetLineHeight { lh: Pt(33.0) },
-    Op::SetWordSpacing { percent: 3000.0 },
-    Op::SetCharacterSpacing { multiplier: 10.0 },
-    Op::WriteText { text: "Lorem ipsum".to_string(), font: font_id.clone() },
-    Op::AddLineBreak,
-    Op::WriteText { text: "dolor sit amet".to_string(), font: font_id.clone() },
-    Op::AddLineBreak,
-];
+    let roboto_bytes = include_bytes!("assets/fonts/RobotoMedium.ttf");
+    let font = ParsedFont::from_bytes(roboto_bytes).unwrap();
 
-let page1 = PdfPage::new(Mm(10.0), Mm(250.0), page1_contents);
-let pdf_bytes: Vec<u8> = doc
-    .with_pages(page1)
-    .save(&PdfSaveOptions::default());
+    // If you need custom text shaping (uses the `allsorts` font shaper internally)
+    // let glyphs = font.shape(text);
+
+    // printpdf automatically keeps track of which fonts are used in the PDF
+    let font_id = doc.add_font(font);
+
+    let text_pos = Point { 
+        x: Mm(10.0).into(), 
+        y: Mm(100.0).into() 
+    }; // from bottom left
+
+    let page1_contents = vec![
+        Op::SetLineHeight { lh: Pt(33.0) },
+        Op::SetWordSpacing { percent: 3000.0 },
+        Op::SetCharacterSpacing { multiplier: 10.0 },
+        Op::SetTextCursor { pos: text_pos },
+
+        // Op::WriteCodepoints { ... }
+        // Op::WriteCodepointsWithKerning { ... }
+        Op::WriteText { 
+            text: "Lorem ipsum".to_string(), 
+            font: font_id.clone(), 
+            size: Pt(33.0) 
+        },
+        Op::AddLineBreak,
+        Op::WriteText { 
+            text: "dolor sit amet".to_string(), 
+            font: font_id.clone(), 
+            size: Pt(33.0) 
+        },
+        Op::AddLineBreak,
+    ];
+
+    let save_options = PdfSaveOptions {
+        subset_fonts: true, // auto-subset fonts on save
+        .. Default::default()
+    };
+
+    let page1 = PdfPage::new(Mm(10.0), Mm(250.0), page1_contents);
+    let pdf_bytes: Vec<u8> = doc
+        .with_pages(vec![page1])
+        .save(&save_options);
+}
 ```
 
 ### Tables, HTML
 
-For creating tables, etc. printpdf uses a basic layout system using the `azul-layout` crate.
+For creating tables, etc. printpdf uses a basic layout system, similar to wkhtmltopdf 
+(although more limited in terms of features). It's good enough for basic page layouting, 
+book rendering and reports / forms / etc. Includes automatic page-breaking.
+
+Since printpdf supports WASM, there is an interactive demo at 
+https://fschutt.github.io/printpdf - try playing with the XML.
+
+See [SYNTAX.md](./SYNTAX.md) for the XML syntax description.
 
 ```rust
 // needs --features="html"
 use printpdf::*;
 
-let html = r#"
-<html>
-    <head>
+fn main() {
 
-        <!-- optional: configure page header -->
-        <header>
+    // See https://fschutt.github.io/printpdf for an interactive WASM demo!
 
-            <template>
-                <h4 class="section-header">Chapter {attr:chapter} * {attr:subsection}</h4>
-                <p class="pagenum">{builtin:pagenum}</p>
-            </template>
+    let html = r#"
+    <html title="My first PDF">
 
-            <style>
-                .section-header {
-                    min-height: 8mm;
-                    font-family: sans-serif;
-                    color: #2e2e2e;
-                    border-bottom: 1px solid black;
-                    width: 100%;
-                }
-                .pagenum {
-                    position: absolute;
-                    top: 5mm;
-                    left: 5mm;
-                }
-            </style>
-        </header>
+        <!-- printpdf automatically breaks content into pages -->
+        <body style="padding:10mm">
+            <p style="color: red; font-family: sans-serif;" data-chapter="1" data-subsection="First subsection">Hello!</p>
+            <div style="width:200px;height:200px;background:red;" data-chapter="1" data-subsection="Second subsection">
+                <p>World!</p>
+            </div>
+        </body>
 
-        <!-- same for styling footers -->
-        <footer>
-            <template>
+        <!-- configure header and footer for each page -->
+        <head>
+            <header>
+                <h4 style="color: #2e2e2e;min-height: 8mm;">Chapter {attr:chapter} * {attr:subsection}</h4>
+                <p style="position: absolute;top:5mm;left:5mm;">{builtin:pagenum}</p>
+            </header>
+
+            <footer>
                 <hr/>
-            </template>
-        <footer/>
-    </head>
+            <footer/>
+        </head>
+    </html>
+    "#;
 
-    <!-- document content -->
-    <body margins="10mm">
-        <p style="color: red; font-family: sans-serif;" data-chapter="1" data-subsection="First subsection">Hello!</p>
-        <div style="width:200px;height:200px;background:red;" data-chapter="1" data-subsection="Second subsection">
-            <p>World!</p>
-        </div>
-    </body>
+    let options = XmlRenderOptions {
+        // named images to be used in the HTML, i.e. ["image1.png" => DecodedImage(image1_bytes)]
+        images: BTreeMap::new(),
+        // named fonts to be used in the HTML, i.e. ["Roboto" => DecodedImage(roboto_bytes)]
+        fonts: BTreeMap::new(),
+        // default page width, printpdf will auto-page-break
+        page_width: Mm(210.0),
+        // default page height
+        page_height: Mm(297.0),
+    };
 
-</html>
-"#;
-
-let options = XmlRenderOptions {
-    // named images to be used in the HTML, i.e. ["image1.png" => DecodedImage(image1_bytes)]
-    images: BTreeMap::new(),
-    // named fonts to be used in the HTML, i.e. ["Roboto" => DecodedImage(roboto_bytes)]
-    fonts: BTreeMap::new(),
-    // default page width, printpdf will auto-page-break
-    page_width: Mm(210.0),
-    // default page height
-    page_height: Mm(297.0),
-};
-
-let pdf = PdfDocument::new("My PDF")
-    .with_html(html, &options).unwrap()
-    .save(&PdfSaveOptions::default());
+    let pdf_bytes = PdfDocument::new("My PDF")
+        .with_html(html, &options).unwrap()
+        .save(&PdfSaveOptions::default());
+}
 ```
 
 ## Goals and Roadmap
