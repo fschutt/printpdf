@@ -217,7 +217,7 @@ fn main() {
     // See https://fschutt.github.io/printpdf for an interactive WASM demo!
 
     let html = r#"
-    <html title="My first PDF">
+    <html>
 
         <!-- printpdf automatically breaks content into pages -->
         <body style="padding:10mm">
@@ -283,7 +283,7 @@ The printpdf wiki is live at: https://github.com/fschutt/printpdf/wiki
 Here are some resources I found while working on this library:
 
 - [`PDFXPlorer`, shows the DOM tree of a PDF, needs .NET 2.0](http://www.o2sol.com/pdfxplorer/download.htm)
-- [Official PDF 1.7 reference](http://www.adobe.com/content/dam/Adobe/en/devnet/acrobat/pdfs/pdf_reference_1-7.pdf)
+- [Official PDF 1.7 reference](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.7old.pdf)
 - [\[GERMAN\] How to embed unicode fonts in PDF](http://www.p2501.ch/pdf-howto/typographie/vollzugriff/direkt)
 - [PDF X/1-a Validator](https://www.pdf-online.com/osa/validate.aspx)
 - [PDF X/3 technical notes](http://www.pdfxreport.com/lib/exe/fetch.php?media=en:technote_pdfx_checks.pdf)

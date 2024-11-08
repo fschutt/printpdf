@@ -165,54 +165,28 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec
     }
     let global_font_dict_id = doc.add_object(global_font_dict);
 
+    // Build XObject dictionary
+    let mut global_xobject_dict = LoDictionary::new();
+    for (k, v) in pdf.resources.xobjects.map.iter() {
+        global_xobject_dict.set(k.0.clone(), crate::xobject::add_xobject_to_document(v, &mut doc));
+    }
+    let global_xobject_dict_id = doc.add_object(global_xobject_dict);
+
     // Render pages
     let page_ids = pdf.pages.iter().map(|page| {
 
-        /*
-            let mut dict = lopdf::Dictionary::new();
-
-            let mut ocg_dict = self.layers;
-            let mut ocg_references = Vec::<OCGRef>::new();
-
-            let xobjects_dict: lopdf::Dictionary = self.xobjects.into_with_document(doc);
-            let graphics_state_dict: lopdf::Dictionary = self.graphics_states.into();
-            let annotations_dict: lopdf::Dictionary = self.link_annotations.into();
-
-            if !layers.is_empty() {
-                for l in layers {
-                    ocg_references.push(ocg_dict.add_ocg(l));
-                }
-
-                let cur_ocg_dict_obj: lopdf::Dictionary = ocg_dict.into();
-
-                if !cur_ocg_dict_obj.is_empty() {
-                    dict.set("Properties", lopdf::Object::Dictionary(cur_ocg_dict_obj));
-                }
-            }
-
-            if !xobjects_dict.is_empty() {
-                dict.set("XObject", lopdf::Object::Dictionary(xobjects_dict));
-            }
-
-            if !graphics_state_dict.is_empty() {
-                dict.set("ExtGState", lopdf::Object::Dictionary(graphics_state_dict));
-            }
-
-            if !annotations_dict.is_empty() {
-                dict.set("Annots", lopdf::Object::Dictionary(annotations_dict))
-            }
-
-            (dict, ocg_references)
-        */
-
         let mut page_resources = LoDictionary::new(); // get_page_resources(&mut doc, &page);
         page_resources.set("Font", Reference(global_font_dict_id));
+        page_resources.set("XObject", Reference(global_xobject_dict_id));
+        // page_resources.set("Annots");
+        // page_resources.set("ExtGState");
+        // page_resources.et("Properties", Dictionary(ocg_dict));
 
         let layer_stream = translate_operations(&page.ops, &prepared_fonts); // Vec<u8>
         let merged_layer_stream = LoStream::new(LoDictionary::new(), layer_stream)
         .with_compression(false);
 
-        let mut page_obj = LoDictionary::from_iter(vec![
+        let page_obj = LoDictionary::from_iter(vec![
             ("Type", "Page".into()),
             ("Rotate", Integer(0)),
             ("MediaBox", page.get_media_box()),
@@ -220,7 +194,7 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec
             ("CropBox", page.get_crop_box()),
             ("Parent", Reference(pages_id)),
             ("Resources", Reference(doc.add_object(page_resources))),
-            ("Contents", Reference(doc.add_object(merged_layer_stream)))
+            ("Contents", Reference(doc.add_object(merged_layer_stream))),
         ]);
 
         doc.add_object(page_obj)
@@ -650,8 +624,6 @@ fn polygon_to_stream_ops(poly: &Polygon) -> Vec<LoOp> {
     pub const OP_PATH_CONST_MOVE_TO: &str = "m";
     /// Straight line to the two following points
     pub const OP_PATH_CONST_LINE_TO: &str = "l";
-    /// Stroke path
-    pub const OP_PATH_PAINT_STROKE: &str = "S";
     /// Close and stroke path
     pub const OP_PATH_PAINT_STROKE_CLOSE: &str = "s";
     /// End path without filling or stroking
@@ -792,7 +764,7 @@ fn prepare_fonts(resources: &PdfResources, pages: &[PdfPage]) -> BTreeMap<FontId
             original: font.clone(),
             subset_font: subset_font,
             cid_to_unicode_map: cid_to_unicode,
-            vertical_writing: false, // TODO
+            vertical_writing: !font.vmtx_data.is_empty(),
             ascent: font.font_metrics.ascender as i64,
             descent: font.font_metrics.descender as i64,
             widths_list: widths,
@@ -808,7 +780,7 @@ fn add_font_to_pdf(doc: &mut lopdf::Document, font_id: &FontId, prepared: &Prepa
     
     let face_name = font_id.0.clone();
 
-    let vertical = false;
+    let vertical = prepared.vertical_writing;
 
     // WARNING: Font stream MAY NOT be compressed
     let font_stream = LoStream::new(

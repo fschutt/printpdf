@@ -2,6 +2,23 @@ use allsorts::binary::read::ReadArray;
 use allsorts::tables::loca::LocaOffsets;
 use allsorts::tables::IndexToLocFormat;
 use lopdf::Object::{Integer, Array};
+use crate::{FontId, Op, PdfPage};
+use time::error::Parse;
+use core::fmt;
+use std::collections::{btree_map::BTreeMap, BTreeSet};
+use std::rc::Rc;
+use std::vec::Vec;
+use allsorts::{
+    binary::read::ReadScope,
+    font_data::FontData,
+    layout::{GDEFTable, LayoutCache, GPOS, GSUB},
+    tables::{
+        cmap::{owned::CmapSubtable as OwnedCmapSubtable, CmapSubtable}, 
+        glyf::{GlyfRecord, GlyfTable, Glyph}, 
+        loca::LocaTable, FontTableProvider, HeadTable, HheaTable, MaxpTable
+    },
+};
+
 
 /// Builtin or external font
 #[derive(Debug, Clone, PartialEq)]
@@ -127,31 +144,13 @@ impl BuiltinFont {
     }
 }
 
-
-use time::error::Parse;
-use core::fmt;
-use std::collections::{btree_map::BTreeMap, BTreeSet};
-use std::rc::Rc;
-use std::vec::Vec;
-use allsorts::{
-    binary::read::ReadScope,
-    font_data::FontData,
-    layout::{GDEFTable, LayoutCache, GPOS, GSUB},
-    tables::{
-        cmap::{owned::CmapSubtable as OwnedCmapSubtable, CmapSubtable}, 
-        glyf::{GlyfRecord, GlyfTable, Glyph}, 
-        loca::LocaTable, FontTableProvider, HeadTable, HheaTable, MaxpTable
-    },
-};
-
-use crate::{FontId, Op, PdfPage};
-
 #[derive(Clone)]
 pub struct ParsedFont {
     pub font_metrics: FontMetrics,
     pub num_glyphs: u16,
     pub hhea_table: HheaTable,
     pub hmtx_data: Vec<u8>,
+    pub vmtx_data: Vec<u8>,
     pub maxp_table: MaxpTable,
     pub gsub_cache: Option<LayoutCache<GSUB>>,
     pub gpos_cache: Option<LayoutCache<GPOS>>,
@@ -578,6 +577,11 @@ impl ParsedFont {
         .and_then(|s| Some(s?.into_owned()))
         .unwrap_or_default();
 
+        let vmtx_data = provider
+        .table_data(tag::VMTX).ok()
+        .and_then(|s| Some(s?.into_owned()))
+        .unwrap_or_default();
+
         let hhea_table = provider.table_data(tag::HHEA).ok()
         .and_then(|hhea_data| {
             ReadScope::new(&hhea_data?).read::<HheaTable>().ok()
@@ -627,6 +631,7 @@ impl ParsedFont {
             num_glyphs,
             hhea_table,
             hmtx_data,
+            vmtx_data,
             maxp_table,
             gsub_cache,
             gpos_cache,

@@ -135,8 +135,6 @@ pub(crate) fn xml_to_pages(
         add_image_resource_updates,
     );
 
-    println!("updates: {updates:#?}");
-
     let layout = solve_layout(
         styled_dom, 
         DOCUMENT_ID, 

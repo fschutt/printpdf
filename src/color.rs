@@ -11,6 +11,19 @@ pub enum ColorSpace {
     GreyscaleAlpha,
 }
 
+impl ColorSpace {
+    pub fn as_string(&self) -> &'static str {
+        use self::ColorSpace::*;
+        match self {
+            Rgb => "DeviceRGB",
+            Cmyk => "DeviceCMYK",
+            Greyscale => "DeviceGray",
+            Palette => "Indexed",
+            Rgba | GreyscaleAlpha => "DeviceN",
+        }
+    }
+}
+
 impl From<image::ColorType> for ColorSpace {
     fn from(color_type: image::ColorType) -> Self {
         use image::ColorType::*;
@@ -24,19 +37,6 @@ impl From<image::ColorType> for ColorSpace {
     }
 }
 
-impl From<ColorSpace> for &'static str {
-    fn from(val: ColorSpace) -> Self {
-        use self::ColorSpace::*;
-        match val {
-            Rgb => "DeviceRGB",
-            Cmyk => "DeviceCMYK",
-            Greyscale => "DeviceGray",
-            Palette => "Indexed",
-            Rgba | GreyscaleAlpha => "DeviceN",
-        }
-    }
-}
-
 /// How many bits does a color have?
 #[derive(Debug, Copy, PartialEq, Clone)]
 pub enum ColorBits {
@@ -45,22 +45,9 @@ pub enum ColorBits {
     Bit16,
 }
 
-impl From<image::ColorType> for ColorBits {
-    fn from(color_type: image::ColorType) -> ColorBits {
-        use image::ColorType::*;
-        use ColorBits::*;
-
-        match color_type {
-            L8 | La8 | Rgb8 | Rgba8 => Bit8,
-            L16 | La16 | Rgb16 | Rgba16 => Bit16,
-            _ => Bit8, // unreachable
-        }
-    }
-}
-
-impl From<ColorBits> for i64 {
-    fn from(val: ColorBits) -> Self {
-        match val {
+impl ColorBits {
+    pub fn as_integer(&self) -> i64 {
+        match self {
             ColorBits::Bit1 => 1,
             ColorBits::Bit8 => 8,
             ColorBits::Bit16 => 16,

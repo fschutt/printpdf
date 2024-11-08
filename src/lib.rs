@@ -162,6 +162,13 @@ impl PdfDocument {
         id
     }
 
+    /// Adds an image to the internal resources
+    pub fn add_image(&mut self, image: &RawImage) -> XObjectId {
+        let id = XObjectId::new();
+        self.resources.xobjects.map.insert(id.clone(), XObject::Image(image.clone()));
+        id
+    }
+
     /// Adds an external XObject stream (usually SVG or other stream) to the PDF resources
     /// so that it can be later be invoked with `UseXObject { id }`
     pub fn add_xobject(&mut self, parsed_svg: &ExternalXObject) -> XObjectId {

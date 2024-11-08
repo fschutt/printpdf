@@ -2,7 +2,7 @@
 use std::io::Read;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use image::ColorType;
-use crate::{ColorBits, ColorSpace, ImageXObject, Px};
+use crate::{ColorBits, ColorSpace, Px};
 use crate::date::OffsetDateTime;
 
 /// Since the random number generator doesn't have to be cryptographically secure
@@ -113,46 +113,6 @@ pub fn uncompress(bytes: &[u8]) -> Vec<u8> {
     s
 }
 
-pub(crate) fn preprocess_image_with_alpha(
-    color_type: ColorType,
-    image_data: Vec<u8>,
-    dim: (u32, u32),
-) -> (ImageXObject, Option<ImageXObject>) {
-    let (color_type, image_data, smask_data) = match color_type {
-        ColorType::Rgba8 => {
-            let (rgb, alpha) = rgba_to_rgb(image_data);
-            (ColorType::Rgb8, rgb, Some(alpha))
-        }
-        _ => (color_type, image_data, None),
-    };
-    let color_bits = ColorBits::from(color_type);
-    let color_space = ColorSpace::from(color_type);
-
-    let img = ImageXObject {
-        width: Px(dim.0 as usize),
-        height: Px(dim.1 as usize),
-        color_space,
-        bits_per_component: color_bits,
-        image_data,
-        interpolate: true,
-        image_filter: None,
-        clipping_bbox: None,
-        smask: None,
-    };
-    let img_mask = smask_data.map(|smask| ImageXObject {
-        width: img.width,
-        height: img.height,
-        color_space: ColorSpace::Greyscale,
-        bits_per_component: ColorBits::Bit8,
-        interpolate: false,
-        image_data: smask,
-        image_filter: None,
-        clipping_bbox: None,
-        smask: None,
-    });
-    (img, img_mask)
-}
-
 /// Takes a Vec<u8> of RGBA data and returns two Vec<u8> of RGB and alpha data
 pub(crate) fn rgba_to_rgb(data: Vec<u8>) -> (Vec<u8>, Vec<u8>) {
     let mut rgb = Vec::with_capacity(data.len() / 4 * 3);
@@ -165,4 +125,38 @@ pub(crate) fn rgba_to_rgb(data: Vec<u8>) -> (Vec<u8>, Vec<u8>) {
     }
 
     (rgb, alpha)
+}
+
+pub(crate) fn rgba_to_rgb16(data: Vec<u16>) -> (Vec<u16>, Vec<u16>) {
+    let mut rgb = Vec::with_capacity(data.len() / 4 * 3);
+    let mut alpha = Vec::with_capacity(data.len() / 4);
+    for i in (0..data.len()).step_by(4) {
+        rgb.push(data[i]);
+        rgb.push(data[i + 1]);
+        rgb.push(data[i + 2]);
+        alpha.push(data[i + 3]);
+    }
+
+    (rgb, alpha)
+}
+
+pub(crate) fn rgba_to_rgbf32(data: Vec<f32>) -> (Vec<f32>, Vec<f32>) {
+    let mut rgb = Vec::with_capacity(data.len() / 4 * 3);
+    let mut alpha = Vec::with_capacity(data.len() / 4);
+    for i in (0..data.len()).step_by(4) {
+        rgb.push(data[i]);
+        rgb.push(data[i + 1]);
+        rgb.push(data[i + 2]);
+        alpha.push(data[i + 3]);
+    }
+
+    (rgb, alpha)
+}
+
+pub(crate) fn u16vec_to_u8(data: Vec<u16>) -> Vec<u8> {
+    data.iter().flat_map(|us| us.to_be_bytes()).collect()
+}
+
+pub(crate) fn f32vec_to_u8(data: Vec<f32>) -> Vec<u8> {
+    data.iter().flat_map(|us| us.to_be_bytes()).collect()
 }
