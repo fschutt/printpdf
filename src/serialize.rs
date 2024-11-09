@@ -54,8 +54,8 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec
     if pdf.metadata.info.conformance.must_have_icc_profile() {
 
         /// Default ICC profile, necessary if `PdfMetadata::must_have_icc_profile()` return true
-        const ICC_PROFILE_ECI_V2: &[u8] = include_bytes!("./CoatedFOGRA39.icc");
-        const ICC_PROFILE_LICENSE: &str = include_str!("./CoatedFOGRA39.icc.LICENSE.txt");
+        const ICC_PROFILE_ECI_V2: &[u8] = include_bytes!("./res/CoatedFOGRA39.icc");
+        const ICC_PROFILE_LICENSE: &str = include_str!("./res/CoatedFOGRA39.icc.LICENSE.txt");
 
         let icc_profile_descr = "Commercial and special offset print acccording to ISO \
             12647-2:2004 / Amd 1, paper type 1 or 2 (matte or gloss-coated \

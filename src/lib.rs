@@ -43,8 +43,6 @@ pub use image::*;
 /// HTML handling
 pub mod html;
 pub use html::*;
-/// Constants and library includes
-pub(crate) mod constants;
 /// Utility functions (random strings, numbers, timestamp formatting)
 pub(crate) mod utils;
 use utils::*;
@@ -297,7 +295,7 @@ impl PdfMetadata {
         };
 
         format!(
-            include_str!("./catalog_xmp_metadata.txt"),
+            include_str!("./res/catalog_xmp_metadata.txt"),
             create = create_date,
             modify = modification_date,
             mdate = metadata_date,

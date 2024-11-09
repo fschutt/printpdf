@@ -2,17 +2,24 @@ use std::collections::HashSet;
 
 use crate::units::{Mm, Pt};
 
-use crate::constants::{
-    OP_PATH_CONST_CLIP_EO, 
-    OP_PATH_CONST_CLIP_NZ, 
-    OP_PATH_PAINT_FILL_EO, 
-    OP_PATH_PAINT_FILL_NZ,
-    OP_PATH_PAINT_FILL_STROKE_CLOSE_EO, 
-    OP_PATH_PAINT_FILL_STROKE_CLOSE_NZ,
-    OP_PATH_PAINT_FILL_STROKE_EO, 
-    OP_PATH_PAINT_FILL_STROKE_NZ,
-};
 use crate::FontId;
+
+/// Fill path using nonzero winding number rule
+pub const OP_PATH_PAINT_FILL_NZ: &str = "f";
+/// Fill path using even-odd rule
+pub const OP_PATH_PAINT_FILL_EO: &str = "f*";
+/// Fill and stroke path using nonzero winding number rule
+pub const OP_PATH_PAINT_FILL_STROKE_NZ: &str = "B";
+/// Close, fill and stroke path using nonzero winding number rule
+pub const OP_PATH_PAINT_FILL_STROKE_CLOSE_NZ: &str = "b";
+/// Fill and stroke path using even-odd rule
+pub const OP_PATH_PAINT_FILL_STROKE_EO: &str = "B*";
+/// Close, fill and stroke path using even odd rule
+pub const OP_PATH_PAINT_FILL_STROKE_CLOSE_EO: &str = "b*";
+/// Current path is a clip path, non-zero winding order (usually in like `h W S`)
+pub const OP_PATH_CONST_CLIP_NZ: &str = "W";
+/// Current path is a clip path, non-zero winding order
+pub const OP_PATH_CONST_CLIP_EO: &str = "W*";
 
 /// Rectangle struct (x, y, width, height)
 #[derive(Debug, PartialEq, Clone)]
