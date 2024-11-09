@@ -1,11 +1,16 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
+use crate::Actions;
 use crate::BuiltinFont;
 use crate::Color;
+use crate::ColorArray;
+use crate::DashPhase;
+use crate::Destination;
 use crate::FontId;
 use crate::IccProfileType;
 use crate::Line;
+use crate::LinkAnnotation;
 use crate::Op;
 use crate::PaintMode;
 use crate::ParsedFont;
@@ -16,6 +21,8 @@ use crate::font::SubsetFont;
 use crate::PdfPage;
 use crate::PdfResources;
 use crate::Polygon;
+use crate::XObject;
+use crate::XObjectId;
 use lopdf::Dictionary as LoDictionary;
 use lopdf::Object::{Name, Integer, Null, Dictionary, Array, Real, Stream, Reference, String as LoString};
 use lopdf::StringFormat::{Hexadecimal, Literal};
@@ -172,17 +179,33 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec
     }
     let global_xobject_dict_id = doc.add_object(global_xobject_dict);
 
-    // Render pages
-    let page_ids = pdf.pages.iter().map(|page| {
+    let mut global_extgstate_dict = LoDictionary::new();
+    for (k, v) in pdf.resources.extgstates.map.iter() {
+        global_extgstate_dict.set(k.0.clone(), crate::graphics::extgstate_to_dict(v));
+    }
+    let global_extgstate_dict_id = doc.add_object(global_extgstate_dict);
 
+    let page_ids_reserved = pdf.pages.iter().map(|_| doc.new_object_id()).collect::<Vec<_>>();
+
+    // Render pages
+    let page_ids = pdf.pages.iter().zip(page_ids_reserved.iter()).map(|(page, page_id)| {
+
+        // gather page annotations
         let mut page_resources = LoDictionary::new(); // get_page_resources(&mut doc, &page);
+        let links = page.ops.iter().filter_map(|l| match l {
+            Op::LinkAnnotation { link } => Some(link.clone()),
+            _ => None,
+        }).collect::<Vec<_>>();
+        page_resources.set("Annots", Array(
+            links.iter().map(|l| Dictionary(link_annotation_to_dict(l, &page_ids_reserved))).collect()
+        ));
+
         page_resources.set("Font", Reference(global_font_dict_id));
         page_resources.set("XObject", Reference(global_xobject_dict_id));
-        // page_resources.set("Annots");
-        // page_resources.set("ExtGState");
+        page_resources.set("ExtGState", Reference(global_extgstate_dict_id));
         // page_resources.et("Properties", Dictionary(ocg_dict));
 
-        let layer_stream = translate_operations(&page.ops, &prepared_fonts); // Vec<u8>
+        let layer_stream = translate_operations(&page.ops, &prepared_fonts, &pdf.resources.xobjects.map); // Vec<u8>
         let merged_layer_stream = LoStream::new(LoDictionary::new(), layer_stream)
         .with_compression(false);
 
@@ -197,7 +220,9 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec
             ("Contents", Reference(doc.add_object(merged_layer_stream))),
         ]);
 
-        doc.add_object(page_obj)
+        doc.set_object(*page_id, page_obj);
+
+        *page_id
     }).collect::<Vec<_>>();
 
     // Now that the page objs are rendered, resolve which bookmarks reference which page objs
@@ -305,7 +330,11 @@ fn builtin_font_to_dict(font: &BuiltinFont) -> LoDictionary {
     ])
 }
 
-fn translate_operations(ops: &[Op], fonts: &BTreeMap<FontId, PreparedFont>) -> Vec<u8> {
+fn translate_operations(
+    ops: &[Op], 
+    fonts: &BTreeMap<FontId, PreparedFont>,
+    xobjects: &BTreeMap<XObjectId, XObject>,
+) -> Vec<u8> {
     
     let mut content = Vec::new();
 
@@ -479,8 +508,15 @@ fn translate_operations(ops: &[Op], fonts: &BTreeMap<FontId, PreparedFont>) -> V
                 // TODO!
             },
             Op::UseXObject { id, transform } => {
+
+                use crate::matrix::CurTransMat;
+                let mut t = CurTransMat::Identity;
+                for q in transform.get_ctms(xobjects.get(id).and_then(|xobj| xobj.get_width_height())) {
+                    t = CurTransMat::Raw(CurTransMat::combine_matrix(t.as_array(), q.as_array()));
+                }
+
                 content.push(LoOp::new("q", vec![]));
-                // self.add_operation(transform);
+                content.push(LoOp::new("cm", t.as_array().into_iter().map(Real).collect()));
                 content.push(LoOp::new("Do", vec![Name(id.0.as_bytes().to_vec())]));
                 content.push(LoOp::new("Q", vec![]));
             },
@@ -895,4 +931,64 @@ fn icc_to_stream(val: &IccProfile) -> LoStream {
     }
 
     LoStream::new(stream_dict, val.icc.clone())
+}
+
+fn link_annotation_to_dict(la: &LinkAnnotation, page_ids: &[lopdf::ObjectId]) -> LoDictionary {
+
+    let ll = la.rect.lower_left();
+    let ur = la.rect.upper_right();
+
+    let mut dict: LoDictionary = LoDictionary::new();
+    dict.set("Type",  Name("Annot".into()));
+    dict.set("Subtype", Name("Link".into()));
+    dict.set("Rect", Array(vec![Real(ll.x.0), Real(ll.y.0), Real(ur.x.0), Real(ur.y.0)]));
+    dict.set("A", Dictionary(actions_to_dict(&la.actions, page_ids)));
+    dict.set("Border", Array(la.border.to_array().into_iter().map(Real).collect()));
+    dict.set("C", Array(color_array_to_f32(&la.color).into_iter().map(Real).collect()));
+    dict.set("H", Name(la.highlighting.get_id().into()));
+    dict
+}
+
+fn dashphase_to_object(dp: &DashPhase) -> Vec<lopdf::Object> {
+    vec![
+        Array(dp.dash_array.iter().map(|x| Real(*x)).collect()),
+        Real(dp.phase),
+    ]
+}
+
+fn actions_to_dict(a: &Actions, page_ids: &[lopdf::ObjectId]) -> LoDictionary {
+    let mut dict = LoDictionary::new();
+    dict.set("S",  Name(a.get_action_type_id().into()));
+    match a {
+        Actions::GoTo(destination) => {
+            dict.set("D", destination_to_obj(destination, page_ids));
+        },
+        Actions::URI(uri) => {
+            dict.set("URI", LoString(uri.clone().into_bytes(), Literal));
+        },
+    }
+    dict
+}
+
+fn destination_to_obj(d: &Destination, page_ids: &[lopdf::ObjectId]) -> lopdf::Object {
+    match d {
+        Destination::XYZ { page, left, top, zoom } => {
+            Array(vec![
+                page_ids.get(page.saturating_sub(1)).copied().map(Reference).unwrap_or(Null),
+                Name("XYZ".into()),
+                left.map(Real).unwrap_or(Null),
+                top.map(Real).unwrap_or(Null),
+                zoom.map(Real).unwrap_or(Null),
+            ])
+        },
+    }
+} 
+
+fn color_array_to_f32(c: &ColorArray) -> Vec<f32> {
+    match c {
+        ColorArray::Transparent => Vec::new(),
+        ColorArray::Gray(arr) => arr.to_vec(),
+        ColorArray::RGB(arr) => arr.to_vec(),
+        ColorArray::CMYK(arr) => arr.to_vec(),
+    }
 }

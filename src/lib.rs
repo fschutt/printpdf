@@ -61,14 +61,6 @@ impl PageAnnotId {
     pub fn new() -> Self { Self(crate::utils::random_character_string_32()) }
 }
 
-/// Internal ID for link annotations
-#[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord)]
-pub struct LinkAnnotId(pub String);
-
-impl LinkAnnotId {
-    pub fn new() -> Self { Self(crate::utils::random_character_string_32()) }
-}
-
 /// Internal ID for XObjects
 #[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord)]
 pub struct XObjectId(pub String);
@@ -175,13 +167,6 @@ impl PdfDocument {
         id
     }
 
-    // Adds a link (hyperlink or self-referential link) to the document resources, returning the links internal ID
-    pub fn add_link(&mut self, link: LinkAnnotation) -> LinkAnnotId {
-        let id = LinkAnnotId::new();
-        self.resources.links.map.insert(id.clone(), link);
-        id
-    }
-
     /// Adds a new page-level bookmark on page `$page`, returning the bookmarks internal ID
     pub fn add_bookmark(&mut self, name: &str, page: usize) -> PageAnnotId {
         let id = PageAnnotId::new();
@@ -218,8 +203,6 @@ pub struct PdfResources {
     pub fonts: PdfFontMap,
     /// XObjects (forms, images, embedded PDF contents, etc.)
     pub xobjects: XObjectMap,
-    /// Annotations for links between rects on pages
-    pub links: LinkAnnotMap,
     /// Map of explicit extended graphics states
     pub extgstates: ExtendedGraphicsStateMap,
     /// Map of optional content groups
@@ -249,11 +232,6 @@ pub struct XObjectMap {
 #[derive(Debug, PartialEq, Default, Clone)]
 pub struct PageAnnotMap {
     pub map: BTreeMap<PageAnnotId, PageAnnotation>,  
-}
-
-#[derive(Debug, PartialEq, Default, Clone)]
-pub struct LinkAnnotMap {
-    pub map: BTreeMap<LinkAnnotId, LinkAnnotation>,  
 }
 
 #[derive(Debug, PartialEq, Default, Clone)]

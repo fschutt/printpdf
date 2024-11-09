@@ -11,7 +11,7 @@ pub enum XObject {
     Image(RawImage),
     /// Form XObject, NOT A PDF FORM, this just allows repeatable content
     /// on a page
-    Form(Box<FormXObject>),
+    Form(FormXObject),
     /// XObject embedded from an external stream
     ///
     /// This is mainly used to add XObjects to the resources that the library
@@ -22,6 +22,19 @@ pub enum XObject {
     /// by `add_xobject()` is the unique name that can be used to invoke
     /// the `/Do` operator (by the `use_xobject`)
     External(ExternalXObject),
+}
+
+impl XObject {
+    pub fn get_width_height(&self) -> Option<(Px, Px)> {
+        match self {
+            XObject::Image(raw_image) => Some((Px(raw_image.width), Px(raw_image.height))),
+            XObject::Form(form_xobject) => form_xobject.size.clone(),
+            XObject::External(external_xobject) => Some((
+                external_xobject.width.clone()?, 
+                external_xobject.height.clone()?
+            )),
+        }
+    }
 }
 
 // translates the xobject to a document object ID
@@ -85,10 +98,11 @@ pub enum ImageFilter {
 pub struct FormXObject {
     /* /Type /XObject */
     /* /Subtype /Form */
-
     /* /FormType Integer */
     /// Form type (currently only Type1)
     pub form_type: FormType,
+    /// Optional width / height, affects the width / height on instantiation
+    pub size: Option<(Px, Px)>,
     /// The actual content of this FormXObject
     pub bytes: Vec<u8>,
     /* /Matrix [Integer , 6] */
@@ -314,9 +328,52 @@ pub struct XObjectTransform {
     pub dpi: Option<f32>,
 }
 
+impl XObjectTransform {
+    pub fn get_ctms(&self, wh: Option<(Px, Px)>) -> Vec<CurTransMat> {
+
+        let mut transforms = Vec::new();
+        let dpi = self.dpi.unwrap_or(300.0);
+
+        if let Some((w, h)) = wh {
+            // PDF maps an image to a 1x1 square, we have to 
+            // adjust the transform matrix to fix the distortion
+
+            // Image at the given dpi should 1px = 1pt
+            transforms.push(CurTransMat::Scale(w.into_pt(dpi).0, h.into_pt(dpi).0));
+        }
+
+        if self.scale_x.is_some() || self.scale_y.is_some() {
+            let scale_x = self.scale_x.unwrap_or(1.0);
+            let scale_y = self.scale_y.unwrap_or(1.0);
+            transforms.push(CurTransMat::Scale(scale_x, scale_y));    
+        }
+
+        if let Some(rotate) = self.rotate.as_ref() {
+            transforms.push(CurTransMat::Translate(
+                Pt(-rotate.rotation_center_x.into_pt(dpi).0),
+                Pt(-rotate.rotation_center_y.into_pt(dpi).0),
+            ));
+            transforms.push(CurTransMat::Rotate(rotate.angle_ccw_degrees));
+            transforms.push(CurTransMat::Translate(
+                rotate.rotation_center_x.into_pt(dpi),
+                rotate.rotation_center_y.into_pt(dpi),
+            ));
+        }
+
+        if self.translate_x.is_some() || self.translate_y.is_some() {
+            transforms.push(CurTransMat::Translate(
+                self.translate_x.unwrap_or(Pt(0.0)),
+                self.translate_y.unwrap_or(Pt(0.0)),
+            ));
+        }
+
+        transforms
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Default)]
 pub struct XObjectRotation {
     pub angle_ccw_degrees: f32,
-    pub rotation_center_x: Pt,
-    pub rotation_center_y: Pt,
+    pub rotation_center_x: Px,
+    pub rotation_center_y: Px,
 }

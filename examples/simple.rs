@@ -101,15 +101,18 @@ fn main() {
     let xobject_id = doc.add_xobject(&svg);
     
     for i in 0..10 {
+        
         let transform = XObjectTransform {
             rotate: Some(XObjectRotation {
                 angle_ccw_degrees: i as f32 * 36.0,
-                rotation_center_x: rotation_center_x.into_pt(300.0),
-                rotation_center_y: rotation_center_y.into_pt(300.0),
+                rotation_center_x: rotation_center_x,
+                rotation_center_y: rotation_center_y,
             }),
             translate_x: Some(Mm(i as f32 * 20.0 % 50.0).into()),
             translate_y: Some(Mm(i as f32 * 30.0).into()),
-            ..Default::default()
+            dpi: Some(300.0),
+            scale_x: None,
+            scale_y: None,
         };
     
         ops.extend_from_slice(&[

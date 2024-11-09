@@ -1,4 +1,4 @@
-use crate::{color::Color, graphics::{Line, LineCapStyle, LineDashPattern, LineJoinStyle, Point, Polygon, Rect, TextRenderingMode}, matrix::{CurTransMat, TextMatrix}, units::{Mm, Pt}, BuiltinFont, ExtendedGraphicsStateId, FontId, LayerInternalId, LinkAnnotId, XObjectId, XObjectTransform};
+use crate::{color::Color, graphics::{Line, LineCapStyle, LineDashPattern, LineJoinStyle, Point, Polygon, Rect, TextRenderingMode}, matrix::{CurTransMat, TextMatrix}, units::{Mm, Pt}, BuiltinFont, ExtendedGraphicsStateId, FontId, LayerInternalId, LinkAnnotation, XObjectId, XObjectTransform};
 use lopdf::Object as LoObject;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -138,7 +138,7 @@ pub enum Op {
     /// Sets a matrix that only affects subsequent text objects.
     SetTextMatrix { matrix: TextMatrix },
     /// Adds a link annotation (use `PdfDocument::add_link` to register the `LinkAnnotation` on the document)
-    LinkAnnotation { link: LinkAnnotId },
+    LinkAnnotation { link: LinkAnnotation },
     /// Instantiates an XObject with a given transform (if the XObject has a width / height). 
     /// Use `PdfDocument::add_xobject` to register the object and get the ID.
     UseXObject { id: XObjectId, transform: XObjectTransform },

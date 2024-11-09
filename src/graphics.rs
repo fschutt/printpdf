@@ -1,8 +1,7 @@
 use std::collections::HashSet;
-
 use crate::units::{Mm, Pt};
-
 use crate::FontId;
+use lopdf::Dictionary as LoDictionary;
 
 /// Fill path using nonzero winding number rule
 pub const OP_PATH_PAINT_FILL_NZ: &str = "f";
@@ -21,7 +20,7 @@ pub const OP_PATH_CONST_CLIP_NZ: &str = "W";
 /// Current path is a clip path, non-zero winding order
 pub const OP_PATH_CONST_CLIP_EO: &str = "W*";
 
-/// Rectangle struct (x, y, width, height)
+/// Rectangle struct (x, y, width, height) from the LOWER LEFT corner of the page
 #[derive(Debug, PartialEq, Clone)]
 pub struct Rect {
     pub x: Pt,
@@ -31,6 +30,21 @@ pub struct Rect {
 }
 
 impl Rect {
+
+    pub fn lower_left(&self) -> Point {
+        Point {
+            x: self.x,
+            y: self.y,
+        }
+    }
+
+    pub fn upper_right(&self) -> Point {
+        Point {
+            x: self.x + self.width,
+            y: self.y + self.height,
+        }
+    }
+
     pub fn from_wh(width: Pt, height: Pt) -> Self {
         Self {
             x: Pt(0.0),
@@ -579,6 +593,154 @@ pub struct ExtendedGraphicsState {
     pub(crate) text_knockout: bool,
 }
 
+pub fn extgstate_to_dict(val: &ExtendedGraphicsState) -> LoDictionary {
+
+    use lopdf::Object::*;
+    use lopdf::Object::String as LoString;
+    use std::string::String;
+    
+    let mut gs_operations = Vec::<(String, lopdf::Object)>::new();
+
+    // for each field, look if it was contained in the "changed fields"
+    if val.changed_fields.contains(LINE_WIDTH) {
+        gs_operations.push(("LW".to_string(), Real(val.line_width)));
+    }
+
+    if val.changed_fields.contains(LINE_CAP) {
+        gs_operations.push(("LC".to_string(), Integer(val.line_cap.id())));
+    }
+
+    if val.changed_fields.contains(LINE_JOIN) {
+        gs_operations.push(("LJ".to_string(), Integer(val.line_join.id())));
+    }
+
+    if val.changed_fields.contains(MITER_LIMIT) {
+        gs_operations.push(("ML".to_string(), Real(val.miter_limit)));
+    }
+
+    if val.changed_fields.contains(FLATNESS_TOLERANCE) {
+        gs_operations.push(("FL".to_string(), Real(val.flatness_tolerance)));
+    }
+
+    if val.changed_fields.contains(RENDERING_INTENT) {
+        gs_operations.push(("RI".to_string(), Name(val.rendering_intent.get_id().into())));
+    }
+
+    if val.changed_fields.contains(STROKE_ADJUSTMENT) {
+        gs_operations.push(("SA".to_string(), Boolean(val.stroke_adjustment)));
+    }
+
+    if val.changed_fields.contains(OVERPRINT_FILL) {
+        gs_operations.push(("OP".to_string(), Boolean(val.overprint_fill)));
+    }
+
+    if val.changed_fields.contains(OVERPRINT_STROKE) {
+        gs_operations.push(("op".to_string(), Boolean(val.overprint_stroke)));
+    }
+
+    if val.changed_fields.contains(OVERPRINT_MODE) {
+        gs_operations.push(("OPM".to_string(), Integer(val.overprint_mode.get_id())));
+    }
+
+    if val.changed_fields.contains(CURRENT_FILL_ALPHA) {
+        gs_operations.push(("CA".to_string(), Real(val.current_fill_alpha)));
+    }
+
+    if val.changed_fields.contains(CURRENT_STROKE_ALPHA) {
+        gs_operations.push(("ca".to_string(), Real(val.current_stroke_alpha)));
+    }
+
+    if val.changed_fields.contains(BLEND_MODE) {
+        gs_operations.push(("BM".to_string(), Name(val.blend_mode.get_id().into())));
+    }
+
+    if val.changed_fields.contains(ALPHA_IS_SHAPE) {
+        gs_operations.push(("AIS".to_string(), Boolean(val.alpha_is_shape)));
+    }
+
+    if val.changed_fields.contains(TEXT_KNOCKOUT) {
+        gs_operations.push(("TK".to_string(), Boolean(val.text_knockout)));
+    }
+
+    // set optional parameters
+    if let Some(ldp) = val.line_dash_pattern {
+        if val.changed_fields.contains(LINE_DASH_PATTERN) {
+            let array = ldp.as_array().into_iter().map(Integer).collect();
+            gs_operations.push(("D".to_string(), Array(array)));
+        }
+    }
+
+    if let Some(font) = val.font.as_ref() {
+        if val.changed_fields.contains(FONT) {
+            gs_operations.push(("Font".to_string(), Name(font.0.clone().into_bytes())));
+        }
+    }
+
+    // todo: transfer functions, halftone functions,
+    // black generation, undercolor removal
+    // these types cannot yet be converted into lopdf::Objects,
+    // need to implement Into<Object> for them
+
+    if val.changed_fields.contains(BLACK_GENERATION) {
+        if let Some(ref black_generation) = val.black_generation {
+            // TODO
+        }
+    }
+
+    if val.changed_fields.contains(BLACK_GENERATION_EXTRA) {
+        if let Some(ref black_generation_extra) = val.black_generation_extra {
+            // TODO
+        }
+    }
+
+    if val.changed_fields.contains(UNDERCOLOR_REMOVAL) {
+        if let Some(ref under_color_removal) = val.under_color_removal {
+            // TODO
+        }
+    }
+
+    if val.changed_fields.contains(UNDERCOLOR_REMOVAL_EXTRA) {
+        if let Some(ref under_color_removal_extra) = val.under_color_removal_extra {
+            // TODO
+        }
+    }
+
+    if val.changed_fields.contains(TRANSFER_FUNCTION) {
+        if let Some(ref transfer_function) = val.transfer_function {
+            // TODO
+        }
+    }
+
+    if val.changed_fields.contains(TRANSFER_FUNCTION_EXTRA) {
+        if let Some(ref transfer_extra_function) = val.transfer_extra_function {
+            // TODO
+        }
+    }
+
+    if val.changed_fields.contains(HALFTONE_DICTIONARY) {
+        if let Some(ref halftone_dictionary) = val.halftone_dictionary {
+            // TODO
+        }
+    }
+
+    if val.changed_fields.contains(SOFT_MASK) {
+        if let Some(ref soft_mask) = val.soft_mask {
+        
+        } else {
+            gs_operations.push(("SM".to_string(), Name("None".as_bytes().to_vec())));
+        }
+    }
+
+    // if there are operations, push the "Type > ExtGState"
+    // otherwise, just return an empty dictionary
+    if !gs_operations.is_empty() {
+        gs_operations.push(("Type".to_string(), "ExtGState".into()));
+    }
+
+    LoDictionary::from_iter(gs_operations)
+}
+
+
 #[derive(Debug, Clone, Default)]
 pub struct ExtendedGraphicsStateBuilder {
     /// Private field so we can control the `changed_fields` parameter
@@ -862,6 +1024,15 @@ pub enum OverprintMode {
     KeepUnderlying, /* 1 */
 }
 
+impl OverprintMode {
+    pub fn get_id(&self) -> i64 {
+        match self {
+            OverprintMode::EraseUnderlying => 0,
+            OverprintMode::KeepUnderlying => 1,
+        }
+    }
+}
+
 /// Black generation calculates the amount of black to be used when trying to
 /// reproduce a particular color.
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -1064,6 +1235,35 @@ impl BlendMode {
     pub fn saturation() -> BlendMode { BlendMode::NonSeperable(NonSeperableBlendMode::Saturation) }
     pub fn color() -> BlendMode { BlendMode::NonSeperable(NonSeperableBlendMode::Color) }
     pub fn luminosity() -> BlendMode { BlendMode::NonSeperable(NonSeperableBlendMode::Luminosity) }
+    pub fn get_id(&self) -> &'static str {
+
+        use self::BlendMode::*;
+        use self::NonSeperableBlendMode::*;
+        use self::SeperableBlendMode::*;
+
+        match self {
+            Seperable(s) => match s {
+                Normal => "Normal",
+                Multiply => "Multiply",
+                Screen => "Screen",
+                Overlay => "Overlay",
+                Darken => "Darken",
+                Lighten => "Lighten",
+                ColorDodge => "ColorDodge",
+                ColorBurn => "ColorBurn",
+                HardLight => "HardLight",
+                SoftLight => "SoftLight",
+                Difference => "Difference",
+                Exclusion => "Exclusion",
+            },
+            NonSeperable(n) => match n {
+                Hue => "Hue",
+                Saturation => "Saturation",
+                Color => "Color",
+                Luminosity => "Luminosity",
+            },
+        }
+    }
 }
 
 /// PDF Reference 1.7, Page 520, Table 7.2
@@ -1327,6 +1527,18 @@ pub enum RenderingIntent {
     /// and out-of-gamut colors are generally modified from
     /// their precise colorimetric values. A typical use might be for scanned images.
     Perceptual,
+}
+
+impl RenderingIntent {
+    pub fn get_id(&self) -> &'static str {
+        use self::RenderingIntent::*;
+        match self {
+            AbsoluteColorimetric => "AbsoluteColorimetric",
+            RelativeColorimetric => "RelativeColorimetric",
+            Saturation => "Saturation",
+            Perceptual => "Perceptual",
+        }
+    }
 }
 
 /// A soft mask is used for transparent images such as PNG with an alpha component
