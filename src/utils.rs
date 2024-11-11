@@ -1,9 +1,6 @@
-
+use crate::date::OffsetDateTime;
 use std::io::Read;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use image::ColorType;
-use crate::{ColorBits, ColorSpace, Px};
-use crate::date::OffsetDateTime;
 
 /// Since the random number generator doesn't have to be cryptographically secure
 /// it doesn't make sense to import the entire rand library, so this is just a

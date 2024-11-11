@@ -1,4 +1,9 @@
-use crate::{image::RawImage, matrix::CurTransMat, units::{Pt, Px}, OffsetDateTime, PdfDocument};
+use crate::{
+    image::RawImage,
+    matrix::CurTransMat,
+    units::{Pt, Px},
+    OffsetDateTime,
+};
 
 /* Parent: Resources dictionary of the page */
 /// External object that gets reference outside the PDF content stream
@@ -30,38 +35,44 @@ impl XObject {
             XObject::Image(raw_image) => Some((Px(raw_image.width), Px(raw_image.height))),
             XObject::Form(form_xobject) => form_xobject.size.clone(),
             XObject::External(external_xobject) => Some((
-                external_xobject.width.clone()?, 
-                external_xobject.height.clone()?
+                external_xobject.width.clone()?,
+                external_xobject.height.clone()?,
             )),
         }
     }
 }
 
 // translates the xobject to a document object ID
-pub(crate) fn add_xobject_to_document(xobj: &XObject, doc: &mut lopdf::Document) -> lopdf::ObjectId {
-
+pub(crate) fn add_xobject_to_document(
+    xobj: &XObject,
+    doc: &mut lopdf::Document,
+) -> lopdf::ObjectId {
     // in the PDF content stream, reference an XObject like this
     match xobj {
         XObject::Image(i) => {
             let stream = crate::image::image_to_stream(i.clone(), doc);
             doc.add_object(stream)
-        },
+        }
         XObject::Form(f) => {
             let stream = form_xobject_to_stream(f, doc);
             doc.add_object(stream)
-        },
+        }
         XObject::External(external_xobject) => {
             use lopdf::Object::Integer;
             let mut stream = external_xobject.stream.clone();
             if let Some(w) = external_xobject.width {
-                stream.dict.set("Width", Integer(w.into_pt(300.0).0.round() as i64));
+                stream
+                    .dict
+                    .set("Width", Integer(w.into_pt(300.0).0.round() as i64));
             }
             if let Some(h) = external_xobject.height {
-                stream.dict.set("Width", Integer(h.into_pt(300.0).0.round() as i64));
+                stream
+                    .dict
+                    .set("Width", Integer(h.into_pt(300.0).0.round() as i64));
             }
             doc.add_object(stream)
-        },
-    }    
+        }
+    }
 }
 
 /// External XObject, invoked by `/Do` graphics operator
@@ -87,7 +98,6 @@ pub enum ImageFilter {
     /// JPEG2000 aka JPX wavelet based compression.
     JPX,
 }
-
 
 /// __THIS IS NOT A PDF FORM!__ A form `XObject` can be nearly everything.
 /// PDF allows you to reuse content for the graphics stream in a `FormXObject`.
@@ -189,9 +199,8 @@ pub struct FormXObject {
 }
 
 fn form_xobject_to_stream(f: &FormXObject, doc: &mut lopdf::Document) -> lopdf::Stream {
-
-    use lopdf::Object::*;
     use lopdf::Object::String as LoString;
+    use lopdf::Object::*;
 
     let mut dict = lopdf::Dictionary::from_iter(vec![
         ("Type", Name("XObject".into())),
@@ -200,7 +209,10 @@ fn form_xobject_to_stream(f: &FormXObject, doc: &mut lopdf::Document) -> lopdf::
     ]);
 
     if let Some(matrix) = f.matrix.as_ref() {
-        dict.set("Matrix", Array(matrix.as_array().into_iter().map(Real).collect()));
+        dict.set(
+            "Matrix",
+            Array(matrix.as_array().into_iter().map(Real).collect()),
+        );
     }
 
     if let Some(res) = f.resources.as_ref() {
@@ -208,12 +220,11 @@ fn form_xobject_to_stream(f: &FormXObject, doc: &mut lopdf::Document) -> lopdf::
     }
 
     if let Some(g) = f.group.as_ref() {
-
         let group_dict = lopdf::Dictionary::from_iter(vec![
             ("Type", Name("Group".into())),
             ("S", Name(g.grouptype.get_id().into())),
         ]);
-        
+
         dict.set("Group", Dictionary(group_dict));
     }
 
@@ -230,7 +241,13 @@ fn form_xobject_to_stream(f: &FormXObject, doc: &mut lopdf::Document) -> lopdf::
     }
 
     if let Some(r) = f.last_modified.as_ref() {
-        dict.set("LastModified", LoString(crate::utils::to_pdf_time_stamp_metadata(r).into_bytes(), lopdf::StringFormat::Literal));
+        dict.set(
+            "LastModified",
+            LoString(
+                crate::utils::to_pdf_time_stamp_metadata(r).into_bytes(),
+                lopdf::StringFormat::Literal,
+            ),
+        );
     }
 
     if let Some(r) = f.opi.as_ref() {
@@ -242,7 +259,10 @@ fn form_xobject_to_stream(f: &FormXObject, doc: &mut lopdf::Document) -> lopdf::
     }
 
     if let Some(r) = f.name.as_ref() {
-        dict.set("Name", LoString(r.clone().into(), lopdf::StringFormat::Literal));
+        dict.set(
+            "Name",
+            LoString(r.clone().into(), lopdf::StringFormat::Literal),
+        );
     }
 
     if let Some(sp) = &f.struct_parents {
@@ -330,12 +350,11 @@ pub struct XObjectTransform {
 
 impl XObjectTransform {
     pub fn get_ctms(&self, wh: Option<(Px, Px)>) -> Vec<CurTransMat> {
-
         let mut transforms = Vec::new();
         let dpi = self.dpi.unwrap_or(300.0);
 
         if let Some((w, h)) = wh {
-            // PDF maps an image to a 1x1 square, we have to 
+            // PDF maps an image to a 1x1 square, we have to
             // adjust the transform matrix to fix the distortion
 
             // Image at the given dpi should 1px = 1pt
@@ -345,7 +364,7 @@ impl XObjectTransform {
         if self.scale_x.is_some() || self.scale_y.is_some() {
             let scale_x = self.scale_x.unwrap_or(1.0);
             let scale_y = self.scale_y.unwrap_or(1.0);
-            transforms.push(CurTransMat::Scale(scale_x, scale_y));    
+            transforms.push(CurTransMat::Scale(scale_x, scale_y));
         }
 
         if let Some(rotate) = self.rotate.as_ref() {

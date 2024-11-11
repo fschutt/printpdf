@@ -153,7 +153,7 @@ impl Greyscale {
     }
 }
 
-/// Spot colors are like Cmyk, but without color space. They are essentially "named" colors 
+/// Spot colors are like Cmyk, but without color space. They are essentially "named" colors
 /// from specific vendors - currently they are the same as a CMYK color.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct SpotColor {

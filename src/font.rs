@@ -1,24 +1,24 @@
+use crate::{FontId, Op, PdfPage};
 use allsorts::binary::read::ReadArray;
 use allsorts::tables::loca::LocaOffsets;
 use allsorts::tables::IndexToLocFormat;
-use lopdf::Object::{Integer, Array};
-use crate::{FontId, Op, PdfPage};
-use time::error::Parse;
-use core::fmt;
-use std::collections::{btree_map::BTreeMap, BTreeSet};
-use std::rc::Rc;
-use std::vec::Vec;
 use allsorts::{
     binary::read::ReadScope,
     font_data::FontData,
     layout::{GDEFTable, LayoutCache, GPOS, GSUB},
     tables::{
-        cmap::{owned::CmapSubtable as OwnedCmapSubtable, CmapSubtable}, 
-        glyf::{GlyfRecord, GlyfTable, Glyph}, 
-        loca::LocaTable, FontTableProvider, HeadTable, HheaTable, MaxpTable
+        cmap::{owned::CmapSubtable as OwnedCmapSubtable, CmapSubtable},
+        glyf::{GlyfRecord, GlyfTable, Glyph},
+        loca::LocaTable,
+        FontTableProvider, HeadTable, HheaTable, MaxpTable,
     },
 };
-
+use core::fmt;
+use lopdf::Object::{Array, Integer};
+use std::collections::{btree_map::BTreeMap, BTreeSet};
+use std::rc::Rc;
+use std::vec::Vec;
+use time::error::Parse;
 
 /// Builtin or external font
 #[derive(Debug, Clone, PartialEq)]
@@ -51,38 +51,64 @@ pub enum BuiltinFont {
 include!("../defaultfonts/mapping.rs");
 
 impl BuiltinFont {
-
     /// Returns the already-subsetted font (Win-1252 codepage)
     pub fn get_subset_font(&self) -> SubsetFont {
         use self::BuiltinFont::*;
 
         SubsetFont {
             bytes: match self {
-                TimesRoman => crate::uncompress(include_bytes!("../defaultfonts/Times-Roman.subset.ttf")),
-                TimesBold => crate::uncompress(include_bytes!("../defaultfonts/Times-Bold.subset.ttf")),
-                TimesItalic => crate::uncompress(include_bytes!("../defaultfonts/Times-Italic.subset.ttf")),
-                TimesBoldItalic => crate::uncompress(include_bytes!("../defaultfonts/Times-BoldItalic.subset.ttf")),
-                Helvetica => crate::uncompress(include_bytes!("../defaultfonts/Helvetica.subset.ttf")),
-                HelveticaBold => crate::uncompress(include_bytes!("../defaultfonts/Helvetica-Bold.subset.ttf")),
-                HelveticaOblique => crate::uncompress(include_bytes!("../defaultfonts/Helvetica-Oblique.subset.ttf")),
-                HelveticaBoldOblique => crate::uncompress(include_bytes!("../defaultfonts/Helvetica-BoldOblique.subset.ttf")),
-                Courier => crate::uncompress(include_bytes!("../defaultfonts/Courier.subset.ttf")),
-                CourierOblique => crate::uncompress(include_bytes!("../defaultfonts/Courier-Oblique.subset.ttf")),
-                CourierBold => crate::uncompress(include_bytes!("../defaultfonts/Courier-Bold.subset.ttf")),
-                CourierBoldOblique => crate::uncompress(include_bytes!("../defaultfonts/Courier-BoldOblique.subset.ttf")),
-                Symbol => crate::uncompress(include_bytes!("../defaultfonts/Symbol.subset.ttf")),
-                ZapfDingbats => crate::uncompress(include_bytes!("../defaultfonts/ZapfDingbats.subset.ttf")),
-            },
-            glyph_mapping: FONTS.iter().filter_map(|(font_id, old_gid, new_gid, char)| {
-                if *font_id == self.get_num() {
-                    Some((*old_gid, (*new_gid, *char)))
-                } else {
-                    None
+                TimesRoman => {
+                    crate::uncompress(include_bytes!("../defaultfonts/Times-Roman.subset.ttf"))
                 }
-            }).collect()
+                TimesBold => {
+                    crate::uncompress(include_bytes!("../defaultfonts/Times-Bold.subset.ttf"))
+                }
+                TimesItalic => {
+                    crate::uncompress(include_bytes!("../defaultfonts/Times-Italic.subset.ttf"))
+                }
+                TimesBoldItalic => crate::uncompress(include_bytes!(
+                    "../defaultfonts/Times-BoldItalic.subset.ttf"
+                )),
+                Helvetica => {
+                    crate::uncompress(include_bytes!("../defaultfonts/Helvetica.subset.ttf"))
+                }
+                HelveticaBold => {
+                    crate::uncompress(include_bytes!("../defaultfonts/Helvetica-Bold.subset.ttf"))
+                }
+                HelveticaOblique => crate::uncompress(include_bytes!(
+                    "../defaultfonts/Helvetica-Oblique.subset.ttf"
+                )),
+                HelveticaBoldOblique => crate::uncompress(include_bytes!(
+                    "../defaultfonts/Helvetica-BoldOblique.subset.ttf"
+                )),
+                Courier => crate::uncompress(include_bytes!("../defaultfonts/Courier.subset.ttf")),
+                CourierOblique => {
+                    crate::uncompress(include_bytes!("../defaultfonts/Courier-Oblique.subset.ttf"))
+                }
+                CourierBold => {
+                    crate::uncompress(include_bytes!("../defaultfonts/Courier-Bold.subset.ttf"))
+                }
+                CourierBoldOblique => crate::uncompress(include_bytes!(
+                    "../defaultfonts/Courier-BoldOblique.subset.ttf"
+                )),
+                Symbol => crate::uncompress(include_bytes!("../defaultfonts/Symbol.subset.ttf")),
+                ZapfDingbats => {
+                    crate::uncompress(include_bytes!("../defaultfonts/ZapfDingbats.subset.ttf"))
+                }
+            },
+            glyph_mapping: FONTS
+                .iter()
+                .filter_map(|(font_id, old_gid, new_gid, char)| {
+                    if *font_id == self.get_num() {
+                        Some((*old_gid, (*new_gid, *char)))
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
         }
     }
-    
+
     pub fn get_pdf_id(&self) -> &'static str {
         use self::BuiltinFont::*;
         match self {
@@ -164,29 +190,29 @@ pub struct ParsedFont {
 
 impl PartialEq for ParsedFont {
     fn eq(&self, other: &Self) -> bool {
-        self.font_metrics == other.font_metrics && 
-        self.num_glyphs == other.num_glyphs && 
-        self.hhea_table == other.hhea_table && 
-        self.hmtx_data == other.hmtx_data && 
-        self.maxp_table == other.maxp_table && 
-        self.space_width == other.space_width && 
-        self.cmap_subtable == other.cmap_subtable &&
-        self.original_bytes.len() == other.original_bytes.len()
+        self.font_metrics == other.font_metrics
+            && self.num_glyphs == other.num_glyphs
+            && self.hhea_table == other.hhea_table
+            && self.hmtx_data == other.hmtx_data
+            && self.maxp_table == other.maxp_table
+            && self.space_width == other.space_width
+            && self.cmap_subtable == other.cmap_subtable
+            && self.original_bytes.len() == other.original_bytes.len()
     }
 }
 
 impl fmt::Debug for ParsedFont {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ParsedFont")
-        .field("font_metrics", &self.font_metrics)
-        .field("num_glyphs", &self.num_glyphs)
-        .field("hhea_table", &self.hhea_table)
-        .field("hmtx_data", &self.hmtx_data)
-        .field("maxp_table", &self.maxp_table)
-        .field("glyph_records_decoded", &self.glyph_records_decoded)
-        .field("space_width", &self.space_width)
-        .field("cmap_subtable", &self.cmap_subtable)
-        .finish()
+            .field("font_metrics", &self.font_metrics)
+            .field("num_glyphs", &self.num_glyphs)
+            .field("hhea_table", &self.hhea_table)
+            .field("hmtx_data", &self.hmtx_data)
+            .field("maxp_table", &self.maxp_table)
+            .field("glyph_records_decoded", &self.glyph_records_decoded)
+            .field("space_width", &self.space_width)
+            .field("cmap_subtable", &self.cmap_subtable)
+            .finish()
     }
 }
 
@@ -200,62 +226,93 @@ impl SubsetFont {
     /// Return the changed text so that when rendering with the subset font (instead of the original)
     /// the renderer will end up at the same glyph IDs as if we used the original text on the original font
     pub fn subset_text(&self, text: &str) -> String {
-        text.chars().filter_map(|c| {
-            self.glyph_mapping.values()
-            .find_map(|(ngid, ch)| if *ch == c { 
-                char::from_u32(*ngid as u32) 
-            } else { None })
-        }).collect()
+        text.chars()
+            .filter_map(|c| {
+                self.glyph_mapping.values().find_map(|(ngid, ch)| {
+                    if *ch == c {
+                        char::from_u32(*ngid as u32)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect()
     }
 }
 
 impl ParsedFont {
-
     /// Returns the glyph IDs used in the PDF file
-    pub(crate) fn get_used_glyph_ids(&self, font_id: &FontId, pages: &[PdfPage]) -> BTreeMap<u16, char> {
-
+    pub(crate) fn get_used_glyph_ids(
+        &self,
+        font_id: &FontId,
+        pages: &[PdfPage],
+    ) -> BTreeMap<u16, char> {
         enum CharsOrCodepoint {
             Chars(String),
             Cp(Vec<(u16, char)>),
         }
 
-        let chars_or_codepoints = pages.iter().flat_map(|p| {
-            p.ops.iter().filter_map(|s| match s {
-                Op::WriteText { font, text, ..} => 
-                    if font_id == font { Some(CharsOrCodepoint::Chars(text.clone())) } else { None },
-                Op::WriteCodepoints { font, cp, .. } => 
-                    if font_id == font { Some(CharsOrCodepoint::Cp(cp.clone())) } else { None },
-                Op::WriteCodepointsWithKerning { font, cpk, .. } => 
-                    if font_id == font { Some(CharsOrCodepoint::Cp(cpk.iter().map(|s| (s.1, s.2)).collect())) } else { None },
-                _ => None,
+        let chars_or_codepoints = pages
+            .iter()
+            .flat_map(|p| {
+                p.ops.iter().filter_map(|s| match s {
+                    Op::WriteText { font, text, .. } => {
+                        if font_id == font {
+                            Some(CharsOrCodepoint::Chars(text.clone()))
+                        } else {
+                            None
+                        }
+                    }
+                    Op::WriteCodepoints { font, cp, .. } => {
+                        if font_id == font {
+                            Some(CharsOrCodepoint::Cp(cp.clone()))
+                        } else {
+                            None
+                        }
+                    }
+                    Op::WriteCodepointsWithKerning { font, cpk, .. } => {
+                        if font_id == font {
+                            Some(CharsOrCodepoint::Cp(
+                                cpk.iter().map(|s| (s.1, s.2)).collect(),
+                            ))
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                })
             })
-        }).collect::<Vec<_>>();
+            .collect::<Vec<_>>();
 
         if chars_or_codepoints.is_empty() {
             return BTreeMap::new(); // font added, but never used
         }
 
-        let mut chars_to_resolve = chars_or_codepoints.iter().flat_map(|s| match s {
-            CharsOrCodepoint::Chars(c) => c.chars().collect(),
-            _ => Vec::new(),
-        }).collect::<BTreeSet<_>>();
+        let chars_to_resolve = chars_or_codepoints
+            .iter()
+            .flat_map(|s| match s {
+                CharsOrCodepoint::Chars(c) => c.chars().collect(),
+                _ => Vec::new(),
+            })
+            .collect::<BTreeSet<_>>();
 
-        /* 
+        /*
         chars_to_resolve.extend(DEFAULT_ALPHABET.iter().flat_map(|line| {
             line.chars().skip_while(|c| char::is_whitespace(*c))
         }));
         */
 
-        let mut map = chars_to_resolve.iter()
-        .filter_map(|c| self.lookup_glyph_index(*c as u32).map(|f| (f, *c)))
-        .collect::<BTreeMap<_, _>>();
+        let mut map = chars_to_resolve
+            .iter()
+            .filter_map(|c| self.lookup_glyph_index(*c as u32).map(|f| (f, *c)))
+            .collect::<BTreeMap<_, _>>();
 
         map.extend(chars_or_codepoints.iter().flat_map(|s| match s {
             CharsOrCodepoint::Cp(c) => c.clone(),
             _ => Vec::new(),
         }));
 
-        if let Some(sp) = self.lookup_glyph_index(' ' as u32) { 
+        if let Some(sp) = self.lookup_glyph_index(' ' as u32) {
             map.insert(sp, ' ');
         }
 
@@ -263,57 +320,57 @@ impl ParsedFont {
     }
 
     pub fn subset_simple(&self, chars: &BTreeSet<char>) -> Result<SubsetFont, String> {
-
         let scope = ReadScope::new(&self.original_bytes);
-        
-        let font_file = scope.read::<FontData<'_>>()
-        .map_err(|e| e.to_string())?;
-        
-        let provider = font_file.table_provider(self.original_index)
-        .map_err(|e| e.to_string())?;
+
+        let font_file = scope.read::<FontData<'_>>().map_err(|e| e.to_string())?;
+
+        let provider = font_file
+            .table_provider(self.original_index)
+            .map_err(|e| e.to_string())?;
 
         // let p = glyphs.iter().filter(|s| self.glyph_records_decoded.get(*s).is_some()).copied().collect::<BTreeSet<_>>();
-        let p = chars.iter().filter_map(|s| self.lookup_glyph_index(*s as u32).map(|q| (q, *s))).collect::<BTreeSet<_>>();
-        
-        let glyph_mapping = p
-        .iter()
-        .enumerate()
-        .map(|(new_glyph_id, (original_glyph_id, ch))| {
-            (*original_glyph_id, (new_glyph_id as u16, *ch))
-        }).collect::<BTreeMap<_, _>>();
+        let p = chars
+            .iter()
+            .filter_map(|s| self.lookup_glyph_index(*s as u32).map(|q| (q, *s)))
+            .collect::<BTreeSet<_>>();
 
-        let bytes = allsorts::subset::subset(
-            &provider, 
-            &p.iter().map(|s| s.0).collect::<Vec<_>>()
-        ).map_err(|e| e.to_string())?;
+        let glyph_mapping = p
+            .iter()
+            .enumerate()
+            .map(|(new_glyph_id, (original_glyph_id, ch))| {
+                (*original_glyph_id, (new_glyph_id as u16, *ch))
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        let bytes = allsorts::subset::subset(&provider, &p.iter().map(|s| s.0).collect::<Vec<_>>())
+            .map_err(|e| e.to_string())?;
         Ok(SubsetFont {
             bytes,
-            glyph_mapping
+            glyph_mapping,
         })
     }
 
     /// Generates a new font file from the used glyph IDs
     pub(crate) fn subset(&self, glyph_ids: &BTreeMap<u16, char>) -> Result<SubsetFont, String> {
-
         let glyph_mapping = glyph_ids
-        .iter()
-        .enumerate()
-        .map(|(new_glyph_id, (original_glyph_id, ch))| {
-            (*original_glyph_id, (new_glyph_id as u16, *ch))
-        }).collect();
+            .iter()
+            .enumerate()
+            .map(|(new_glyph_id, (original_glyph_id, ch))| {
+                (*original_glyph_id, (new_glyph_id as u16, *ch))
+            })
+            .collect();
 
         let scope = ReadScope::new(&self.original_bytes);
-        
-        let font_file = scope.read::<FontData<'_>>()
-        .map_err(|e| e.to_string())?;
-        
-        let provider = font_file.table_provider(self.original_index)
-        .map_err(|e| e.to_string())?;
 
-        let font = allsorts::subset::subset(
-            &provider, 
-            &glyph_ids.keys().copied().collect::<Vec<_>>()
-        ).map_err(|e| e.to_string())?;
+        let font_file = scope.read::<FontData<'_>>().map_err(|e| e.to_string())?;
+
+        let provider = font_file
+            .table_provider(self.original_index)
+            .map_err(|e| e.to_string())?;
+
+        let font =
+            allsorts::subset::subset(&provider, &glyph_ids.keys().copied().collect::<Vec<_>>())
+                .map_err(|e| e.to_string())?;
 
         Ok(SubsetFont {
             bytes: font,
@@ -321,15 +378,17 @@ impl ParsedFont {
         })
     }
 
-    pub(crate) fn generate_cid_to_unicode_map(&self, font_id: &FontId, glyph_ids: &BTreeMap<u16, char>) -> String {
-
+    pub(crate) fn generate_cid_to_unicode_map(
+        &self,
+        font_id: &FontId,
+        glyph_ids: &BTreeMap<u16, char>,
+    ) -> String {
         // current first bit of the glyph id (0x10 or 0x12) for example
         let mut cur_first_bit: u16 = 0_u16;
         let mut all_cmap_blocks = Vec::new();
         let mut current_cmap_block = Vec::new();
 
         for (glyph_id, unicode) in glyph_ids.iter() {
-
             // end the current (beginbfchar endbfchar) block if necessary
             if (*glyph_id >> 8) as u16 != cur_first_bit || current_cmap_block.len() >= 100 {
                 all_cmap_blocks.push(current_cmap_block.clone());
@@ -345,8 +404,10 @@ impl ParsedFont {
         generate_cid_to_unicode_map(font_id.0.clone(), all_cmap_blocks)
     }
 
-    pub(crate) fn get_normalized_widths(&self, glyph_ids: &BTreeMap<u16, char>) -> Vec<lopdf::Object> {
-
+    pub(crate) fn get_normalized_widths(
+        &self,
+        glyph_ids: &BTreeMap<u16, char>,
+    ) -> Vec<lopdf::Object> {
         let mut widths_list = Vec::new();
         let mut current_low_gid = 0;
         let mut current_high_gid = 0;
@@ -361,16 +422,16 @@ impl ParsedFont {
                 None => continue,
             };
 
-            if *gid == current_high_gid { // subsequent GID
-                current_width_vec
-                    .push(Integer((width as f32 * percentage_font_scaling) as i64));
+            if *gid == current_high_gid {
+                // subsequent GID
+                current_width_vec.push(Integer((width as f32 * percentage_font_scaling) as i64));
                 current_high_gid += 1;
-            } else { // non-subsequent GID
+            } else {
+                // non-subsequent GID
                 widths_list.push(Integer(current_low_gid as i64));
                 widths_list.push(Array(current_width_vec.drain(..).collect()));
 
-                current_width_vec
-                    .push(Integer((width as f32 * percentage_font_scaling) as i64));
+                current_width_vec.push(Integer((width as f32 * percentage_font_scaling) as i64));
                 current_low_gid = *gid;
                 current_high_gid = gid + 1;
             }
@@ -379,7 +440,7 @@ impl ParsedFont {
         // push the last widths, because the loop is delayed by one iteration
         widths_list.push(Integer(current_low_gid as i64));
         widths_list.push(Array(current_width_vec.drain(..).collect()));
-        
+
         widths_list
         /*
         let mut cmap = glyph_ids.iter()
@@ -389,12 +450,11 @@ impl ParsedFont {
             let v = (*c as u32, glyph_width.abs() as u32, glyph_height.abs() as u32);
             Some((k, v))
         }).collect::<BTreeMap<_, _>>();
-        
+
         cmap.insert(0, (0, 1000, 1000));
 
         widths.push((*glyph_id, width));
         */
-
     }
 
     /// Returns the maximum height in UNSCALED units of the used glyph IDs
@@ -471,12 +531,14 @@ pub struct GlyphOutline {
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 struct GlyphOutlineBuilder {
-    operations: Vec<GlyphOutlineOperation>
+    operations: Vec<GlyphOutlineOperation>,
 }
 
 impl Default for GlyphOutlineBuilder {
     fn default() -> Self {
-        GlyphOutlineBuilder { operations: Vec::new() }
+        GlyphOutlineBuilder {
+            operations: Vec::new(),
+        }
     }
 }
 
@@ -523,9 +585,7 @@ impl OwnedGlyph {
 }
 
 impl ParsedFont {
-
     pub fn from_bytes(font_bytes: &[u8], font_index: usize) -> Option<Self> {
-
         use allsorts::tag;
 
         let scope = ReadScope::new(font_bytes);
@@ -533,56 +593,69 @@ impl ParsedFont {
         let provider = font_file.table_provider(font_index).ok()?;
 
         let head_table = provider
-        .table_data(tag::HEAD).ok()
-        .and_then(|head_data| {
-            ReadScope::new(&head_data?)
-            .read::<HeadTable>().ok()
-        });
+            .table_data(tag::HEAD)
+            .ok()
+            .and_then(|head_data| ReadScope::new(&head_data?).read::<HeadTable>().ok());
 
         let maxp_table = provider
-        .table_data(tag::MAXP).ok()
-        .and_then(|maxp_data| {
-            ReadScope::new(&maxp_data?)
-            .read::<MaxpTable>().ok()
-        }).unwrap_or(MaxpTable { num_glyphs: 0, version1_sub_table: None });
+            .table_data(tag::MAXP)
+            .ok()
+            .and_then(|maxp_data| ReadScope::new(&maxp_data?).read::<MaxpTable>().ok())
+            .unwrap_or(MaxpTable {
+                num_glyphs: 0,
+                version1_sub_table: None,
+            });
 
-        let index_to_loc = head_table.map(|s| s.index_to_loc_format).unwrap_or(IndexToLocFormat::Long);
+        let index_to_loc = head_table
+            .map(|s| s.index_to_loc_format)
+            .unwrap_or(IndexToLocFormat::Long);
         let num_glyphs = maxp_table.num_glyphs as usize;
 
         let loca_table = provider.table_data(tag::LOCA).ok();
-        let loca_table = loca_table.as_ref()
-        .and_then(|loca_data| {
-            ReadScope::new(&loca_data.as_ref()?)
-            .read_dep::<LocaTable<'_>>((num_glyphs, index_to_loc)).ok()
-        }).unwrap_or(LocaTable {
-            offsets: LocaOffsets::Long(ReadArray::empty())
-        });
+        let loca_table = loca_table
+            .as_ref()
+            .and_then(|loca_data| {
+                ReadScope::new(&loca_data.as_ref()?)
+                    .read_dep::<LocaTable<'_>>((num_glyphs, index_to_loc))
+                    .ok()
+            })
+            .unwrap_or(LocaTable {
+                offsets: LocaOffsets::Long(ReadArray::empty()),
+            });
 
         let glyf_table = provider.table_data(tag::GLYF).ok();
-        let mut glyf_table = glyf_table.as_ref()
-        .and_then(|glyf_data| {
-            ReadScope::new(&glyf_data.as_ref()?).read_dep::<GlyfTable<'_>>(&loca_table).ok()
-        }).unwrap_or(GlyfTable::new(Vec::new()).unwrap());
+        let mut glyf_table = glyf_table
+            .as_ref()
+            .and_then(|glyf_data| {
+                ReadScope::new(&glyf_data.as_ref()?)
+                    .read_dep::<GlyfTable<'_>>(&loca_table)
+                    .ok()
+            })
+            .unwrap_or(GlyfTable::new(Vec::new()).unwrap());
 
         let hmtx_data = provider
-        .table_data(tag::HMTX).ok()
-        .and_then(|s| Some(s?.into_owned()))
-        .unwrap_or_default();
+            .table_data(tag::HMTX)
+            .ok()
+            .and_then(|s| Some(s?.into_owned()))
+            .unwrap_or_default();
 
         let vmtx_data = provider
-        .table_data(tag::VMTX).ok()
-        .and_then(|s| Some(s?.into_owned()))
-        .unwrap_or_default();
+            .table_data(tag::VMTX)
+            .ok()
+            .and_then(|s| Some(s?.into_owned()))
+            .unwrap_or_default();
 
-        let hhea_table = provider.table_data(tag::HHEA).ok()
-        .and_then(|hhea_data| {
-            ReadScope::new(&hhea_data?).read::<HheaTable>().ok()
-        }).unwrap_or(unsafe { std::mem::zeroed() });
+        let hhea_table = provider
+            .table_data(tag::HHEA)
+            .ok()
+            .and_then(|hhea_data| ReadScope::new(&hhea_data?).read::<HheaTable>().ok())
+            .unwrap_or(unsafe { std::mem::zeroed() });
 
         let font_metrics = FontMetrics::from_bytes(font_bytes, font_index);
 
         // not parsing glyph outlines can save lots of memory
-        let glyph_records_decoded = glyf_table.records_mut()
+        let glyph_records_decoded = glyf_table
+            .records_mut()
             .into_iter()
             .enumerate()
             .filter_map(|(glyph_index, glyph_record)| {
@@ -595,15 +668,18 @@ impl ParsedFont {
                     &maxp_table,
                     &hhea_table,
                     &hmtx_data,
-                    glyph_index
-                ).unwrap_or_default();
+                    glyph_index,
+                )
+                .unwrap_or_default();
 
                 match glyph_record {
                     GlyfRecord::Present { .. } => None,
-                    GlyfRecord::Parsed(g) => OwnedGlyph::from_glyph_data(g, horz_advance)
-                        .map(|s| (glyph_index, s)),
+                    GlyfRecord::Parsed(g) => {
+                        OwnedGlyph::from_glyph_data(g, horz_advance).map(|s| (glyph_index, s))
+                    }
                 }
-            }).collect::<Vec<_>>();
+            })
+            .collect::<Vec<_>>();
 
         let glyph_records_decoded = glyph_records_decoded.into_iter().collect();
 
@@ -616,7 +692,10 @@ impl ParsedFont {
         let num_glyphs = font_data_impl.num_glyphs();
 
         let cmap_subtable = ReadScope::new(font_data_impl.cmap_subtable_data());
-        let cmap_subtable = cmap_subtable.read::<CmapSubtable<'_>>().ok().and_then(|s| s.to_owned());
+        let cmap_subtable = cmap_subtable
+            .read::<CmapSubtable<'_>>()
+            .ok()
+            .and_then(|s| s.to_owned());
 
         let mut font = ParsedFont {
             font_metrics,
@@ -643,7 +722,14 @@ impl ParsedFont {
 
     fn get_space_width_internal(&mut self) -> Option<usize> {
         let glyph_index = self.lookup_glyph_index(' ' as u32)?;
-        allsorts::glyph_info::advance(&self.maxp_table, &self.hhea_table, &self.hmtx_data, glyph_index).ok().map(|s| s as usize)
+        allsorts::glyph_info::advance(
+            &self.maxp_table,
+            &self.hhea_table,
+            &self.hmtx_data,
+            glyph_index,
+        )
+        .ok()
+        .map(|s| s as usize)
     }
 
     /// Returns the width of the space " " character (unscaled units)
@@ -654,7 +740,10 @@ impl ParsedFont {
 
     /// Get the horizontal advance of a glyph index (unscaled units)
     pub fn get_horizontal_advance(&self, glyph_index: u16) -> u16 {
-        self.glyph_records_decoded.get(&glyph_index).map(|gi| gi.horz_advance).unwrap_or_default()
+        self.glyph_records_decoded
+            .get(&glyph_index)
+            .map(|gi| gi.horz_advance)
+            .unwrap_or_default()
     }
 
     // get the x and y size of a glyph (unscaled units)
@@ -679,8 +768,7 @@ type CmapBlock = Vec<(GlyphId, UnicodeCodePoint)>;
 
 /// Generates a CMAP (character map) from valid cmap blocks
 fn generate_cid_to_unicode_map(face_name: String, all_cmap_blocks: Vec<CmapBlock>) -> String {
-    let mut cid_to_unicode_map =
-        format!(include_str!("./res/gid_to_unicode_beg.txt"), face_name);
+    let mut cid_to_unicode_map = format!(include_str!("./res/gid_to_unicode_beg.txt"), face_name);
 
     for cmap_block in all_cmap_blocks
         .into_iter()
@@ -777,7 +865,6 @@ impl Default for FontMetrics {
 }
 
 impl FontMetrics {
-
     /// Only for testing, zero-sized font, will always return 0 for every metric (`units_per_em = 1000`)
     pub const fn zero() -> Self {
         FontMetrics {
@@ -841,7 +928,6 @@ impl FontMetrics {
 
     /// Parses `FontMetrics` from a font
     pub fn from_bytes(font_bytes: &[u8], font_index: usize) -> Self {
-
         #[derive(Default)]
         struct Os2Info {
             x_avg_char_width: i16,
@@ -906,57 +992,60 @@ impl FontMetrics {
         };
 
         let os2_table = match font.os2_table().ok() {
-            Some(Some(s)) => {
-                Os2Info {
-                    x_avg_char_width: s.x_avg_char_width,
-                    us_weight_class: s.us_weight_class,
-                    us_width_class: s.us_width_class,
-                    fs_type: s.fs_type,
-                    y_subscript_x_size: s.y_subscript_x_size,
-                    y_subscript_y_size: s.y_subscript_y_size,
-                    y_subscript_x_offset: s.y_subscript_x_offset,
-                    y_subscript_y_offset: s.y_subscript_y_offset,
-                    y_superscript_x_size: s.y_superscript_x_size,
-                    y_superscript_y_size: s.y_superscript_y_size,
-                    y_superscript_x_offset: s.y_superscript_x_offset,
-                    y_superscript_y_offset: s.y_superscript_y_offset,
-                    y_strikeout_size: s.y_strikeout_size,
-                    y_strikeout_position: s.y_strikeout_position,
-                    s_family_class: s.s_family_class,
-                    panose: s.panose,
-                    ul_unicode_range1: s.ul_unicode_range1,
-                    ul_unicode_range2: s.ul_unicode_range2,
-                    ul_unicode_range3: s.ul_unicode_range3,
-                    ul_unicode_range4: s.ul_unicode_range4,
-                    ach_vend_id: s.ach_vend_id,
-                    fs_selection: s.fs_selection.bits(),
-                    us_first_char_index: s.us_first_char_index,
-                    us_last_char_index: s.us_last_char_index,
+            Some(Some(s)) => Os2Info {
+                x_avg_char_width: s.x_avg_char_width,
+                us_weight_class: s.us_weight_class,
+                us_width_class: s.us_width_class,
+                fs_type: s.fs_type,
+                y_subscript_x_size: s.y_subscript_x_size,
+                y_subscript_y_size: s.y_subscript_y_size,
+                y_subscript_x_offset: s.y_subscript_x_offset,
+                y_subscript_y_offset: s.y_subscript_y_offset,
+                y_superscript_x_size: s.y_superscript_x_size,
+                y_superscript_y_size: s.y_superscript_y_size,
+                y_superscript_x_offset: s.y_superscript_x_offset,
+                y_superscript_y_offset: s.y_superscript_y_offset,
+                y_strikeout_size: s.y_strikeout_size,
+                y_strikeout_position: s.y_strikeout_position,
+                s_family_class: s.s_family_class,
+                panose: s.panose,
+                ul_unicode_range1: s.ul_unicode_range1,
+                ul_unicode_range2: s.ul_unicode_range2,
+                ul_unicode_range3: s.ul_unicode_range3,
+                ul_unicode_range4: s.ul_unicode_range4,
+                ach_vend_id: s.ach_vend_id,
+                fs_selection: s.fs_selection.bits(),
+                us_first_char_index: s.us_first_char_index,
+                us_last_char_index: s.us_last_char_index,
 
-                    s_typo_ascender: s.version0.as_ref().map(|q| q.s_typo_ascender),
-                    s_typo_descender: s.version0.as_ref().map(|q| q.s_typo_descender),
-                    s_typo_line_gap: s.version0.as_ref().map(|q| q.s_typo_line_gap),
-                    us_win_ascent: s.version0.as_ref().map(|q| q.us_win_ascent),
-                    us_win_descent: s.version0.as_ref().map(|q| q.us_win_descent),
+                s_typo_ascender: s.version0.as_ref().map(|q| q.s_typo_ascender),
+                s_typo_descender: s.version0.as_ref().map(|q| q.s_typo_descender),
+                s_typo_line_gap: s.version0.as_ref().map(|q| q.s_typo_line_gap),
+                us_win_ascent: s.version0.as_ref().map(|q| q.us_win_ascent),
+                us_win_descent: s.version0.as_ref().map(|q| q.us_win_descent),
 
-                    ul_code_page_range1: s.version1.as_ref().map(|q| q.ul_code_page_range1),
-                    ul_code_page_range2: s.version1.as_ref().map(|q| q.ul_code_page_range2),
+                ul_code_page_range1: s.version1.as_ref().map(|q| q.ul_code_page_range1),
+                ul_code_page_range2: s.version1.as_ref().map(|q| q.ul_code_page_range2),
 
-                    sx_height: s.version2to4.as_ref().map(|q| q.sx_height),
-                    s_cap_height: s.version2to4.as_ref().map(|q| q.s_cap_height),
-                    us_default_char: s.version2to4.as_ref().map(|q| q.us_default_char),
-                    us_break_char: s.version2to4.as_ref().map(|q| q.us_break_char),
-                    us_max_context: s.version2to4.as_ref().map(|q| q.us_max_context),
+                sx_height: s.version2to4.as_ref().map(|q| q.sx_height),
+                s_cap_height: s.version2to4.as_ref().map(|q| q.s_cap_height),
+                us_default_char: s.version2to4.as_ref().map(|q| q.us_default_char),
+                us_break_char: s.version2to4.as_ref().map(|q| q.us_break_char),
+                us_max_context: s.version2to4.as_ref().map(|q| q.us_max_context),
 
-                    us_lower_optical_point_size: s.version5.as_ref().map(|q| q.us_lower_optical_point_size),
-                    us_upper_optical_point_size: s.version5.as_ref().map(|q| q.us_upper_optical_point_size),
-                }
+                us_lower_optical_point_size: s
+                    .version5
+                    .as_ref()
+                    .map(|q| q.us_lower_optical_point_size),
+                us_upper_optical_point_size: s
+                    .version5
+                    .as_ref()
+                    .map(|q| q.us_upper_optical_point_size),
             },
             _ => Os2Info::default(),
         };
 
         FontMetrics {
-
             // head table
             units_per_em: if head_table.units_per_em == 0 {
                 1000_u16
@@ -983,7 +1072,6 @@ impl FontMetrics {
             num_h_metrics: hhea_table.num_h_metrics,
 
             // os/2 table
-
             x_avg_char_width: os2_table.x_avg_char_width,
             us_weight_class: os2_table.us_weight_class,
             us_width_class: os2_table.us_width_class,

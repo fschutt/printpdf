@@ -52,7 +52,7 @@ impl BorderArray {
                 let mut s = s.to_vec();
                 s.push(dash_phase.phase);
                 s
-            },
+            }
         }
     }
 }
@@ -138,10 +138,9 @@ pub enum Actions {
 }
 
 impl Actions {
-
-    /// 8.5.3 Action Types: PDF supports the standard action types listed in Table 8.48. 
-    /// 
-    /// The following sections describe each of these types in detail. 
+    /// 8.5.3 Action Types: PDF supports the standard action types listed in Table 8.48.
+    ///
+    /// The following sections describe each of these types in detail.
     /// Plug-in extensions may add new action types.
     pub fn get_action_type_id(&self) -> &'static str {
         match self {
@@ -149,7 +148,7 @@ impl Actions {
             Actions::URI(_) => "URI",
         }
     }
-    
+
     pub fn go_to(destination: Destination) -> Self {
         Self::GoTo(destination)
     }

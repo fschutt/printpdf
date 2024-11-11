@@ -1,4 +1,4 @@
-use serde_derive::{Serialize, Deserialize};
+use serde_derive::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use crate::{serialize::PdfSaveOptions, XmlRenderOptions};
@@ -30,7 +30,9 @@ pub struct PdfGenerationOptions {
 }
 
 impl PdfGenerationOptions {
-    fn is_default(&self) -> bool { *self == Self::default() }
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -55,13 +57,14 @@ pub fn PrintPdfFromXml(input: String) -> String {
             pdf: String::new(),
             status: 1,
             error: format!("failed to parse input parameters: {}", e.to_string()),
-        }
+        },
     };
     serde_json::to_string(&init).unwrap_or_default()
 }
 
-fn printpdf_from_xml_internal(input: PrintPdfApiInput) -> Result<PrintPdfApiReturn, PrintPdfApiReturn> {
-
+fn printpdf_from_xml_internal(
+    input: PrintPdfApiInput,
+) -> Result<PrintPdfApiReturn, PrintPdfApiReturn> {
     use crate::units::Mm;
     use base64::prelude::*;
 
@@ -81,10 +84,10 @@ fn printpdf_from_xml_internal(input: PrintPdfApiInput) -> Result<PrintPdfApiRetu
             error: e,
         })?
         .save(&PdfSaveOptions::default());
-    
-    Ok(PrintPdfApiReturn { 
-        pdf: BASE64_STANDARD.encode(pdf), 
-        status: 0, 
-        error: String::new() 
+
+    Ok(PrintPdfApiReturn {
+        pdf: BASE64_STANDARD.encode(pdf),
+        status: 0,
+        error: String::new(),
     })
 }

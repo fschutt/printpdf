@@ -3,9 +3,9 @@
 use std::collections::BTreeMap;
 
 // #[cfg(target_family = "wasm")]
-pub mod wasm;
 /// Link / bookmark annotation handling
 pub mod annotation;
+pub mod wasm;
 pub use annotation::*;
 /// PDF standard handling
 pub mod conformance;
@@ -58,7 +58,9 @@ pub(crate) mod deserialize;
 pub struct PageAnnotId(pub String);
 
 impl PageAnnotId {
-    pub fn new() -> Self { Self(crate::utils::random_character_string_32()) }
+    pub fn new() -> Self {
+        Self(crate::utils::random_character_string_32())
+    }
 }
 
 /// Internal ID for XObjects
@@ -66,7 +68,9 @@ impl PageAnnotId {
 pub struct XObjectId(pub String);
 
 impl XObjectId {
-    pub fn new() -> Self { Self(crate::utils::random_character_string_32()) }
+    pub fn new() -> Self {
+        Self(crate::utils::random_character_string_32())
+    }
 }
 
 /// Internal ID for Fonts
@@ -74,7 +78,9 @@ impl XObjectId {
 pub struct FontId(pub String);
 
 impl FontId {
-    pub fn new() -> Self { Self(crate::utils::random_character_string_32()) }
+    pub fn new() -> Self {
+        Self(crate::utils::random_character_string_32())
+    }
 }
 
 /// Internal ID for Layers
@@ -82,7 +88,9 @@ impl FontId {
 pub struct LayerInternalId(pub String);
 
 impl LayerInternalId {
-    pub fn new() -> Self { Self(crate::utils::random_character_string_32()) }
+    pub fn new() -> Self {
+        Self(crate::utils::random_character_string_32())
+    }
 }
 
 /// Internal ID for extended graphic states
@@ -90,7 +98,9 @@ impl LayerInternalId {
 pub struct ExtendedGraphicsStateId(pub String);
 
 impl ExtendedGraphicsStateId {
-    pub fn new() -> Self { Self(crate::utils::random_character_string_32()) }
+    pub fn new() -> Self {
+        Self(crate::utils::random_character_string_32())
+    }
 }
 
 /// Internal ID for ICC profiles
@@ -98,7 +108,9 @@ impl ExtendedGraphicsStateId {
 pub struct IccProfileId(pub String);
 
 impl IccProfileId {
-    pub fn new() -> Self { Self(crate::utils::random_character_string_32()) }
+    pub fn new() -> Self {
+        Self(crate::utils::random_character_string_32())
+    }
 }
 
 /// Parsed PDF document
@@ -117,11 +129,12 @@ pub struct PdfDocument {
 impl PdfDocument {
     pub fn new(name: &str) -> Self {
         Self {
-            metadata: PdfMetadata { 
+            metadata: PdfMetadata {
                 info: PdfDocumentInfo {
                     document_title: name.to_string(),
-                    .. Default::default()
-                }, xmp: None 
+                    ..Default::default()
+                },
+                xmp: None,
             },
             resources: PdfResources::default(),
             bookmarks: PageAnnotMap::default(),
@@ -150,7 +163,10 @@ impl PdfDocument {
     /// Adds an image to the internal resources
     pub fn add_image(&mut self, image: &RawImage) -> XObjectId {
         let id = XObjectId::new();
-        self.resources.xobjects.map.insert(id.clone(), XObject::Image(image.clone()));
+        self.resources
+            .xobjects
+            .map
+            .insert(id.clone(), XObject::Image(image.clone()));
         id
     }
 
@@ -158,22 +174,32 @@ impl PdfDocument {
     /// so that it can be later be invoked with `UseXObject { id }`
     pub fn add_xobject(&mut self, parsed_svg: &ExternalXObject) -> XObjectId {
         let id = XObjectId::new();
-        self.resources.xobjects.map.insert(id.clone(), XObject::External(parsed_svg.clone()));
+        self.resources
+            .xobjects
+            .map
+            .insert(id.clone(), XObject::External(parsed_svg.clone()));
         id
     }
 
     /// Adds a new page-level bookmark on page `$page`, returning the bookmarks internal ID
     pub fn add_bookmark(&mut self, name: &str, page: usize) -> PageAnnotId {
         let id = PageAnnotId::new();
-        self.bookmarks.map.insert(id.clone(), PageAnnotation {
-            name: name.to_string(),
-            page,
-        });
+        self.bookmarks.map.insert(
+            id.clone(),
+            PageAnnotation {
+                name: name.to_string(),
+                page,
+            },
+        );
         id
     }
 
     /// Returns the `Pages` rendered by the HTML, adds resources automatically
-    pub fn with_html(&mut self, html: &str, config: &XmlRenderOptions) -> Result<&mut Self, String> {
+    pub fn with_html(
+        &mut self,
+        html: &str,
+        config: &XmlRenderOptions,
+    ) -> Result<&mut Self, String> {
         let mut pages = crate::html::xml_to_pages(html, config, self)?;
         self.pages.append(&mut pages);
         Ok(self)
@@ -206,32 +232,30 @@ pub struct PdfResources {
 
 #[derive(Debug, PartialEq, Default, Clone)]
 pub struct PdfLayerMap {
-    pub map: BTreeMap<LayerInternalId, Layer>,  
+    pub map: BTreeMap<LayerInternalId, Layer>,
 }
 
 #[derive(Debug, PartialEq, Default, Clone)]
 pub struct PdfFontMap {
-    pub map: BTreeMap<FontId, ParsedFont>,  
+    pub map: BTreeMap<FontId, ParsedFont>,
 }
 
 #[derive(Debug, PartialEq, Default, Clone)]
-pub struct ParsedIccProfile {
-
-}
+pub struct ParsedIccProfile {}
 
 #[derive(Debug, PartialEq, Default, Clone)]
 pub struct XObjectMap {
-    pub map: BTreeMap<XObjectId, XObject>,  
+    pub map: BTreeMap<XObjectId, XObject>,
 }
 
 #[derive(Debug, PartialEq, Default, Clone)]
 pub struct PageAnnotMap {
-    pub map: BTreeMap<PageAnnotId, PageAnnotation>,  
+    pub map: BTreeMap<PageAnnotId, PageAnnotation>,
 }
 
 #[derive(Debug, PartialEq, Default, Clone)]
 pub struct ExtendedGraphicsStateMap {
-    pub map: BTreeMap<ExtendedGraphicsStateId, ExtendedGraphicsState>,  
+    pub map: BTreeMap<ExtendedGraphicsStateId, ExtendedGraphicsState>,
 }
 
 /// This is a wrapper in order to keep shared data between the documents XMP metadata and
@@ -248,7 +272,6 @@ impl PdfMetadata {
     /// Consumes the XmpMetadata and turns it into a PDF Object.
     /// This is similar to the
     pub(crate) fn xmp_metadata_string(&self) -> String {
-
         // Shared between XmpMetadata and DocumentInfo
         let trapping = if self.info.trapped { "True" } else { "False" };
 

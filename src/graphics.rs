@@ -1,7 +1,7 @@
-use std::collections::HashSet;
 use crate::units::{Mm, Pt};
 use crate::FontId;
 use lopdf::Dictionary as LoDictionary;
+use std::collections::HashSet;
 
 /// Fill path using nonzero winding number rule
 pub const OP_PATH_PAINT_FILL_NZ: &str = "f";
@@ -30,7 +30,6 @@ pub struct Rect {
 }
 
 impl Rect {
-
     pub fn lower_left(&self) -> Point {
         Point {
             x: self.x,
@@ -55,45 +54,42 @@ impl Rect {
     }
 
     pub fn to_polygon(&self) -> Polygon {
-        Polygon { 
-            rings: vec![self.gen_points()], 
-            mode: PaintMode::Fill, 
-            winding_order: WindingOrder::NonZero
+        Polygon {
+            rings: vec![self.gen_points()],
+            mode: PaintMode::Fill,
+            winding_order: WindingOrder::NonZero,
         }
     }
 
     pub fn to_line(&self) -> Line {
-        Line { 
-            points: self.gen_points(), 
+        Line {
+            points: self.gen_points(),
             is_closed: true,
         }
     }
 
     fn gen_points(&self) -> Vec<(Point, bool)> {
-
         let top = self.y;
         let bottom = Pt(self.y.0 - self.height.0);
         let left = self.x;
         let right = Pt(self.x.0 + self.width.0);
-    
+
         let tl = Point { x: left, y: top };
         let tr = Point { x: right, y: top };
-        let br = Point { x: right, y: bottom };
+        let br = Point {
+            x: right,
+            y: bottom,
+        };
         let bl = Point { x: left, y: bottom };
 
-        vec![
-            (tl, false),
-            (tr, false),
-            (br, false),
-            (bl, false),
-        ]
+        vec![(tl, false), (tr, false), (br, false), (bl, false)]
     }
 
     pub fn to_array(&self) -> Vec<lopdf::Object> {
         vec![
-            (self.x.0.round() as i64).into(), 
-            (self.y.0.round() as i64).into(), 
-            (self.width.0.round() as i64).into(), 
+            (self.x.0.round() as i64).into(),
+            (self.y.0.round() as i64).into(),
+            (self.width.0.round() as i64).into(),
             (self.height.0.round() as i64).into(),
         ]
     }
@@ -238,7 +234,7 @@ impl PartialEq for Point {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Line {
     /// 2D Points for the line. The `bool` indicates whether the next point is a bezier control point.
-    pub points: Vec<(Point, bool)> ,
+    pub points: Vec<(Point, bool)>,
     /// Whether the line should automatically be closed
     pub is_closed: bool,
 }
@@ -290,11 +286,11 @@ pub struct LineDashPattern {
 impl LineDashPattern {
     pub fn as_array(&self) -> Vec<i64> {
         [
-            self.dash_1, 
-            self.gap_1, 
-            self.dash_2, 
-            self.gap_2, 
-            self.dash_3, 
+            self.dash_1,
+            self.gap_1,
+            self.dash_2,
+            self.gap_2,
+            self.dash_3,
             self.gap_3,
         ]
         .iter()
@@ -594,11 +590,9 @@ pub struct ExtendedGraphicsState {
 }
 
 pub fn extgstate_to_dict(val: &ExtendedGraphicsState) -> LoDictionary {
-
     use lopdf::Object::*;
-    use lopdf::Object::String as LoString;
     use std::string::String;
-    
+
     let mut gs_operations = Vec::<(String, lopdf::Object)>::new();
 
     // for each field, look if it was contained in the "changed fields"
@@ -725,7 +719,6 @@ pub fn extgstate_to_dict(val: &ExtendedGraphicsState) -> LoDictionary {
 
     if val.changed_fields.contains(SOFT_MASK) {
         if let Some(ref soft_mask) = val.soft_mask {
-        
         } else {
             gs_operations.push(("SM".to_string(), Name("None".as_bytes().to_vec())));
         }
@@ -739,7 +732,6 @@ pub fn extgstate_to_dict(val: &ExtendedGraphicsState) -> LoDictionary {
 
     LoDictionary::from_iter(gs_operations)
 }
-
 
 #[derive(Debug, Clone, Default)]
 pub struct ExtendedGraphicsStateBuilder {
@@ -1219,24 +1211,55 @@ pub enum BlendMode {
 }
 
 impl BlendMode {
-    pub fn normal() -> BlendMode { BlendMode::Seperable(SeperableBlendMode::Normal) }
-    pub fn multiply() -> BlendMode { BlendMode::Seperable(SeperableBlendMode::Multiply) }
-    pub fn screen() -> BlendMode { BlendMode::Seperable(SeperableBlendMode::Screen) }
-    pub fn overlay() -> BlendMode { BlendMode::Seperable(SeperableBlendMode::Overlay) }
-    pub fn darken() -> BlendMode { BlendMode::Seperable(SeperableBlendMode::Darken) }
-    pub fn lighten() -> BlendMode { BlendMode::Seperable(SeperableBlendMode::Lighten) }
-    pub fn color_dodge() -> BlendMode { BlendMode::Seperable(SeperableBlendMode::ColorDodge) }
-    pub fn color_burn() -> BlendMode { BlendMode::Seperable(SeperableBlendMode::ColorBurn) }
-    pub fn hard_light() -> BlendMode { BlendMode::Seperable(SeperableBlendMode::HardLight) }
-    pub fn soft_light() -> BlendMode { BlendMode::Seperable(SeperableBlendMode::SoftLight) }
-    pub fn difference() -> BlendMode { BlendMode::Seperable(SeperableBlendMode::Difference) }
-    pub fn exclusion() -> BlendMode { BlendMode::Seperable(SeperableBlendMode::Exclusion) }
-    pub fn hue() -> BlendMode { BlendMode::NonSeperable(NonSeperableBlendMode::Hue) }
-    pub fn saturation() -> BlendMode { BlendMode::NonSeperable(NonSeperableBlendMode::Saturation) }
-    pub fn color() -> BlendMode { BlendMode::NonSeperable(NonSeperableBlendMode::Color) }
-    pub fn luminosity() -> BlendMode { BlendMode::NonSeperable(NonSeperableBlendMode::Luminosity) }
+    pub fn normal() -> BlendMode {
+        BlendMode::Seperable(SeperableBlendMode::Normal)
+    }
+    pub fn multiply() -> BlendMode {
+        BlendMode::Seperable(SeperableBlendMode::Multiply)
+    }
+    pub fn screen() -> BlendMode {
+        BlendMode::Seperable(SeperableBlendMode::Screen)
+    }
+    pub fn overlay() -> BlendMode {
+        BlendMode::Seperable(SeperableBlendMode::Overlay)
+    }
+    pub fn darken() -> BlendMode {
+        BlendMode::Seperable(SeperableBlendMode::Darken)
+    }
+    pub fn lighten() -> BlendMode {
+        BlendMode::Seperable(SeperableBlendMode::Lighten)
+    }
+    pub fn color_dodge() -> BlendMode {
+        BlendMode::Seperable(SeperableBlendMode::ColorDodge)
+    }
+    pub fn color_burn() -> BlendMode {
+        BlendMode::Seperable(SeperableBlendMode::ColorBurn)
+    }
+    pub fn hard_light() -> BlendMode {
+        BlendMode::Seperable(SeperableBlendMode::HardLight)
+    }
+    pub fn soft_light() -> BlendMode {
+        BlendMode::Seperable(SeperableBlendMode::SoftLight)
+    }
+    pub fn difference() -> BlendMode {
+        BlendMode::Seperable(SeperableBlendMode::Difference)
+    }
+    pub fn exclusion() -> BlendMode {
+        BlendMode::Seperable(SeperableBlendMode::Exclusion)
+    }
+    pub fn hue() -> BlendMode {
+        BlendMode::NonSeperable(NonSeperableBlendMode::Hue)
+    }
+    pub fn saturation() -> BlendMode {
+        BlendMode::NonSeperable(NonSeperableBlendMode::Saturation)
+    }
+    pub fn color() -> BlendMode {
+        BlendMode::NonSeperable(NonSeperableBlendMode::Color)
+    }
+    pub fn luminosity() -> BlendMode {
+        BlendMode::NonSeperable(NonSeperableBlendMode::Luminosity)
+    }
     pub fn get_id(&self) -> &'static str {
-
         use self::BlendMode::*;
         use self::NonSeperableBlendMode::*;
         use self::SeperableBlendMode::*;

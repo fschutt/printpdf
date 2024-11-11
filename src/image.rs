@@ -1,8 +1,8 @@
-use core::fmt;
-use std::io::Cursor;
-use image::{EncodableLayout, GenericImageView};
-use serde_derive::{Serialize, Deserialize};
 use crate::{ColorBits, ColorSpace};
+use core::fmt;
+use image::GenericImageView;
+use serde_derive::{Deserialize, Serialize};
+use std::io::Cursor;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, PartialOrd)]
 pub struct RawImage {
@@ -22,11 +22,11 @@ struct RawImageU8 {
 impl fmt::Debug for RawImageU8 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RawImageU8")
-        .field("pixels", &self.pixels.len())
-        .field("width", &self.width)
-        .field("height", &self.height)
-        .field("data_format", &self.data_format)
-        .finish()
+            .field("pixels", &self.pixels.len())
+            .field("width", &self.width)
+            .field("height", &self.height)
+            .field("data_format", &self.data_format)
+            .finish()
     }
 }
 
@@ -49,7 +49,6 @@ pub enum RawImageFormat {
 }
 
 impl RawImageFormat {
-
     pub fn reduce_to_rgb(&self) -> Self {
         use self::RawImageFormat::*;
         match self {
@@ -125,7 +124,7 @@ impl RawImage {
             image::ColorType::Rgba32F => RawImageFormat::RGBAF32,
             _ => return Err(format!("invalid raw image format")),
         };
-        
+
         let pixels = match im {
             ImageLuma8(image_buffer) => RawImageData::U8(image_buffer.into_raw()),
             ImageLumaA8(image_buffer) => RawImageData::U8(image_buffer.into_raw()),
@@ -136,7 +135,7 @@ impl RawImage {
             ImageRgb16(image_buffer) => RawImageData::U16(image_buffer.into_raw()),
             ImageRgba16(image_buffer) => RawImageData::U16(image_buffer.into_raw()),
             ImageRgb32F(image_buffer) => RawImageData::F32(image_buffer.into_raw()),
-            ImageRgba32F(image_buffer) =>RawImageData::F32(image_buffer.into_raw()),
+            ImageRgba32F(image_buffer) => RawImageData::F32(image_buffer.into_raw()),
             _ => return Err(format!("invalid pixel format")),
         };
 
@@ -150,9 +149,8 @@ impl RawImage {
 }
 
 pub(crate) fn image_to_stream(im: RawImage, doc: &mut lopdf::Document) -> lopdf::Stream {
-
     use lopdf::Object::*;
-    
+
     let (rgb8, alpha) = split_rawimage_into_rgb_plus_alpha(im);
     let (bpc, cs) = rgb8.data_format.get_color_bits_and_space();
     let bbox = crate::CurTransMat::Identity;
@@ -166,7 +164,10 @@ pub(crate) fn image_to_stream(im: RawImage, doc: &mut lopdf::Document) -> lopdf:
         ("BitsPerComponent", Integer(bpc.as_integer())),
         ("ColorSpace", Name(cs.as_string().into())),
         ("Interpolate", interpolate.into()),
-        ("BBox", Array(bbox.as_array().iter().copied().map(Real).collect())),
+        (
+            "BBox",
+            Array(bbox.as_array().iter().copied().map(Real).collect()),
+        ),
     ]);
 
     if let Some(alpha) = alpha {
@@ -180,41 +181,42 @@ pub(crate) fn image_to_stream(im: RawImage, doc: &mut lopdf::Document) -> lopdf:
             ("ColorSpace", Name(ColorSpace::Greyscale.as_string().into())),
         ]);
 
-        let mut stream = lopdf::Stream::new(smask_dict, alpha.pixels)
-            .with_compression(true);
-        
+        let mut stream = lopdf::Stream::new(smask_dict, alpha.pixels).with_compression(true);
+
         let _ = stream.compress();
 
         dict.set("SMask", Reference(doc.add_object(stream)));
     }
 
-    let mut s = lopdf::Stream::new(dict, rgb8.pixels)
-    .with_compression(true);
+    let mut s = lopdf::Stream::new(dict, rgb8.pixels).with_compression(true);
 
     let _ = s.compress();
-    
+
     s
 }
 
 // If the image has an alpha channel, splits the alpha channel as a separate image
 // to the used in the `/Smask` dictionary
-fn split_rawimage_into_rgb_plus_alpha(
-    im: RawImage
-) -> (RawImageU8, Option<RawImageU8>) {
-
+fn split_rawimage_into_rgb_plus_alpha(im: RawImage) -> (RawImageU8, Option<RawImageU8>) {
     let has_alpha = im.data_format.has_alpha();
-    
+
     let (orig, alpha) = if has_alpha {
         match im.pixels {
             RawImageData::U8(vec) => crate::utils::rgba_to_rgb(vec),
             RawImageData::U16(vec) => {
                 let (d, alpha) = crate::utils::rgba_to_rgb16(vec);
-                (crate::utils::u16vec_to_u8(d), crate::utils::u16vec_to_u8(alpha))
-            },
+                (
+                    crate::utils::u16vec_to_u8(d),
+                    crate::utils::u16vec_to_u8(alpha),
+                )
+            }
             RawImageData::F32(vec) => {
                 let (d, alpha) = crate::utils::rgba_to_rgbf32(vec);
-                (crate::utils::f32vec_to_u8(d), crate::utils::f32vec_to_u8(alpha))
-            },
+                (
+                    crate::utils::f32vec_to_u8(d),
+                    crate::utils::f32vec_to_u8(alpha),
+                )
+            }
         }
     } else {
         match im.pixels {
@@ -228,7 +230,7 @@ fn split_rawimage_into_rgb_plus_alpha(
         pixels: orig,
         width: im.width,
         height: im.height,
-        data_format: im.data_format.reduce_to_rgb()
+        data_format: im.data_format.reduce_to_rgb(),
     };
 
     let alpha_mask = if alpha.is_empty() {
@@ -245,14 +247,16 @@ fn split_rawimage_into_rgb_plus_alpha(
     (orig, alpha_mask)
 }
 
-pub(crate) fn translate_to_internal_rawimage(
-    im: &RawImage
-) -> azul_core::app_resources::RawImage {
+pub(crate) fn translate_to_internal_rawimage(im: &RawImage) -> azul_core::app_resources::RawImage {
     azul_core::app_resources::RawImage {
         pixels: match &im.pixels {
             RawImageData::U8(vec) => azul_core::app_resources::RawImageData::U8(vec.clone().into()),
-            RawImageData::U16(vec) => azul_core::app_resources::RawImageData::U16(vec.clone().into()),
-            RawImageData::F32(vec) => azul_core::app_resources::RawImageData::F32(vec.clone().into()),
+            RawImageData::U16(vec) => {
+                azul_core::app_resources::RawImageData::U16(vec.clone().into())
+            }
+            RawImageData::F32(vec) => {
+                azul_core::app_resources::RawImageData::F32(vec.clone().into())
+            }
         },
         width: im.width,
         height: im.height,

@@ -17,9 +17,8 @@ mod js_sys_date {
 
     #[derive(Debug, Clone, PartialEq)]
     pub struct OffsetDateTime(Date);
-    
-    impl OffsetDateTime {
 
+    impl OffsetDateTime {
         pub fn from_unix_timestamp(_: i64) -> Option<Self> {
             Some(Self(Date::new(&(1000.0 * 60.0 * 24.0 * 5.0).into())))
         }
