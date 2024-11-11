@@ -68,6 +68,17 @@ pub struct Layer {
     pub usage: LayerSubtype,
 }
 
+impl Layer {
+    pub fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            creator: "Adobe Illustrator 14.0".to_string(),
+            intent: LayerIntent::Design,
+            usage: LayerSubtype::Artwork,
+        }
+    }
+}
+
 /// Operations that can occur in a PDF page
 #[derive(Debug, Clone)]
 pub enum Op {

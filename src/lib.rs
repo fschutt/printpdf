@@ -135,14 +135,9 @@ impl PdfDocument {
         id
     }
 
-    pub fn add_layer(&mut self, name: &str, creator: &str, intent: LayerIntent, usage: LayerSubtype) -> LayerInternalId {
+    pub fn add_layer(&mut self, layer: &Layer) -> LayerInternalId {
         let id = LayerInternalId::new();
-        self.resources.layers.map.insert(id.clone(), Layer {
-            name: name.to_string(),
-            creator: creator.to_string(),
-            intent,
-            usage,
-        });
+        self.resources.layers.map.insert(id.clone(), layer.clone());
         id
     }
 

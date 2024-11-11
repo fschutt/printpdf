@@ -214,14 +214,6 @@ impl ParsedFont {
     /// Returns the glyph IDs used in the PDF file
     pub(crate) fn get_used_glyph_ids(&self, font_id: &FontId, pages: &[PdfPage]) -> BTreeMap<u16, char> {
 
-        const DEFAULT_ALPHABET: &[&str;5] = &[
-            r#"a b c d e f g h i j k l m n o p q r s t u v w x y z A B C D E F G H I J K L M N"#,
-            r#"O P Q R S T U V W X Y Z 0 1 2 3 4 5 6 7 8 9 ¹ ² ³ ª º % $ € ¥ £ ¢ & * @ # | á â"#,
-            r#"à ä å ã æ ç é ê è ë í î ì ï ı ñ ó ô ò ö õ ø œ š ß ú û ù ü ý ÿ ž Â À Ä Å Ã Æ Ç É"#,
-            r#"Ê È Ë Í Î Ì Ï Ñ Ó Ô Ò Ö Õ Ø Œ Š Û Ù Ü Ý Ÿ , : ; - – — • . … “ ‘ ’ ‘ ‚ “ ” „ ‹ ›"#,
-            r#"« » / \ ? ! ¿ ¡ ( )[ ]{ } © ® § + × = _ °"#,
-        ];
-
         enum CharsOrCodepoint {
             Chars(String),
             Cp(Vec<(u16, char)>),
@@ -229,11 +221,11 @@ impl ParsedFont {
 
         let chars_or_codepoints = pages.iter().flat_map(|p| {
             p.ops.iter().filter_map(|s| match s {
-                Op::WriteText { font, text, size} => 
+                Op::WriteText { font, text, ..} => 
                     if font_id == font { Some(CharsOrCodepoint::Chars(text.clone())) } else { None },
-                Op::WriteCodepoints { font, size, cp} => 
+                Op::WriteCodepoints { font, cp, .. } => 
                     if font_id == font { Some(CharsOrCodepoint::Cp(cp.clone())) } else { None },
-                Op::WriteCodepointsWithKerning { font, size, cpk} => 
+                Op::WriteCodepointsWithKerning { font, cpk, .. } => 
                     if font_id == font { Some(CharsOrCodepoint::Cp(cpk.iter().map(|s| (s.1, s.2)).collect())) } else { None },
                 _ => None,
             })

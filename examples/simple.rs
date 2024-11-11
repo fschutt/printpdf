@@ -100,6 +100,9 @@ fn main() {
     let rotation_center_y = Px((svg.height.unwrap_or_default().0 as f32 / 2.0) as usize);
     let xobject_id = doc.add_xobject(&svg);
     
+    let svg_layer = doc.add_layer(&Layer::new("SVG content"));
+    ops.push(Op::BeginLayer { layer_id: svg_layer.clone() });
+
     for i in 0..10 {
         
         let transform = XObjectTransform {
@@ -120,6 +123,8 @@ fn main() {
         ]);
     }
 
+    ops.push(Op::EndLayer { layer_id: svg_layer.clone() });
+    
     let _bookmark_id = doc.add_bookmark("Chapter 1", /* page */ 0);
 
     // collect pages

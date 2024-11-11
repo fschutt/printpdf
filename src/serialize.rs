@@ -192,6 +192,54 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec
 
         // gather page annotations
         let mut page_resources = LoDictionary::new(); // get_page_resources(&mut doc, &page);
+        
+        // gather page layers
+        let page_layers = page.ops
+        .iter()
+        .filter_map(|op| {
+            match op {
+                Op::BeginLayer { layer_id } => pdf.resources.layers.map.get(layer_id).map(|q| (layer_id, q)),
+                _ => None,
+            }
+        })
+        .map(|(layer_id, l)| {
+
+            let usage_dict = doc.add_object(LoDictionary::from_iter(vec![
+                ("Type", Name("OCG".into())),
+                (
+                    "CreatorInfo",
+                    Dictionary(LoDictionary::from_iter(vec![
+                        ("Creator", LoString(l.creator.clone().into(), Literal)),
+                        ("Subtype", Name(l.usage.to_string().into())),
+                    ])),
+                ),
+            ]));
+            
+            let intent = doc.add_object(Array(vec![
+                Name("View".into()), Name(l.intent.to_string().into())
+            ]));
+            
+            let id = doc.add_object(
+                LoDictionary::from_iter(vec![
+                    ("Type", Name("OCG".into())),
+                    ("Name", LoString(l.name.clone().into(), Literal)),
+                    ("Intent", Reference(intent)),
+                    ("Usage", Reference(usage_dict)),
+                ])
+            );
+
+            (layer_id.0.clone(), id)
+        })
+        .collect::<Vec<_>>();
+
+        if !page_layers.is_empty() {
+            page_resources.set("Properties", LoDictionary::from_iter(
+                page_layers.iter().map(|(id, obj)| {
+                    (id.as_str(), Reference(*obj))
+            })));
+        }
+
+        
         let links = page.ops.iter().filter_map(|l| match l {
             Op::LinkAnnotation { link } => Some(link.clone()),
             _ => None,
