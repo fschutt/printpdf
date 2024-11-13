@@ -1,8 +1,7 @@
-use crate::{BuiltinFont, Mm, Op, PdfDocument, PdfPage, Pt};
+use crate::{translate_to_internal_rawimage, BuiltinFont, Mm, Op, PdfDocument, PdfPage, PdfResources, Pt};
 use azul_core::{
     app_resources::{
-        DpiScaleFactor, Epoch, IdNamespace, ImageCache, ImageRef, ImageRefHash, RendererResources,
-        ResolvedImage,
+        self, AddFontMsg, DpiScaleFactor, Epoch, IdNamespace, ImageCache, ImageDescriptor, ImageRef, ImageRefHash, RawImageData, RendererResources, ResolvedImage
     },
     callbacks::DocumentId,
     display_list::{
@@ -10,12 +9,13 @@ use azul_core::{
         StyleBorderStyles, StyleBorderWidths,
     },
     dom::{NodeData, NodeId},
-    styled_dom::{ContentGroup, DomId, StyledDom, StyledNode},
+    styled_dom::{ContentGroup, DomId, StyleFontFamiliesHash, StyleFontFamilyHash, StyledDom, StyledNode},
     ui_solver::LayoutResult,
     window::{FullWindowState, LogicalSize},
     xml::{XmlComponentMap, XmlNode},
 };
-use azul_css::{CssPropertyValue, FloatValue, LayoutDisplay, StyleTextColor};
+use azul_css::{CssPropertyValue, FloatValue, LayoutDisplay, StyleTextColor, U8Vec};
+use azul_text_layout::text_layout::ParsedFont;
 use base64::Engine;
 use rust_fontconfig::{FcFont, FcFontCache, FcPattern};
 use std::collections::BTreeMap;
@@ -310,7 +310,7 @@ fn displaylist_handle_rect(
     rect_idx: NodeId,
     page_height: Pt,
 ) -> Option<()> {
-    use crate::units::Pt;
+    use crate::units::{Px, Pt};
 
     let mut newops = Vec::new();
 
@@ -326,8 +326,11 @@ fn displaylist_handle_rect(
     let background_content =
         get_background_content(layout_result, html_node, rect_idx, styled_node);
     let opt_border = get_opt_border(layout_result, html_node, rect_idx, styled_node);
-    let opt_image = get_image_node(html_node, renderer_resources);
-    let opt_text = get_text_node(layout_result, rect_idx, html_node, styled_node);
+    let opt_image = get_image_node(html_node);
+    let opt_text = get_text_node(
+        layout_result, rect_idx, html_node, 
+        styled_node, &renderer_resources, &mut doc.resources
+    );
 
     for b in background_content.iter() {
         match &b.content {
@@ -428,6 +431,72 @@ fn displaylist_handle_rect(
         newops.push(Op::DrawLine {
             line: rect.to_line(),
         });
+    }
+
+    if let Some((desc, data, hash, size)) = opt_image {
+        let image_id = format!("im_azul_layout_{h:032}", h = hash.0);
+        let xobject_id = crate::XObjectId(image_id.clone());
+        let image = crate::XObject::Image(crate::image::translate_from_internal_rawimage(desc, data.as_slice()));
+        doc.resources.xobjects.map.insert(xobject_id, image);
+    }
+
+    if let Some((text, id, color)) = opt_text {
+        
+        println!("writing text {text:#?} {id:?}");
+        ops.push(Op::StartTextSection);
+        ops.push(Op::SetFillColor { 
+            col: crate::Color::Rgb(crate::Rgb { 
+                r: color.inner.r as f32 / 255.0, 
+                g: color.inner.g as f32 / 255.0, 
+                b: color.inner.b as f32 / 255.0, 
+                icc_profile: None,
+            }) 
+        });
+        ops.push(Op::SetTextRenderingMode { mode: crate::TextRenderingMode::Fill });
+        for line in text.lines.as_slice() {
+            ops.push(Op::SetTextCursor { 
+                pos: crate::Point { 
+                    x: Pt(line.bounds.origin.x),  // TODO: px / pt !
+                    y: Pt(line.bounds.origin.y),  // TODO: px / pt !
+                }
+            });
+            
+            for word in line.words.as_slice().iter() {
+                use azul_core::callbacks::InlineWord::*;
+                match word {
+                    Tab => {
+                        ops.push(Op::WriteText { 
+                            text: "    ".to_string(), 
+                            size: Pt(text.font_size_px),  // TODO: px / pt !
+                            font: id.clone(),
+                        });
+                    },
+                    Return => {
+                        // TODO?
+                    },
+                    Space => {
+                        ops.push(Op::WriteText { 
+                            text: " ".to_string(), 
+                            size: Pt(text.font_size_px),  // TODO: px / pt !
+                            font: id.clone(),
+                        });
+                    },
+                    Word(itc) => {
+                        let chars = itc.glyphs.iter().filter_map(|s| {
+                            char::from_u32(*s.unicode_codepoint.as_option()?)
+                        }).collect::<String>();
+
+                        ops.push(Op::WriteText { 
+                            text: chars, 
+                            size: Pt(text.font_size_px),  // TODO: px / pt !
+                            font: id.clone(),
+                        });
+                    },
+                }
+            }
+        }
+
+        ops.push(Op::EndTextSection);
     }
 
     if !newops.is_empty() {
@@ -604,11 +673,11 @@ fn get_background_content(
     v
 }
 
-fn get_image_node<'a>(
-    html_node: &NodeData,
-    renderer_resources: &'a RendererResources,
-) -> Option<(&'a ResolvedImage, ImageRefHash, LogicalSize)> {
+fn get_image_node<'a>(html_node: &'a NodeData) 
+-> Option<(&'a ImageDescriptor, &'a U8Vec, ImageRefHash, LogicalSize)> {
+    
     use azul_core::app_resources::DecodedImage;
+    use azul_core::app_resources::ImageData;
     use azul_core::dom::NodeType;
 
     let image_ref = match html_node.get_node_type() {
@@ -619,12 +688,17 @@ fn get_image_node<'a>(
     let image_hash = image_ref.get_hash();
     let image_size = image_ref.get_size();
 
-    let i = match image_ref.get_data() {
-        DecodedImage::Raw(_) => renderer_resources.get_image(&image_hash),
+    let (descriptor, data) = match image_ref.get_data() {
+        DecodedImage::Raw((descriptor, data)) => {
+            match data {
+                ImageData::Raw(vec) => Some((descriptor, vec)),
+                _ => None,
+            }
+        },
         _ => None,
     }?;
 
-    Some((i, image_hash, image_size))
+    Some((descriptor, data, image_hash, image_size))
 }
 
 fn get_text_node(
@@ -632,11 +706,30 @@ fn get_text_node(
     rect_idx: NodeId,
     html_node: &NodeData,
     styled_node: &StyledNode,
-) -> Option<(azul_core::callbacks::InlineText, StyleTextColor)> {
+    app_resources: &azul_core::app_resources::RendererResources,
+    res: &mut PdfResources,
+) -> Option<(azul_core::callbacks::InlineText, crate::FontId, StyleTextColor)> {
+
+    use azul_core::styled_dom::StyleFontFamiliesHash;
+    
     if !html_node.is_text_node() {
         return None;
     }
 
+    let font_families = layout_result
+    .styled_dom
+    .get_css_property_cache()
+    .get_font_id_or_default(&html_node, &rect_idx, &styled_node.state);
+
+    let sffh = app_resources
+    .get_font_family(&StyleFontFamiliesHash::new(&font_families.as_slice()))?;
+
+    let font_key = app_resources
+    .get_font_key(&sffh)?;
+
+    let fd = app_resources.get_registered_font(&font_key)?;
+    let font_ref = &fd.0;
+    
     let rects = layout_result.rects.as_ref();
     let words = layout_result.words_cache.get(&rect_idx)?;
     let shaped_words = layout_result.shaped_words_cache.get(&rect_idx)?;
@@ -654,7 +747,16 @@ fn get_text_node(
         .get_css_property_cache()
         .get_text_color_or_default(&html_node, &rect_idx, &styled_node.state);
 
-    Some((inline_text, text_color))
+    // add font to resources if not existent
+    let id = crate::FontId(format!("azul_font_family_{:032}", sffh.0));
+
+    if !res.fonts.map.contains_key(&id) {
+        let font_bytes = font_ref.get_bytes();
+        let parsed_font = crate::ParsedFont::from_bytes(font_bytes.as_slice(), 0)?;
+        res.fonts.map.insert(id.clone(), parsed_font);
+    }
+
+    Some((inline_text, id, text_color))
 }
 
 #[derive(Debug)]

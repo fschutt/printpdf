@@ -1,5 +1,6 @@
 use crate::{ColorBits, ColorSpace};
 use core::fmt;
+use azul_core::app_resources::ImageDescriptor;
 use image::GenericImageView;
 use serde_derive::{Deserialize, Serialize};
 use std::io::Cursor;
@@ -245,6 +246,34 @@ fn split_rawimage_into_rgb_plus_alpha(im: RawImage) -> (RawImageU8, Option<RawIm
     };
 
     (orig, alpha_mask)
+}
+
+pub(crate) fn translate_from_internal_rawimage(
+    im: &azul_core::app_resources::ImageDescriptor, 
+    data: &[u8],
+) -> RawImage {
+
+    use azul_core::app_resources::RawImageFormat;
+
+    RawImage { 
+        pixels: crate::RawImageData::U8(data.to_vec()),
+        width: im.width,
+        height: im.height, 
+        data_format: match im.format {
+            RawImageFormat::R8 => crate::RawImageFormat::R8,
+            RawImageFormat::RG8 => crate::RawImageFormat::RG8,
+            RawImageFormat::RGB8 => crate::RawImageFormat::RGB8,
+            RawImageFormat::RGBA8 => crate::RawImageFormat::RGBA8,
+            RawImageFormat::R16 => crate::RawImageFormat::R16,
+            RawImageFormat::RG16 => crate::RawImageFormat::RG16,
+            RawImageFormat::RGB16 => crate::RawImageFormat::RGB16,
+            RawImageFormat::RGBA16 => crate::RawImageFormat::RGBA16,
+            RawImageFormat::BGR8 => crate::RawImageFormat::BGR8,
+            RawImageFormat::BGRA8 => crate::RawImageFormat::BGRA8,
+            RawImageFormat::RGBF32 => crate::RawImageFormat::RGBF32,
+            RawImageFormat::RGBAF32 => crate::RawImageFormat::RGBAF32,
+        }
+    }
 }
 
 pub(crate) fn translate_to_internal_rawimage(im: &RawImage) -> azul_core::app_resources::RawImage {
