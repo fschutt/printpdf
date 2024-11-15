@@ -17,7 +17,7 @@ autoexamples = false
 edition = "2021"
 
 [dependencies]
-lopdf = { version = "0.33.0", default-features = false, features = [
+lopdf = { version = "0.34.0", default-features = false, features = [
     "pom_parser",
 ] }
 time = { version = "0.3.25", default-features = false, features = ["std"] }
@@ -51,7 +51,7 @@ serde_derive = { version = "1" }
 serde_json = { version = "1" }
 wasm-bindgen = { version = "0.2" }
 base64 = "0.22.1"
-flate2 = "1.0.23"
+flate2 = "1.0.35"
 
 [features]
 default = ["js-sys"]
