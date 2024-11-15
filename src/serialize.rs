@@ -41,8 +41,7 @@ pub struct PdfSaveOptions {
 impl Default for PdfSaveOptions {
     fn default() -> Self {
         Self {
-            #[cfg(debug_assertions)]
-            optimize: std::cfg!(not(debug_assertions)),
+            optimize: true,
             subset_fonts: true,
         }
     }
