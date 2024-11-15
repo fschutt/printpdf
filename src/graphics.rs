@@ -100,9 +100,9 @@ impl Rect {
 /// This is meaningful in the following cases:
 ///
 /// - When a path uses one of the _fill_ paint operations, this will determine the rule used to
-/// fill the paths.
+///   fill the paths.
 /// - When a path uses a [clip] painting mode, this will determine the rule used to limit the
-/// regions of the page affected by painting operators.
+///   regions of the page affected by painting operators.
 ///
 /// Most of the time, `NonZero` is the appropriate option.
 ///
@@ -963,7 +963,6 @@ impl ExtendedGraphicsStateBuilder {
 
     /// Consumes the builder and returns an actual ExtendedGraphicsState
     #[inline]
-
     pub fn build(self) -> ExtendedGraphicsState {
         self.gs
     }
@@ -1085,7 +1084,6 @@ pub enum TransferExtraFunction {}
 /// by streams are specifically identified as such in the descriptions
 /// of particular halftone types; unless otherwise stated, they are
 /// understood to be defined by simple dictionaries instead.)
-
 /*
     <<
         /Type /Halftone
@@ -1096,7 +1094,6 @@ pub enum TransferExtraFunction {}
         /TransferFunction /Identity
     >>
 */
-
 /// Deserialized into Integer: 1, 5, 6, 10 or 16
 #[derive(Debug, PartialEq, Clone)]
 pub enum HalftoneType {

@@ -230,14 +230,14 @@ fn point_to_mm_conversion() {
 fn mm_to_point_conversion() {
     let mm1: Pt = Mm(1.0).into();
     let mm2: Pt = Mm(23.0).into();
-    assert_eq!(mm1, Pt(2.83464745483286));
+    assert_eq!(mm1, Pt(2.834_647_4));
     assert_eq!(mm2, Pt(65.1969));
 }
 
 #[test]
 fn mm_eq_zero_check() {
-    let mm1: Mm = Mm(0.0).into();
-    let mm2: Mm = Mm(0.0).into();
+    let mm1: Mm = Mm(0.0);
+    let mm2: Mm = Mm(0.0);
     assert_eq!(mm1, mm2);
     assert_eq!(mm1, Mm(0.0));
     assert_eq!(mm2, Mm(0.0));
@@ -245,20 +245,20 @@ fn mm_eq_zero_check() {
 
 #[test]
 fn max_mm() {
-    let mm_vector = vec![Mm(0.0), Mm(1.0), Mm(2.0)];
+    let mm_vector = [Mm(0.0), Mm(1.0), Mm(2.0)];
     assert_eq!(mm_vector.iter().max().unwrap(), &Mm(2.0));
 }
 
 #[test]
 fn min_mm() {
-    let mm_vector = vec![Mm(0.0), Mm(1.0), Mm(2.0)];
+    let mm_vector = [Mm(0.0), Mm(1.0), Mm(2.0)];
     assert_eq!(mm_vector.iter().min().unwrap(), &Mm(0.0));
 }
 
 #[test]
 fn pt_eq_zero_check() {
-    let pt1: Pt = Pt(0.0).into();
-    let pt2: Pt = Pt(0.0).into();
+    let pt1: Pt = Pt(0.0);
+    let pt2: Pt = Pt(0.0);
     assert_eq!(pt1, pt2);
     assert_eq!(pt1, Pt(0.0));
     assert_eq!(pt2, Pt(0.0));
@@ -266,12 +266,12 @@ fn pt_eq_zero_check() {
 
 #[test]
 fn max_pt() {
-    let pt_vector = vec![Pt(0.0), Pt(1.0), Pt(2.0)];
+    let pt_vector = [Pt(0.0), Pt(1.0), Pt(2.0)];
     assert_eq!(pt_vector.iter().max().unwrap(), &Pt(2.0));
 }
 
 #[test]
 fn min_pt() {
-    let pt_vector = vec![Pt(0.0), Pt(1.0), Pt(2.0)];
+    let pt_vector = [Pt(0.0), Pt(1.0), Pt(2.0)];
     assert_eq!(pt_vector.iter().min().unwrap(), &Pt(0.0));
 }

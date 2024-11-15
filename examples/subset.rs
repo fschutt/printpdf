@@ -91,7 +91,7 @@ fn main() {
                 env!("CARGO_MANIFEST_DIR"),
                 name.get_id()
             ),
-            &printpdf::compress(&subset.bytes),
+            printpdf::compress(&subset.bytes),
         );
         for (old_gid, (new_gid, char)) in subset.glyph_mapping.iter() {
             target_map.push(format!(

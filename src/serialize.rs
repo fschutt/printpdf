@@ -41,7 +41,8 @@ pub struct PdfSaveOptions {
 impl Default for PdfSaveOptions {
     fn default() -> Self {
         Self {
-            optimize: !(std::cfg!(debug_assertions)),
+            #[cfg(debug_assertions)]
+            optimize: std::cfg!(not(debug_assertions)),
             subset_fonts: true,
         }
     }
@@ -135,7 +136,7 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec
 
         let flattened_ocg_list = layer_ids
             .values()
-            .map(|s| Reference(s.clone()))
+            .map(|s| Reference(*s))
             .collect::<Vec<_>>();
 
         catalog.set(
@@ -161,7 +162,7 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec
     let mut global_font_dict = LoDictionary::new();
     let prepared_fonts = prepare_fonts(&pdf.resources, &pdf.pages);
     for (font_id, prepared) in prepared_fonts.iter() {
-        let font_dict = add_font_to_pdf(&mut doc, &font_id, &prepared);
+        let font_dict = add_font_to_pdf(&mut doc, font_id, prepared);
         let font_dict_id = doc.add_object(font_dict);
         global_font_dict.set(font_id.0.clone(), Reference(font_dict_id));
     }
@@ -328,16 +329,10 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec
             let prev = if i == 0 {
                 None
             } else {
-                bookmark_ids.get(i - 1).map(|s| s.3.clone())
+                bookmark_ids.get(i - 1).map(|s| s.3)
             };
-            let next = bookmark_ids.get(i + 1).map(|s| s.3.clone());
-            let dest = Array(vec![
-                Reference((*pageid).clone()),
-                "XYZ".into(),
-                Null,
-                Null,
-                Null,
-            ]);
+            let next = bookmark_ids.get(i + 1).map(|s| s.3);
+            let dest = Array(vec![Reference(*(*pageid)), "XYZ".into(), Null, Null, Null]);
             let mut dict = LoDictionary::from_iter(vec![
                 ("Parent", Reference(bookmarks_id)),
                 ("Title", LoString(name.to_string().into(), Literal)),
@@ -371,12 +366,7 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec
             ("Count", Integer(page_ids.len() as i64)),
             (
                 "Kids",
-                Array(
-                    page_ids
-                        .iter()
-                        .map(|q| Reference(q.clone()))
-                        .collect::<Vec<_>>(),
-                ),
+                Array(page_ids.iter().map(|q| Reference(*q)).collect::<Vec<_>>()),
             ),
         ]),
     );
@@ -468,7 +458,7 @@ fn translate_operations(
                 content.push(LoOp::new("ET", vec![]));
             }
             Op::WriteText { text, font, size } => {
-                if let Some(prepared_font) = fonts.get(&font) {
+                if let Some(prepared_font) = fonts.get(font) {
                     content.push(LoOp::new(
                         "Tf",
                         vec![font.0.clone().into(), (size.0).into()],
@@ -492,11 +482,14 @@ fn translate_operations(
                     "Tf",
                     vec![font.get_pdf_id().into(), (size.0).into()],
                 ));
-                let bytes = lopdf::Document::encode_text(Some("WinAnsiEncoding"), &text);
+                let bytes = lopdf::Document::encode_text(
+                    &lopdf::Encoding::SimpleEncoding("WinAnsiEncoding"),
+                    text,
+                );
                 content.push(LoOp::new("Tj", vec![LoString(bytes, Hexadecimal)]));
             }
             Op::WriteCodepoints { font, cp, size } => {
-                if let Some(prepared_font) = fonts.get(&font) {
+                if let Some(prepared_font) = fonts.get(font) {
                     content.push(LoOp::new(
                         "Tf",
                         vec![font.0.clone().into(), (size.0).into()],
@@ -525,7 +518,7 @@ fn translate_operations(
                 }
             }
             Op::WriteCodepointsWithKerning { font, cpk, size } => {
-                if let Some(font) = fonts.get(&font) {
+                if let Some(font) = fonts.get(font) {
                     let subset_codepoints = cpk
                         .iter()
                         .filter_map(|(kern, gid, ch)| {
@@ -916,7 +909,7 @@ fn prepare_fonts(resources: &PdfResources, pages: &[PdfPage]) -> BTreeMap<FontId
             font_id.clone(),
             PreparedFont {
                 original: font.clone(),
-                subset_font: subset_font,
+                subset_font,
                 cid_to_unicode_map: cid_to_unicode,
                 vertical_writing: !font.vmtx_data.is_empty(),
                 ascent: font.font_metrics.ascender as i64,
@@ -982,11 +975,11 @@ fn add_font_to_pdf(
                     ])),
                 ),
                 (
-                    if vertical { "W2" } else { "W" }.into(),
+                    if vertical { "W2" } else { "W" },
                     Array(prepared.widths_list.clone()),
                 ),
                 (
-                    if vertical { "DW2" } else { "DW" }.into(),
+                    if vertical { "DW2" } else { "DW" },
                     Integer(DEFAULT_CHARACTER_WIDTH),
                 ),
                 (

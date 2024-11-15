@@ -1,6 +1,5 @@
 use crate::{ColorBits, ColorSpace};
 use core::fmt;
-use azul_core::app_resources::ImageDescriptor;
 use image::GenericImageView;
 use serde_derive::{Deserialize, Serialize};
 use std::io::Cursor;
@@ -62,12 +61,7 @@ impl RawImageFormat {
 
     pub fn has_alpha(&self) -> bool {
         use self::RawImageFormat::*;
-        match self {
-            RGBA8 => true,
-            RGBA16 => true,
-            RGBAF32 => true,
-            _ => false,
-        }
+        matches!(self, RGBA8 | RGBA16 | RGBAF32)
     }
 
     pub fn get_color_bits_and_space(&self) -> (ColorBits, ColorSpace) {
@@ -123,7 +117,7 @@ impl RawImage {
             image::ColorType::Rgba16 => RawImageFormat::RGBA16,
             image::ColorType::Rgb32F => RawImageFormat::RGBF32,
             image::ColorType::Rgba32F => RawImageFormat::RGBAF32,
-            _ => return Err(format!("invalid raw image format")),
+            _ => return Err("invalid raw image format".to_string()),
         };
 
         let pixels = match im {
@@ -137,7 +131,7 @@ impl RawImage {
             ImageRgba16(image_buffer) => RawImageData::U16(image_buffer.into_raw()),
             ImageRgb32F(image_buffer) => RawImageData::F32(image_buffer.into_raw()),
             ImageRgba32F(image_buffer) => RawImageData::F32(image_buffer.into_raw()),
-            _ => return Err(format!("invalid pixel format")),
+            _ => return Err("invalid pixel format".to_string()),
         };
 
         Ok(RawImage {
@@ -249,16 +243,15 @@ fn split_rawimage_into_rgb_plus_alpha(im: RawImage) -> (RawImageU8, Option<RawIm
 }
 
 pub(crate) fn translate_from_internal_rawimage(
-    im: &azul_core::app_resources::ImageDescriptor, 
+    im: &azul_core::app_resources::ImageDescriptor,
     data: &[u8],
 ) -> RawImage {
-
     use azul_core::app_resources::RawImageFormat;
 
-    RawImage { 
+    RawImage {
         pixels: crate::RawImageData::U8(data.to_vec()),
         width: im.width,
-        height: im.height, 
+        height: im.height,
         data_format: match im.format {
             RawImageFormat::R8 => crate::RawImageFormat::R8,
             RawImageFormat::RG8 => crate::RawImageFormat::RG8,
@@ -272,7 +265,7 @@ pub(crate) fn translate_from_internal_rawimage(
             RawImageFormat::BGRA8 => crate::RawImageFormat::BGRA8,
             RawImageFormat::RGBF32 => crate::RawImageFormat::RGBF32,
             RawImageFormat::RGBAF32 => crate::RawImageFormat::RGBAF32,
-        }
+        },
     }
 }
 

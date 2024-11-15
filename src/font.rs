@@ -390,10 +390,10 @@ impl ParsedFont {
 
         for (glyph_id, unicode) in glyph_ids.iter() {
             // end the current (beginbfchar endbfchar) block if necessary
-            if (*glyph_id >> 8) as u16 != cur_first_bit || current_cmap_block.len() >= 100 {
+            if (*glyph_id >> 8) != cur_first_bit || current_cmap_block.len() >= 100 {
                 all_cmap_blocks.push(current_cmap_block.clone());
                 current_cmap_block = Vec::new();
-                cur_first_bit = (*glyph_id >> 8) as u16;
+                cur_first_bit = *glyph_id >> 8;
             }
 
             current_cmap_block.push((*glyph_id, *unicode as u32));
@@ -429,7 +429,7 @@ impl ParsedFont {
             } else {
                 // non-subsequent GID
                 widths_list.push(Integer(current_low_gid as i64));
-                widths_list.push(Array(current_width_vec.drain(..).collect()));
+                widths_list.push(Array(std::mem::take(&mut current_width_vec)));
 
                 current_width_vec.push(Integer((width as f32 * percentage_font_scaling) as i64));
                 current_low_gid = *gid;
@@ -439,7 +439,7 @@ impl ParsedFont {
 
         // push the last widths, because the loop is delayed by one iteration
         widths_list.push(Integer(current_low_gid as i64));
-        widths_list.push(Array(current_width_vec.drain(..).collect()));
+        widths_list.push(Array(std::mem::take(&mut current_width_vec)));
 
         widths_list
         /*
@@ -534,14 +534,6 @@ struct GlyphOutlineBuilder {
     operations: Vec<GlyphOutlineOperation>,
 }
 
-impl Default for GlyphOutlineBuilder {
-    fn default() -> Self {
-        GlyphOutlineBuilder {
-            operations: Vec::new(),
-        }
-    }
-}
-
 /*
 impl ttf_parser::OutlineBuilder for GlyphOutlineBuilder {
     fn move_to(&mut self, x: f32, y: f32) { self.operations.push(GlyphOutlineOperation::MoveTo(OutlineMoveTo { x, y })); }
@@ -569,7 +561,7 @@ pub struct OwnedGlyph {
 }
 
 impl OwnedGlyph {
-    fn from_glyph_data<'a>(glyph: &Glyph<'a>, horz_advance: u16) -> Option<Self> {
+    fn from_glyph_data(glyph: &Glyph<'_>, horz_advance: u16) -> Option<Self> {
         let bbox = glyph.bounding_box()?;
         Some(Self {
             bounding_box: OwnedGlyphBoundingBox {
@@ -615,7 +607,7 @@ impl ParsedFont {
         let loca_table = loca_table
             .as_ref()
             .and_then(|loca_data| {
-                ReadScope::new(&loca_data.as_ref()?)
+                ReadScope::new(loca_data.as_ref()?)
                     .read_dep::<LocaTable<'_>>((num_glyphs, index_to_loc))
                     .ok()
             })
@@ -627,7 +619,7 @@ impl ParsedFont {
         let mut glyf_table = glyf_table
             .as_ref()
             .and_then(|glyf_data| {
-                ReadScope::new(&glyf_data.as_ref()?)
+                ReadScope::new(glyf_data.as_ref()?)
                     .read_dep::<GlyfTable<'_>>(&loca_table)
                     .ok()
             })
@@ -656,7 +648,7 @@ impl ParsedFont {
         // not parsing glyph outlines can save lots of memory
         let glyph_records_decoded = glyf_table
             .records_mut()
-            .into_iter()
+            .iter_mut()
             .enumerate()
             .filter_map(|(glyph_index, glyph_record)| {
                 if glyph_index > (u16::MAX as usize) {
@@ -1096,20 +1088,20 @@ impl FontMetrics {
             fs_selection: os2_table.fs_selection,
             us_first_char_index: os2_table.us_first_char_index,
             us_last_char_index: os2_table.us_last_char_index,
-            s_typo_ascender: os2_table.s_typo_ascender.into(),
-            s_typo_descender: os2_table.s_typo_descender.into(),
-            s_typo_line_gap: os2_table.s_typo_line_gap.into(),
-            us_win_ascent: os2_table.us_win_ascent.into(),
-            us_win_descent: os2_table.us_win_descent.into(),
-            ul_code_page_range1: os2_table.ul_code_page_range1.into(),
-            ul_code_page_range2: os2_table.ul_code_page_range2.into(),
-            sx_height: os2_table.sx_height.into(),
-            s_cap_height: os2_table.s_cap_height.into(),
-            us_default_char: os2_table.us_default_char.into(),
-            us_break_char: os2_table.us_break_char.into(),
-            us_max_context: os2_table.us_max_context.into(),
-            us_lower_optical_point_size: os2_table.us_lower_optical_point_size.into(),
-            us_upper_optical_point_size: os2_table.us_upper_optical_point_size.into(),
+            s_typo_ascender: os2_table.s_typo_ascender,
+            s_typo_descender: os2_table.s_typo_descender,
+            s_typo_line_gap: os2_table.s_typo_line_gap,
+            us_win_ascent: os2_table.us_win_ascent,
+            us_win_descent: os2_table.us_win_descent,
+            ul_code_page_range1: os2_table.ul_code_page_range1,
+            ul_code_page_range2: os2_table.ul_code_page_range2,
+            sx_height: os2_table.sx_height,
+            s_cap_height: os2_table.s_cap_height,
+            us_default_char: os2_table.us_default_char,
+            us_break_char: os2_table.us_break_char,
+            us_max_context: os2_table.us_max_context,
+            us_lower_optical_point_size: os2_table.us_lower_optical_point_size,
+            us_upper_optical_point_size: os2_table.us_upper_optical_point_size,
         }
     }
 
@@ -1124,7 +1116,7 @@ impl FontMetrics {
         let use_typo = if !self.use_typo_metrics() {
             None
         } else {
-            self.s_typo_ascender.into()
+            self.s_typo_ascender
         };
         match use_typo {
             Some(s) => s,
@@ -1137,7 +1129,7 @@ impl FontMetrics {
         let use_typo = if !self.use_typo_metrics() {
             None
         } else {
-            self.s_typo_descender.into()
+            self.s_typo_descender
         };
         match use_typo {
             Some(s) => s,
@@ -1149,7 +1141,7 @@ impl FontMetrics {
         let use_typo = if !self.use_typo_metrics() {
             None
         } else {
-            self.s_typo_line_gap.into()
+            self.s_typo_line_gap
         };
         match use_typo {
             Some(s) => s,

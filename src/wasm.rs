@@ -56,7 +56,7 @@ pub fn PrintPdfFromXml(input: String) -> String {
         Err(e) => PrintPdfApiReturn {
             pdf: String::new(),
             status: 1,
-            error: format!("failed to parse input parameters: {}", e.to_string()),
+            error: format!("failed to parse input parameters: {e}"),
         },
     };
     serde_json::to_string(&init).unwrap_or_default()

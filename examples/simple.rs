@@ -143,8 +143,8 @@ fn main() {
         let transform = XObjectTransform {
             rotate: Some(XObjectRotation {
                 angle_ccw_degrees: i as f32 * 36.0,
-                rotation_center_x: rotation_center_x,
-                rotation_center_y: rotation_center_y,
+                rotation_center_x,
+                rotation_center_y,
             }),
             translate_x: Some(Mm(i as f32 * 20.0 % 50.0).into()),
             translate_y: Some(Mm(i as f32 * 30.0).into()),
@@ -155,7 +155,7 @@ fn main() {
 
         ops.extend_from_slice(&[Op::UseXObject {
             id: xobject_id.clone(),
-            transform: transform,
+            transform,
         }]);
     }
 
