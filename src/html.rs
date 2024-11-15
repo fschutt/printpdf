@@ -1,7 +1,8 @@
-use crate::{translate_to_internal_rawimage, BuiltinFont, Mm, Op, PdfDocument, PdfPage, PdfResources, Pt};
+use crate::{BuiltinFont, Mm, Op, PdfDocument, PdfPage, PdfResources, Pt};
 use azul_core::{
     app_resources::{
-        self, AddFontMsg, DpiScaleFactor, Epoch, IdNamespace, ImageCache, ImageDescriptor, ImageRef, ImageRefHash, RawImageData, RendererResources, ResolvedImage
+        DpiScaleFactor, Epoch, IdNamespace, ImageCache, ImageDescriptor, ImageRef, ImageRefHash,
+        RendererResources,
     },
     callbacks::DocumentId,
     display_list::{
@@ -9,13 +10,12 @@ use azul_core::{
         StyleBorderStyles, StyleBorderWidths,
     },
     dom::{NodeData, NodeId},
-    styled_dom::{ContentGroup, DomId, StyleFontFamiliesHash, StyleFontFamilyHash, StyledDom, StyledNode},
+    styled_dom::{ContentGroup, DomId, StyledDom, StyledNode},
     ui_solver::LayoutResult,
     window::{FullWindowState, LogicalSize},
     xml::{XmlComponentMap, XmlNode},
 };
 use azul_css::{CssPropertyValue, FloatValue, LayoutDisplay, StyleTextColor, U8Vec};
-use azul_text_layout::text_layout::ParsedFont;
 use base64::Engine;
 use rust_fontconfig::{FcFont, FcFontCache, FcPattern};
 use std::collections::BTreeMap;
@@ -62,12 +62,12 @@ pub(crate) fn xml_to_pages(
     };
 
     let root_nodes = azulc_lib::xml::parse_xml_string(&fixup_xml(file_contents))
-        .map_err(|e| format!("Error parsing XML: {}", e.to_string()))?;
+        .map_err(|e| format!("Error parsing XML: {}", e))?;
 
     let fixup = fixup_xml_nodes(&root_nodes);
 
-    let styled_dom = azul_core::xml::str_to_dom(fixup.as_ref(), &mut XmlComponentMap::default())
-        .map_err(|e| format!("Error constructing DOM: {}", e.to_string()))?;
+    let styled_dom = azul_core::xml::str_to_dom(&fixup, &mut XmlComponentMap::default())
+        .map_err(|e| format!("Error constructing DOM: {e}"))?;
 
     let dom_id = DomId { inner: 0 };
     let mut fake_window_state = FullWindowState::default();
@@ -120,7 +120,7 @@ pub(crate) fn xml_to_pages(
                         ..Default::default()
                     };
                     let font = FcFont {
-                        bytes: bytes,
+                        bytes,
                         font_index: 0,
                     };
                     Some((pat, font))
@@ -171,6 +171,8 @@ pub(crate) fn xml_to_pages(
         &mut ops,
         config.page_height.into_pt(),
     );
+
+    dbg!(&ops);
     Ok(vec![PdfPage::new(
         config.page_width,
         config.page_height,
@@ -179,7 +181,7 @@ pub(crate) fn xml_to_pages(
 }
 
 fn get_system_fonts() -> Vec<(FcPattern, FcFont)> {
-    let f = vec![
+    let f = [
         ("serif", BuiltinFont::TimesRoman),
         ("sans-serif", BuiltinFont::Helvetica),
         ("cursive", BuiltinFont::TimesItalic),
@@ -245,7 +247,7 @@ fn layout_result_to_ops(
 ) {
     let rects_in_rendering_order = layout_result.styled_dom.get_rects_in_rendering_order();
 
-    // TODO: break layoutresult into pages
+    // TODO: break layout result into pages
     // let root_width = layout_result.width_calculated_rects.as_ref()[NodeId::ZERO].overflow_width();
     // let root_height = layout_result.height_calculated_rects.as_ref()[NodeId::ZERO].overflow_height();
     // let root_size = LogicalSize::new(root_width, root_height);
@@ -271,11 +273,11 @@ fn layout_result_to_ops(
     }
 }
 
-fn push_rectangles_into_displaylist<'a>(
+fn push_rectangles_into_displaylist(
     doc: &mut PdfDocument,
     ops: &mut Vec<Op>,
     layout_result: &LayoutResult,
-    renderer_resources: &'a RendererResources,
+    renderer_resources: &RendererResources,
     root_content_group: &ContentGroup,
     page_height: Pt,
 ) -> Option<()> {
@@ -310,7 +312,7 @@ fn displaylist_handle_rect(
     rect_idx: NodeId,
     page_height: Pt,
 ) -> Option<()> {
-    use crate::units::{Px, Pt};
+    use crate::units::Pt;
 
     let mut newops = Vec::new();
 
@@ -328,33 +330,34 @@ fn displaylist_handle_rect(
     let opt_border = get_opt_border(layout_result, html_node, rect_idx, styled_node);
     let opt_image = get_image_node(html_node);
     let opt_text = get_text_node(
-        layout_result, rect_idx, html_node, 
-        styled_node, &renderer_resources, &mut doc.resources
+        layout_result,
+        rect_idx,
+        html_node,
+        styled_node,
+        renderer_resources,
+        &mut doc.resources,
     );
 
     for b in background_content.iter() {
-        match &b.content {
-            RectBackground::Color(c) => {
-                let staticoffset = positioned_rect.position.get_static_offset();
-                let rect = crate::graphics::Rect {
-                    x: Pt(staticoffset.x),
-                    y: Pt(page_height.0 - staticoffset.y),
-                    width: Pt(positioned_rect.size.width),
-                    height: Pt(positioned_rect.size.height),
-                };
-                newops.push(Op::SetFillColor {
-                    col: crate::Color::Rgb(crate::Rgb {
-                        r: c.r as f32 / 255.0,
-                        g: c.g as f32 / 255.0,
-                        b: c.b as f32 / 255.0,
-                        icc_profile: None,
-                    }),
-                });
-                newops.push(Op::DrawPolygon {
-                    polygon: rect.to_polygon(),
-                });
-            }
-            _ => {}
+        if let RectBackground::Color(c) = &b.content {
+            let staticoffset = positioned_rect.position.get_static_offset();
+            let rect = crate::graphics::Rect {
+                x: Pt(staticoffset.x),
+                y: Pt(page_height.0 - staticoffset.y),
+                width: Pt(positioned_rect.size.width),
+                height: Pt(positioned_rect.size.height),
+            };
+            newops.push(Op::SetFillColor {
+                col: crate::Color::Rgb(crate::Rgb {
+                    r: c.r as f32 / 255.0,
+                    g: c.g as f32 / 255.0,
+                    b: c.b as f32 / 255.0,
+                    icc_profile: None,
+                }),
+            });
+            newops.push(Op::DrawPolygon {
+                polygon: rect.to_polygon(),
+            });
         }
     }
 
@@ -436,62 +439,68 @@ fn displaylist_handle_rect(
     if let Some((desc, data, hash, size)) = opt_image {
         let image_id = format!("im_azul_layout_{h:032}", h = hash.0);
         let xobject_id = crate::XObjectId(image_id.clone());
-        let image = crate::XObject::Image(crate::image::translate_from_internal_rawimage(desc, data.as_slice()));
+        let image = crate::XObject::Image(crate::image::translate_from_internal_rawimage(
+            desc,
+            data.as_slice(),
+        ));
         doc.resources.xobjects.map.insert(xobject_id, image);
     }
 
     if let Some((text, id, color)) = opt_text {
-        
         println!("writing text {text:#?} {id:?}");
         ops.push(Op::StartTextSection);
-        ops.push(Op::SetFillColor { 
-            col: crate::Color::Rgb(crate::Rgb { 
-                r: color.inner.r as f32 / 255.0, 
-                g: color.inner.g as f32 / 255.0, 
-                b: color.inner.b as f32 / 255.0, 
+        ops.push(Op::SetFillColor {
+            col: crate::Color::Rgb(crate::Rgb {
+                r: color.inner.r as f32 / 255.0,
+                g: color.inner.g as f32 / 255.0,
+                b: color.inner.b as f32 / 255.0,
                 icc_profile: None,
-            }) 
+            }),
         });
-        ops.push(Op::SetTextRenderingMode { mode: crate::TextRenderingMode::Fill });
+        ops.push(Op::SetTextRenderingMode {
+            mode: crate::TextRenderingMode::Fill,
+        });
         for line in text.lines.as_slice() {
-            ops.push(Op::SetTextCursor { 
-                pos: crate::Point { 
-                    x: Pt(line.bounds.origin.x),  // TODO: px / pt !
-                    y: Pt(line.bounds.origin.y),  // TODO: px / pt !
-                }
+            ops.push(Op::SetTextCursor {
+                pos: crate::Point {
+                    x: Pt(line.bounds.origin.x), // TODO: px / pt !
+                    y: Pt(line.bounds.origin.y), // TODO: px / pt !
+                },
             });
-            
+
             for word in line.words.as_slice().iter() {
                 use azul_core::callbacks::InlineWord::*;
                 match word {
                     Tab => {
-                        ops.push(Op::WriteText { 
-                            text: "    ".to_string(), 
-                            size: Pt(text.font_size_px),  // TODO: px / pt !
+                        ops.push(Op::WriteText {
+                            text: "    ".to_string(),
+                            size: Pt(text.font_size_px), // TODO: px / pt !
                             font: id.clone(),
                         });
-                    },
+                    }
                     Return => {
                         // TODO?
-                    },
+                    }
                     Space => {
-                        ops.push(Op::WriteText { 
-                            text: " ".to_string(), 
-                            size: Pt(text.font_size_px),  // TODO: px / pt !
+                        ops.push(Op::WriteText {
+                            text: " ".to_string(),
+                            size: Pt(text.font_size_px), // TODO: px / pt !
                             font: id.clone(),
                         });
-                    },
+                    }
                     Word(itc) => {
-                        let chars = itc.glyphs.iter().filter_map(|s| {
-                            char::from_u32(*s.unicode_codepoint.as_option()?)
-                        }).collect::<String>();
+                        let chars = itc
+                            .glyphs
+                            .iter()
+                            .filter_map(|s| char::from_u32(*s.unicode_codepoint.as_option()?))
+                            .collect::<String>();
 
-                        ops.push(Op::WriteText { 
-                            text: chars, 
-                            size: Pt(text.font_size_px),  // TODO: px / pt !
+                        ops.push(Op::WriteText {
+                            text: chars,
+                            size: Pt(text.font_size_px), // TODO: px / pt !
                             font: id.clone(),
                         });
-                    },
+                    }
                 }
             }
         }
@@ -530,7 +539,7 @@ fn solve_layout(
         styled_dom,
         epoch,
         &document_id,
-        &fake_window_state,
+        fake_window_state,
         &mut resource_updates,
         ID_NAMESPACE,
         &image_cache,
@@ -553,7 +562,7 @@ fn is_display_none(
     let display = layout_result
         .styled_dom
         .get_css_property_cache()
-        .get_display(&html_node, &rect_idx, &styled_node.state)
+        .get_display(html_node, &rect_idx, &styled_node.state)
         .cloned()
         .unwrap_or_default();
 
@@ -570,22 +579,22 @@ fn get_border_radius(
         top_left: layout_result
             .styled_dom
             .get_css_property_cache()
-            .get_border_top_left_radius(&html_node, &rect_idx, &styled_node.state)
+            .get_border_top_left_radius(html_node, &rect_idx, &styled_node.state)
             .cloned(),
         top_right: layout_result
             .styled_dom
             .get_css_property_cache()
-            .get_border_top_right_radius(&html_node, &rect_idx, &styled_node.state)
+            .get_border_top_right_radius(html_node, &rect_idx, &styled_node.state)
             .cloned(),
         bottom_left: layout_result
             .styled_dom
             .get_css_property_cache()
-            .get_border_bottom_left_radius(&html_node, &rect_idx, &styled_node.state)
+            .get_border_bottom_left_radius(html_node, &rect_idx, &styled_node.state)
             .cloned(),
         bottom_right: layout_result
             .styled_dom
             .get_css_property_cache()
-            .get_border_bottom_right_radius(&html_node, &rect_idx, &styled_node.state)
+            .get_border_bottom_right_radius(html_node, &rect_idx, &styled_node.state)
             .cloned(),
     }
 }
@@ -609,7 +618,7 @@ fn get_background_content(
     let bg_opt = layout_result
         .styled_dom
         .get_css_property_cache()
-        .get_background_content(&html_node, &rect_idx, &styled_node.state);
+        .get_background_content(html_node, &rect_idx, &styled_node.state);
 
     let mut v = Vec::new();
 
@@ -621,15 +630,15 @@ fn get_background_content(
         let bg_sizes_opt = layout_result
             .styled_dom
             .get_css_property_cache()
-            .get_background_size(&html_node, &rect_idx, &styled_node.state);
+            .get_background_size(html_node, &rect_idx, &styled_node.state);
         let bg_positions_opt = layout_result
             .styled_dom
             .get_css_property_cache()
-            .get_background_position(&html_node, &rect_idx, &styled_node.state);
+            .get_background_position(html_node, &rect_idx, &styled_node.state);
         let bg_repeats_opt = layout_result
             .styled_dom
             .get_css_property_cache()
-            .get_background_repeat(&html_node, &rect_idx, &styled_node.state);
+            .get_background_repeat(html_node, &rect_idx, &styled_node.state);
 
         let bg_sizes = bg_sizes_opt
             .as_ref()
@@ -662,9 +671,9 @@ fn get_background_content(
             if let Some(background_content) = background_content {
                 v.push(LayoutRectContentBackground {
                     content: background_content,
-                    size: bg_size.clone(),
-                    offset: bg_position.clone(),
-                    repeat: bg_repeat.clone(),
+                    size: bg_size,
+                    offset: bg_position,
+                    repeat: bg_repeat,
                 });
             }
         }
@@ -673,9 +682,9 @@ fn get_background_content(
     v
 }
 
-fn get_image_node<'a>(html_node: &'a NodeData) 
--> Option<(&'a ImageDescriptor, &'a U8Vec, ImageRefHash, LogicalSize)> {
-    
+fn get_image_node(
+    html_node: &NodeData,
+) -> Option<(&ImageDescriptor, &U8Vec, ImageRefHash, LogicalSize)> {
     use azul_core::app_resources::DecodedImage;
     use azul_core::app_resources::ImageData;
     use azul_core::dom::NodeType;
@@ -689,14 +698,9 @@ fn get_image_node<'a>(html_node: &'a NodeData)
     let image_size = image_ref.get_size();
 
     let (descriptor, data) = match image_ref.get_data() {
-        DecodedImage::Raw((descriptor, data)) => {
-            match data {
-                ImageData::Raw(vec) => Some((descriptor, vec)),
-                _ => None,
-            }
-        },
-        _ => None,
-    }?;
+        DecodedImage::Raw((descriptor, ImageData::Raw(vec))) => (descriptor, vec),
+        _ => return None,
+    };
 
     Some((descriptor, data, image_hash, image_size))
 }
@@ -708,28 +712,30 @@ fn get_text_node(
     styled_node: &StyledNode,
     app_resources: &azul_core::app_resources::RendererResources,
     res: &mut PdfResources,
-) -> Option<(azul_core::callbacks::InlineText, crate::FontId, StyleTextColor)> {
-
+) -> Option<(
+    azul_core::callbacks::InlineText,
+    crate::FontId,
+    StyleTextColor,
+)> {
     use azul_core::styled_dom::StyleFontFamiliesHash;
-    
+
     if !html_node.is_text_node() {
         return None;
     }
 
     let font_families = layout_result
-    .styled_dom
-    .get_css_property_cache()
-    .get_font_id_or_default(&html_node, &rect_idx, &styled_node.state);
+        .styled_dom
+        .get_css_property_cache()
+        .get_font_id_or_default(html_node, &rect_idx, &styled_node.state);
 
-    let sffh = app_resources
-    .get_font_family(&StyleFontFamiliesHash::new(&font_families.as_slice()))?;
+    let sffh =
+        app_resources.get_font_family(&StyleFontFamiliesHash::new(font_families.as_slice()))?;
 
-    let font_key = app_resources
-    .get_font_key(&sffh)?;
+    let font_key = app_resources.get_font_key(sffh)?;
 
-    let fd = app_resources.get_registered_font(&font_key)?;
+    let fd = app_resources.get_registered_font(font_key)?;
     let font_ref = &fd.0;
-    
+
     let rects = layout_result.rects.as_ref();
     let words = layout_result.words_cache.get(&rect_idx)?;
     let shaped_words = layout_result.shaped_words_cache.get(&rect_idx)?;
@@ -737,15 +743,15 @@ fn get_text_node(
     let positioned_rect = rects.get(rect_idx)?;
     let (_, inline_text_layout) = positioned_rect.resolved_text_layout_options.as_ref()?;
     let inline_text = azul_core::app_resources::get_inline_text(
-        &words,
-        &shaped_words,
+        words,
+        shaped_words,
         &word_positions.0,
-        &inline_text_layout,
+        inline_text_layout,
     );
     let text_color = layout_result
         .styled_dom
         .get_css_property_cache()
-        .get_text_color_or_default(&html_node, &rect_idx, &styled_node.state);
+        .get_text_color_or_default(html_node, &rect_idx, &styled_node.state);
 
     // add font to resources if not existent
     let id = crate::FontId(format!("azul_font_family_{:032}", sffh.0));
@@ -775,7 +781,7 @@ fn get_opt_border(
     if !layout_result
         .styled_dom
         .get_css_property_cache()
-        .has_border(&html_node, &rect_idx, &styled_node.state)
+        .has_border(html_node, &rect_idx, &styled_node.state)
     {
         return None;
     }
@@ -785,66 +791,66 @@ fn get_opt_border(
             top: layout_result
                 .styled_dom
                 .get_css_property_cache()
-                .get_border_top_width(&html_node, &rect_idx, &styled_node.state)
+                .get_border_top_width(html_node, &rect_idx, &styled_node.state)
                 .cloned(),
             left: layout_result
                 .styled_dom
                 .get_css_property_cache()
-                .get_border_left_width(&html_node, &rect_idx, &styled_node.state)
+                .get_border_left_width(html_node, &rect_idx, &styled_node.state)
                 .cloned(),
             bottom: layout_result
                 .styled_dom
                 .get_css_property_cache()
-                .get_border_bottom_width(&html_node, &rect_idx, &styled_node.state)
+                .get_border_bottom_width(html_node, &rect_idx, &styled_node.state)
                 .cloned(),
             right: layout_result
                 .styled_dom
                 .get_css_property_cache()
-                .get_border_right_width(&html_node, &rect_idx, &styled_node.state)
+                .get_border_right_width(html_node, &rect_idx, &styled_node.state)
                 .cloned(),
         },
         colors: StyleBorderColors {
             top: layout_result
                 .styled_dom
                 .get_css_property_cache()
-                .get_border_top_color(&html_node, &rect_idx, &styled_node.state)
+                .get_border_top_color(html_node, &rect_idx, &styled_node.state)
                 .cloned(),
             left: layout_result
                 .styled_dom
                 .get_css_property_cache()
-                .get_border_left_color(&html_node, &rect_idx, &styled_node.state)
+                .get_border_left_color(html_node, &rect_idx, &styled_node.state)
                 .cloned(),
             bottom: layout_result
                 .styled_dom
                 .get_css_property_cache()
-                .get_border_bottom_color(&html_node, &rect_idx, &styled_node.state)
+                .get_border_bottom_color(html_node, &rect_idx, &styled_node.state)
                 .cloned(),
             right: layout_result
                 .styled_dom
                 .get_css_property_cache()
-                .get_border_right_color(&html_node, &rect_idx, &styled_node.state)
+                .get_border_right_color(html_node, &rect_idx, &styled_node.state)
                 .cloned(),
         },
         styles: StyleBorderStyles {
             top: layout_result
                 .styled_dom
                 .get_css_property_cache()
-                .get_border_top_style(&html_node, &rect_idx, &styled_node.state)
+                .get_border_top_style(html_node, &rect_idx, &styled_node.state)
                 .cloned(),
             left: layout_result
                 .styled_dom
                 .get_css_property_cache()
-                .get_border_left_style(&html_node, &rect_idx, &styled_node.state)
+                .get_border_left_style(html_node, &rect_idx, &styled_node.state)
                 .cloned(),
             bottom: layout_result
                 .styled_dom
                 .get_css_property_cache()
-                .get_border_bottom_style(&html_node, &rect_idx, &styled_node.state)
+                .get_border_bottom_style(html_node, &rect_idx, &styled_node.state)
                 .cloned(),
             right: layout_result
                 .styled_dom
                 .get_css_property_cache()
-                .get_border_right_style(&html_node, &rect_idx, &styled_node.state)
+                .get_border_right_style(html_node, &rect_idx, &styled_node.state)
                 .cloned(),
         },
     })

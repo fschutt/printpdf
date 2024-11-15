@@ -158,18 +158,13 @@ impl Actions {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, Default)]
 pub enum HighlightingMode {
     None,
+    #[default]
     Invert,
     Outline,
     Push,
-}
-
-impl Default for HighlightingMode {
-    fn default() -> Self {
-        HighlightingMode::Invert
-    }
 }
 
 impl HighlightingMode {

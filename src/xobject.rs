@@ -16,7 +16,7 @@ pub enum XObject {
     Image(RawImage),
     /// Form XObject, NOT A PDF FORM, this just allows repeatable content
     /// on a page
-    Form(FormXObject),
+    Form(Box<FormXObject>),
     /// XObject embedded from an external stream
     ///
     /// This is mainly used to add XObjects to the resources that the library
@@ -33,11 +33,10 @@ impl XObject {
     pub fn get_width_height(&self) -> Option<(Px, Px)> {
         match self {
             XObject::Image(raw_image) => Some((Px(raw_image.width), Px(raw_image.height))),
-            XObject::Form(form_xobject) => form_xobject.size.clone(),
-            XObject::External(external_xobject) => Some((
-                external_xobject.width.clone()?,
-                external_xobject.height.clone()?,
-            )),
+            XObject::Form(form_xobject) => form_xobject.size,
+            XObject::External(external_xobject) => {
+                Some((external_xobject.width?, external_xobject.height?))
+            }
         }
     }
 }

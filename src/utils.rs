@@ -104,7 +104,7 @@ pub fn compress(bytes: &[u8]) -> Vec<u8> {
 
 pub fn uncompress(bytes: &[u8]) -> Vec<u8> {
     use flate2::read::GzDecoder;
-    let mut gz = GzDecoder::new(&bytes[..]);
+    let mut gz = GzDecoder::new(bytes);
     let mut s = Vec::<u8>::new();
     let _ = gz.read_to_end(&mut s);
     s

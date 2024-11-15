@@ -17,8 +17,8 @@ autoexamples = false
 edition = "2021"
 
 [dependencies]
-lopdf = { version = "0.34.0", default-features = false, features = [
-    "pom_parser",
+lopdf = { git = "https://github.com/J-F-Liu/lopdf", rev = "ea838e2252201bf0efe648b8954100b13835dae0", default-features = false, features = [
+    "nom_parser",
 ] }
 time = { version = "0.3.25", default-features = false, features = ["std"] }
 allsorts = { version = "0.15", default-features = false, features = [
@@ -28,17 +28,17 @@ pdf-writer = { version = "0.12.0" }
 image = { version = "0.25", default-features = false }
 svg2pdf = { version = "0.12.0" }
 # dependencies for wasm demo
-azul-css = { git = "https://github.com/fschutt/azul", rev = "646b5e3030041aaebe06d2344a36bbed000c8674", default-features = false }
-azul-css-parser = { git = "https://github.com/fschutt/azul", rev = "646b5e3030041aaebe06d2344a36bbed000c8674", default-features = false }
-azul-core = { git = "https://github.com/fschutt/azul", rev = "646b5e3030041aaebe06d2344a36bbed000c8674", default-features = false, features = [
+azul-css = { git = "https://github.com/fschutt/azul", rev = "6a69b69994d1b4cda89b61922233de88498878ef", default-features = false }
+azul-css-parser = { git = "https://github.com/fschutt/azul", rev = "6a69b69994d1b4cda89b61922233de88498878ef", default-features = false }
+azul-core = { git = "https://github.com/fschutt/azul", rev = "6a69b69994d1b4cda89b61922233de88498878ef", default-features = false, features = [
     "std",
 ] }
-azul-layout = { git = "https://github.com/fschutt/azul", rev = "646b5e3030041aaebe06d2344a36bbed000c8674", default-features = false, features = [
+azul-layout = { git = "https://github.com/fschutt/azul", rev = "6a69b69994d1b4cda89b61922233de88498878ef", default-features = false, features = [
     "std",
     "text_layout",
 ] }
-azul-text-layout = { git = "https://github.com/fschutt/azul", rev = "646b5e3030041aaebe06d2344a36bbed000c8674", default-features = false }
-azulc = { git = "https://github.com/fschutt/azul", rev = "646b5e3030041aaebe06d2344a36bbed000c8674", default-features = false, features = [
+azul-text-layout = { git = "https://github.com/fschutt/azul", rev = "6a69b69994d1b4cda89b61922233de88498878ef", default-features = false }
+azulc = { git = "https://github.com/fschutt/azul", rev = "6a69b69994d1b4cda89b61922233de88498878ef", default-features = false, features = [
     "std",
     "xml",
     "text_layout",
