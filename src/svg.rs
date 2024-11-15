@@ -1,7 +1,8 @@
+use std::collections::HashMap;
+
 use crate::units::Px;
 use crate::xobject::ExternalXObject;
-use svg2pdf::usvg;
-use svg2pdf::usvg::TreeParsing;
+use svg2pdf::{usvg, ConversionOptions};
 
 /// SVG - wrapper around an `XObject` to allow for more
 /// control within the library.
@@ -25,11 +26,11 @@ impl Svg {
         // I wish there was a more direct way, but handling SVG is very tricky.
 
         // Allocate the indirect reference IDs and names.
-        let catalog_id = Ref::new(1);
-        let page_tree_id = Ref::new(2);
-        let page_id = Ref::new(3);
-        let content_id = Ref::new(4);
-        let svg_id = Ref::new(5);
+        let mut alloc = Ref::new(1);
+        let catalog_id = alloc.bump();
+        let page_tree_id = alloc.bump();
+        let page_id = alloc.bump();
+        let content_id = alloc.bump();
         let svg_name = Name(b"S1");
 
         // Start writing a PDF.
@@ -43,6 +44,20 @@ impl Svg {
         page.parent(page_tree_id);
         page.contents(content_id);
 
+        // Let's first convert the SVG into an independent chunk.
+        let mut options = usvg::Options::default();
+        options.fontdb_mut().load_system_fonts();
+        let tree = usvg::Tree::from_str(&svg_string, &options)
+            .map_err(|err| format!("usvg parse: {err}"))?;
+        let (mut svg_chunk, svg_id) = svg2pdf::to_chunk(&tree, ConversionOptions::default())
+            .map_err(|err| format!("convert svg tree to chunk: {err}"))?;
+
+        // Renumber the chunk so that we can embed it into our existing workflow, and also make sure
+        // to update `svg_id`.
+        let mut map = HashMap::new();
+        svg_chunk = svg_chunk.renumber(|old| *map.entry(old).or_insert_with(|| alloc.bump()));
+        let svg_id = map.get(&svg_id).unwrap();
+
         // Add the font and, more importantly, the SVG to the resource dictionary
         // so that it can be referenced in the content stream.
         let mut resources = page.resources();
@@ -50,21 +65,11 @@ impl Svg {
         resources.finish();
         page.finish();
 
-        // Let's add an SVG graphic to this file.
-        // We need to load its source first and manually parse it into a usvg Tree.
-        let tree = usvg::Tree::from_str(svg_string, &usvg::Options::default())
-            .map_err(|err| format!("usvg parse: {err}"))?;
-
-        // Then, we will write it to the page as the 6th indirect object.
-        //
-        // This call allocates some indirect object reference IDs for itself. If we
-        // wanted to write some more indirect objects afterwards, we could use the
-        // return value as the next unused reference ID.
-        svg2pdf::convert_tree_into(&tree, svg2pdf::Options::default(), &mut writer, svg_id);
-
         // Write a content stream
         let content = Content::new();
         writer.stream(content_id, &content.finish());
+        // Write the SVG chunk into the PDF page.
+        writer.extend(&svg_chunk);
 
         let bytes = writer.finish();
         let document = lopdf::Document::load_mem(&bytes)
