@@ -160,7 +160,7 @@ dependencies = [
 [[package]]
 name = "azul-core"
 version = "0.0.2"
-source = "git+https://github.com/fschutt/azul?rev=6a69b69994d1b4cda89b61922233de88498878ef#6a69b69994d1b4cda89b61922233de88498878ef"
+source = "git+https://github.com/fschutt/azul?rev=32e272f4e8ec23dfebb2ec87b32c4d98e4090547#32e272f4e8ec23dfebb2ec87b32c4d98e4090547"
 dependencies = [
  "azul-css",
  "azul-css-parser",
@@ -174,7 +174,7 @@ dependencies = [
 [[package]]
 name = "azul-css"
 version = "0.0.1"
-source = "git+https://github.com/fschutt/azul?rev=6a69b69994d1b4cda89b61922233de88498878ef#6a69b69994d1b4cda89b61922233de88498878ef"
+source = "git+https://github.com/fschutt/azul?rev=32e272f4e8ec23dfebb2ec87b32c4d98e4090547#32e272f4e8ec23dfebb2ec87b32c4d98e4090547"
 dependencies = [
  "libm",
 ]
@@ -182,7 +182,7 @@ dependencies = [
 [[package]]
 name = "azul-css-parser"
 version = "0.0.1"
-source = "git+https://github.com/fschutt/azul?rev=6a69b69994d1b4cda89b61922233de88498878ef#6a69b69994d1b4cda89b61922233de88498878ef"
+source = "git+https://github.com/fschutt/azul?rev=32e272f4e8ec23dfebb2ec87b32c4d98e4090547#32e272f4e8ec23dfebb2ec87b32c4d98e4090547"
 dependencies = [
  "azul-css",
  "azul-simplecss",
@@ -191,7 +191,7 @@ dependencies = [
 [[package]]
 name = "azul-layout"
 version = "0.0.4"
-source = "git+https://github.com/fschutt/azul?rev=6a69b69994d1b4cda89b61922233de88498878ef#6a69b69994d1b4cda89b61922233de88498878ef"
+source = "git+https://github.com/fschutt/azul?rev=32e272f4e8ec23dfebb2ec87b32c4d98e4090547#32e272f4e8ec23dfebb2ec87b32c4d98e4090547"
 dependencies = [
  "azul-core",
  "azul-css",
@@ -209,7 +209,7 @@ checksum = "c303bfdf857413adbd19d9b15dddd9b4adb8e2be7e493c8a38d9fc6179a074ac"
 [[package]]
 name = "azul-text-layout"
 version = "0.0.5"
-source = "git+https://github.com/fschutt/azul?rev=6a69b69994d1b4cda89b61922233de88498878ef#6a69b69994d1b4cda89b61922233de88498878ef"
+source = "git+https://github.com/fschutt/azul?rev=32e272f4e8ec23dfebb2ec87b32c4d98e4090547#32e272f4e8ec23dfebb2ec87b32c4d98e4090547"
 dependencies = [
  "allsorts",
  "azul-core",
@@ -223,7 +223,7 @@ dependencies = [
 [[package]]
 name = "azulc"
 version = "0.0.3"
-source = "git+https://github.com/fschutt/azul?rev=6a69b69994d1b4cda89b61922233de88498878ef#6a69b69994d1b4cda89b61922233de88498878ef"
+source = "git+https://github.com/fschutt/azul?rev=32e272f4e8ec23dfebb2ec87b32c4d98e4090547#32e272f4e8ec23dfebb2ec87b32c4d98e4090547"
 dependencies = [
  "azul-core",
  "azul-css",

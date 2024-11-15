@@ -198,7 +198,7 @@ impl PdfDocument {
     pub fn with_html(
         &mut self,
         html: &str,
-        config: &XmlRenderOptions,
+        config: XmlRenderOptions,
     ) -> Result<&mut Self, String> {
         let mut pages = crate::html::xml_to_pages(html, config, self)?;
         self.pages.append(&mut pages);

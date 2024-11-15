@@ -1,8 +1,9 @@
 use crate::{BuiltinFont, Mm, Op, PdfDocument, PdfPage, PdfResources, Pt};
+use crate::{BuiltinFont, Mm, Op, PdfDocument, PdfPage, PdfResources, Pt};
 use azul_core::{
     app_resources::{
-        DpiScaleFactor, Epoch, IdNamespace, ImageCache, ImageDescriptor, ImageRef, ImageRefHash,
-        RendererResources,
+        DpiScaleFactor, Epoch, IdNamespace, ImageCache, 
+        ImageDescriptor, ImageRef, ImageRefHash, RendererResources
     },
     callbacks::DocumentId,
     display_list::{
@@ -10,15 +11,29 @@ use azul_core::{
         StyleBorderStyles, StyleBorderWidths,
     },
     dom::{NodeData, NodeId},
-    styled_dom::{ContentGroup, DomId, StyledDom, StyledNode},
+    styled_dom::{ContentGroup, DomId, StyledNode},
     ui_solver::LayoutResult,
-    window::{FullWindowState, LogicalSize},
-    xml::{XmlComponentMap, XmlNode},
+    window::{FullWindowState, LogicalSize}, xml::Xml,
 };
 use azul_css::{CssPropertyValue, FloatValue, LayoutDisplay, StyleTextColor, U8Vec};
 use base64::Engine;
 use rust_fontconfig::{FcFont, FcFontCache, FcPattern};
 use std::collections::BTreeMap;
+pub use azul_core::xml::{
+    XmlComponent, 
+    XmlComponentTrait, 
+    ComponentArguments, 
+    XmlComponentMap, 
+    FilteredComponentArguments, 
+    XmlTextContent, 
+    RenderDomError, 
+    CompileError, 
+    XmlNode
+};
+pub use azul_core::styled_dom::StyledDom;
+pub use azul_core::dom::Dom;
+pub use azul_core::app_resources::ImageRef as InternalImageRef;
+pub use azul_css_parser::CssApiWrapper;
 
 const DPI_SCALE: DpiScaleFactor = DpiScaleFactor {
     inner: FloatValue::const_new(1),
@@ -32,12 +47,13 @@ const DOCUMENT_ID: DocumentId = DocumentId {
 
 pub type Base64String = String;
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug)]
 pub struct XmlRenderOptions {
     pub images: BTreeMap<String, Base64String>,
     pub fonts: BTreeMap<String, Base64String>,
     pub page_width: Mm,
     pub page_height: Mm,
+    pub components: Vec<XmlComponent>,
 }
 
 impl Default for XmlRenderOptions {
@@ -47,15 +63,17 @@ impl Default for XmlRenderOptions {
             fonts: Default::default(),
             page_width: Mm(210.0),
             page_height: Mm(297.0),
+            components: Default::default(),
         }
     }
 }
 
 pub(crate) fn xml_to_pages(
     file_contents: &str,
-    config: &XmlRenderOptions,
+    config: XmlRenderOptions,
     document: &mut PdfDocument,
 ) -> Result<Vec<PdfPage>, String> {
+
     let size = LogicalSize {
         width: config.page_width.into_pt().0,
         height: config.page_height.into_pt().0,
@@ -66,8 +84,13 @@ pub(crate) fn xml_to_pages(
 
     let fixup = fixup_xml_nodes(&root_nodes);
 
-    let styled_dom = azul_core::xml::str_to_dom(&fixup, &mut XmlComponentMap::default())
-        .map_err(|e| format!("Error constructing DOM: {e}"))?;
+    let mut components = XmlComponentMap::default();
+    for c in config.components {
+        components.register_component(c);
+    }
+
+    let styled_dom = azul_core::xml::str_to_dom(fixup.as_ref(), &mut components)
+        .map_err(|e| format!("Error constructing DOM: {}", e.to_string()))?;
 
     let dom_id = DomId { inner: 0 };
     let mut fake_window_state = FullWindowState::default();
@@ -447,7 +470,6 @@ fn displaylist_handle_rect(
     }
 
     if let Some((text, id, color)) = opt_text {
-        println!("writing text {text:#?} {id:?}");
         ops.push(Op::StartTextSection);
         ops.push(Op::SetFillColor {
             col: crate::Color::Rgb(crate::Rgb {

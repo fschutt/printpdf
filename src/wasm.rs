@@ -74,10 +74,11 @@ fn printpdf_from_xml_internal(
         page_height: Mm(input.options.page_height_mm.unwrap_or(297.0)),
         images: BTreeMap::new(),
         fonts: BTreeMap::new(),
+        components: Vec::new(),
     };
 
     let pdf = crate::PdfDocument::new("HTML rendering demo")
-        .with_html(&input.html, &opts)
+        .with_html(&input.html, opts)
         .map_err(|e| PrintPdfApiReturn {
             pdf: String::new(),
             status: 2,
