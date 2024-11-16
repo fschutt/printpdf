@@ -26,12 +26,12 @@ pdf-writer = { version = "0.12.0" }
 image = { version = "0.25", default-features = false }
 svg2pdf = { version = "0.12.0" }
 # dependencies for wasm demo
-azul-css = { git = "https://github.com/fschutt/azul", rev = "32e272f4e8ec23dfebb2ec87b32c4d98e4090547", default-features = false }
-azul-css-parser = {  git = "https://github.com/fschutt/azul", rev = "32e272f4e8ec23dfebb2ec87b32c4d98e4090547", default-features = false }
-azul-core = {  git = "https://github.com/fschutt/azul", rev = "32e272f4e8ec23dfebb2ec87b32c4d98e4090547", default-features = false, features = ["std"] }
-azul-layout = {  git = "https://github.com/fschutt/azul", rev = "32e272f4e8ec23dfebb2ec87b32c4d98e4090547", default-features = false, features = ["std", "text_layout"] }
-azul-text-layout = {  git = "https://github.com/fschutt/azul", rev = "32e272f4e8ec23dfebb2ec87b32c4d98e4090547", default-features = false }
-azulc = {  git = "https://github.com/fschutt/azul", rev = "32e272f4e8ec23dfebb2ec87b32c4d98e4090547", default-features = false, features = ["std", "xml", "text_layout", "font_loading"] }
+azul-css = { git = "https://github.com/fschutt/azul", rev = "8b71bef5439b8f8d4542a2849e66499173562235", default-features = false }
+azul-css-parser = {  git = "https://github.com/fschutt/azul", rev = "8b71bef5439b8f8d4542a2849e66499173562235", default-features = false }
+azul-core = {  git = "https://github.com/fschutt/azul", rev = "8b71bef5439b8f8d4542a2849e66499173562235", default-features = false, features = ["std"] }
+azul-layout = {  git = "https://github.com/fschutt/azul", rev = "8b71bef5439b8f8d4542a2849e66499173562235", default-features = false, features = ["std", "text_layout"] }
+azul-text-layout = {  git = "https://github.com/fschutt/azul", rev = "8b71bef5439b8f8d4542a2849e66499173562235", default-features = false }
+azulc = {  git = "https://github.com/fschutt/azul", rev = "8b71bef5439b8f8d4542a2849e66499173562235", default-features = false, features = ["std", "xml", "text_layout", "font_loading"] }
 rust-fontconfig = { version = "0.1.13", default-features = false }
 xmlparser = { version = "0.13.6", default-features = false }
 serde = { version = "1" }
@@ -40,6 +40,11 @@ serde_json = { version = "1" }
 wasm-bindgen = { version = "0.2" }
 base64 = "0.22.1"
 flate2 = "1.0.35"
+
+[profile.release]
+lto = true
+opt-level = 's'
+debug = true
 
 [features]
 default = ["js-sys"]

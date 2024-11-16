@@ -41,11 +41,131 @@
 
     window.PrintPdfFromXml = PrintPdfFromXml;
 
-    function reinitialize_pdf() {
-      var opts = JSON.stringify({
-        html: document.getElementById('input').value
-      });
+    window.images = {};
+    window.fonts = {};
+    window.text = [
+      "<html>",
+      "  <body>",
+      "     <div style='padding:10px;background:lightblue;'>",
+      "       <p id='simpletext'>Very long text that breaks into multiple lines. asdfasd asdfasdf adsfasdf ladsjfplasdjf asdlfkjasdfl lasdkjfasdölkjf</p>",
+      "     </div>",
+      "  </body>",
+      "  <head>",
+      "    <style>",
+      "     #simpletext {",
+      "       font-size:12px;",
+      "       border:1px solid black;",
+      "       font-family:Times-Bold;",
+      "     }",
+      "    </style>",
+      "  </head>",
+      "</html>",
+    ];
 
+    window.examples = {};
+    window.examples["helloworld"] = "$$HELLOWORLD_XML$$";
+    window.examples["churchbooklet"] = "$$CHURCHBOOKLET_XML$$";
+    window.examples["recipejapanese"] = "$$RECIPE_XML$$";
+    window.examples["empty"] = "";
+
+    function saveConfigToUrl() {
+      var encoded = saveConfigToB64();
+      if (encoded.length > 1900) {
+        return;
+      }
+      var url = new URL(window.location.href);
+      var target = url.protocol + url.pathname + "?q=" + encoded;
+      let id = new Date().getMilliseconds();
+      history.pushState({info: "printpdf PDF @ " + id }, "printpdf", target);
+      // 
+      // window.location.search = urlParams;
+    }
+    window.saveConfigToUrl = saveConfigToUrl;
+
+    function loadConfigFromUrl() {
+      var urlParams = new URLSearchParams(window.location.search);
+      var q = urlParams.get('q');
+      if (!q) {
+        return;
+      }
+      loadConfigFromB64(q);
+    }
+    window.loadConfigFromUrl = loadConfigFromUrl;
+
+    function loadExample(name) {
+      var ex_b64 = window.examples[name];
+      if (ex_b64 == undefined) {
+        return;
+      }
+      loadConfigFromB64(ex_b64);
+      saveConfigToUrl();
+    }
+    window.loadExample = loadExample;
+
+    function loadExampleSelect(event) {
+      var id = event.target[event.target.selectedIndex].value;
+      loadExample(id);
+    }
+    window.loadExampleSelect = loadExampleSelect;
+
+    function saveConfigToB64() {
+      var jsonObj = {
+        t: window.text.join("\n")
+      };
+      if (window.images.length > 0) {
+        jsonObj.i = window.images;
+      }
+      if (window.fonts.length > 0) {
+        jsonObj.f = window.fonts;
+      }
+      var encoded = encodeURIComponent(JSON.stringify(jsonObj));
+      return encoded;
+    }
+    window.saveConfigToB64 = saveConfigToB64;
+
+    function loadConfigFromB64(q) {
+      if (q.length < 1) {
+        window.text = [];
+        window.images = {};
+        window.fonts = {};
+      } else {
+        var decoded = JSON.parse(decodeURIComponent(q));
+        if (decoded.t) {
+          window.text = decoded.t.split("\n");
+        }
+        if (decoded.i) {
+          window.images = decoded.i.split("\n");
+        }
+        if (decoded.f) {
+          window.fonts = decoded.f.split("\n");
+        }
+      }
+      reinitTextarea();
+      reinitFontsImages();
+    }
+    window.loadConfigFromB64 = loadConfigFromB64;
+
+    function reinitTextarea() {
+      document.getElementById("input").value = window.text.join("\r\n");
+    }
+    window.reinitTextarea = reinitTextarea;
+
+    function updateWindowText(e) {
+      var value = e.target.value;
+      window.text = value.split("\n");
+    }
+    window.updateWindowText = updateWindowText;
+
+    function reinitialize_pdf() {
+      console.log(window.text);
+      var opts = JSON.stringify({
+        html: window.text.join("\r\n"),
+      });
+      try {
+        saveConfigToUrl();
+      } catch (error) {
+        console.warn(error);
+      }
       var start = Date.now();
       var result = PrintPdfFromXml(opts);
       var end = Date.now();
@@ -69,33 +189,119 @@
     }
     window.initPdfViewer = initPdfViewer;
 
+    function reinitFontsImages() {
+      var d = document.getElementById("images-fonts-container");
+      var inner = "";
+      for (var [key, value] of Object.entries(window.images)) {
+        inner += `<span style="display:inline;font-size:0.75em;margin-right:10px;"><p style="display:inline;margin-right:2px;">${key}</p><p onclick="removeImage('${key}')" style="text-decoration:underline;cursor:pointer;display:inline;">(remove)</p></span>`;
+      }
+      for (var [key, value] of Object.entries(window.fonts)) {
+        inner += `<span style="display:inline;font-size:0.75em;margin-right:10px;"><p style="display:inline;margin-right:2px;">${key}</p><p onclick="removeFont('${key}')" style="text-decoration:underline;cursor:pointer;display:inline;">(remove)</p></span>`;
+      }
+      d.innerHTML = inner;
+    }
+    window.reinitFontsImages = reinitFontsImages;
+
+    function loadFile(accept, callback) {
+      let input = document.createElement('input');
+      input.type = 'file';
+      input.accept = accept;
+      input.style.display = 'none';
+      input.onchange = _ => {
+          // you can use this method to get file and perform respective operations
+          let files =  Array.from(input.files);
+          if (files.length < 1) {
+            return;
+          }
+          var f = files[0];
+          var reader = new FileReader();
+          reader.onloadend = (e) => {
+            var bytes = e.target.result;
+            var base64 = btoa(
+              new Uint8Array(bytes)
+                .reduce((data, byte) => data + String.fromCharCode(byte), '')
+            );
+            (callback)(f.name, base64);
+          };
+          reader.readAsArrayBuffer(f);
+      };
+      input.click();
+    }
+
+    function addFont() {
+      var cb = (filename, base64) => { window.fonts[filename] = base64; reinitFontsImages(); };
+      loadFile(".ttf, .otf, .woff, .woff2", cb);
+    }
+    window.addFont = addFont;
+
+    function addImage() {
+      var cb = (filename, base64) => { window.images[filename] = base64; reinitFontsImages(); };
+      loadFile(".png, .bmp, .jpeg, .jpg, .tga, .tiff, .webp, .svg", cb);
+    }
+    window.addImage = addImage;
+
+    function removeFont(id) {
+      delete window.fonts[id];
+      reinitFontsImages();
+    }
+    window.removeFont = removeFont;
+
+    function removeImage(id) {
+      delete window.images[id];
+      reinitFontsImages();
+    }
+    window.removeImage = removeImage;
+
     if (is_prod) {
-      __wbg_init().then(() => { 
+      __wbg_init().then(() => {
+        loadExample("helloworld.xml");
+        try {
+          loadConfigFromUrl();
+        } catch (error) {
+          console.warn(error);
+        }
         reinitialize_pdf();
       });
     }
     </script>
   </head>
   <body style="display:flex;">
-    <div style="display: flex;flex-grow:1;flex-direction: column;padding:20px;">
-      <div style="display: flex;justify-content: space-between;align-items: center;max-height: 20px;margin-bottom:10px;">
-        <a href="https://github.com/fschutt/printpdf/blob/master/SYNTAX.md" style="margin-right:10px;font-weight: bold;"><span><p style="display: inline;">SYNTAX / TUTORIAL&nbsp;</p><p style="display: inline-block;transform:scaleX(-1);text-decoration:underline;">⎋</p></span></a>
-        <a href="https://github.com/fschutt/printpdf" style="font-weight: bold;"><span><p style="display: inline;">View Project on GitHub&nbsp;</p><p style="display: inline-block;transform:scaleX(-1);text-decoration:underline;">⎋</p></span></a>
+    <div style="display: flex;flex-grow:1;flex-direction: column;padding:10px;max-width: 600px;">
+      <div style="display: flex;max-width: 600px;margin-bottom:10px;">
+        <span>
+          <a href="https://github.com/fschutt/printpdf">printpdf</a> is a MIT-licensed Rust library for generating PDF files.
+          Since it supports both WASM and creating PDF files from an HTML-ish 
+          <a href="https://github.com/fschutt/printpdf/blob/master/SYNTAX.md">syntax</a>
+          (to create reports, layout books, etc.), this demo is a playground to debug layout issues. 
+          The CSS / XML / DOM handling  and layouting is handled by <a href="https://github.com/fschutt/azul">azul-layout</a>, 
+          so it will have some quirks.
+        </span>
       </div>
-      <textarea id="input" style="display: flex;flex-grow:1;" autofocus="true" focusable="true" tabindex="1">
-&lt;html&gt;
-    &lt;head&gt;
-        &lt;style&gt;
-            p { color: red; font-family: sans-serif; }
-        &lt;/style&gt;
-    &lt;/head&gt;
-    &lt;body&gt;
-        &lt;p&gt;Hello!&lt;/p&gt;
-    &lt;/body&gt;
-&lt;/html&gt;</textarea>
-        <button onclick="reinitialize_pdf();" style="width:100%;max-width: none;margin-top:20px;cursor:pointer;background:rgb(2, 111, 174);color:white;font-weight:bold;font-size:16px;">Generate PDF</button>
+      <div style="display: flex;justify-content: space-between;align-items: center;max-height: 20px;margin-bottom:15px;">
+        <div>
+          <label for="example">Load example:</label>
+          <select id="example" onchange="loadExampleSelect(event)">
+            <option value="helloworld" selected="selected">helloworld.xml</option>
+            <option value="churchbooklet">churchbooklet.xml</option>
+            <option value="recipejapanese">recipe-japanese.xml</option>
+            <option value="empty">empty.xml</option>
+          </select>
+        </div>
+        <div style="display:flex;flex-grow: 1;"></div>
+        <a href="https://github.com/fschutt/printpdf/blob/master/SYNTAX.md" style="margin-right:10px;font-weight: bold;"><span><p style="display: inline;">SYNTAX&nbsp;</p><p style="display: inline-block;transform:scaleX(-1);text-decoration:underline;">⎋</p></span></a>
+        <a href="https://github.com/fschutt/printpdf" style="font-weight: bold;"><span><p style="display: inline;">GITHUB&nbsp;</p><p style="display: inline-block;transform:scaleX(-1);text-decoration:underline;">⎋</p></span></a>
+      </div>
+      <textarea id="input" style="display: flex;flex-grow:1;" autofocus="true" focusable="true" tabindex="1" oninput="updateWindowText(event)" placeholder="&lt;html&gt;...&lt;html&gt;"></textarea>
+      <div style="padding:10px 0px;margin:5px 0px;background:#efefef;border-radius: 5px;">
+        <div id="images-fonts-container" style="min-height:20px;"></div>
+        <div style="display:flex;flex-direction: row;flex-grow:1;">
+          <button onclick="addFont()" style="flex-grow:1;min-height: 15px;cursor:pointer;background:rgb(68, 2, 174);color:white;font-weight:bold;font-size:16px;">Add external font</button>
+          <button onclick="addImage()" style="flex-grow:1;min-height: 15px;cursor:pointer;background:rgb(2, 174, 111);color:white;font-weight:bold;font-size:16px;">Add external image or SVG</button>  
+        </div>
+      </div>
+      <button onclick="reinitialize_pdf();" style="width:100%;max-width: none;cursor:pointer;background:rgb(2, 111, 174);color:white;font-weight:bold;font-size:16px;">Generate PDF</button>
     </div>
-    <div id="output" style="display: flex;padding: 20px;flex-direction:column;flex-grow:1;">
+    <div id="output" style="display: flex;padding: 10px;flex-direction:column;flex-grow:1;">
       <div id="result" style="font-family: monospace; background-color: lightgreen;">OK: PDF rendered in 25 millis. (size = 9.5 KB)</div>
       <div id="outerContainer" style="margin-top:10px;border:1px solid black;">
 

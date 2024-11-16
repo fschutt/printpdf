@@ -88,8 +88,11 @@ pub(crate) fn xml_to_pages(
         components.register_component(c);
     }
 
-    let styled_dom = azul_core::xml::str_to_dom(fixup.as_ref(), &mut components)
-        .map_err(|e| format!("Error constructing DOM: {}", e.to_string()))?;
+    let styled_dom = azul_core::xml::str_to_dom(
+        fixup.as_ref(), 
+        &mut components, 
+        Some(config.page_width.into_pt().0)
+    ).map_err(|e| format!("Error constructing DOM: {}", e.to_string()))?;
 
     let dom_id = DomId { inner: 0 };
     let mut fake_window_state = FullWindowState::default();
@@ -469,8 +472,6 @@ fn displaylist_handle_rect(
 
     if let Some((text, id, color, space_index)) = opt_text {
 
-        println!("fontsize: {}", text.font_size_px);
-
         ops.push(Op::StartTextSection);
         ops.push(Op::SetFillColor {
             col: crate::Color::Rgb(crate::Rgb {
@@ -489,7 +490,7 @@ fn displaylist_handle_rect(
         let glyphs = text.get_layouted_glyphs();
 
         let static_bounds = positioned_rect.get_approximate_static_bounds();
-        println!("static bounds: {:?}", static_bounds);
+
         for gi in glyphs.glyphs {
             ops.push(Op::SetTextCursor { pos: crate::Point { x: Pt(0.0), y: Pt(0.0) } });
             ops.push(Op::SetTextMatrix { 

@@ -286,7 +286,6 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec
 
             let page_obj = LoDictionary::from_iter(vec![
                 ("Type", "Page".into()),
-                ("Rotate", Integer(0)),
                 ("MediaBox", page.get_media_box()),
                 ("TrimBox", page.get_trim_box()),
                 ("CropBox", page.get_crop_box()),

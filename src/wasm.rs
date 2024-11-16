@@ -1,3 +1,4 @@
+use base64::Engine;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 

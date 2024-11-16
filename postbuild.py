@@ -75,6 +75,10 @@ with zipfile.ZipFile("web/pdfjs-4.7.76-legacy-dist.zip","r") as zip_ref:
     zip_ref.extractall("web")
 
 index_html = read_file("./skeleton.html")
+index_html = index_html.replace("$$HELLOWORLD_XML$$", read_file("./web/helloworld.xml.txt"))
+index_html = index_html.replace("$$CHURCHBOOKLET_XML$$", read_file("./web/churchbooklet.xml.txt"))
+index_html = index_html.replace("$$RECIPE_XML$$", read_file("./web/recipe-japanese.xml.txt"))
+
 build_mjs = read_file("./web/pdfjs-4.7.76-legacy-dist/build/pdf.mjs")
 viewer_mjs = read_file("./web/pdfjs-4.7.76-legacy-dist/web/viewer.mjs")
 pkg_viewer_wasm = ""
