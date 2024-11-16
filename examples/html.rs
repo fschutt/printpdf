@@ -1,8 +1,10 @@
 use printpdf::*;
 
-const HTML_STRINGS: &[&str; 1] = &[
-    // "<div style='background:red;padding:10px;'><div style='background:yellow;padding:20px;'></div></div>",
-    "<p style='color:red;font-family:sans-serif'>Hello!</p><img src='dog-alpha.png' />",
+const HTML_STRINGS: &[&str; 2] = &[
+    "<div style='background:red;padding:10px;flex-grow:1;'><div style='background:yellow;padding:20px;'><p>hello</p></div></div>",
+    "<div style='padding:10px;background:lightblue;'>
+        <p style='font-size:12px;border:1px solid black;color:red;font-family:Times-Bold;'>Very long text that breaks into multiple lines. asdfasd asdfasdf adsfasdf ladsjfplasdjf asdlfkjasdfl lasdkjfasdölkjf</p>
+    </div>",
 ];
 
 pub struct ImgComponent { }

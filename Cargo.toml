@@ -21,9 +21,7 @@ lopdf = { git = "https://github.com/J-F-Liu/lopdf", rev = "ea838e2252201bf0efe64
     "nom_parser",
 ] }
 time = { version = "0.3.25", default-features = false, features = ["std"] }
-allsorts = { version = "0.15", default-features = false, features = [
-    "flate2_rust",
-] }
+allsorts = { version = "0.15", default-features = false, features = ["flate2_rust"] }
 pdf-writer = { version = "0.12.0" }
 image = { version = "0.25", default-features = false }
 svg2pdf = { version = "0.12.0" }

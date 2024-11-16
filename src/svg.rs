@@ -46,7 +46,9 @@ impl Svg {
 
         // Let's first convert the SVG into an independent chunk.
         let mut options = usvg::Options::default();
-        options.fontdb_mut().load_system_fonts();
+        #[cfg(not(target_arch = "wasm32"))] {
+            options.fontdb_mut().load_system_fonts();
+        }
         let tree = usvg::Tree::from_str(svg_string, &options)
             .map_err(|err| format!("usvg parse: {err}"))?;
         let (mut svg_chunk, svg_id) = svg2pdf::to_chunk(&tree, ConversionOptions::default())

@@ -320,15 +320,14 @@ impl ParsedFont {
     }
 
     pub fn subset_simple(&self, chars: &BTreeSet<char>) -> Result<SubsetFont, String> {
+
         let scope = ReadScope::new(&self.original_bytes);
-
-        let font_file = scope.read::<FontData<'_>>().map_err(|e| e.to_string())?;
-
+        let font_file = scope.read::<FontData<'_>>()
+            .map_err(|e| e.to_string())?;
         let provider = font_file
             .table_provider(self.original_index)
             .map_err(|e| e.to_string())?;
 
-        // let p = glyphs.iter().filter(|s| self.glyph_records_decoded.get(*s).is_some()).copied().collect::<BTreeSet<_>>();
         let p = chars
             .iter()
             .filter_map(|s| self.lookup_glyph_index(*s as u32).map(|q| (q, *s)))
@@ -342,8 +341,13 @@ impl ParsedFont {
             })
             .collect::<BTreeMap<_, _>>();
 
-        let bytes = allsorts::subset::subset(&provider, &p.iter().map(|s| s.0).collect::<Vec<_>>())
+        let mut gids = p.iter().map(|s| s.0).collect::<Vec<_>>();
+        gids.sort();
+        gids.dedup();
+        
+        let bytes = allsorts::subset::subset(&provider, &gids)
             .map_err(|e| e.to_string())?;
+
         Ok(SubsetFont {
             bytes,
             glyph_mapping,
@@ -351,7 +355,7 @@ impl ParsedFont {
     }
 
     /// Generates a new font file from the used glyph IDs
-    pub(crate) fn subset(&self, glyph_ids: &BTreeMap<u16, char>) -> Result<SubsetFont, String> {
+    pub fn subset(&self, glyph_ids: &[(u16, char)]) -> Result<SubsetFont, String> {
         let glyph_mapping = glyph_ids
             .iter()
             .enumerate()
@@ -369,7 +373,7 @@ impl ParsedFont {
             .map_err(|e| e.to_string())?;
 
         let font =
-            allsorts::subset::subset(&provider, &glyph_ids.keys().copied().collect::<Vec<_>>())
+            allsorts::subset::subset(&provider, &glyph_ids.iter().map(|s| s.0).collect::<Vec<_>>())
                 .map_err(|e| e.to_string())?;
 
         Ok(SubsetFont {
@@ -625,6 +629,29 @@ impl ParsedFont {
             })
             .unwrap_or(GlyfTable::new(Vec::new()).unwrap());
 
+        let second_scope = ReadScope::new(font_bytes);
+        let second_font_file = second_scope.read::<FontData<'_>>().ok()?;
+        let second_provider = second_font_file.table_provider(font_index).ok()?;
+
+        let mut font_data_impl = allsorts::font::Font::new(second_provider).ok()?;
+
+        // required for font layout: gsub_cache, gpos_cache and gdef_table
+        let gsub_cache = None; // font_data_impl.gsub_cache().ok().and_then(|s| s);
+        let gpos_cache = None; // font_data_impl.gpos_cache().ok().and_then(|s| s);
+        let opt_gdef_table = None; // font_data_impl.gdef_table().ok().and_then(|o| o);
+        let num_glyphs = font_data_impl.num_glyphs();
+
+        let cmap_subtable = ReadScope::new(font_data_impl.cmap_subtable_data());
+        let cmap_subtable = cmap_subtable
+            .read::<CmapSubtable<'_>>()
+            .ok()
+            .and_then(|s| s.to_owned());
+
+        if cmap_subtable.is_none() {
+            println!("warning: no cmap subtable");
+        }
+
+
         let hmtx_data = provider
             .table_data(tag::HMTX)
             .ok()
@@ -674,20 +701,6 @@ impl ParsedFont {
             .collect::<Vec<_>>();
 
         let glyph_records_decoded = glyph_records_decoded.into_iter().collect();
-
-        let mut font_data_impl = allsorts::font::Font::new(provider).ok()?;
-
-        // required for font layout: gsub_cache, gpos_cache and gdef_table
-        let gsub_cache = font_data_impl.gsub_cache().ok().and_then(|s| s);
-        let gpos_cache = font_data_impl.gpos_cache().ok().and_then(|s| s);
-        let opt_gdef_table = font_data_impl.gdef_table().ok().and_then(|o| o);
-        let num_glyphs = font_data_impl.num_glyphs();
-
-        let cmap_subtable = ReadScope::new(font_data_impl.cmap_subtable_data());
-        let cmap_subtable = cmap_subtable
-            .read::<CmapSubtable<'_>>()
-            .ok()
-            .and_then(|s| s.to_owned());
 
         let mut font = ParsedFont {
             font_metrics,

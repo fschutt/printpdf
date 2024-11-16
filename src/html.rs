@@ -194,7 +194,6 @@ pub(crate) fn xml_to_pages(
         config.page_height.into_pt(),
     );
 
-    dbg!(&ops);
     Ok(vec![PdfPage::new(
         config.page_width,
         config.page_height,
@@ -468,7 +467,10 @@ fn displaylist_handle_rect(
         doc.resources.xobjects.map.insert(xobject_id, image);
     }
 
-    if let Some((text, id, color)) = opt_text {
+    if let Some((text, id, color, space_index)) = opt_text {
+
+        println!("fontsize: {}", text.font_size_px);
+
         ops.push(Op::StartTextSection);
         ops.push(Op::SetFillColor {
             col: crate::Color::Rgb(crate::Rgb {
@@ -481,49 +483,26 @@ fn displaylist_handle_rect(
         ops.push(Op::SetTextRenderingMode {
             mode: crate::TextRenderingMode::Fill,
         });
-        for line in text.lines.as_slice() {
-            ops.push(Op::SetTextCursor {
-                pos: crate::Point {
-                    x: Pt(line.bounds.origin.x), // TODO: px / pt !
-                    y: Pt(line.bounds.origin.y), // TODO: px / pt !
-                },
+        ops.push(Op::SetWordSpacing { percent: 100.0 });
+        ops.push(Op::SetLineHeight { lh: Pt(text.font_size_px) });
+        
+        let glyphs = text.get_layouted_glyphs();
+
+        let static_bounds = positioned_rect.get_approximate_static_bounds();
+        println!("static bounds: {:?}", static_bounds);
+        for gi in glyphs.glyphs {
+            ops.push(Op::SetTextCursor { pos: crate::Point { x: Pt(0.0), y: Pt(0.0) } });
+            ops.push(Op::SetTextMatrix { 
+                matrix: crate::TextMatrix::Translate(
+                    Pt(static_bounds.min_x() as f32 + (gi.point.x * 2.0)), 
+                    Pt(page_height.0 - static_bounds.min_y() as f32 - gi.point.y), 
+                ) 
             });
-
-            for word in line.words.as_slice().iter() {
-                use azul_core::callbacks::InlineWord::*;
-                match word {
-                    Tab => {
-                        ops.push(Op::WriteText {
-                            text: "    ".to_string(),
-                            size: Pt(text.font_size_px), // TODO: px / pt !
-                            font: id.clone(),
-                        });
-                    }
-                    Return => {
-                        // TODO?
-                    }
-                    Space => {
-                        ops.push(Op::WriteText {
-                            text: " ".to_string(),
-                            size: Pt(text.font_size_px), // TODO: px / pt !
-                            font: id.clone(),
-                        });
-                    }
-                    Word(itc) => {
-                        let chars = itc
-                            .glyphs
-                            .iter()
-                            .filter_map(|s| char::from_u32(*s.unicode_codepoint.as_option()?))
-                            .collect::<String>();
-
-                        ops.push(Op::WriteText {
-                            text: chars,
-                            size: Pt(text.font_size_px), // TODO: px / pt !
-                            font: id.clone(),
-                        });
-                    }
-                }
-            }
+            ops.push(Op::WriteCodepoints {
+                font: id.clone(), 
+                size: Pt(text.font_size_px * 2.0),
+                cp: vec![(gi.index as u16, ' ')],
+            });
         }
 
         ops.push(Op::EndTextSection);
@@ -737,6 +716,7 @@ fn get_text_node(
     azul_core::callbacks::InlineText,
     crate::FontId,
     StyleTextColor,
+    u16,
 )> {
     use azul_core::styled_dom::StyleFontFamiliesHash;
 
@@ -783,7 +763,7 @@ fn get_text_node(
         res.fonts.map.insert(id.clone(), parsed_font);
     }
 
-    Some((inline_text, id, text_color))
+    Some((inline_text, id, text_color, 0))
 }
 
 #[derive(Debug)]

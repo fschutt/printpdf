@@ -890,7 +890,7 @@ fn prepare_fonts(resources: &PdfResources, pages: &[PdfPage]) -> BTreeMap<FontId
         if glyph_ids.is_empty() {
             continue; // unused font
         }
-        let subset_font = match font.subset(&glyph_ids) {
+        let subset_font = match font.subset(&glyph_ids.iter().map(|s| (*s.0, *s.1)).collect::<Vec<_>>()) {
             Ok(o) => o,
             Err(e) => {
                 println!("{e}");
@@ -910,7 +910,7 @@ fn prepare_fonts(resources: &PdfResources, pages: &[PdfPage]) -> BTreeMap<FontId
                 original: font.clone(),
                 subset_font,
                 cid_to_unicode_map: cid_to_unicode,
-                vertical_writing: !font.vmtx_data.is_empty(),
+                vertical_writing: false, // !font.vmtx_data.is_empty(),
                 ascent: font.font_metrics.ascender as i64,
                 descent: font.font_metrics.descender as i64,
                 widths_list: widths,
