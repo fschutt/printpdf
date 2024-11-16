@@ -5,7 +5,11 @@
 
 `printpdf` is a Rust library for creating PDF documents.
 
-[Crates.io](https://crates.io/crates/printpdf) | [Documentation](https://docs.rs/printpdf) | [Donate to this project](https://github.com/sponsors/fschutt)
+[Website](https://fschutt.github.io/printpdf) | [Crates.io](https://crates.io/crates/printpdf) | [Documentation](https://docs.rs/printpdf) | [Donate](https://github.com/sponsors/fschutt)
+
+> [!IMPORTANT]  
+> HTML-to-PDF rendering is still experimental and WIP. 
+> In doubt, position PDF elements manually instead.
 
 ## Features
 
@@ -21,6 +25,8 @@ Currently, printpdf can only write documents, not read them.
 - Advanced graphics - overprint control, blending modes, etc.
 - Advanced typography - character / word scaling and spacing, superscript, subscript, etc.
 - Embedding SVGs (uses `svg2pdf` crate internally)
+
+See the WASM32 demo live at: https://fschutt.github.io/printpdf
 
 ## Writing PDF
 
