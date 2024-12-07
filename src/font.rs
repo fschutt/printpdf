@@ -320,10 +320,8 @@ impl ParsedFont {
     }
 
     pub fn subset_simple(&self, chars: &BTreeSet<char>) -> Result<SubsetFont, String> {
-
         let scope = ReadScope::new(&self.original_bytes);
-        let font_file = scope.read::<FontData<'_>>()
-            .map_err(|e| e.to_string())?;
+        let font_file = scope.read::<FontData<'_>>().map_err(|e| e.to_string())?;
         let provider = font_file
             .table_provider(self.original_index)
             .map_err(|e| e.to_string())?;
@@ -344,9 +342,8 @@ impl ParsedFont {
         let mut gids = p.iter().map(|s| s.0).collect::<Vec<_>>();
         gids.sort();
         gids.dedup();
-        
-        let bytes = allsorts::subset::subset(&provider, &gids)
-            .map_err(|e| e.to_string())?;
+
+        let bytes = allsorts::subset::subset(&provider, &gids).map_err(|e| e.to_string())?;
 
         Ok(SubsetFont {
             bytes,
@@ -372,9 +369,11 @@ impl ParsedFont {
             .table_provider(self.original_index)
             .map_err(|e| e.to_string())?;
 
-        let font =
-            allsorts::subset::subset(&provider, &glyph_ids.iter().map(|s| s.0).collect::<Vec<_>>())
-                .map_err(|e| e.to_string())?;
+        let font = allsorts::subset::subset(
+            &provider,
+            &glyph_ids.iter().map(|s| s.0).collect::<Vec<_>>(),
+        )
+        .map_err(|e| e.to_string())?;
 
         Ok(SubsetFont {
             bytes: font,
@@ -633,7 +632,7 @@ impl ParsedFont {
         let second_font_file = second_scope.read::<FontData<'_>>().ok()?;
         let second_provider = second_font_file.table_provider(font_index).ok()?;
 
-        let mut font_data_impl = allsorts::font::Font::new(second_provider).ok()?;
+        let font_data_impl = allsorts::font::Font::new(second_provider).ok()?;
 
         // required for font layout: gsub_cache, gpos_cache and gdef_table
         let gsub_cache = None; // font_data_impl.gsub_cache().ok().and_then(|s| s);
@@ -651,7 +650,6 @@ impl ParsedFont {
             println!("warning: no cmap subtable");
         }
 
-
         let hmtx_data = provider
             .table_data(tag::HMTX)
             .ok()
@@ -668,7 +666,19 @@ impl ParsedFont {
             .table_data(tag::HHEA)
             .ok()
             .and_then(|hhea_data| ReadScope::new(&hhea_data?).read::<HheaTable>().ok())
-            .unwrap_or(unsafe { std::mem::zeroed() });
+            .unwrap_or(HheaTable {
+                ascender: 0,
+                descender: 0,
+                line_gap: 0,
+                advance_width_max: 0,
+                min_left_side_bearing: 0,
+                min_right_side_bearing: 0,
+                x_max_extent: 0,
+                caret_slope_rise: 0,
+                caret_slope_run: 0,
+                caret_offset: 0,
+                num_h_metrics: 0,
+            });
 
         let font_metrics = FontMetrics::from_bytes(font_bytes, font_index);
 

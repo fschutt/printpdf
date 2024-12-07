@@ -194,15 +194,13 @@ impl PdfDocument {
         id
     }
 
-    /// Returns the `Pages` rendered by the HTML, adds resources automatically
-    pub fn with_html(
+    /// Renders HTML to pages
+    pub fn html2pages(
         &mut self,
         html: &str,
         config: XmlRenderOptions,
-    ) -> Result<&mut Self, String> {
-        let mut pages = crate::html::xml_to_pages(html, config, self)?;
-        self.pages.append(&mut pages);
-        Ok(self)
+    ) -> Result<Vec<PdfPage>, String> {
+        crate::html::xml_to_pages(html, config, self)
     }
 
     /// Replaces `document.pages` with the new pages

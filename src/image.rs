@@ -10,6 +10,7 @@ pub struct RawImage {
     pub width: usize,
     pub height: usize,
     pub data_format: RawImageFormat,
+    pub tag: Vec<u8>,
 }
 
 struct RawImageU8 {
@@ -59,6 +60,41 @@ impl RawImageFormat {
         }
     }
 
+    fn from_internal(f: &azul_core::app_resources::RawImageFormat) -> Self {
+        use azul_core::app_resources::RawImageFormat;
+        match f {
+            RawImageFormat::R8 => crate::RawImageFormat::R8,
+            RawImageFormat::RG8 => crate::RawImageFormat::RG8,
+            RawImageFormat::RGB8 => crate::RawImageFormat::RGB8,
+            RawImageFormat::RGBA8 => crate::RawImageFormat::RGBA8,
+            RawImageFormat::R16 => crate::RawImageFormat::R16,
+            RawImageFormat::RG16 => crate::RawImageFormat::RG16,
+            RawImageFormat::RGB16 => crate::RawImageFormat::RGB16,
+            RawImageFormat::RGBA16 => crate::RawImageFormat::RGBA16,
+            RawImageFormat::BGR8 => crate::RawImageFormat::BGR8,
+            RawImageFormat::BGRA8 => crate::RawImageFormat::BGRA8,
+            RawImageFormat::RGBF32 => crate::RawImageFormat::RGBF32,
+            RawImageFormat::RGBAF32 => crate::RawImageFormat::RGBAF32,
+        }
+    }
+
+    fn into_internal(&self) -> azul_core::app_resources::RawImageFormat {
+        match self {
+            RawImageFormat::R8 => azul_core::app_resources::RawImageFormat::R8,
+            RawImageFormat::RG8 => azul_core::app_resources::RawImageFormat::RG8,
+            RawImageFormat::RGB8 => azul_core::app_resources::RawImageFormat::RGB8,
+            RawImageFormat::RGBA8 => azul_core::app_resources::RawImageFormat::RGBA8,
+            RawImageFormat::R16 => azul_core::app_resources::RawImageFormat::R16,
+            RawImageFormat::RG16 => azul_core::app_resources::RawImageFormat::RG16,
+            RawImageFormat::RGB16 => azul_core::app_resources::RawImageFormat::RGB16,
+            RawImageFormat::RGBA16 => azul_core::app_resources::RawImageFormat::RGBA16,
+            RawImageFormat::BGR8 => azul_core::app_resources::RawImageFormat::BGR8,
+            RawImageFormat::BGRA8 => azul_core::app_resources::RawImageFormat::BGRA8,
+            RawImageFormat::RGBF32 => azul_core::app_resources::RawImageFormat::RGBF32,
+            RawImageFormat::RGBAF32 => azul_core::app_resources::RawImageFormat::RGBAF32,
+        }
+    }
+
     pub fn has_alpha(&self) -> bool {
         use self::RawImageFormat::*;
         matches!(self, RGBA8 | RGBA16 | RGBAF32)
@@ -94,7 +130,39 @@ pub enum RawImageData {
     F32(Vec<f32>),
 }
 
+impl RawImageData {
+    pub fn empty(format: RawImageFormat) -> Self {
+        use self::RawImageFormat::*;
+        match format {
+            R8 | RG8 | RGB8 | RGBA8 | BGR8 | BGRA8 => Self::U8(Vec::new()),
+
+            R16 | RG16 | RGB16 | RGBA16 => Self::U16(Vec::new()),
+
+            RGBF32 | RGBAF32 => Self::F32(Vec::new()),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            RawImageData::U8(vec) => vec.is_empty(),
+            RawImageData::U16(vec) => vec.is_empty(),
+            RawImageData::F32(vec) => vec.is_empty(),
+        }
+    }
+}
+
 impl RawImage {
+    /// Creates an empty `RawImage`
+    pub fn empty(width: usize, height: usize, format: crate::RawImageFormat) -> Self {
+        Self {
+            width,
+            height,
+            data_format: format,
+            pixels: RawImageData::empty(format),
+            tag: Vec::new(),
+        }
+    }
+
     /// NOTE: depends on the enabled image formats!
     pub fn decode_from_bytes(bytes: &[u8]) -> Result<Self, String> {
         use image::DynamicImage::*;
@@ -102,64 +170,100 @@ impl RawImage {
         let im = image::guess_format(bytes).map_err(|e| e.to_string())?;
         let b_len = bytes.len();
 
-        #[cfg(not(feature = "gif"))] {
+        #[cfg(not(feature = "gif"))]
+        {
             let err = format!("cannot decode image (len = {b_len} bytes): printpdf is missing feature 'gif' to decode GIF files. Please enable it or construct the RawImage manually.");
-            if im == image::ImageFormat::Gif { return Err(err); }
+            if im == image::ImageFormat::Gif {
+                return Err(err);
+            }
         }
 
-        #[cfg(not(feature = "jpeg"))] {
+        #[cfg(not(feature = "jpeg"))]
+        {
             let err = format!("cannot decode image (len = {b_len} bytes): printpdf is missing feature 'jpeg' to decode JPEG files. Please enable it or construct the RawImage manually.");
-            if im == image::ImageFormat::Gif { return Err(err); }
+            if im == image::ImageFormat::Gif {
+                return Err(err);
+            }
         }
 
-        #[cfg(not(feature = "png"))] {
+        #[cfg(not(feature = "png"))]
+        {
             let err = format!("cannot decode image (len = {b_len} bytes): printpdf is missing feature 'png' to decode PNG files. Please enable it or construct the RawImage manually.");
-            if im == image::ImageFormat::Png { return Err(err); }
+            if im == image::ImageFormat::Png {
+                return Err(err);
+            }
         }
 
-        #[cfg(not(feature = "pnm"))] {
+        #[cfg(not(feature = "pnm"))]
+        {
             let err = format!("cannot decode image (len = {b_len} bytes): printpdf is missing feature 'pnm' to decode PNM files. Please enable it or construct the RawImage manually.");
-            if im == image::ImageFormat::Pnm { return Err(err); }
+            if im == image::ImageFormat::Pnm {
+                return Err(err);
+            }
         }
 
-        #[cfg(not(feature = "tiff"))] {
+        #[cfg(not(feature = "tiff"))]
+        {
             let err = format!("cannot decode image (len = {b_len} bytes): printpdf is missing feature 'tiff' to decode TIFF files. Please enable it or construct the RawImage manually.");
-            if im == image::ImageFormat::Tiff { return Err(err); }
-        }
-        
-        #[cfg(not(feature = "tiff"))] {
-            let err = format!("cannot decode image (len = {b_len} bytes): printpdf is missing feature 'tiff' to decode TIFF files. Please enable it or construct the RawImage manually.");
-            if im == image::ImageFormat::Tiff { return Err(err); }
+            if im == image::ImageFormat::Tiff {
+                return Err(err);
+            }
         }
 
-        #[cfg(not(feature = "bmp"))] {
+        #[cfg(not(feature = "tiff"))]
+        {
+            let err = format!("cannot decode image (len = {b_len} bytes): printpdf is missing feature 'tiff' to decode TIFF files. Please enable it or construct the RawImage manually.");
+            if im == image::ImageFormat::Tiff {
+                return Err(err);
+            }
+        }
+
+        #[cfg(not(feature = "bmp"))]
+        {
             let err = format!("cannot decode image (len = {b_len} bytes): printpdf is missing feature 'bmp' to decode BMP files. Please enable it or construct the RawImage manually.");
-            if im == image::ImageFormat::Bmp { return Err(err); }
+            if im == image::ImageFormat::Bmp {
+                return Err(err);
+            }
         }
 
-        #[cfg(not(feature = "ico"))] {
+        #[cfg(not(feature = "ico"))]
+        {
             let err = format!("cannot decode image (len = {b_len} bytes): printpdf is missing feature 'ico' to decode ICO files. Please enable it or construct the RawImage manually.");
-            if im == image::ImageFormat::Ico { return Err(err); }
+            if im == image::ImageFormat::Ico {
+                return Err(err);
+            }
         }
 
-        #[cfg(not(feature = "tga"))] {
+        #[cfg(not(feature = "tga"))]
+        {
             let err = format!("cannot decode image (len = {b_len} bytes): printpdf is missing feature 'tga' to decode TGA files. Please enable it or construct the RawImage manually.");
-            if im == image::ImageFormat::Tga { return Err(err); }
+            if im == image::ImageFormat::Tga {
+                return Err(err);
+            }
         }
 
-        #[cfg(not(feature = "hdr"))] {
+        #[cfg(not(feature = "hdr"))]
+        {
             let err = format!("cannot decode image (len = {b_len} bytes): printpdf is missing feature 'hdr' to decode HDR files. Please enable it or construct the RawImage manually.");
-            if im == image::ImageFormat::Hdr { return Err(err); }
+            if im == image::ImageFormat::Hdr {
+                return Err(err);
+            }
         }
 
-        #[cfg(not(feature = "dds"))] {
+        #[cfg(not(feature = "dds"))]
+        {
             let err = format!("cannot decode image (len = {b_len} bytes): printpdf is missing feature 'dds' to decode DDS files. Please enable it or construct the RawImage manually.");
-            if im == image::ImageFormat::Dds { return Err(err); }
+            if im == image::ImageFormat::Dds {
+                return Err(err);
+            }
         }
 
-        #[cfg(not(feature = "webp"))] {
+        #[cfg(not(feature = "webp"))]
+        {
             let err = format!("cannot decode image (len = {b_len} bytes): printpdf is missing feature 'webp' to decode WEBP files. Please enable it or construct the RawImage manually.");
-            if im == image::ImageFormat::WebP { return Err(err); }
+            if im == image::ImageFormat::WebP {
+                return Err(err);
+            }
         }
 
         let im = image::ImageReader::new(Cursor::new(bytes))
@@ -202,7 +306,25 @@ impl RawImage {
             width: w as usize,
             height: h as usize,
             data_format: ct,
+            tag: Vec::new(),
         })
+    }
+
+    /// Translates to an internal `RawImage`, necessary for the `<img>` component
+    pub fn to_internal(&self) -> azul_core::app_resources::ImageRef {
+        let invalid = azul_core::app_resources::ImageRef::null_image(
+            self.width,
+            self.height,
+            self.data_format.into_internal(),
+            self.tag.clone(),
+        );
+
+        if self.pixels.is_empty() {
+            invalid
+        } else {
+            azul_core::app_resources::ImageRef::new_rawimage(translate_to_internal_rawimage(self))
+                .unwrap_or(invalid)
+        }
     }
 }
 
@@ -305,33 +427,6 @@ fn split_rawimage_into_rgb_plus_alpha(im: RawImage) -> (RawImageU8, Option<RawIm
     (orig, alpha_mask)
 }
 
-pub(crate) fn translate_from_internal_rawimage(
-    im: &azul_core::app_resources::ImageDescriptor,
-    data: &[u8],
-) -> RawImage {
-    use azul_core::app_resources::RawImageFormat;
-
-    RawImage {
-        pixels: crate::RawImageData::U8(data.to_vec()),
-        width: im.width,
-        height: im.height,
-        data_format: match im.format {
-            RawImageFormat::R8 => crate::RawImageFormat::R8,
-            RawImageFormat::RG8 => crate::RawImageFormat::RG8,
-            RawImageFormat::RGB8 => crate::RawImageFormat::RGB8,
-            RawImageFormat::RGBA8 => crate::RawImageFormat::RGBA8,
-            RawImageFormat::R16 => crate::RawImageFormat::R16,
-            RawImageFormat::RG16 => crate::RawImageFormat::RG16,
-            RawImageFormat::RGB16 => crate::RawImageFormat::RGB16,
-            RawImageFormat::RGBA16 => crate::RawImageFormat::RGBA16,
-            RawImageFormat::BGR8 => crate::RawImageFormat::BGR8,
-            RawImageFormat::BGRA8 => crate::RawImageFormat::BGRA8,
-            RawImageFormat::RGBF32 => crate::RawImageFormat::RGBF32,
-            RawImageFormat::RGBAF32 => crate::RawImageFormat::RGBAF32,
-        },
-    }
-}
-
 pub fn translate_to_internal_rawimage(im: &RawImage) -> azul_core::app_resources::RawImage {
     azul_core::app_resources::RawImage {
         pixels: match &im.pixels {
@@ -346,19 +441,7 @@ pub fn translate_to_internal_rawimage(im: &RawImage) -> azul_core::app_resources
         width: im.width,
         height: im.height,
         premultiplied_alpha: false,
-        data_format: match &im.data_format {
-            RawImageFormat::R8 => azul_core::app_resources::RawImageFormat::R8,
-            RawImageFormat::RG8 => azul_core::app_resources::RawImageFormat::RG8,
-            RawImageFormat::RGB8 => azul_core::app_resources::RawImageFormat::RGB8,
-            RawImageFormat::RGBA8 => azul_core::app_resources::RawImageFormat::RGBA8,
-            RawImageFormat::R16 => azul_core::app_resources::RawImageFormat::R16,
-            RawImageFormat::RG16 => azul_core::app_resources::RawImageFormat::RG16,
-            RawImageFormat::RGB16 => azul_core::app_resources::RawImageFormat::RGB16,
-            RawImageFormat::RGBA16 => azul_core::app_resources::RawImageFormat::RGBA16,
-            RawImageFormat::BGR8 => azul_core::app_resources::RawImageFormat::BGR8,
-            RawImageFormat::BGRA8 => azul_core::app_resources::RawImageFormat::BGRA8,
-            RawImageFormat::RGBF32 => azul_core::app_resources::RawImageFormat::RGBF32,
-            RawImageFormat::RGBAF32 => azul_core::app_resources::RawImageFormat::RGBAF32,
-        },
+        data_format: im.data_format.into_internal(),
+        tag: im.tag.clone().into(),
     }
 }

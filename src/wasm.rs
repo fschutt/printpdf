@@ -4,14 +4,16 @@ use std::collections::BTreeMap;
 
 use crate::{serialize::PdfSaveOptions, XmlRenderOptions};
 
+pub type Base64String = String;
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct PrintPdfApiInput {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub html: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub images: BTreeMap<String, Vec<u8>>,
+    pub images: BTreeMap<String, Base64String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub fonts: BTreeMap<String, Vec<u8>>,
+    pub fonts: BTreeMap<String, Base64String>,
     #[serde(default, skip_serializing_if = "PdfGenerationOptions::is_default")]
     pub options: PdfGenerationOptions,
 }
@@ -73,19 +75,34 @@ fn printpdf_from_xml_internal(
     let opts = XmlRenderOptions {
         page_width: Mm(input.options.page_width_mm.unwrap_or(210.0)),
         page_height: Mm(input.options.page_height_mm.unwrap_or(297.0)),
-        images: BTreeMap::new(),
-        fonts: BTreeMap::new(),
+        images: input
+            .images
+            .iter()
+            .filter_map(|(k, v)| {
+                Some((k.clone(), base64::prelude::BASE64_STANDARD.decode(v).ok()?))
+            })
+            .collect(),
+        fonts: input
+            .fonts
+            .iter()
+            .filter_map(|(k, v)| {
+                Some((k.clone(), base64::prelude::BASE64_STANDARD.decode(v).ok()?))
+            })
+            .collect(),
         components: Vec::new(),
     };
 
-    let pdf = crate::PdfDocument::new("HTML rendering demo")
-        .with_html(&input.html, opts)
+    let mut pdf = crate::PdfDocument::new("HTML rendering demo");
+
+    let pages = pdf
+        .html2pages(&input.html, opts)
         .map_err(|e| PrintPdfApiReturn {
             pdf: String::new(),
             status: 2,
             error: e,
-        })?
-        .save(&PdfSaveOptions::default());
+        })?;
+
+    let pdf = pdf.with_pages(pages).save(&PdfSaveOptions::default());
 
     Ok(PrintPdfApiReturn {
         pdf: BASE64_STANDARD.encode(pdf),

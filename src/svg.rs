@@ -46,7 +46,8 @@ impl Svg {
 
         // Let's first convert the SVG into an independent chunk.
         let mut options = usvg::Options::default();
-        #[cfg(not(target_arch = "wasm32"))] {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
             options.fontdb_mut().load_system_fonts();
         }
         let tree = usvg::Tree::from_str(svg_string, &options)

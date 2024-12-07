@@ -49,6 +49,7 @@ impl Default for PdfSaveOptions {
 
 pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec<u8> {
     let mut doc = lopdf::Document::with_version("1.3");
+    doc.reference_table.cross_reference_type = lopdf::xref::XrefType::CrossReferenceTable;
     let pages_id = doc.new_object_id();
     let mut catalog = LoDictionary::from_iter(vec![
         ("Type", "Catalog".into()),
@@ -889,13 +890,14 @@ fn prepare_fonts(resources: &PdfResources, pages: &[PdfPage]) -> BTreeMap<FontId
         if glyph_ids.is_empty() {
             continue; // unused font
         }
-        let subset_font = match font.subset(&glyph_ids.iter().map(|s| (*s.0, *s.1)).collect::<Vec<_>>()) {
-            Ok(o) => o,
-            Err(e) => {
-                println!("{e}");
-                continue;
-            }
-        };
+        let subset_font =
+            match font.subset(&glyph_ids.iter().map(|s| (*s.0, *s.1)).collect::<Vec<_>>()) {
+                Ok(o) => o,
+                Err(e) => {
+                    println!("{e}");
+                    continue;
+                }
+            };
         let font = match ParsedFont::from_bytes(&subset_font.bytes, 0) {
             Some(s) => s,
             None => continue,

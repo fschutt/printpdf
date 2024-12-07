@@ -1,5 +1,3 @@
-use base64::Engine;
-
 use crate::date::OffsetDateTime;
 use std::io::Read;
 use std::sync::atomic::{AtomicUsize, Ordering};

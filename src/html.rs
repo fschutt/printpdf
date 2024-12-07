@@ -1,8 +1,13 @@
 use crate::{BuiltinFont, Mm, Op, PdfDocument, PdfPage, PdfResources, Pt};
+pub use azul_core::dom::Dom;
+pub use azul_core::styled_dom::StyledDom;
+pub use azul_core::xml::{
+    CompileError, ComponentArguments, FilteredComponentArguments, RenderDomError, XmlComponent,
+    XmlComponentMap, XmlComponentTrait, XmlNode, XmlTextContent,
+};
 use azul_core::{
     app_resources::{
-        DpiScaleFactor, Epoch, IdNamespace, ImageCache, 
-        ImageDescriptor, ImageRef, ImageRefHash, RendererResources
+        DecodedImage, DpiScaleFactor, Epoch, IdNamespace, ImageCache, ImageRef, RendererResources,
     },
     callbacks::DocumentId,
     display_list::{
@@ -10,29 +15,16 @@ use azul_core::{
         StyleBorderStyles, StyleBorderWidths,
     },
     dom::{NodeData, NodeId},
-    styled_dom::{ContentGroup, DomId, StyledNode},
+    styled_dom::{ContentGroup, StyledNode},
     ui_solver::LayoutResult,
-    window::{FullWindowState, LogicalSize}, xml::Xml,
+    window::{FullWindowState, LogicalSize},
 };
-use azul_css::{CssPropertyValue, FloatValue, LayoutDisplay, StyleTextColor, U8Vec};
-use base64::Engine;
-use rust_fontconfig::{FcFont, FcFontCache, FcPattern};
-use std::collections::BTreeMap;
-pub use azul_core::xml::{
-    XmlComponent, 
-    XmlComponentTrait, 
-    ComponentArguments, 
-    XmlComponentMap, 
-    FilteredComponentArguments, 
-    XmlTextContent, 
-    RenderDomError, 
-    CompileError, 
-    XmlNode
-};
-pub use azul_core::styled_dom::StyledDom;
-pub use azul_core::dom::Dom;
-pub use azul_core::app_resources::ImageRef as InternalImageRef;
+use azul_css::{CssPropertyValue, FloatValue, LayoutDisplay, StyleTextColor};
 pub use azul_css_parser::CssApiWrapper;
+use rust_fontconfig::{FcFont, FcFontCache, FcPattern};
+use serde_derive::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use svg2pdf::usvg::tiny_skia_path::Scalar;
 
 const DPI_SCALE: DpiScaleFactor = DpiScaleFactor {
     inner: FloatValue::const_new(1),
@@ -44,12 +36,10 @@ const DOCUMENT_ID: DocumentId = DocumentId {
     id: 0,
 };
 
-pub type Base64String = String;
-
 #[derive(Debug)]
 pub struct XmlRenderOptions {
-    pub images: BTreeMap<String, Base64String>,
-    pub fonts: BTreeMap<String, Base64String>,
+    pub images: BTreeMap<String, Vec<u8>>,
+    pub fonts: BTreeMap<String, Vec<u8>>,
     pub page_width: Mm,
     pub page_height: Mm,
     pub components: Vec<XmlComponent>,
@@ -72,14 +62,15 @@ pub(crate) fn xml_to_pages(
     config: XmlRenderOptions,
     document: &mut PdfDocument,
 ) -> Result<Vec<PdfPage>, String> {
-
     let size = LogicalSize {
         width: config.page_width.into_pt().0,
         height: config.page_height.into_pt().0,
     };
 
-    let root_nodes = azulc_lib::xml::parse_xml_string(&fixup_xml(file_contents))
-        .map_err(|e| format!("Error parsing XML: {}", e))?;
+    // inserts images into the PDF resources and changes the src="..."
+    let xml = fixup_xml(file_contents, document, &config);
+    let root_nodes =
+        azulc_lib::xml::parse_xml_string(&xml).map_err(|e| format!("Error parsing XML: {}", e))?;
 
     let fixup = fixup_xml_nodes(&root_nodes);
 
@@ -89,21 +80,22 @@ pub(crate) fn xml_to_pages(
     }
 
     let styled_dom = azul_core::xml::str_to_dom(
-        fixup.as_ref(), 
-        &mut components, 
-        Some(config.page_width.into_pt().0)
-    ).map_err(|e| format!("Error constructing DOM: {}", e.to_string()))?;
+        fixup.as_ref(),
+        &mut components,
+        Some(config.page_width.into_pt().0),
+    )
+    .map_err(|e| format!("Error constructing DOM: {}", e.to_string()))?;
 
-    let dom_id = DomId { inner: 0 };
     let mut fake_window_state = FullWindowState::default();
     fake_window_state.size.dimensions = size;
     let mut renderer_resources = RendererResources::default();
+
     let image_cache = ImageCache {
         image_id_map: config
             .images
             .iter()
             .filter_map(|(id, bytes)| {
-                let bytes = base64::prelude::BASE64_STANDARD.decode(bytes).ok()?;
+                // let bytes = base64::prelude::BASE64_STANDARD.decode(bytes).ok()?;
                 let decoded = crate::image::RawImage::decode_from_bytes(&bytes).ok()?;
                 let raw_image = crate::image::translate_to_internal_rawimage(&decoded);
                 Some((id.clone().into(), ImageRef::new_rawimage(raw_image)?))
@@ -138,14 +130,14 @@ pub(crate) fn xml_to_pages(
             &config
                 .fonts
                 .iter()
-                .filter_map(|(id, font_base64)| {
-                    let bytes = base64::prelude::BASE64_STANDARD.decode(font_base64).ok()?;
+                .filter_map(|(id, bytes)| {
+                    // let bytes = base64::prelude::BASE64_STANDARD.decode(font_base64).ok()?;
                     let pat = FcPattern {
                         name: Some(id.split(".").next().unwrap_or("").to_string()),
                         ..Default::default()
                     };
                     let font = FcFont {
-                        bytes,
+                        bytes: bytes.clone(),
                         font_index: 0,
                     };
                     Some((pat, font))
@@ -243,7 +235,28 @@ fn get_fcpat(b: BuiltinFont) -> (FcPattern, FcFont) {
     )
 }
 
-fn fixup_xml(s: &str) -> String {
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct ImageInfo {
+    pub original_id: String,
+    pub xobject_id: String,
+    pub image_type: ImageTypeInfo,
+    pub width: usize,
+    pub height: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum ImageTypeInfo {
+    Image,
+    Svg,
+}
+
+impl Default for ImageTypeInfo {
+    fn default() -> Self {
+        ImageTypeInfo::Image
+    }
+}
+
+fn fixup_xml(s: &str, doc: &mut PdfDocument, config: &XmlRenderOptions) -> String {
     let s = if !s.contains("<body>") {
         format!("<body>{s}</body>")
     } else {
@@ -254,7 +267,60 @@ fn fixup_xml(s: &str) -> String {
     } else {
         s.trim().to_string()
     };
-    s.trim().to_string()
+
+    let mut s = s.trim().to_string();
+
+    for (k, image_bytes) in config.images.iter() {
+        let opt_svg = std::str::from_utf8(&image_bytes)
+            .ok()
+            .and_then(|s| crate::Svg::parse(s).ok());
+
+        let img_info = match opt_svg {
+            Some(o) => {
+                let width = o.width.map(|s| s.0).unwrap_or(0);
+                let height = o.height.map(|s| s.0).unwrap_or(0);
+                let image_xobject_id = doc.add_xobject(&o);
+                ImageInfo {
+                    original_id: k.clone(),
+                    xobject_id: image_xobject_id.0,
+                    image_type: ImageTypeInfo::Svg,
+                    width,
+                    height,
+                }
+            }
+            None => {
+                let raw_image = match crate::image::RawImage::decode_from_bytes(&image_bytes) {
+                    Ok(o) => o,
+                    Err(e) => {
+                        #[cfg(not(target_family = "wasm"))]
+                        {
+                            println!("{e}");
+                        }
+                        continue;
+                    }
+                };
+
+                let width = raw_image.width;
+                let height = raw_image.height;
+                let image_xobject_id = doc.add_image(&raw_image);
+                ImageInfo {
+                    original_id: k.clone(),
+                    xobject_id: image_xobject_id.0,
+                    image_type: ImageTypeInfo::Image,
+                    width,
+                    height,
+                }
+            }
+        };
+
+        let json = serde_json::to_string(&img_info).unwrap_or_default();
+
+        s = s
+            .replace(&format!("src='{k}'"), &format!("src='{json}'"))
+            .replace(&format!("src=\"{k}\""), &format!("src='{json}'"));
+    }
+
+    s
 }
 
 fn fixup_xml_nodes(nodes: &[XmlNode]) -> Vec<XmlNode> {
@@ -460,18 +526,34 @@ fn displaylist_handle_rect(
         });
     }
 
-    if let Some((desc, data, hash, size)) = opt_image {
-        let image_id = format!("im_azul_layout_{h:032}", h = hash.0);
-        let xobject_id = crate::XObjectId(image_id.clone());
-        let image = crate::XObject::Image(crate::image::translate_from_internal_rawimage(
-            desc,
-            data.as_slice(),
-        ));
-        doc.resources.xobjects.map.insert(xobject_id, image);
+    if let Some(image_info) = opt_image {
+        let source_width = image_info.width;
+        let source_height = image_info.width;
+        let target_width = positioned_rect.size.width;
+        let target_height = positioned_rect.size.height;
+        let pos = positioned_rect.position.get_static_offset();
+
+        let is_zero = target_width.is_nearly_zero()
+            || target_height.is_nearly_zero()
+            || source_height == 0
+            || source_width == 0;
+
+        if !is_zero {
+            ops.push(Op::UseXObject {
+                id: crate::XObjectId(image_info.xobject_id.clone()),
+                transform: crate::XObjectTransform {
+                    translate_x: Some(Pt(pos.x)),
+                    translate_y: Some(Pt(page_height.0 - pos.y)),
+                    rotate: None, // todo
+                    scale_x: Some(target_width / source_width as f32),
+                    scale_y: Some(target_height / source_height as f32),
+                    dpi: None,
+                },
+            });
+        }
     }
 
     if let Some((text, id, color, space_index)) = opt_text {
-
         ops.push(Op::StartTextSection);
         ops.push(Op::SetFillColor {
             col: crate::Color::Rgb(crate::Rgb {
@@ -485,22 +567,29 @@ fn displaylist_handle_rect(
             mode: crate::TextRenderingMode::Fill,
         });
         ops.push(Op::SetWordSpacing { percent: 100.0 });
-        ops.push(Op::SetLineHeight { lh: Pt(text.font_size_px) });
-        
+        ops.push(Op::SetLineHeight {
+            lh: Pt(text.font_size_px),
+        });
+
         let glyphs = text.get_layouted_glyphs();
 
         let static_bounds = positioned_rect.get_approximate_static_bounds();
 
         for gi in glyphs.glyphs {
-            ops.push(Op::SetTextCursor { pos: crate::Point { x: Pt(0.0), y: Pt(0.0) } });
-            ops.push(Op::SetTextMatrix { 
+            ops.push(Op::SetTextCursor {
+                pos: crate::Point {
+                    x: Pt(0.0),
+                    y: Pt(0.0),
+                },
+            });
+            ops.push(Op::SetTextMatrix {
                 matrix: crate::TextMatrix::Translate(
-                    Pt(static_bounds.min_x() as f32 + (gi.point.x * 2.0)), 
-                    Pt(page_height.0 - static_bounds.min_y() as f32 - gi.point.y), 
-                ) 
+                    Pt(static_bounds.min_x() as f32 + (gi.point.x * 2.0)),
+                    Pt(page_height.0 - static_bounds.min_y() as f32 - gi.point.y),
+                ),
             });
             ops.push(Op::WriteCodepoints {
-                font: id.clone(), 
+                font: id.clone(),
                 size: Pt(text.font_size_px * 2.0),
                 cp: vec![(gi.index as u16, ' ')],
             });
@@ -510,6 +599,7 @@ fn displaylist_handle_rect(
     }
 
     if !newops.is_empty() {
+        println!("{newops:?}");
         ops.push(Op::SaveGraphicsState);
         ops.append(&mut newops);
         ops.push(Op::RestoreGraphicsState);
@@ -683,27 +773,19 @@ fn get_background_content(
     v
 }
 
-fn get_image_node(
-    html_node: &NodeData,
-) -> Option<(&ImageDescriptor, &U8Vec, ImageRefHash, LogicalSize)> {
-    use azul_core::app_resources::DecodedImage;
-    use azul_core::app_resources::ImageData;
+fn get_image_node(html_node: &NodeData) -> Option<ImageInfo> {
     use azul_core::dom::NodeType;
 
-    let image_ref = match html_node.get_node_type() {
-        NodeType::Image(image_ref) => image_ref,
+    let data = match html_node.get_node_type() {
+        NodeType::Image(image_ref) => image_ref.get_data(),
         _ => return None,
     };
 
-    let image_hash = image_ref.get_hash();
-    let image_size = image_ref.get_size();
-
-    let (descriptor, data) = match image_ref.get_data() {
-        DecodedImage::Raw((descriptor, ImageData::Raw(vec))) => (descriptor, vec),
-        _ => return None,
-    };
-
-    Some((descriptor, data, image_hash, image_size))
+    if let DecodedImage::NullImage { tag, .. } = data {
+        serde_json::from_slice(tag).ok()
+    } else {
+        None
+    }
 }
 
 fn get_text_node(
