@@ -422,7 +422,10 @@ impl ParsedFont {
         for gid in glyph_ids.keys() {
             let (width, _) = match self.get_glyph_size(*gid) {
                 Some(s) => s,
-                None => continue,
+                None => match self.get_space_width() {
+                    Some(w) => (w as i32, 0),
+                    None => (0, 0),
+                },
             };
 
             if *gid == current_high_gid {
@@ -764,7 +767,7 @@ impl ParsedFont {
     // get the x and y size of a glyph (unscaled units)
     pub fn get_glyph_size(&self, glyph_index: u16) -> Option<(i32, i32)> {
         let g = self.glyph_records_decoded.get(&glyph_index)?;
-        let glyph_width = g.bounding_box.max_x as i32 - g.bounding_box.min_x as i32; // width
+        let glyph_width = g.horz_advance as i32;
         let glyph_height = g.bounding_box.max_y as i32 - g.bounding_box.min_y as i32; // height
         Some((glyph_width, glyph_height))
     }
