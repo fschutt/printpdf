@@ -101,9 +101,14 @@ mod js_sys_date {
 mod unix_epoch_stub_date {
     use time::Month;
 
-    #[derive(Debug, Clone)]
+    #[derive(Debug, PartialEq, Copy, Clone, Eq, Ord, PartialOrd, Hash)]
     pub struct OffsetDateTime;
     impl OffsetDateTime {
+
+        pub fn from_unix_timestamp(_: usize) -> Result<Self, String> {
+            Ok(OffsetDateTime)
+        }
+
         #[inline(always)]
         pub fn now_utc() -> Self {
             OffsetDateTime
