@@ -48,6 +48,7 @@ pub struct PrintPdfApiReturn {
     pub error: String,
 }
 
+#[cfg(feature = "wasm")]
 #[allow(non_snake_case)]
 #[wasm_bindgen::prelude::wasm_bindgen]
 pub fn PrintPdfFromXml(input: String) -> String {

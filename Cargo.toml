@@ -37,7 +37,7 @@ xmlparser = { version = "0.13.6", default-features = false }
 serde = { version = "1" }
 serde_derive = { version = "1" }
 serde_json = { version = "1" }
-wasm-bindgen = { version = "0.2" }
+wasm-bindgen = { version = "0.2", optional = true }
 base64 = "0.22.1"
 flate2 = "1.0.35"
 
@@ -48,6 +48,7 @@ debug = true
 
 [features]
 default = ["js-sys"]
+wasm = ["wasm-bindgen"]
 gif = ["image/gif"]
 jpeg = ["image/jpeg"]
 png = ["image/png"]
@@ -61,7 +62,7 @@ dds = ["image/dds"]
 webp = ["image/webp"]
 woff2 = ["allsorts/brotli", "azul-text-layout/woff2"]
 rayon = ["image/rayon"] # enables multithreading for decoding images
-js-sys = ["dep:js-sys"] # enables js-sys features on wasm
+js-sys = ["dep:js-sys", "wasm"] # enables js-sys features on wasm
 
 [package.metadata.docs.rs]
 all-features = true
