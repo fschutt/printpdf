@@ -4,7 +4,7 @@
 pub use self::js_sys_date::OffsetDateTime;
 
 #[cfg(not(feature = "js-sys"))]
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+#[cfg(any(all(target_arch = "wasm32", target_os = "unknown"), all(target_arch = "wasm32", target_os = "wasi")))]
 pub use self::unix_epoch_stub_date::OffsetDateTime;
 
 #[cfg(not(any(target_arch = "wasm32", target_os = "unknown")))]
@@ -97,7 +97,7 @@ mod js_sys_date {
 }
 
 #[cfg(not(feature = "js-sys"))]
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+#[cfg(any(all(target_arch = "wasm32", target_os = "unknown"), all(target_arch = "wasm32", target_os = "wasi")))]
 mod unix_epoch_stub_date {
     use time::Month;
 
@@ -161,7 +161,7 @@ mod unix_epoch_stub_date {
     }
 }
 
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+#[cfg(any(all(target_arch = "wasm32", target_os = "unknown"), all(target_arch = "wasm32", target_os = "wasi")))]
 #[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct UtcOffset {
     hours: i8,
@@ -169,7 +169,7 @@ pub struct UtcOffset {
     seconds: i8,
 }
 
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+#[cfg(any(all(target_arch = "wasm32", target_os = "unknown"), all(target_arch = "wasm32", target_os = "wasi")))]
 impl UtcOffset {
     pub const fn whole_hours(self) -> i8 {
         self.hours
