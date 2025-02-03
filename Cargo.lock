@@ -49,35 +49,6 @@ dependencies = [
 [[package]]
 name = "allsorts"
 version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7b566d29776fc848a8279a72339499db95ee5592926bac114d35aa9a92efe9c"
-dependencies = [
- "bitflags 1.3.2",
- "bitreader",
- "brotli-decompressor",
- "byteorder",
- "crc32fast",
- "encoding_rs",
- "flate2",
- "glyph-names",
- "itertools 0.10.5",
- "lazy_static",
- "libc",
- "log",
- "num-traits",
- "ouroboros",
- "pathfinder_geometry",
- "rustc-hash",
- "tinyvec",
- "ucd-trie",
- "unicode-canonical-combining-class",
- "unicode-general-category",
- "unicode-joining-type",
-]
-
-[[package]]
-name = "allsorts"
-version = "0.15.0"
 source = "git+https://github.com/fschutt/allsorts?branch=optional-brotli#cc042e8efd9f6e0d26132e2440c085759538d359"
 dependencies = [
  "bitflags 1.3.2",
@@ -188,7 +159,7 @@ dependencies = [
 [[package]]
 name = "azul-core"
 version = "0.0.2"
-source = "git+https://github.com/fschutt/azul?rev=9d3d79add561c442a1f2d3c527191f2399c80b3f#9d3d79add561c442a1f2d3c527191f2399c80b3f"
+source = "git+https://github.com/fschutt/azul?rev=a1470af7acda30fbb4416b64a787c038f552d54d#a1470af7acda30fbb4416b64a787c038f552d54d"
 dependencies = [
  "azul-css",
  "azul-css-parser",
@@ -201,7 +172,7 @@ dependencies = [
 [[package]]
 name = "azul-css"
 version = "0.0.1"
-source = "git+https://github.com/fschutt/azul?rev=9d3d79add561c442a1f2d3c527191f2399c80b3f#9d3d79add561c442a1f2d3c527191f2399c80b3f"
+source = "git+https://github.com/fschutt/azul?rev=a1470af7acda30fbb4416b64a787c038f552d54d#a1470af7acda30fbb4416b64a787c038f552d54d"
 dependencies = [
  "libm",
 ]
@@ -209,7 +180,7 @@ dependencies = [
 [[package]]
 name = "azul-css-parser"
 version = "0.0.1"
-source = "git+https://github.com/fschutt/azul?rev=9d3d79add561c442a1f2d3c527191f2399c80b3f#9d3d79add561c442a1f2d3c527191f2399c80b3f"
+source = "git+https://github.com/fschutt/azul?rev=a1470af7acda30fbb4416b64a787c038f552d54d#a1470af7acda30fbb4416b64a787c038f552d54d"
 dependencies = [
  "azul-css",
  "azul-simplecss",
@@ -218,7 +189,7 @@ dependencies = [
 [[package]]
 name = "azul-layout"
 version = "0.0.4"
-source = "git+https://github.com/fschutt/azul?rev=9d3d79add561c442a1f2d3c527191f2399c80b3f#9d3d79add561c442a1f2d3c527191f2399c80b3f"
+source = "git+https://github.com/fschutt/azul?rev=a1470af7acda30fbb4416b64a787c038f552d54d#a1470af7acda30fbb4416b64a787c038f552d54d"
 dependencies = [
  "azul-core",
  "azul-css",
@@ -236,9 +207,9 @@ checksum = "c303bfdf857413adbd19d9b15dddd9b4adb8e2be7e493c8a38d9fc6179a074ac"
 [[package]]
 name = "azul-text-layout"
 version = "0.0.5"
-source = "git+https://github.com/fschutt/azul?rev=9d3d79add561c442a1f2d3c527191f2399c80b3f#9d3d79add561c442a1f2d3c527191f2399c80b3f"
+source = "git+https://github.com/fschutt/azul?rev=a1470af7acda30fbb4416b64a787c038f552d54d#a1470af7acda30fbb4416b64a787c038f552d54d"
 dependencies = [
- "allsorts 0.15.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "allsorts",
  "azul-core",
  "azul-css",
  "rayon",
@@ -250,7 +221,7 @@ dependencies = [
 [[package]]
 name = "azulc"
 version = "0.0.3"
-source = "git+https://github.com/fschutt/azul?rev=9d3d79add561c442a1f2d3c527191f2399c80b3f#9d3d79add561c442a1f2d3c527191f2399c80b3f"
+source = "git+https://github.com/fschutt/azul?rev=a1470af7acda30fbb4416b64a787c038f552d54d#a1470af7acda30fbb4416b64a787c038f552d54d"
 dependencies = [
  "azul-core",
  "azul-css",
@@ -1215,7 +1186,7 @@ dependencies = [
 name = "printpdf"
 version = "0.8.0"
 dependencies = [
- "allsorts 0.15.0 (git+https://github.com/fschutt/allsorts?branch=optional-brotli)",
+ "allsorts",
  "azul-core",
  "azul-css",
  "azul-css-parser",
