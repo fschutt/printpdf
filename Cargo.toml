@@ -41,11 +41,6 @@ wasm-bindgen = { version = "0.2", optional = true }
 base64 = "0.22.1"
 flate2 = "1.0.35"
 
-[profile.release]
-lto = true
-opt-level = 's'
-debug = true
-
 [features]
 default = ["js-sys"]
 wasm = ["wasm-bindgen"]
@@ -66,9 +61,6 @@ js-sys = ["dep:js-sys", "wasm"] # enables js-sys features on wasm
 
 [package.metadata.docs.rs]
 all-features = true
-
-[lib]
-crate-type = ["cdylib", "rlib"]
 
 [target.'cfg(all(target_arch="wasm32",target_os="unknown"))'.dependencies]
 js-sys = { version = "0.3.40", optional = true }
