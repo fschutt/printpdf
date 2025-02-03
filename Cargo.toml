@@ -1,6 +1,6 @@
 [package]
 name = "printpdf"
-version = "0.7.0"
+version = "0.8.0"
 authors = [
     "Felix Schütt <felix.schuett@maps4print.com>",
     "Julien Schminke <julien.schminke@web.de",
@@ -21,7 +21,7 @@ lopdf = { git = "https://github.com/J-F-Liu/lopdf", rev = "80a6c505bf8303c74b305
     "nom_parser",
 ] }
 time = { version = "0.3.25", default-features = false, features = ["std"] }
-allsorts = { version = "0.15", default-features = false, features = ["flate2_rust"] }
+allsorts = { version = "0.15", git = "https://github.com/fschutt/allsorts", branch = "optional-brotli", default-features = false, features = ["flate2_rust"] }
 pdf-writer = { version = "0.12.0" }
 image = { version = "0.25", default-features = false }
 svg2pdf = { version = "0.12.0" }
@@ -59,6 +59,7 @@ tga = ["image/tga"]
 hdr = ["image/hdr"]
 dds = ["image/dds"]
 webp = ["image/webp"]
+woff2 = ["allsorts/brotli"]
 rayon = ["image/rayon"] # enables multithreading for decoding images
 js-sys = ["dep:js-sys"] # enables js-sys features on wasm
 
