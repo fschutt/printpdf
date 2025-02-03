@@ -482,7 +482,7 @@ fn translate_operations(
                     vec![font.get_pdf_id().into(), (size.0).into()],
                 ));
                 let bytes = lopdf::Document::encode_text(
-                    &lopdf::Encoding::SimpleEncoding("WinAnsiEncoding"),
+                    &lopdf::Encoding::SimpleEncoding(b"WinAnsiEncoding"),
                     text,
                 );
                 content.push(LoOp::new("Tj", vec![LoString(bytes, Hexadecimal)]));

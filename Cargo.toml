@@ -17,7 +17,7 @@ autoexamples = false
 edition = "2021"
 
 [dependencies]
-lopdf = { git = "https://github.com/J-F-Liu/lopdf", rev = "9d3d79add561c442a1f2d3c527191f2399c80b3f", default-features = false, features = [
+lopdf = { git = "https://github.com/J-F-Liu/lopdf", rev = "80a6c505bf8303c74b3057c8e53d4f791e92e126", default-features = false, features = [
     "nom_parser",
 ] }
 time = { version = "0.3.25", default-features = false, features = ["std"] }

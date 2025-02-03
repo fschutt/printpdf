@@ -160,7 +160,7 @@ dependencies = [
 [[package]]
 name = "azul-core"
 version = "0.0.2"
-source = "git+https://github.com/fschutt/azul?rev=7e31b697b8e61779b88790aa9a74a95d8295a51a#7e31b697b8e61779b88790aa9a74a95d8295a51a"
+source = "git+https://github.com/fschutt/azul?rev=9d3d79add561c442a1f2d3c527191f2399c80b3f#9d3d79add561c442a1f2d3c527191f2399c80b3f"
 dependencies = [
  "azul-css",
  "azul-css-parser",
@@ -173,7 +173,7 @@ dependencies = [
 [[package]]
 name = "azul-css"
 version = "0.0.1"
-source = "git+https://github.com/fschutt/azul?rev=7e31b697b8e61779b88790aa9a74a95d8295a51a#7e31b697b8e61779b88790aa9a74a95d8295a51a"
+source = "git+https://github.com/fschutt/azul?rev=9d3d79add561c442a1f2d3c527191f2399c80b3f#9d3d79add561c442a1f2d3c527191f2399c80b3f"
 dependencies = [
  "libm",
 ]
@@ -181,7 +181,7 @@ dependencies = [
 [[package]]
 name = "azul-css-parser"
 version = "0.0.1"
-source = "git+https://github.com/fschutt/azul?rev=7e31b697b8e61779b88790aa9a74a95d8295a51a#7e31b697b8e61779b88790aa9a74a95d8295a51a"
+source = "git+https://github.com/fschutt/azul?rev=9d3d79add561c442a1f2d3c527191f2399c80b3f#9d3d79add561c442a1f2d3c527191f2399c80b3f"
 dependencies = [
  "azul-css",
  "azul-simplecss",
@@ -190,7 +190,7 @@ dependencies = [
 [[package]]
 name = "azul-layout"
 version = "0.0.4"
-source = "git+https://github.com/fschutt/azul?rev=7e31b697b8e61779b88790aa9a74a95d8295a51a#7e31b697b8e61779b88790aa9a74a95d8295a51a"
+source = "git+https://github.com/fschutt/azul?rev=9d3d79add561c442a1f2d3c527191f2399c80b3f#9d3d79add561c442a1f2d3c527191f2399c80b3f"
 dependencies = [
  "azul-core",
  "azul-css",
@@ -208,7 +208,7 @@ checksum = "c303bfdf857413adbd19d9b15dddd9b4adb8e2be7e493c8a38d9fc6179a074ac"
 [[package]]
 name = "azul-text-layout"
 version = "0.0.5"
-source = "git+https://github.com/fschutt/azul?rev=7e31b697b8e61779b88790aa9a74a95d8295a51a#7e31b697b8e61779b88790aa9a74a95d8295a51a"
+source = "git+https://github.com/fschutt/azul?rev=9d3d79add561c442a1f2d3c527191f2399c80b3f#9d3d79add561c442a1f2d3c527191f2399c80b3f"
 dependencies = [
  "allsorts",
  "azul-core",
@@ -222,7 +222,7 @@ dependencies = [
 [[package]]
 name = "azulc"
 version = "0.0.3"
-source = "git+https://github.com/fschutt/azul?rev=7e31b697b8e61779b88790aa9a74a95d8295a51a#7e31b697b8e61779b88790aa9a74a95d8295a51a"
+source = "git+https://github.com/fschutt/azul?rev=9d3d79add561c442a1f2d3c527191f2399c80b3f#9d3d79add561c442a1f2d3c527191f2399c80b3f"
 dependencies = [
  "azul-core",
  "azul-css",
@@ -906,8 +906,8 @@ dependencies = [
 
 [[package]]
 name = "lopdf"
-version = "0.34.0"
-source = "git+https://github.com/J-F-Liu/lopdf?rev=ea838e2252201bf0efe648b8954100b13835dae0#ea838e2252201bf0efe648b8954100b13835dae0"
+version = "0.35.0"
+source = "git+https://github.com/J-F-Liu/lopdf?rev=80a6c505bf8303c74b3057c8e53d4f791e92e126#80a6c505bf8303c74b3057c8e53d4f791e92e126"
 dependencies = [
  "aes",
  "cbc",
@@ -920,6 +920,7 @@ dependencies = [
  "nom",
  "nom_locate",
  "rangemap",
+ "thiserror 2.0.11",
  "time",
  "weezl",
 ]
@@ -1342,7 +1343,7 @@ dependencies = [
  "rand_chacha",
  "simd_helpers",
  "system-deps",
- "thiserror",
+ "thiserror 1.0.69",
  "v_frame",
  "wasm-bindgen",
 ]
@@ -1712,7 +1713,16 @@ version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
 dependencies = [
- "thiserror-impl",
+ "thiserror-impl 1.0.69",
+]
+
+[[package]]
+name = "thiserror"
+version = "2.0.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d452f284b73e6d76dd36758a0c8684b1d5be31f92b89d07fd5822175732206fc"
+dependencies = [
+ "thiserror-impl 2.0.11",
 ]
 
 [[package]]
@@ -1720,6 +1730,17 @@ name = "thiserror-impl"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.87",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "2.0.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26afc1baea8a989337eeb52b6e72a039780ce45c3edfcc9c5b9d112feeb173c2"
 dependencies = [
  "proc-macro2",
  "quote",
