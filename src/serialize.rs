@@ -998,7 +998,7 @@ fn add_font_to_pdf(
                             "FontBBox",
                             Array(vec![
                                 Integer(0),
-                                Integer(prepared.max_height),
+                                Integer(0),
                                 Integer(prepared.total_width),
                                 Integer(prepared.max_height),
                             ]),
