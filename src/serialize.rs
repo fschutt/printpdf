@@ -76,10 +76,7 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec
         let icc_profile_id = doc.add_object(Stream(icc_to_stream(&icc)));
         let output_intents = LoDictionary::from_iter(vec![
             ("S", Name("GTS_PDFX".into())),
-            (
-                "OutputCondition",
-                LoString(icc_profile_descr.into(), Literal),
-            ),
+            ("OutputCondition", LoString(icc_profile_descr.into(), Literal)),
             ("License", LoString(ICC_PROFILE_LICENSE.into(), Literal)),
             ("Type", Name("OutputIntent".into())),
             ("OutputConditionIdentifier", icc_profile_short),
@@ -93,7 +90,10 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec
     // (Optional): Add XMP Metadata to catalog
     if pdf.metadata.info.conformance.must_have_xmp_metadata() {
         let xmp_obj = Stream(LoStream::new(
-            LoDictionary::from_iter(vec![("Type", "Metadata".into()), ("Subtype", "XML".into())]),
+            LoDictionary::from_iter(vec![
+                ("Type", "Metadata".into()),
+                ("Subtype", "XML".into()),
+            ]),
             pdf.metadata.xmp_metadata_string().as_bytes().to_vec(),
         ));
         let metadata_id = doc.add_object(xmp_obj);
@@ -101,62 +101,58 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec
     }
 
     // (Optional): Add "OCProperties" (layers) to catalog
-    if !pdf.resources.layers.map.is_empty() {
-        let layer_ids = pdf
+    // Build a mapping from each layer's internal id to a single OCG object ID.
+    let layer_ids = if !pdf.resources.layers.map.is_empty() {
+        let map = pdf
             .resources
             .layers
             .map
             .iter()
-            .map(|(id, s)| {
+            .map(|(id, layer)| {
                 let usage_ocg_dict = LoDictionary::from_iter(vec![
                     ("Type", Name("OCG".into())),
                     (
                         "CreatorInfo",
                         Dictionary(LoDictionary::from_iter(vec![
-                            ("Creator", LoString(s.creator.clone().into(), Literal)),
-                            ("Subtype", Name(s.usage.to_string().into())),
+                            ("Creator", LoString(layer.creator.clone().into(), Literal)),
+                            ("Subtype", Name(layer.usage.to_string().into())),
                         ])),
                     ),
                 ]);
-
                 let usage_ocg_dict_ref = doc.add_object(Dictionary(usage_ocg_dict));
                 let intent_arr = Array(vec![Name("View".into()), Name("Design".into())]);
                 let intent_arr_ref = doc.add_object(intent_arr);
-
                 let pdf_id = doc.add_object(Dictionary(LoDictionary::from_iter(vec![
                     ("Type", Name("OCG".into())),
-                    ("Name", LoString(s.name.to_string().into(), Literal)), // TODO: non-ASCII layer names!
+                    ("Name", LoString(layer.name.to_string().into(), Literal)),
                     ("Intent", Reference(intent_arr_ref)),
                     ("Usage", Reference(usage_ocg_dict_ref)),
                 ])));
-
                 (id.clone(), pdf_id)
             })
             .collect::<BTreeMap<_, _>>();
-
-        let flattened_ocg_list = layer_ids
+        let flattened_ocg_list = map
             .values()
             .map(|s| Reference(*s))
             .collect::<Vec<_>>();
-
         catalog.set(
             "OCProperties",
             Dictionary(LoDictionary::from_iter(vec![
                 ("OCGs", Array(flattened_ocg_list.clone())),
-                // optional content configuration dictionary, page 376
                 (
                     "D",
                     Dictionary(LoDictionary::from_iter(vec![
                         ("Order", Array(flattened_ocg_list.clone())),
-                        // "radio button groups"
                         ("RBGroups", Array(vec![])),
-                        // initially visible OCG
                         ("ON", Array(flattened_ocg_list)),
                     ])),
                 ),
             ])),
         );
-    }
+        Some(map)
+    } else {
+        None
+    };
 
     // Build fonts dictionary
     let mut global_font_dict = LoDictionary::new();
@@ -202,61 +198,37 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec
         .iter()
         .zip(page_ids_reserved.iter())
         .map(|(page, page_id)| {
-            // gather page annotations
-            let mut page_resources = LoDictionary::new(); // get_page_resources(&mut doc, &page);
+            let mut page_resources = LoDictionary::new();
 
-            // gather page layers
-            let page_layers = page
-                .ops
-                .iter()
-                .filter_map(|op| match op {
-                    Op::BeginLayer { layer_id } => pdf
-                        .resources
-                        .layers
-                        .map
-                        .get(layer_id)
-                        .map(|q| (layer_id, q)),
-                    _ => None,
-                })
-                .map(|(layer_id, l)| {
-                    let usage_dict = doc.add_object(LoDictionary::from_iter(vec![
-                        ("Type", Name("OCG".into())),
-                        (
-                            "CreatorInfo",
-                            Dictionary(LoDictionary::from_iter(vec![
-                                ("Creator", LoString(l.creator.clone().into(), Literal)),
-                                ("Subtype", Name(l.usage.to_string().into())),
-                            ])),
+            // Instead of re-creating new OCG dictionaries here,
+            // re-use the objects from the global layer_ids mapping.
+            if let Some(ref layer_ids) = layer_ids {
+                let page_layers = page
+                    .ops
+                    .iter()
+                    .filter_map(|op| {
+                        if let Op::BeginLayer { layer_id } = op {
+                            layer_ids.get(layer_id).map(|ocg_obj_id| {
+                                (layer_id.0.clone(), *ocg_obj_id)
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                if !page_layers.is_empty() {
+                    page_resources.set(
+                        "Properties",
+                        LoDictionary::from_iter(
+                            page_layers
+                                .iter()
+                                .map(|(name, ocg_obj_id)| (name.as_str(), Reference(*ocg_obj_id))),
                         ),
-                    ]));
-
-                    let intent = doc.add_object(Array(vec![
-                        Name("View".into()),
-                        Name(l.intent.to_string().into()),
-                    ]));
-
-                    let id = doc.add_object(LoDictionary::from_iter(vec![
-                        ("Type", Name("OCG".into())),
-                        ("Name", LoString(l.name.clone().into(), Literal)),
-                        ("Intent", Reference(intent)),
-                        ("Usage", Reference(usage_dict)),
-                    ]));
-
-                    (layer_id.0.clone(), id)
-                })
-                .collect::<Vec<_>>();
-
-            if !page_layers.is_empty() {
-                page_resources.set(
-                    "Properties",
-                    LoDictionary::from_iter(
-                        page_layers
-                            .iter()
-                            .map(|(id, obj)| (id.as_str(), Reference(*obj))),
-                    ),
-                );
+                    );
+                }
             }
 
+            // Gather annotations
             let links = page
                 .ops
                 .iter()
@@ -265,6 +237,7 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec
                     _ => None,
                 })
                 .collect::<Vec<_>>();
+
             page_resources.set(
                 "Annots",
                 Array(
@@ -278,7 +251,6 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec
             page_resources.set("Font", Reference(global_font_dict_id));
             page_resources.set("XObject", Reference(global_xobject_dict_id));
             page_resources.set("ExtGState", Reference(global_extgstate_dict_id));
-            // page_resources.et("Properties", Dictionary(ocg_dict));
 
             let layer_stream =
                 translate_operations(&page.ops, &prepared_fonts, &pdf.resources.xobjects.map); // Vec<u8>
