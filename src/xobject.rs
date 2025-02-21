@@ -83,6 +83,8 @@ pub struct ExternalXObject {
     pub width: Option<Px>,
     /// Optional height
     pub height: Option<Px>,
+    /// Optional DPI of the object
+    pub dpi: Option<f32>,
 }
 
 /// Describes the format the image bytes are compressed with.

@@ -52,6 +52,7 @@ pub(crate) mod serialize;
 pub use serialize::PdfSaveOptions;
 /// Parsing PDF
 pub(crate) mod deserialize;
+pub use deserialize::{PdfWarnMsg, PdfParseOptions};
 
 /// Internal ID for page annotations
 #[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord)]
@@ -140,6 +141,11 @@ impl PdfDocument {
             bookmarks: PageAnnotMap::default(),
             pages: Vec::new(),
         }
+    }
+
+    /// Parses a PDF 
+    pub fn parse(bytes: &[u8], opts: &PdfParseOptions) -> Result<(Self, Vec<PdfWarnMsg>), String> {
+        self::deserialize::parse_pdf_from_bytes(bytes, opts)
     }
 
     pub fn add_graphics_state(&mut self, gs: ExtendedGraphicsState) -> ExtendedGraphicsStateId {

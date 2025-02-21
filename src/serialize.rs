@@ -390,7 +390,7 @@ fn builtin_font_to_dict(font: &BuiltinFont) -> LoDictionary {
     ])
 }
 
-fn translate_operations(
+pub(crate) fn translate_operations(
     ops: &[Op],
     fonts: &BTreeMap<FontId, PreparedFont>,
     xobjects: &BTreeMap<XObjectId, XObject>,
@@ -532,13 +532,22 @@ fn translate_operations(
                 content.push(LoOp::new("Td", vec![pos.x.0.into(), pos.y.0.into()]));
             }
             Op::SetFillColor { col } => {
-                let ci = match &col {
-                    Color::Rgb(_) => "rg",
-                    Color::Cmyk(_) | Color::SpotColor(_) => "k",
-                    Color::Greyscale(_) => "g",
-                };
-                let cvec = col.into_vec().into_iter().map(Real).collect();
-                content.push(LoOp::new(ci, cvec));
+                match col {
+                    Color::Greyscale(crate::Greyscale { percent, .. }) => {
+                        content.push(LoOp::new("sc", vec![Real(*percent)]));
+                    }
+                    Color::Rgb(crate::Rgb { r, g, b, .. }) => {
+                        content.push(LoOp::new("sc", vec![Real(*r), Real(*g), Real(*b)]));
+                    }
+                    Color::Cmyk(crate::Cmyk { c, m, y, k, .. }) => {
+                        content.push(LoOp::new("sc", vec![
+                            Real(*c), Real(*m), Real(*y), Real(*k)
+                        ]));
+                    }
+                    Color::SpotColor(_) => {
+                        // handle or unknown
+                    }
+                }
             }
             Op::SetOutlineColor { col } => {
                 let ci = match &col {
@@ -561,6 +570,9 @@ fn translate_operations(
             }
             Op::SetLineJoinStyle { join } => {
                 content.push(LoOp::new("j", vec![Integer(join.id())]));
+            }
+            Op::SetMiterLimit { limit } => {
+                content.push(LoOp::new("M", vec![Real(limit.0)]));
             }
             Op::SetLineCapStyle { cap } => {
                 content.push(LoOp::new("J", vec![Integer(cap.id())]));
@@ -625,7 +637,7 @@ fn translate_operations(
     .unwrap_or_default()
 }
 
-struct PreparedFont {
+pub(crate) struct PreparedFont {
     original: ParsedFont,
     subset_font: SubsetFont,
     cid_to_unicode_map: String,
@@ -854,7 +866,7 @@ fn polygon_to_stream_ops(poly: &Polygon) -> Vec<LoOp> {
     operations
 }
 
-fn prepare_fonts(resources: &PdfResources, pages: &[PdfPage]) -> BTreeMap<FontId, PreparedFont> {
+pub(crate) fn prepare_fonts(resources: &PdfResources, pages: &[PdfPage]) -> BTreeMap<FontId, PreparedFont> {
     let mut fonts_in_pdf = BTreeMap::new();
 
     for (font_id, font) in resources.fonts.map.iter() {

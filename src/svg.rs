@@ -1,8 +1,7 @@
-use std::collections::HashMap;
-
-use crate::units::Px;
-use crate::xobject::ExternalXObject;
-use svg2pdf::{usvg, ConversionOptions};
+use std::collections::BTreeMap;
+use crate::{xobject::ExternalXObject, ColorSpace, PdfResources};
+use svg2pdf::{usvg, ConversionOptions, PageOptions};
+use lopdf::Object;
 
 /// SVG - wrapper around an `XObject` to allow for more
 /// control within the library.
@@ -16,97 +15,64 @@ pub struct Svg {}
 impl Svg {
     /// Parses the SVG string, converts it to a PDF XObject
     pub fn parse(svg_string: &str) -> Result<ExternalXObject, String> {
-        use lopdf::Object;
-        use pdf_writer::{Content, Finish, Name, Pdf, Rect, Ref};
 
         // Parses the SVG, converts it to a PDF document using the svg2pdf crate,
-        // parses the resulting PDF again
-        // (using lopdf), then extracts the SVG XObject.
-        //
-        // I wish there was a more direct way, but handling SVG is very tricky.
-
-        // Allocate the indirect reference IDs and names.
-        let mut alloc = Ref::new(1);
-        let catalog_id = alloc.bump();
-        let page_tree_id = alloc.bump();
-        let page_id = alloc.bump();
-        let content_id = alloc.bump();
-        let svg_name = Name(b"S1");
-
-        // Start writing a PDF.
-        let mut writer = Pdf::new();
-        writer.catalog(catalog_id).pages(page_tree_id);
-        writer.pages(page_tree_id).kids([page_id]).count(1);
-
-        // Set up a simple A4 page.
-        let mut page = writer.page(page_id);
-        page.media_box(Rect::new(0.0, 0.0, 595.0, 842.0));
-        page.parent(page_tree_id);
-        page.contents(content_id);
+        // parses the resulting PDF again, then extracts the first pages PDF content operations.
 
         // Let's first convert the SVG into an independent chunk.
         let mut options = usvg::Options::default();
-        #[cfg(not(target_arch = "wasm32"))]
-        {
+        #[cfg(not(target_arch = "wasm32"))] {
             options.fontdb_mut().load_system_fonts();
         }
+
+        let dpi = 300.0;
         let tree = usvg::Tree::from_str(svg_string, &options)
             .map_err(|err| format!("usvg parse: {err}"))?;
-        let (mut svg_chunk, svg_id) = svg2pdf::to_chunk(&tree, ConversionOptions::default())
-            .map_err(|err| format!("convert svg tree to chunk: {err}"))?;
 
-        // Renumber the chunk so that we can embed it into our existing workflow, and also make sure
-        // to update `svg_id`.
-        let mut map = HashMap::new();
-        svg_chunk = svg_chunk.renumber(|old| *map.entry(old).or_insert_with(|| alloc.bump()));
-        let svg_id = map.get(&svg_id).unwrap();
+        let mut co = ConversionOptions::default();
+        co.compress = false;
+        co.embed_text = false; // TODO!
 
-        // Add the font and, more importantly, the SVG to the resource dictionary
-        // so that it can be referenced in the content stream.
-        let mut resources = page.resources();
-        resources.x_objects().pair(svg_name, svg_id);
-        resources.finish();
-        page.finish();
+        let po = PageOptions { dpi };
+        let pdf_bytes = svg2pdf::to_pdf(&tree, co, po)
+        .map_err(|err| format!("convert svg tree to pdf: {err}"))?;
 
-        // Write a content stream
-        let content = Content::new();
-        writer.stream(content_id, &content.finish());
-        // Write the SVG chunk into the PDF page.
-        writer.extend(&svg_chunk);
+        let (pdf, _) = crate::deserialize::parse_pdf_from_bytes(
+            &pdf_bytes, &crate::PdfParseOptions { fail_on_error: false }
+        ).map_err(|err| format!("convert svg tree to pdf: parse pdf: {err}"))?;
 
-        let bytes = writer.finish();
-        let document = lopdf::Document::load_mem(&bytes)
-            .map_err(|err| format!("lopdf load generated pdf: {err}"))?;
-        let svg_xobject = document
-            .get_object((5, 0))
-            .map_err(|err| format!("grab xobject from generated pdf: {err}"))?;
-        let object = svg_xobject.as_stream().unwrap();
+        let page = pdf.pages.get(0)
+        .ok_or_else(|| format!("convert svg tree to pdf: no page rendered"))?;
 
-        let bbox = object
-            .dict
-            .get(b"BBox")
-            .map_err(|err| format!("extract xobject bbox: {err}"))?
-            .as_array()
-            .map_err(|err| format!("xobject bbox not an array: {err}"))?;
+        let width_pt = page.media_box.width;
+        let height_pt = page.media_box.height;
+        let stream = crate::serialize::translate_operations(
+            &page.ops,
+            &crate::serialize::prepare_fonts(&PdfResources::default(), &[]),
+            &BTreeMap::new()
+        );
 
-        let width_px = match bbox.get(2) {
-            Some(Object::Integer(px)) => Ok(*px),
-            Some(Object::Real(px)) => Ok(px.ceil() as i64),
-            Some(obj) => Err(format!("xobject bbox width not a number: {obj:?}")),
-            None => Err("xobject bbox missing width field".to_string()),
-        }?;
+        let px_width = width_pt.into_px(dpi);
+        let px_height = height_pt.into_px(dpi);
 
-        let height_px = match bbox.get(3) {
-            Some(Object::Integer(px)) => Ok(*px),
-            Some(Object::Real(px)) => Ok(px.ceil() as i64),
-            Some(obj) => Err(format!("xobject bbox height not a number: {obj:?}")),
-            None => Err("xobject bbox missing height field".to_string()),
-        }?;
+        let dict = lopdf::Dictionary::from_iter(vec![
+            ("Type", Object::Name("XObject".into())),
+            ("Subtype", Object::Name("Form".into())),
+            ("Width", Object::Integer(px_width.0 as i64)),
+            ("ColorSpace", Object::Name(ColorSpace::Rgb.as_string().into())),
+            ("BBox", Object::Array(vec![
+                Object::Integer(0),
+                Object::Integer(0),
+                Object::Integer(px_width.0 as i64),
+                Object::Integer(px_height.0 as i64),
+            ])),
+        ]);
 
         Ok(ExternalXObject {
-            stream: object.clone(),
-            width: Some(Px(width_px.max(0) as usize)),
-            height: Some(Px(height_px.max(0) as usize)),
+            stream: lopdf::Stream::new(dict, stream),
+            width: Some(px_width),
+            height: Some(px_height),
+            dpi: Some(dpi),
         })
     }
 }

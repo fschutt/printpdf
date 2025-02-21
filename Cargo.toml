@@ -22,7 +22,6 @@ lopdf = { git = "https://github.com/J-F-Liu/lopdf", rev = "80a6c505bf8303c74b305
 ] }
 time = { version = "0.3.25", default-features = false, features = ["std"] }
 allsorts = { version = "0.15", git = "https://github.com/fschutt/allsorts", branch = "optional-brotli", default-features = false, features = ["flate2_rust"] }
-pdf-writer = { version = "0.12.0" }
 image = { version = "0.25", default-features = false }
 svg2pdf = { version = "0.12.0" }
 # dependencies for wasm demo

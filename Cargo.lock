@@ -1198,7 +1198,6 @@ dependencies = [
  "image",
  "js-sys",
  "lopdf",
- "pdf-writer",
  "rust-fontconfig",
  "serde",
  "serde_derive",

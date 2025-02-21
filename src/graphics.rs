@@ -299,6 +299,66 @@ impl LineDashPattern {
         .flatten()
         .collect()
     }
+
+        /// Builds a `LineDashPattern` from a slice of up to 6 integers.
+    ///
+    /// - The array is interpreted in dash-gap pairs:
+    ///   - If `dashes[0]` is present => `dash_1 = Some(...)`
+    ///   - If `dashes[1]` is present => `gap_1 = Some(...)`
+    ///   - If `dashes[2]` is present => `dash_2 = Some(...)`
+    ///   - If `dashes[3]` is present => `gap_2 = Some(...)`
+    ///   - If `dashes[4]` is present => `dash_3 = Some(...)`
+    ///   - If `dashes[5]` is present => `gap_3 = Some(...)`
+    ///
+    /// Any extra elements beyond index 5 are ignored. If the slice is empty,
+    /// the line is solid (all fields `None`).
+    pub fn from_array(dashes: &[i64], offset: i64) -> Self {
+        let mut pat = LineDashPattern::default();
+        pat.offset = offset;
+
+        match dashes.len() {
+            0 => {
+                // No dashes => solid line
+                // (everything is None, which is already default)
+            }
+            1 => {
+                pat.dash_1 = Some(dashes[0]);
+            }
+            2 => {
+                pat.dash_1 = Some(dashes[0]);
+                pat.gap_1 = Some(dashes[1]);
+            }
+            3 => {
+                pat.dash_1 = Some(dashes[0]);
+                pat.gap_1 = Some(dashes[1]);
+                pat.dash_2 = Some(dashes[2]);
+            }
+            4 => {
+                pat.dash_1 = Some(dashes[0]);
+                pat.gap_1 = Some(dashes[1]);
+                pat.dash_2 = Some(dashes[2]);
+                pat.gap_2 = Some(dashes[3]);
+            }
+            5 => {
+                pat.dash_1 = Some(dashes[0]);
+                pat.gap_1 = Some(dashes[1]);
+                pat.dash_2 = Some(dashes[2]);
+                pat.gap_2 = Some(dashes[3]);
+                pat.dash_3 = Some(dashes[4]);
+            }
+            _ => {
+                // 6 or more elements => fill all 3 dash-gap pairs
+                pat.dash_1 = Some(dashes[0]);
+                pat.gap_1 = Some(dashes[1]);
+                pat.dash_2 = Some(dashes[2]);
+                pat.gap_2 = Some(dashes[3]);
+                pat.dash_3 = Some(dashes[4]);
+                pat.gap_3 = Some(dashes[5]);
+            }
+        }
+
+        pat
+    }
 }
 
 /// __See PDF Reference Page 216__ - Line join style
@@ -317,7 +377,7 @@ pub enum LineJoinStyle {
     /// Bevel join. The two segments are finished with butt caps (see “Line Cap Style”
     /// on page 216) and the resulting notch beyond the ends of the segments is filled
     /// with a triangle.
-    Limit,
+    Bevel,
 }
 
 impl LineJoinStyle {
@@ -325,7 +385,7 @@ impl LineJoinStyle {
         match self {
             LineJoinStyle::Miter => 0,
             LineJoinStyle::Round => 1,
-            LineJoinStyle::Limit => 2,
+            LineJoinStyle::Bevel => 2,
         }
     }
 }

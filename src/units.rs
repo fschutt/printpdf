@@ -66,6 +66,26 @@ impl_ord!(Mm);
 #[derive(Debug, Default, Copy, Clone, PartialOrd)]
 pub struct Pt(pub f32);
 
+impl Pt {
+    /// Convert this `Pt` value into `Px` at the given `dpi`.
+    pub fn into_px(self, dpi: f32) -> Px {
+        // First convert from points back to millimeters, then from millimeters to pixels.
+        //
+        // 1 mm = 2.834646 points
+        // So, mm = pt / 2.834646
+        // And from Px::into_pt we know: 
+        //     px -> mm = px * (25.4 / dpi)
+        // So reversing it:
+        //     mm -> px = mm * (dpi / 25.4)
+        //
+        let mm = self.0 / 2.834646_f32;
+        let px_f = mm * (dpi / 25.4_f32);
+
+        // Round to the nearest whole number of pixels before casting to `usize`.
+        Px(px_f.round() as usize)
+    }
+}
+
 impl From<Mm> for Pt {
     fn from(value: Mm) -> Pt {
         Pt(value.0 * 2.834_646_f32)

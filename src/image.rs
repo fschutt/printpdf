@@ -361,7 +361,8 @@ pub(crate) fn image_to_stream(im: RawImage, doc: &mut lopdf::Document) -> lopdf:
             ("ColorSpace", Name(ColorSpace::Greyscale.as_string().into())),
         ]);
 
-        let mut stream = lopdf::Stream::new(smask_dict, alpha.pixels).with_compression(true);
+        let mut stream = lopdf::Stream::new(smask_dict, alpha.pixels)
+        .with_compression(true);
 
         let _ = stream.compress();
 
