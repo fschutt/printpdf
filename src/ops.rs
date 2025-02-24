@@ -1,8 +1,8 @@
 use lopdf::Object as LoObject;
 
 use crate::{
-    BuiltinFont, ExtendedGraphicsStateId, FontId, LayerInternalId, LinkAnnotation, XObjectId,
-    XObjectTransform,
+    BuiltinFont, ExtendedGraphicsStateId, FontId, LayerInternalId, LinkAnnotation, PdfResources,
+    PdfToSvgOptions, XObjectId, XObjectTransform,
     color::Color,
     graphics::{
         Line, LineCapStyle, LineDashPattern, LineJoinStyle, Point, Polygon, Rect, TextRenderingMode,
@@ -39,6 +39,10 @@ impl PdfPage {
 
     pub(crate) fn get_crop_box(&self) -> lopdf::Object {
         self.crop_box.to_array().into()
+    }
+    /// Render the page to an SVG string.
+    pub fn to_svg(&self, resources: &PdfResources, opts: &PdfToSvgOptions) -> String {
+        crate::render::render_to_svg(self, resources, opts)
     }
 }
 

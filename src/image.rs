@@ -1,7 +1,7 @@
 use core::fmt;
 use std::io::Cursor;
 
-use image::GenericImageView;
+use image::{DynamicImage, GenericImageView};
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{ColorBits, ColorSpace};
@@ -153,6 +153,44 @@ impl RawImageData {
     }
 }
 
+/// Format to encode the image into
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum OutputImageFormat {
+    /// An Image in PNG Format
+    Png,
+    /// An Image in JPEG Format
+    Jpeg,
+    /// An Image in GIF Format
+    Gif,
+    /// An Image in WEBP Format
+    WebP,
+    /// An Image in general PNM Format
+    Pnm,
+    /// An Image in TIFF Format
+    Tiff,
+    /// An Image in TGA Format
+    Tga,
+    /// An Image in BMP Format
+    Bmp,
+    /// An Image in AVIF Format
+    Avif,
+}
+
+impl OutputImageFormat {
+    pub fn mime_type(&self) -> &'static str {
+        match self {
+            OutputImageFormat::Png => "image/png",
+            OutputImageFormat::Jpeg => "image/jpeg",
+            OutputImageFormat::Gif => "image/gif",
+            OutputImageFormat::WebP => "image/webp",
+            OutputImageFormat::Pnm => "image/pnm",
+            OutputImageFormat::Tiff => "image/tiff",
+            OutputImageFormat::Tga => "image/tga",
+            OutputImageFormat::Bmp => "image/bmp",
+            OutputImageFormat::Avif => "image/avif",
+        }
+    }
+}
 impl RawImage {
     /// Creates an empty `RawImage`
     pub fn empty(width: usize, height: usize, format: crate::RawImageFormat) -> Self {
@@ -346,6 +384,66 @@ impl RawImage {
             data_format: ct,
             tag: Vec::new(),
         })
+    }
+
+    /// NOTE: depends on the enabled image formats!
+    ///
+    /// Function will try to encode the image to the given formats and return an Error on exhaustion.
+    /// Tries to encode the image into one of the given target formats, returning the encoded
+    /// bytes if successful. For simplicity this implementation supports only 8‑bit image data.
+    pub fn encode_to_bytes(
+        &self,
+        target_fmt: &[OutputImageFormat],
+    ) -> Result<(Vec<u8>, OutputImageFormat), String> {
+        // For this example we only support the U8 variant.
+        let dyn_image = match (&self.pixels, self.data_format) {
+            (RawImageData::U8(ref vec), RawImageFormat::R8) => {
+                image::GrayImage::from_raw(self.width as u32, self.height as u32, vec.clone())
+                    .map(DynamicImage::ImageLuma8)
+            }
+            (RawImageData::U8(ref vec), RawImageFormat::RG8) => {
+                image::ImageBuffer::from_raw(self.width as u32, self.height as u32, vec.clone())
+                    .map(|buf: image::ImageBuffer<image::LumaA<u8>, Vec<u8>>| {
+                        DynamicImage::ImageLumaA8(buf)
+                    })
+            }
+            (RawImageData::U8(ref vec), RawImageFormat::RGB8) => {
+                image::RgbImage::from_raw(self.width as u32, self.height as u32, vec.clone())
+                    .map(DynamicImage::ImageRgb8)
+            }
+            (RawImageData::U8(ref vec), RawImageFormat::RGBA8) => {
+                image::RgbaImage::from_raw(self.width as u32, self.height as u32, vec.clone())
+                    .map(DynamicImage::ImageRgba8)
+            }
+            _ => None,
+        }
+        .ok_or_else(|| {
+            "Failed to construct dynamic image (unsupported pixel format?)".to_string()
+        })?;
+
+        // Try each target format in order.
+        for fmt in target_fmt {
+            use image::ImageFormat;
+            let image_fmt = match fmt {
+                OutputImageFormat::Png => ImageFormat::Png,
+                OutputImageFormat::Jpeg => ImageFormat::Jpeg,
+                OutputImageFormat::Gif => ImageFormat::Gif,
+                OutputImageFormat::WebP => ImageFormat::WebP,
+                OutputImageFormat::Pnm => ImageFormat::Pnm,
+                OutputImageFormat::Tiff => ImageFormat::Tiff,
+                OutputImageFormat::Tga => ImageFormat::Tga,
+                OutputImageFormat::Bmp => ImageFormat::Bmp,
+                OutputImageFormat::Avif => ImageFormat::Avif,
+            };
+            let mut buf = Vec::new();
+            if dyn_image
+                .write_to(&mut Cursor::new(&mut buf), image_fmt)
+                .is_ok()
+            {
+                return Ok((buf, *fmt));
+            }
+        }
+        Err("Could not encode image in any of the requested target formats".to_string())
     }
 
     /// Translates to an internal `RawImage`, necessary for the `<img>` component

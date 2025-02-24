@@ -4,8 +4,8 @@
 //! printpdf::PdfDocument. In particular, it decompresses the content streams and then
 //! converts lopdf operations to printpdf Ops.
 
+use crate::date::{OffsetDateTime, UtcOffset};
 use lopdf::{Dictionary as LopdfDictionary, Document as LopdfDocument, Object, ObjectId};
-use time::{Date, OffsetDateTime, Time, UtcOffset};
 
 use crate::{
     Color, LineDashPattern, Op, PageAnnotMap, PdfDocument, PdfDocumentInfo, PdfMetadata, PdfPage,
@@ -973,9 +973,9 @@ fn parse_metadata(trailer: &LopdfDictionary) -> PdfDocumentInfo {
         keywords: Vec::new(),
         trapped: false,
         version: 1,
-        creation_date: OffsetDateTime::UNIX_EPOCH,
-        modification_date: OffsetDateTime::UNIX_EPOCH,
-        metadata_date: OffsetDateTime::UNIX_EPOCH,
+        creation_date: OffsetDateTime::from_unix_timestamp(0).unwrap(),
+        modification_date: OffsetDateTime::from_unix_timestamp(0).unwrap(),
+        metadata_date: OffsetDateTime::from_unix_timestamp(0).unwrap(),
         conformance: PdfConformance::default(),
         identifier: "".to_string(),
     };
@@ -1019,7 +1019,7 @@ fn parse_metadata(trailer: &LopdfDictionary) -> PdfDocumentInfo {
     }
 
     // Use the modification date as metadata date.
-    doc_info.metadata_date = doc_info.modification_date;
+    doc_info.metadata_date = doc_info.modification_date.clone();
 
     if let Ok(Object::Name(trapped_bytes)) = info_dict.get(b"Trapped") {
         let trapped_str = String::from_utf8(trapped_bytes.clone()).unwrap_or_default();
@@ -1058,11 +1058,19 @@ fn parse_pdf_date(s: &str) -> Result<OffsetDateTime, String> {
         _ => time::Month::January,
     };
 
-    Ok(OffsetDateTime::new_in_offset(
-        Date::from_calendar_date(year, month, day).map_err(|e| e.to_string())?,
-        Time::from_hms(hour, minute, second).map_err(|e| e.to_string())?,
-        UtcOffset::from_hms(0, 0, 0).map_err(|e| e.to_string())?,
-    ))
+    #[cfg(all(feature = "js-sys", target_arch = "wasm32", target_os = "unknown"))]
+    {
+        Ok(OffsetDateTime::from_unix_timestamp(0).unwrap())
+    }
+
+    #[cfg(not(all(feature = "js-sys", target_arch = "wasm32", target_os = "unknown")))]
+    {
+        Ok(OffsetDateTime::new_in_offset(
+            time::Date::from_calendar_date(year, month, day).map_err(|e| e.to_string())?,
+            time::Time::from_hms(hour, minute, second).map_err(|e| e.to_string())?,
+            UtcOffset::from_hms(0, 0, 0).map_err(|e| e.to_string())?,
+        ))
+    }
 }
 
 /// Helper to parse an operand into f32

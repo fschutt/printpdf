@@ -389,6 +389,31 @@ impl XObjectTransform {
 
         transforms
     }
+
+    /// Combines the transformation matrices produced by `get_ctms` (with no width/height adjustment)
+    /// into one final transformation and returns it in SVG's matrix format.
+    pub fn as_svg_transform(&self) -> String {
+        // Get the list of transformation matrices (using None for the width/height info)
+        let ctms = self.get_ctms(None);
+
+        // Start with the identity transformation.
+        let mut combined = CurTransMat::Identity;
+
+        // Combine each transform in order.
+        for t in ctms {
+            // Assume combine_matrix takes two 6-element arrays and returns the product.
+            let new_arr = CurTransMat::combine_matrix(combined.as_array(), t.as_array());
+            combined = CurTransMat::Raw(new_arr);
+        }
+
+        // Get the final matrix as an array.
+        let arr = combined.as_array();
+        // SVG expects a matrix in the form "matrix(a b c d e f)"
+        format!(
+            "matrix({} {} {} {} {} {})",
+            arr[0], arr[1], arr[2], arr[3], arr[4], arr[5]
+        )
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Default)]

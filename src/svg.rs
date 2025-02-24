@@ -39,13 +39,11 @@ impl Svg {
         let pdf_bytes = svg2pdf::to_pdf(&tree, co, po)
             .map_err(|err| format!("convert svg tree to pdf: {err}"))?;
 
-        let (pdf, _) = crate::deserialize::parse_pdf_from_bytes(
-            &pdf_bytes,
-            &crate::PdfParseOptions {
+        let (pdf, _) =
+            crate::deserialize::parse_pdf_from_bytes(&pdf_bytes, &crate::PdfParseOptions {
                 fail_on_error: false,
-            },
-        )
-        .map_err(|err| format!("convert svg tree to pdf: parse pdf: {err}"))?;
+            })
+            .map_err(|err| format!("convert svg tree to pdf: parse pdf: {err}"))?;
 
         let page = pdf
             .pages

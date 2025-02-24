@@ -54,6 +54,9 @@ pub use serialize::PdfSaveOptions;
 /// Parsing PDF
 pub(crate) mod deserialize;
 pub use deserialize::{PdfParseOptions, PdfWarnMsg};
+/// Rendering PDF to SVG
+pub(crate) mod render;
+pub use render::PdfToSvgOptions;
 
 /// Internal ID for page annotations
 #[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord)]
@@ -191,13 +194,10 @@ impl PdfDocument {
     /// Adds a new page-level bookmark on page `$page`, returning the bookmarks internal ID
     pub fn add_bookmark(&mut self, name: &str, page: usize) -> PageAnnotId {
         let id = PageAnnotId::new();
-        self.bookmarks.map.insert(
-            id.clone(),
-            PageAnnotation {
-                name: name.to_string(),
-                page,
-            },
-        );
+        self.bookmarks.map.insert(id.clone(), PageAnnotation {
+            name: name.to_string(),
+            page,
+        });
         id
     }
 
@@ -208,6 +208,16 @@ impl PdfDocument {
         config: XmlRenderOptions,
     ) -> Result<Vec<PdfPage>, String> {
         crate::html::xml_to_pages(html, config, self)
+    }
+
+    /// Renders a PDF Page into an SVG String. Returns `None` on an invalid page number
+    /// (note: 1-indexed, so the first PDF page is "page 1", not "page 0").
+    pub fn page_to_svg(&self, page: usize, opts: &PdfToSvgOptions) -> Option<String> {
+        Some(
+            self.pages
+                .get(page.saturating_sub(1))?
+                .to_svg(&self.resources, opts),
+        )
     }
 
     /// Replaces `document.pages` with the new pages
