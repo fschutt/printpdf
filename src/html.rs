@@ -308,11 +308,7 @@ fn fixup_xml(s: &str, doc: &mut PdfDocument, config: &XmlRenderOptions) -> Strin
             None => {
                 let raw_image = match crate::image::RawImage::decode_from_bytes(&image_bytes) {
                     Ok(o) => o,
-                    Err(e) => {
-                        #[cfg(not(target_family = "wasm"))]
-                        {
-                            println!("{e}");
-                        }
+                    Err(_) => {
                         continue;
                     }
                 };

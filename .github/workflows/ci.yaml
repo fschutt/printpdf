@@ -62,7 +62,12 @@ jobs:
         with:
           target: wasm32-unknown-unknown
           toolchain: ${{ matrix.channel }}
-
+      - run: rustup target add wasm32-wasip1
+      - run: rustup target add wasm32-wasip2
+      - run: rustup target add wasm32-unknown-unknown
       - run: cargo check --verbose --target wasm32-unknown-unknown --examples
       - run: cargo check --verbose --target wasm32-unknown-unknown
-
+      - run: cargo check --verbose --target wasm32-wasip1 --examples
+      - run: cargo check --verbose --target wasm32-wasip1
+      - run: cargo check --verbose --target wasm32-wasip2 --examples
+      - run: cargo check --verbose --target wasm32-wasip2

@@ -1,8 +1,10 @@
 //! Bookmarks, page and link annotations
 
+use serde_derive::{Deserialize, Serialize};
+
 use crate::graphics::Rect;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct PageAnnotation {
     /// Name of the bookmark annotation (i.e. "Chapter 5")
     pub name: String,
@@ -10,12 +12,16 @@ pub struct PageAnnotation {
     pub page: usize,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct LinkAnnotation {
     pub rect: Rect,
-    pub border: BorderArray,
-    pub color: ColorArray,
     pub actions: Actions,
+
+    #[serde(default)]
+    pub border: BorderArray,
+    #[serde(default)]
+    pub color: ColorArray,
+    #[serde(default)]
     pub highlighting: HighlightingMode,
 }
 
@@ -38,7 +44,8 @@ impl LinkAnnotation {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", content = "data")]
 pub enum BorderArray {
     Solid([f32; 3]),
     Dashed([f32; 3], DashPhase),
@@ -57,31 +64,20 @@ impl BorderArray {
     }
 }
 
-/*
-
-    impl Into<Object> for DashPhase {
-        fn into(self) -> Object {
-            Object::Array(vec![
-                Object::Array(self.dash_array.into_iter().map(|x| Object::Real(x.into())).collect()),
-                Object::Real(self.phase.into()),
-            ])
-        }
-    }
-*/
-
 impl Default for BorderArray {
     fn default() -> Self {
         BorderArray::Solid([0.0, 0.0, 1.0])
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct DashPhase {
     pub dash_array: Vec<f32>,
     pub phase: f32,
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
+#[serde(tag = "type", content = "data")]
 pub enum ColorArray {
     Transparent,
     Gray([f32; 1]),
@@ -95,8 +91,9 @@ impl Default for ColorArray {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
+#[serde(tag = "type", content = "data")]
 pub enum Destination {
     /// Display `page` with coordinates `top` and `left` positioned at the upper-left corner of the
     /// window and the contents of the page magnified by `zoom`.
@@ -131,7 +128,9 @@ pub enum Destination {
     Trans (PDF 1.5) Updates the display of a document, using a transition dictionary. “Transition Actions” on page 670
     GoTo3DView (PDF 1.6) Set the current view of a 3D annotation “Go-To-3D-View Actions” on page 670
 */
-#[derive(Debug, PartialEq, Clone)]
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", tag = "type", content = "data")]
 pub enum Actions {
     GoTo(Destination),
     URI(String),
@@ -158,7 +157,8 @@ impl Actions {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy, Default)]
+#[derive(Debug, PartialEq, Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum HighlightingMode {
     None,
     #[default]

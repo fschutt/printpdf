@@ -4,36 +4,42 @@
 //! printpdf::PdfDocument. In particular, it decompresses the content streams and then
 //! converts lopdf operations to printpdf Ops.
 
-use crate::date::{OffsetDateTime, UtcOffset};
 use lopdf::{Dictionary as LopdfDictionary, Document as LopdfDocument, Object, ObjectId};
+use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    Color, LineDashPattern, Op, PageAnnotMap, PdfDocument, PdfDocumentInfo, PdfMetadata, PdfPage,
-    PdfResources, conformance::PdfConformance,
+    Color, DictItem, LineDashPattern, LinePoint, Op, PageAnnotMap, PdfDocument, PdfDocumentInfo,
+    PdfMetadata, PdfPage, PdfResources, PolygonRing,
+    conformance::PdfConformance,
+    date::{OffsetDateTime, UtcOffset},
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct PdfParseOptions {
     pub fail_on_error: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct PdfWarnMsg {
     pub page: usize,
     pub op_id: usize,
-    pub severity: &'static str,
+    pub severity: PdfParseErrorSeverity,
     pub msg: String,
 }
 
-impl PdfWarnMsg {
-    pub const ERROR: &'static str = "error";
-    pub const WARNING: &'static str = "warning";
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename = "kebab-case")]
+pub enum PdfParseErrorSeverity {
+    Error,
+    Warning,
+}
 
+impl PdfWarnMsg {
     pub fn error(page: usize, op_id: usize, e: String) -> Self {
         PdfWarnMsg {
             page,
             op_id,
-            severity: Self::ERROR,
+            severity: PdfParseErrorSeverity::Error,
             msg: e,
         }
     }
@@ -354,7 +360,11 @@ pub fn parse_op(
                 ));
                 out_ops.push(Op::Unknown {
                     key: "Tf".into(),
-                    value: op.operands.clone(),
+                    value: op
+                        .operands
+                        .iter()
+                        .map(|s| DictItem::from_lopdf(s))
+                        .collect(),
                 });
             }
         }
@@ -789,7 +799,11 @@ pub fn parse_op(
                     // fallback
                     out_ops.push(Op::Unknown {
                         key: op.operator.clone(),
-                        value: op.operands.clone(),
+                        value: op
+                            .operands
+                            .iter()
+                            .map(|s| DictItem::from_lopdf(s))
+                            .collect(),
                     });
                 }
             }
@@ -832,7 +846,11 @@ pub fn parse_op(
                 _ => {
                     out_ops.push(Op::Unknown {
                         key: op.operator.clone(),
-                        value: op.operands.clone(),
+                        value: op
+                            .operands
+                            .iter()
+                            .map(|s| DictItem::from_lopdf(s))
+                            .collect(),
                     });
                 }
             }
@@ -844,7 +862,11 @@ pub fn parse_op(
             // sets the fill or stroke color space. Usually you'd store in state, or ignore:
             out_ops.push(Op::Unknown {
                 key: op.operator.clone(),
-                value: op.operands.clone(),
+                value: op
+                    .operands
+                    .iter()
+                    .map(|s| DictItem::from_lopdf(s))
+                    .collect(),
             });
         }
 
@@ -867,6 +889,14 @@ pub fn parse_op(
                 op_id,
                 format!("Info: unhandled operator '{}'", other),
             ));
+            out_ops.push(Op::Unknown {
+                key: op.operator.clone(),
+                value: op
+                    .operands
+                    .iter()
+                    .map(|s| DictItem::from_lopdf(s))
+                    .collect(),
+            });
         }
     }
 
@@ -891,7 +921,18 @@ fn finalize_current_path_special(
 
     let rings = std::mem::take(&mut state.subpaths);
     let polygon = crate::graphics::Polygon {
-        rings,
+        rings: rings
+            .into_iter()
+            .map(|r| PolygonRing {
+                points: r
+                    .into_iter()
+                    .map(|lp| LinePoint {
+                        p: lp.0,
+                        bezier: lp.1,
+                    })
+                    .collect(),
+            })
+            .collect(),
         mode: paint_mode,
         winding_order: winding,
     };
@@ -917,7 +958,18 @@ fn finalize_current_path(
     let rings = std::mem::take(&mut state.subpaths);
 
     let polygon = crate::graphics::Polygon {
-        rings,
+        rings: rings
+            .into_iter()
+            .map(|r| PolygonRing {
+                points: r
+                    .into_iter()
+                    .map(|lp| LinePoint {
+                        p: lp.0,
+                        bezier: lp.1,
+                    })
+                    .collect(),
+            })
+            .collect(),
         mode: paint_mode,
         // For simplicity, we do not handle even-odd fill vs nonzero, etc.
         winding_order: crate::graphics::WindingOrder::NonZero,
@@ -1058,18 +1110,18 @@ fn parse_pdf_date(s: &str) -> Result<OffsetDateTime, String> {
         _ => time::Month::January,
     };
 
-    #[cfg(all(feature = "js-sys", target_arch = "wasm32", target_os = "unknown"))]
-    {
-        Ok(OffsetDateTime::from_unix_timestamp(0).unwrap())
-    }
-
-    #[cfg(not(all(feature = "js-sys", target_arch = "wasm32", target_os = "unknown")))]
+    #[cfg(all(feature = "js-sys", target_arch = "wasm32"))]
     {
         Ok(OffsetDateTime::new_in_offset(
             time::Date::from_calendar_date(year, month, day).map_err(|e| e.to_string())?,
             time::Time::from_hms(hour, minute, second).map_err(|e| e.to_string())?,
             UtcOffset::from_hms(0, 0, 0).map_err(|e| e.to_string())?,
         ))
+    }
+
+    #[cfg(not(all(feature = "js-sys", target_arch = "wasm32")))]
+    {
+        Ok(OffsetDateTime::from_unix_timestamp(0).unwrap())
     }
 }
 

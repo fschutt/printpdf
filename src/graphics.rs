@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use lopdf::Dictionary as LoDictionary;
+use serde_derive::{Deserialize, Serialize};
 
 use crate::{
     FontId,
@@ -25,7 +26,7 @@ pub const OP_PATH_CONST_CLIP_NZ: &str = "W";
 pub const OP_PATH_CONST_CLIP_EO: &str = "W*";
 
 /// Rectangle struct (x, y, width, height) from the LOWER LEFT corner of the page
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Rect {
     pub x: Pt,
     pub y: Pt,
@@ -59,7 +60,9 @@ impl Rect {
 
     pub fn to_polygon(&self) -> Polygon {
         Polygon {
-            rings: vec![self.gen_points()],
+            rings: vec![PolygonRing {
+                points: self.gen_points(),
+            }],
             mode: PaintMode::Fill,
             winding_order: WindingOrder::NonZero,
         }
@@ -72,7 +75,7 @@ impl Rect {
         }
     }
 
-    fn gen_points(&self) -> Vec<(Point, bool)> {
+    fn gen_points(&self) -> Vec<LinePoint> {
         let top = self.y;
         let bottom = Pt(self.y.0 - self.height.0);
         let left = self.x;
@@ -86,7 +89,24 @@ impl Rect {
         };
         let bl = Point { x: left, y: bottom };
 
-        vec![(tl, false), (tr, false), (br, false), (bl, false)]
+        vec![
+            LinePoint {
+                p: tl,
+                bezier: false,
+            },
+            LinePoint {
+                p: tr,
+                bezier: false,
+            },
+            LinePoint {
+                p: br,
+                bezier: false,
+            },
+            LinePoint {
+                p: bl,
+                bezier: false,
+            },
+        ]
     }
 
     pub fn to_array(&self) -> Vec<lopdf::Object> {
@@ -111,7 +131,8 @@ impl Rect {
 /// Most of the time, `NonZero` is the appropriate option.
 ///
 /// [clip]: PaintMode::Clip
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum WindingOrder {
     /// Make any filling or clipping paint operators follow the _even-odd rule_.
     ///
@@ -173,7 +194,8 @@ impl WindingOrder {
 }
 
 /// The path-painting mode for a path.
-#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum PaintMode {
     /// Set the path in clipping mode instead of painting it.
     ///
@@ -192,7 +214,7 @@ pub enum PaintMode {
     FillStroke,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone, Serialize, Deserialize)]
 pub struct Point {
     /// x position from the bottom left corner in pt
     pub x: Pt,
@@ -235,58 +257,81 @@ impl PartialEq for Point {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+/// Either a point or a bezier control point
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct LinePoint {
+    /// Location of the point
+    pub p: Point,
+    /// If `true`, this point is a bezier control point
+    pub bezier: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Line {
-    /// 2D Points for the line. The `bool` indicates whether the next point is a bezier control
-    /// point.
-    pub points: Vec<(Point, bool)>,
+    /// 2D Points for the line
+    pub points: Vec<LinePoint>,
     /// Whether the line should automatically be closed
     pub is_closed: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Polygon {
     /// 2D Points for the line. The `bool` indicates whether the next point is a bezier control
     /// point.
-    pub rings: Vec<Vec<(Point, bool)>>,
+    pub rings: Vec<PolygonRing>,
     /// What type of polygon is this?
     pub mode: PaintMode,
     /// Winding order to use for constructing this polygon
     pub winding_order: WindingOrder,
 }
 
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct PolygonRing {
+    /// 2D Points for the ring
+    pub points: Vec<LinePoint>,
+}
+
 impl FromIterator<(Point, bool)> for Polygon {
     fn from_iter<I: IntoIterator<Item = (Point, bool)>>(iter: I) -> Self {
         let mut points = Vec::new();
         for i in iter {
-            points.push(i);
+            points.push(LinePoint {
+                p: i.0,
+                bezier: i.1,
+            });
         }
         Polygon {
-            rings: vec![points],
+            rings: vec![PolygonRing { points }],
             ..Default::default()
         }
     }
 }
 
 /// Line dash pattern is made up of a total width
-#[derive(Debug, Copy, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct LineDashPattern {
     /// Offset at which the dashing pattern should start, measured from the beginning ot the line
     /// Default: 0 (start directly where the line starts)
     pub offset: i64,
     /// Length of the first dash in the dash pattern. If `None`, the line will be solid (good for
     /// resetting the dash pattern)
+    #[serde(default)]
     pub dash_1: Option<i64>,
     /// Whitespace after the first dash. If `None`, whitespace will be the same as length_1st,
     /// meaning that the line will have dash - whitespace - dash - whitespace in even offsets
+    #[serde(default)]
     pub gap_1: Option<i64>,
     /// Length of the second dash in the dash pattern. If None, will be equal to length_1st
+    #[serde(default)]
     pub dash_2: Option<i64>,
     /// Same as whitespace_1st, but for length_2nd
+    #[serde(default)]
     pub gap_2: Option<i64>,
     /// Length of the second dash in the dash pattern. If None, will be equal to length_1st
+    #[serde(default)]
     pub dash_3: Option<i64>,
     /// Same as whitespace_1st, but for length_3rd
+    #[serde(default)]
     pub gap_3: Option<i64>,
 }
 
@@ -369,7 +414,8 @@ impl LineDashPattern {
 }
 
 /// __See PDF Reference Page 216__ - Line join style
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum LineJoinStyle {
     /// Miter join. The outer edges of the strokes for the two segments are extended
     /// until they meet at an angle, as in a picture frame. If the segments meet at too
@@ -403,7 +449,8 @@ impl LineJoinStyle {
 /// fill color.
 ///
 /// See PDF Reference 1.7 Page 402
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum TextRenderingMode {
     Fill,
     Stroke,
@@ -431,7 +478,8 @@ impl TextRenderingMode {
 }
 
 /// __See PDF Reference (Page 216)__ - Line cap (ending) style
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum LineCapStyle {
     /// Butt cap. The stroke is squared off at the endpoint of the path. There is no
     /// projection beyond the end of the path.
@@ -454,50 +502,43 @@ impl LineCapStyle {
     }
 }
 
-// identifiers for tracking the changed fields
-pub(crate) const LINE_WIDTH: &str = "line_width";
-pub(crate) const LINE_CAP: &str = "line_cap";
-pub(crate) const LINE_JOIN: &str = "line_join";
-pub(crate) const MITER_LIMIT: &str = "miter_limit";
-pub(crate) const LINE_DASH_PATTERN: &str = "line_dash_pattern";
-pub(crate) const RENDERING_INTENT: &str = "rendering_intent";
-pub(crate) const OVERPRINT_STROKE: &str = "overprint_stroke";
-pub(crate) const OVERPRINT_FILL: &str = "overprint_fill";
-pub(crate) const OVERPRINT_MODE: &str = "overprint_mode";
-pub(crate) const FONT: &str = "font";
-pub(crate) const BLACK_GENERATION: &str = "black_generation";
-pub(crate) const BLACK_GENERATION_EXTRA: &str = "black_generation_extra";
-pub(crate) const UNDERCOLOR_REMOVAL: &str = "under_color_removal";
-pub(crate) const UNDERCOLOR_REMOVAL_EXTRA: &str = "undercolor_removal_extra";
-pub(crate) const TRANSFER_FUNCTION: &str = "transfer_function";
-pub(crate) const TRANSFER_FUNCTION_EXTRA: &str = "transfer_function_extra";
-pub(crate) const HALFTONE_DICTIONARY: &str = "halftone_dictionary";
-pub(crate) const FLATNESS_TOLERANCE: &str = "flatness_tolerance";
-pub(crate) const SMOOTHNESS_TOLERANCE: &str = "smoothness_tolerance";
-pub(crate) const STROKE_ADJUSTMENT: &str = "stroke_adjustment";
-pub(crate) const BLEND_MODE: &str = "blend_mode";
-pub(crate) const SOFT_MASK: &str = "soft_mask";
-pub(crate) const CURRENT_STROKE_ALPHA: &str = "current_stroke_alpha";
-pub(crate) const CURRENT_FILL_ALPHA: &str = "current_fill_alpha";
-pub(crate) const ALPHA_IS_SHAPE: &str = "alpha_is_shape";
-pub(crate) const TEXT_KNOCKOUT: &str = "text_knockout";
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename = "kebap-case")]
+pub enum ChangedField {
+    LineWidth,
+    LineCap,
+    LineJoin,
+    MiterLimit,
+    LineDashPattern,
+    RenderingIntent,
+    OverprintStroke,
+    OverprintFill,
+    OverprintMode,
+    Font,
+    BlackGeneration,
+    BlackGenerationExtra,
+    UnderColorRemoval,
+    UnderColorRemovalExtra,
+    TransferFunction,
+    TransferFunctionExtra,
+    HalftoneDictionary,
+    FlatnessTolerance,
+    SmoothnessTolerance,
+    StrokeAdjustment,
+    BlendMode,
+    SoftMask,
+    CurrentStrokeAlpha,
+    CurrentFillAlpha,
+    AlphaIsShape,
+    TextKnockout,
+}
 
 /// `ExtGState` dictionary
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct ExtendedGraphicsState {
-    /* /Type ExtGState */
-    /// NOTE: We need to track which fields have changed in relation to the default() method.
-    /// This is because we want to optimize out the fields that haven't changed in relation
-    /// to the last graphics state. Please use only the constants defined in this module for
-    /// declaring the changed fields. The way to go about this is to first convert the ExtGState
-    /// into a vector of operations and then remove all operations that are unnecessary
-    /// before writing the document.
-    ///
-    /// If you are unsure about this, please use the `.with_[field name]` method. These methods
-    /// will set the `changed_fields` to the correct values. If you want to take care of this field
-    /// manually: Every time you change a field on the ExtGState dicitionary, you have to add the
-    /// string identifier of that field into the `changed_fields` vector.
-    pub(crate) changed_fields: HashSet<&'static str>,
+    /// A set to track which fields have changed in relation to the default() method.
+    /// Now using a strongly typed enum instead of string constants.
+    pub(crate) changed_fields: HashSet<ChangedField>,
 
     /* LW float */
     /// __(Optional; PDF 1.3)__ The current line width
@@ -516,143 +557,91 @@ pub struct ExtendedGraphicsState {
     pub(crate) miter_limit: f32,
 
     /* D array */
-    /// __(Optional; PDF 1.3)__ The line dash pattern, expressed as an array of the form
-    /// [ dashArray dashPhase ] , where dashArray is itself an array and dashPhase is an
-    /// integer (see “Line Dash Pattern” on page 217).
+    /// __(Optional; PDF 1.3)__ The line dash pattern.
     pub(crate) line_dash_pattern: Option<LineDashPattern>,
 
     /* RI name (or ri inside a stream) */
-    /// __(Optional; PDF 1.3)__ The name of the rendering intent (see “Rendering
-    /// Intents” on page 260).
+    /// __(Optional; PDF 1.3)__ The name of the rendering intent.
     pub(crate) rendering_intent: RenderingIntent,
 
     /* OP boolean */
-    /// __(Optional)__ A flag specifying whether to apply overprint (see Section 4.5.6,
-    /// “Overprint Control”). In PDF 1.2 and earlier, there is a single overprint
-    /// parameter that applies to all painting operations. Beginning with PDF 1.3,
-    /// there are two separate overprint parameters: one for stroking and one for all
-    /// other painting operations. Specifying an OP entry sets both parameters un-
-    /// less there is also an op entry in the same graphics state parameter dictionary,
-    /// in which case the OP entry sets only the overprint parameter for stroking.
+    /// __(Optional)__ Overprint flag for stroking.
     pub(crate) overprint_stroke: bool,
 
     /* op boolean */
-    /// __(Optional; PDF 1.3)__ A flag specifying whether to apply overprint (see Section
-    /// 4.5.6, “Overprint Control”) for painting operations other than stroking. If
-    /// this entry is absent, the OP entry, if any, sets this parameter.
+    /// __(Optional; PDF 1.3)__ Overprint flag for nonstroking.
     pub(crate) overprint_fill: bool,
 
     /* OPM integer */
-    /// __(Optional; PDF 1.3)__ The overprint mode (see Section 4.5.6, “Overprint Control”)
-    /// Initial value: `EraseUnderlying`
+    /// __(Optional; PDF 1.3)__ The overprint mode.
     pub(crate) overprint_mode: OverprintMode,
 
     /* Font array */
-    /// Font structure, expects a dictionary,
+    /// Font structure, expects a dictionary.
     pub(crate) font: Option<FontId>,
 
     /* BG function */
-    /// __(Optional)__ The black-generation function, which maps the interval [ 0.0 1.0 ]
-    /// to the interval [ 0.0 1.0 ] (see Section 6.2.3, “Conversion from DeviceRGB to
-    /// DeviceCMYK”)
+    /// __(Optional)__ The black-generation function.
     pub(crate) black_generation: Option<BlackGenerationFunction>,
 
     /* BG2 function or name */
-    /// __(Optional; PDF 1.3)__ Same as BG except that the value may also be the name
-    /// Default , denoting the black-generation function that was in effect at the start
-    /// of the page. If both BG and BG2 are present in the same graphics state param-
-    /// eter dictionary, BG2 takes precedence.
+    /// __(Optional; PDF 1.3)__ The extra black-generation function.
     pub(crate) black_generation_extra: Option<BlackGenerationExtraFunction>,
 
     /* UCR function */
-    /// __(Optional)__ The undercolor-removal function, which maps the interval
-    /// [ 0.0 1.0 ] to the interval [ −1.0 1.0 ] (see Section 6.2.3, “Conversion from
-    /// DeviceRGB to DeviceCMYK”).
+    /// __(Optional)__ The undercolor-removal function.
     pub(crate) under_color_removal: Option<UnderColorRemovalFunction>,
 
     /* UCR2 function */
-    /// __(Optional; PDF 1.3)__ Same as UCR except that the value may also be the name
-    /// Default , denoting the undercolor-removal function that was in effect at the
-    /// start of the page. If both UCR and UCR2 are present in the same graphics state
-    /// parameter dictionary, UCR2 takes precedence.
+    /// __(Optional; PDF 1.3)__ The extra undercolor-removal function.
     pub(crate) under_color_removal_extra: Option<UnderColorRemovalExtraFunction>,
 
     /* TR function */
-    /// __(Optional)__ The transfer function, which maps the interval [ 0.0 1.0 ] to the in-
-    /// terval [ 0.0 1.0 ] (see Section 6.3, “Transfer Functions”). The value is either a
-    /// single function (which applies to all process colorants) or an array of four
-    /// functions (which apply to the process colorants individually). The name
-    /// Identity may be used to represent the identity function.
+    /// __(Optional)__ The transfer function.
     pub(crate) transfer_function: Option<TransferFunction>,
 
     /* TR2 function */
-    /// __(Optional; PDF 1.3)__ Same as TR except that the value may also be the name
-    /// Default , denoting the transfer function that was in effect at the start of the
-    /// page. If both TR and TR2 are present in the same graphics state parameter dic-
-    /// tionary, TR2 takes precedence.
+    /// __(Optional; PDF 1.3)__ The extra transfer function.
     pub(crate) transfer_extra_function: Option<TransferExtraFunction>,
 
     /* HT [dictionary, stream or name] */
-    /// __(Optional)__ The halftone dictionary or stream (see Section 6.4, “Halftones”) or
-    /// the name Default , denoting the halftone that was in effect at the start of the
-    /// page.
+    /// __(Optional)__ The halftone dictionary or stream.
     pub(crate) halftone_dictionary: Option<HalftoneType>,
 
     /* FL integer */
-    /// __(Optional; PDF 1.3)__ The flatness tolerance (see Section 6.5.1, “Flatness Toler-
-    /// ance”).
+    /// __(Optional; PDF 1.3)__ The flatness tolerance.
     pub(crate) flatness_tolerance: f32,
 
     /* SM integer */
-    /// __(Optional; PDF 1.3)__ The smoothness tolerance (see Section 6.5.2, “Smooth-
-    /// ness Tolerance”).
+    /// __(Optional; PDF 1.3)__ The smoothness tolerance.
     pub(crate) smoothness_tolerance: f32,
 
     /* SA integer */
-    /// (Optional) A flag specifying whether to apply automatic stroke adjustment
-    /// (see Section 6.5.4, “Automatic Stroke Adjustment”).
+    /// (Optional) Automatic stroke adjustment flag.
     pub(crate) stroke_adjustment: bool,
 
     /* BM name or array */
-    /// __(Optional; PDF 1.4)__ The current blend mode to be used in the transparent
-    /// imaging model (see Sections 7.2.4, “Blend Mode,” and 7.5.2, “Specifying
-    /// Blending Color Space and Blend Mode”).
+    /// __(Optional; PDF 1.4)__ The blend mode.
     pub(crate) blend_mode: BlendMode,
 
     /* SM dictionary or name */
-    /// __(Optional; PDF 1.4)__ The current soft mask, specifying the mask shape or
-    /// mask opacity values to be used in the transparent imaging model (see
-    /// “Source Shape and Opacity” on page 526 and “Mask Shape and Opacity” on
-    /// page 550).
-    ///
-    /// *Note:* Although the current soft mask is sometimes referred to as a “soft clip,”
-    /// altering it with the gs operator completely replaces the old value with the new
-    /// one, rather than intersecting the two as is done with the current clipping path
-    /// parameter (see Section 4.4.3, “Clipping Path Operators”).
+    /// __(Optional; PDF 1.4)__ The soft mask.
     pub(crate) soft_mask: Option<SoftMask>,
 
     /* CA integer */
-    /// __(Optional; PDF 1.4)__ The current stroking alpha constant, specifying the con-
-    /// stant shape or constant opacity value to be used for stroking operations in the
-    /// transparent imaging model (see “Source Shape and Opacity” on page 526 and
-    /// “Constant Shape and Opacity” on page 551).
+    /// __(Optional; PDF 1.4)__ The current stroking alpha constant.
     pub(crate) current_stroke_alpha: f32,
 
     /* ca integer */
-    /// __(Optional; PDF 1.4)__ Same as CA , but for nonstroking operations.
+    /// __(Optional; PDF 1.4)__ The current nonstroking alpha constant.
     pub(crate) current_fill_alpha: f32,
 
     /* AIS boolean */
-    /// __(Optional; PDF 1.4)__ The alpha source flag (“alpha is shape”), specifying
-    /// whether the current soft mask and alpha constant are to be interpreted as
-    /// shape values ( true ) or opacity values ( false )
-    /// true if the soft mask contains shape values, false for opacity
+    /// __(Optional; PDF 1.4)__ The alpha source flag.
     pub(crate) alpha_is_shape: bool,
 
     /* TK boolean */
-    /// __(Optional; PDF 1.4)__ The text knockout flag, which determines the behavior of
-    /// overlapping glyphs within a text object in the transparent imaging model (see
-    /// Section 5.2.7, “Text Knockout”).
+    /// __(Optional; PDF 1.4)__ The text knockout flag.
     pub(crate) text_knockout: bool,
 }
 
@@ -663,137 +652,153 @@ pub fn extgstate_to_dict(val: &ExtendedGraphicsState) -> LoDictionary {
 
     let mut gs_operations = Vec::<(String, lopdf::Object)>::new();
 
-    // for each field, look if it was contained in the "changed fields"
-    if val.changed_fields.contains(LINE_WIDTH) {
+    if val.changed_fields.contains(&ChangedField::LineWidth) {
         gs_operations.push(("LW".to_string(), Real(val.line_width)));
     }
 
-    if val.changed_fields.contains(LINE_CAP) {
+    if val.changed_fields.contains(&ChangedField::LineCap) {
         gs_operations.push(("LC".to_string(), Integer(val.line_cap.id())));
     }
 
-    if val.changed_fields.contains(LINE_JOIN) {
+    if val.changed_fields.contains(&ChangedField::LineJoin) {
         gs_operations.push(("LJ".to_string(), Integer(val.line_join.id())));
     }
 
-    if val.changed_fields.contains(MITER_LIMIT) {
+    if val.changed_fields.contains(&ChangedField::MiterLimit) {
         gs_operations.push(("ML".to_string(), Real(val.miter_limit)));
     }
 
-    if val.changed_fields.contains(FLATNESS_TOLERANCE) {
+    if val
+        .changed_fields
+        .contains(&ChangedField::FlatnessTolerance)
+    {
         gs_operations.push(("FL".to_string(), Real(val.flatness_tolerance)));
     }
 
-    if val.changed_fields.contains(RENDERING_INTENT) {
+    if val.changed_fields.contains(&ChangedField::RenderingIntent) {
         gs_operations.push(("RI".to_string(), Name(val.rendering_intent.get_id().into())));
     }
 
-    if val.changed_fields.contains(STROKE_ADJUSTMENT) {
+    if val.changed_fields.contains(&ChangedField::StrokeAdjustment) {
         gs_operations.push(("SA".to_string(), Boolean(val.stroke_adjustment)));
     }
 
-    if val.changed_fields.contains(OVERPRINT_FILL) {
+    if val.changed_fields.contains(&ChangedField::OverprintFill) {
         gs_operations.push(("OP".to_string(), Boolean(val.overprint_fill)));
     }
 
-    if val.changed_fields.contains(OVERPRINT_STROKE) {
+    if val.changed_fields.contains(&ChangedField::OverprintStroke) {
         gs_operations.push(("op".to_string(), Boolean(val.overprint_stroke)));
     }
 
-    if val.changed_fields.contains(OVERPRINT_MODE) {
+    if val.changed_fields.contains(&ChangedField::OverprintMode) {
         gs_operations.push(("OPM".to_string(), Integer(val.overprint_mode.get_id())));
     }
 
-    if val.changed_fields.contains(CURRENT_FILL_ALPHA) {
+    if val.changed_fields.contains(&ChangedField::CurrentFillAlpha) {
         gs_operations.push(("CA".to_string(), Real(val.current_fill_alpha)));
     }
 
-    if val.changed_fields.contains(CURRENT_STROKE_ALPHA) {
+    if val
+        .changed_fields
+        .contains(&ChangedField::CurrentStrokeAlpha)
+    {
         gs_operations.push(("ca".to_string(), Real(val.current_stroke_alpha)));
     }
 
-    if val.changed_fields.contains(BLEND_MODE) {
+    if val.changed_fields.contains(&ChangedField::BlendMode) {
         gs_operations.push(("BM".to_string(), Name(val.blend_mode.get_id().into())));
     }
 
-    if val.changed_fields.contains(ALPHA_IS_SHAPE) {
+    if val.changed_fields.contains(&ChangedField::AlphaIsShape) {
         gs_operations.push(("AIS".to_string(), Boolean(val.alpha_is_shape)));
     }
 
-    if val.changed_fields.contains(TEXT_KNOCKOUT) {
+    if val.changed_fields.contains(&ChangedField::TextKnockout) {
         gs_operations.push(("TK".to_string(), Boolean(val.text_knockout)));
     }
 
-    // set optional parameters
+    // Optional parameters
     if let Some(ldp) = val.line_dash_pattern {
-        if val.changed_fields.contains(LINE_DASH_PATTERN) {
+        if val.changed_fields.contains(&ChangedField::LineDashPattern) {
             let array = ldp.as_array().into_iter().map(Integer).collect();
             gs_operations.push(("D".to_string(), Array(array)));
         }
     }
 
     if let Some(font) = val.font.as_ref() {
-        if val.changed_fields.contains(FONT) {
+        if val.changed_fields.contains(&ChangedField::Font) {
             gs_operations.push(("Font".to_string(), Name(font.0.clone().into_bytes())));
         }
     }
 
-    // todo: transfer functions, halftone functions,
-    // black generation, undercolor removal
-    // these types cannot yet be converted into lopdf::Objects,
-    // need to implement Into<Object> for them
-
-    if val.changed_fields.contains(BLACK_GENERATION) {
-        if let Some(ref black_generation) = val.black_generation {
+    // TODO: Handle transfer functions, halftone dictionary, black generation, etc.
+    if val.changed_fields.contains(&ChangedField::BlackGeneration) {
+        if let Some(ref _black_generation) = val.black_generation {
             // TODO
         }
     }
 
-    if val.changed_fields.contains(BLACK_GENERATION_EXTRA) {
-        if let Some(ref black_generation_extra) = val.black_generation_extra {
+    if val
+        .changed_fields
+        .contains(&ChangedField::BlackGenerationExtra)
+    {
+        if let Some(ref _black_generation_extra) = val.black_generation_extra {
             // TODO
         }
     }
 
-    if val.changed_fields.contains(UNDERCOLOR_REMOVAL) {
-        if let Some(ref under_color_removal) = val.under_color_removal {
+    if val
+        .changed_fields
+        .contains(&ChangedField::UnderColorRemoval)
+    {
+        if let Some(ref _under_color_removal) = val.under_color_removal {
             // TODO
         }
     }
 
-    if val.changed_fields.contains(UNDERCOLOR_REMOVAL_EXTRA) {
-        if let Some(ref under_color_removal_extra) = val.under_color_removal_extra {
+    if val
+        .changed_fields
+        .contains(&ChangedField::UnderColorRemovalExtra)
+    {
+        if let Some(ref _under_color_removal_extra) = val.under_color_removal_extra {
             // TODO
         }
     }
 
-    if val.changed_fields.contains(TRANSFER_FUNCTION) {
-        if let Some(ref transfer_function) = val.transfer_function {
+    if val.changed_fields.contains(&ChangedField::TransferFunction) {
+        if let Some(ref _transfer_function) = val.transfer_function {
             // TODO
         }
     }
 
-    if val.changed_fields.contains(TRANSFER_FUNCTION_EXTRA) {
-        if let Some(ref transfer_extra_function) = val.transfer_extra_function {
+    if val
+        .changed_fields
+        .contains(&ChangedField::TransferFunctionExtra)
+    {
+        if let Some(ref _transfer_extra_function) = val.transfer_extra_function {
             // TODO
         }
     }
 
-    if val.changed_fields.contains(HALFTONE_DICTIONARY) {
-        if let Some(ref halftone_dictionary) = val.halftone_dictionary {
+    if val
+        .changed_fields
+        .contains(&ChangedField::HalftoneDictionary)
+    {
+        if let Some(ref _halftone_dictionary) = val.halftone_dictionary {
             // TODO
         }
     }
 
-    if val.changed_fields.contains(SOFT_MASK) {
-        if let Some(ref soft_mask) = val.soft_mask {
+    if val.changed_fields.contains(&ChangedField::SoftMask) {
+        if let Some(ref _soft_mask) = val.soft_mask {
+            // Soft mask conversion can be handled here.
         } else {
             gs_operations.push(("SM".to_string(), Name("None".as_bytes().to_vec())));
         }
     }
 
-    // if there are operations, push the "Type > ExtGState"
-    // otherwise, just return an empty dictionary
+    // If there are any operations, add the "Type" key
     if !gs_operations.is_empty() {
         gs_operations.push(("Type".to_string(), "ExtGState".into()));
     }
@@ -817,7 +822,7 @@ impl ExtendedGraphicsStateBuilder {
     #[inline]
     pub fn with_line_width(mut self, line_width: f32) -> Self {
         self.gs.line_width = line_width;
-        self.gs.changed_fields.insert(LINE_WIDTH);
+        self.gs.changed_fields.insert(ChangedField::LineWidth);
         self
     }
 
@@ -825,7 +830,7 @@ impl ExtendedGraphicsStateBuilder {
     #[inline]
     pub fn with_line_cap(mut self, line_cap: LineCapStyle) -> Self {
         self.gs.line_cap = line_cap;
-        self.gs.changed_fields.insert(LINE_CAP);
+        self.gs.changed_fields.insert(ChangedField::LineCap);
         self
     }
 
@@ -833,7 +838,7 @@ impl ExtendedGraphicsStateBuilder {
     #[inline]
     pub fn with_line_join(mut self, line_join: LineJoinStyle) -> Self {
         self.gs.line_join = line_join;
-        self.gs.changed_fields.insert(LINE_JOIN);
+        self.gs.changed_fields.insert(ChangedField::LineJoin);
         self
     }
 
@@ -841,7 +846,7 @@ impl ExtendedGraphicsStateBuilder {
     #[inline]
     pub fn with_miter_limit(mut self, miter_limit: f32) -> Self {
         self.gs.miter_limit = miter_limit;
-        self.gs.changed_fields.insert(MITER_LIMIT);
+        self.gs.changed_fields.insert(ChangedField::MiterLimit);
         self
     }
 
@@ -849,7 +854,7 @@ impl ExtendedGraphicsStateBuilder {
     #[inline]
     pub fn with_rendering_intent(mut self, rendering_intent: RenderingIntent) -> Self {
         self.gs.rendering_intent = rendering_intent;
-        self.gs.changed_fields.insert(RENDERING_INTENT);
+        self.gs.changed_fields.insert(ChangedField::RenderingIntent);
         self
     }
 
@@ -857,7 +862,7 @@ impl ExtendedGraphicsStateBuilder {
     #[inline]
     pub fn with_overprint_stroke(mut self, overprint_stroke: bool) -> Self {
         self.gs.overprint_stroke = overprint_stroke;
-        self.gs.changed_fields.insert(OVERPRINT_STROKE);
+        self.gs.changed_fields.insert(ChangedField::OverprintStroke);
         self
     }
 
@@ -865,7 +870,7 @@ impl ExtendedGraphicsStateBuilder {
     #[inline]
     pub fn with_overprint_fill(mut self, overprint_fill: bool) -> Self {
         self.gs.overprint_fill = overprint_fill;
-        self.gs.changed_fields.insert(OVERPRINT_FILL);
+        self.gs.changed_fields.insert(ChangedField::OverprintFill);
         self
     }
 
@@ -873,7 +878,7 @@ impl ExtendedGraphicsStateBuilder {
     #[inline]
     pub fn with_overprint_mode(mut self, overprint_mode: OverprintMode) -> Self {
         self.gs.overprint_mode = overprint_mode;
-        self.gs.changed_fields.insert(OVERPRINT_MODE);
+        self.gs.changed_fields.insert(ChangedField::OverprintMode);
         self
     }
 
@@ -882,7 +887,7 @@ impl ExtendedGraphicsStateBuilder {
     #[inline]
     pub fn with_font(mut self, font: Option<FontId>) -> Self {
         self.gs.font = font;
-        self.gs.changed_fields.insert(FONT);
+        self.gs.changed_fields.insert(ChangedField::Font);
         self
     }
 
@@ -893,7 +898,7 @@ impl ExtendedGraphicsStateBuilder {
         black_generation: Option<BlackGenerationFunction>,
     ) -> Self {
         self.gs.black_generation = black_generation;
-        self.gs.changed_fields.insert(BLACK_GENERATION);
+        self.gs.changed_fields.insert(ChangedField::BlackGeneration);
         self
     }
 
@@ -904,7 +909,9 @@ impl ExtendedGraphicsStateBuilder {
         black_generation_extra: Option<BlackGenerationExtraFunction>,
     ) -> Self {
         self.gs.black_generation_extra = black_generation_extra;
-        self.gs.changed_fields.insert(BLACK_GENERATION_EXTRA);
+        self.gs
+            .changed_fields
+            .insert(ChangedField::BlackGenerationExtra);
         self
     }
 
@@ -915,7 +922,9 @@ impl ExtendedGraphicsStateBuilder {
         under_color_removal: Option<UnderColorRemovalFunction>,
     ) -> Self {
         self.gs.under_color_removal = under_color_removal;
-        self.gs.changed_fields.insert(UNDERCOLOR_REMOVAL);
+        self.gs
+            .changed_fields
+            .insert(ChangedField::UnderColorRemoval);
         self
     }
 
@@ -926,7 +935,9 @@ impl ExtendedGraphicsStateBuilder {
         under_color_removal_extra: Option<UnderColorRemovalExtraFunction>,
     ) -> Self {
         self.gs.under_color_removal_extra = under_color_removal_extra;
-        self.gs.changed_fields.insert(UNDERCOLOR_REMOVAL_EXTRA);
+        self.gs
+            .changed_fields
+            .insert(ChangedField::UnderColorRemovalExtra);
         self
     }
 
@@ -934,7 +945,9 @@ impl ExtendedGraphicsStateBuilder {
     #[inline]
     pub fn with_transfer(mut self, transfer_function: Option<TransferFunction>) -> Self {
         self.gs.transfer_function = transfer_function;
-        self.gs.changed_fields.insert(TRANSFER_FUNCTION);
+        self.gs
+            .changed_fields
+            .insert(ChangedField::TransferFunction);
         self
     }
 
@@ -945,7 +958,9 @@ impl ExtendedGraphicsStateBuilder {
         transfer_extra_function: Option<TransferExtraFunction>,
     ) -> Self {
         self.gs.transfer_extra_function = transfer_extra_function;
-        self.gs.changed_fields.insert(TRANSFER_FUNCTION_EXTRA);
+        self.gs
+            .changed_fields
+            .insert(ChangedField::TransferFunctionExtra);
         self
     }
 
@@ -953,7 +968,9 @@ impl ExtendedGraphicsStateBuilder {
     #[inline]
     pub fn with_halftone(mut self, halftone_type: Option<HalftoneType>) -> Self {
         self.gs.halftone_dictionary = halftone_type;
-        self.gs.changed_fields.insert(HALFTONE_DICTIONARY);
+        self.gs
+            .changed_fields
+            .insert(ChangedField::HalftoneDictionary);
         self
     }
 
@@ -961,7 +978,9 @@ impl ExtendedGraphicsStateBuilder {
     #[inline]
     pub fn with_flatness_tolerance(mut self, flatness_tolerance: f32) -> Self {
         self.gs.flatness_tolerance = flatness_tolerance;
-        self.gs.changed_fields.insert(FLATNESS_TOLERANCE);
+        self.gs
+            .changed_fields
+            .insert(ChangedField::FlatnessTolerance);
         self
     }
 
@@ -969,7 +988,9 @@ impl ExtendedGraphicsStateBuilder {
     #[inline]
     pub fn with_smoothness_tolerance(mut self, smoothness_tolerance: f32) -> Self {
         self.gs.smoothness_tolerance = smoothness_tolerance;
-        self.gs.changed_fields.insert(SMOOTHNESS_TOLERANCE);
+        self.gs
+            .changed_fields
+            .insert(ChangedField::SmoothnessTolerance);
         self
     }
 
@@ -977,7 +998,9 @@ impl ExtendedGraphicsStateBuilder {
     #[inline]
     pub fn with_stroke_adjustment(mut self, stroke_adjustment: bool) -> Self {
         self.gs.stroke_adjustment = stroke_adjustment;
-        self.gs.changed_fields.insert(STROKE_ADJUSTMENT);
+        self.gs
+            .changed_fields
+            .insert(ChangedField::StrokeAdjustment);
         self
     }
 
@@ -985,7 +1008,7 @@ impl ExtendedGraphicsStateBuilder {
     #[inline]
     pub fn with_blend_mode(mut self, blend_mode: BlendMode) -> Self {
         self.gs.blend_mode = blend_mode;
-        self.gs.changed_fields.insert(BLEND_MODE);
+        self.gs.changed_fields.insert(ChangedField::BlendMode);
         self
     }
 
@@ -993,7 +1016,7 @@ impl ExtendedGraphicsStateBuilder {
     #[inline]
     pub fn with_soft_mask(mut self, soft_mask: Option<SoftMask>) -> Self {
         self.gs.soft_mask = soft_mask;
-        self.gs.changed_fields.insert(SOFT_MASK);
+        self.gs.changed_fields.insert(ChangedField::SoftMask);
         self
     }
 
@@ -1001,7 +1024,9 @@ impl ExtendedGraphicsStateBuilder {
     #[inline]
     pub fn with_current_stroke_alpha(mut self, current_stroke_alpha: f32) -> Self {
         self.gs.current_stroke_alpha = current_stroke_alpha;
-        self.gs.changed_fields.insert(CURRENT_STROKE_ALPHA);
+        self.gs
+            .changed_fields
+            .insert(ChangedField::CurrentStrokeAlpha);
         self
     }
 
@@ -1009,7 +1034,9 @@ impl ExtendedGraphicsStateBuilder {
     #[inline]
     pub fn with_current_fill_alpha(mut self, current_fill_alpha: f32) -> Self {
         self.gs.current_fill_alpha = current_fill_alpha;
-        self.gs.changed_fields.insert(CURRENT_FILL_ALPHA);
+        self.gs
+            .changed_fields
+            .insert(ChangedField::CurrentFillAlpha);
         self
     }
 
@@ -1017,7 +1044,7 @@ impl ExtendedGraphicsStateBuilder {
     #[inline]
     pub fn with_alpha_is_shape(mut self, alpha_is_shape: bool) -> Self {
         self.gs.alpha_is_shape = alpha_is_shape;
-        self.gs.changed_fields.insert(ALPHA_IS_SHAPE);
+        self.gs.changed_fields.insert(ChangedField::AlphaIsShape);
         self
     }
 
@@ -1025,7 +1052,7 @@ impl ExtendedGraphicsStateBuilder {
     #[inline]
     pub fn with_text_knockout(mut self, text_knockout: bool) -> Self {
         self.gs.text_knockout = text_knockout;
-        self.gs.changed_fields.insert(TEXT_KNOCKOUT);
+        self.gs.changed_fields.insert(ChangedField::TextKnockout);
         self
     }
 
@@ -1075,7 +1102,8 @@ impl Default for ExtendedGraphicsState {
 /// in a `DeviceCMYK` color space should erase that component (`EraseUnderlying`) or
 /// leave it unchanged (`KeepUnderlying`) when overprinting (see Section 4.5.6, “Over-
 /// print Control”). Initial value: `EraseUnderlying`
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum OverprintMode {
     /// Erase underlying color when overprinting
     EraseUnderlying, /* 0, default */
@@ -1094,7 +1122,8 @@ impl OverprintMode {
 
 /// Black generation calculates the amount of black to be used when trying to
 /// reproduce a particular color.
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum BlackGenerationFunction {
     /// Regular black generation function
     ///
@@ -1117,7 +1146,8 @@ pub enum BlackGenerationFunction {
     WithUnderColorRemoval,
 }
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum BlackGenerationExtraFunction {}
 
 /// See `BlackGenerationFunction`, too. Undercolor removal reduces the amounts
@@ -1129,18 +1159,22 @@ pub enum BlackGenerationExtraFunction {}
 /// components. It can simply return its k operand unchanged, or it can return 0.0
 /// (so that no color is removed), some fraction of the black amount, or even a
 /// negative amount, thereby adding to the total amount of colorant.
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum UnderColorRemovalFunction {
     Default,
 }
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum UnderColorRemovalExtraFunction {}
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum TransferFunction {}
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum TransferExtraFunction {}
 
 /// In PDF 1.2, the graphics state includes a current halftone parameter,
@@ -1163,7 +1197,8 @@ pub enum TransferExtraFunction {}
     >>
 */
 /// Deserialized into Integer: 1, 5, 6, 10 or 16
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", tag = "type", content = "data")]
 pub enum HalftoneType {
     /// 1: Defines a single halftone screen by a frequency, angle, and spot function
     Type1(f32, f32, SpotFunction),
@@ -1198,7 +1233,8 @@ impl HalftoneType {
 
 /// Spot functions, Table 6.1, Page 489 in Pdf Reference v1.7
 /// The code is pseudo code, returning the grey component at (x, y).
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum SpotFunction {
     /// `1 - (pow(x, 2) + pow(y, 2))`
     SimpleDot,
@@ -1269,7 +1305,8 @@ pub enum SpotFunction {
     Diamond,
 }
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", tag = "type", content = "data")]
 pub enum BlendMode {
     Seperable(SeperableBlendMode),
     NonSeperable(NonSeperableBlendMode),
@@ -1359,7 +1396,8 @@ impl BlendMode {
 ///
 /// The function simply notes the formula that has to be applied to (`color_new`, `color_old`) in
 /// order to get the desired effect. You have to run each formula once for each color channel.
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum SeperableBlendMode {
     /// Selects the source color, ignoring the old color. Default mode.
     ///
@@ -1560,7 +1598,8 @@ pub enum SeperableBlendMode {
 ///
 /// For the K component, the result is the K component of Cb for the Hue, Saturation, and
 /// Color blend modes; it is the K component of Cs for the Luminosity blend mode.
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum NonSeperableBlendMode {
     Hue,
     Saturation,
@@ -1575,7 +1614,8 @@ pub enum NonSeperableBlendMode {
 /// made among various properties of a color specification when rendering colors for
 /// a given device. Specifying a rendering intent (PDF 1.1) allows a PDF file to set priorities
 /// regarding which of these properties to preserve and which to sacrifice.
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
+#[serde(rename = "kebab-case")]
 pub enum RenderingIntent {
     /// Colors are represented solely with respect to the light source; no
     /// correction is made for the output medium’s white point (such as
@@ -1633,7 +1673,8 @@ impl RenderingIntent {
 /// Can also be used for Vignettes, etc.
 /// Beware of color spaces!
 /// __See PDF Reference Page 545__ - Soft masks
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename = "kebab-case")]
 pub struct SoftMask {
     /// The data to be used as a soft mask
     data: Vec<u8>,
@@ -1641,7 +1682,8 @@ pub struct SoftMask {
     bits_per_component: u8,
 }
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
+#[serde(rename = "kebab-case")]
 pub enum SoftMaskFunction {
     // (Color, Shape, Alpha) = Composite(Color0, Alpha0, Group)
     /// In this function, the old (backdrop) color does not contribute to the result.

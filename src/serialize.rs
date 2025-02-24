@@ -384,10 +384,10 @@ pub(crate) fn translate_operations(
             }
             Op::BeginLayer { layer_id } => {
                 content.push(LoOp::new("q", vec![]));
-                content.push(LoOp::new("BDC", vec![
-                    Name("OC".into()),
-                    Name(layer_id.0.clone().into()),
-                ]));
+                content.push(LoOp::new(
+                    "BDC",
+                    vec![Name("OC".into()), Name(layer_id.0.clone().into())],
+                ));
             }
             Op::EndLayer { layer_id } => {
                 content.push(LoOp::new("EMC", vec![]));
@@ -410,10 +410,10 @@ pub(crate) fn translate_operations(
             }
             Op::WriteText { text, font, size } => {
                 if let Some(prepared_font) = fonts.get(font) {
-                    content.push(LoOp::new("Tf", vec![
-                        font.0.clone().into(),
-                        (size.0).into(),
-                    ]));
+                    content.push(LoOp::new(
+                        "Tf",
+                        vec![font.0.clone().into(), (size.0).into()],
+                    ));
 
                     let glyph_ids = text
                         .chars()
@@ -429,10 +429,10 @@ pub(crate) fn translate_operations(
                 }
             }
             Op::WriteTextBuiltinFont { text, font, size } => {
-                content.push(LoOp::new("Tf", vec![
-                    font.get_pdf_id().into(),
-                    (size.0).into(),
-                ]));
+                content.push(LoOp::new(
+                    "Tf",
+                    vec![font.get_pdf_id().into(), (size.0).into()],
+                ));
                 let bytes = lopdf::Document::encode_text(
                     &lopdf::Encoding::SimpleEncoding(b"WinAnsiEncoding"),
                     text,
@@ -441,10 +441,10 @@ pub(crate) fn translate_operations(
             }
             Op::WriteCodepoints { font, cp, size } => {
                 if let Some(prepared_font) = fonts.get(font) {
-                    content.push(LoOp::new("Tf", vec![
-                        font.0.clone().into(),
-                        (size.0).into(),
-                    ]));
+                    content.push(LoOp::new(
+                        "Tf",
+                        vec![font.0.clone().into(), (size.0).into()],
+                    ));
 
                     let subset_codepoints = cp
                         .iter()
@@ -503,10 +503,10 @@ pub(crate) fn translate_operations(
                 content.push(LoOp::new("Tw", vec![Real(*percent)]));
             }
             Op::SetFontSize { size, font } => {
-                content.push(LoOp::new("Tf", vec![
-                    font.0.clone().into(),
-                    (size.0).into(),
-                ]));
+                content.push(LoOp::new(
+                    "Tf",
+                    vec![font.0.clone().into(), (size.0).into()],
+                ));
             }
             Op::SetTextCursor { pos } => {
                 content.push(LoOp::new("Td", vec![pos.x.0.into(), pos.y.0.into()]));
@@ -520,12 +520,10 @@ pub(crate) fn translate_operations(
                         content.push(LoOp::new("sc", vec![Real(*r), Real(*g), Real(*b)]));
                     }
                     Color::Cmyk(crate::Cmyk { c, m, y, k, .. }) => {
-                        content.push(LoOp::new("sc", vec![
-                            Real(*c),
-                            Real(*m),
-                            Real(*y),
-                            Real(*k),
-                        ]));
+                        content.push(LoOp::new(
+                            "sc",
+                            vec![Real(*c), Real(*m), Real(*y), Real(*k)],
+                        ));
                     }
                     Color::SpotColor(_) => {
                         // handle or unknown
@@ -546,10 +544,10 @@ pub(crate) fn translate_operations(
             }
             Op::SetLineDashPattern { dash } => {
                 let dash_array_ints = dash.as_array().into_iter().map(Integer).collect();
-                content.push(LoOp::new("d", vec![
-                    Array(dash_array_ints),
-                    Integer(dash.offset),
-                ]));
+                content.push(LoOp::new(
+                    "d",
+                    vec![Array(dash_array_ints), Integer(dash.offset)],
+                ));
             }
             Op::SetLineJoinStyle { join } => {
                 content.push(LoOp::new("j", vec![Integer(join.id())]));
@@ -608,7 +606,10 @@ pub(crate) fn translate_operations(
                 content.push(LoOp::new("Q", vec![]));
             }
             Op::Unknown { key, value } => {
-                content.push(LoOp::new(key.as_str(), value.clone()));
+                content.push(LoOp::new(
+                    key.as_str(),
+                    value.iter().map(|s| s.to_lopdf()).collect(),
+                ));
             }
         }
     }
@@ -662,10 +663,10 @@ fn line_to_stream_ops(line: &Line) -> Vec<LoOp> {
         return operations;
     };
 
-    operations.push(LoOp::new(OP_PATH_CONST_MOVE_TO, vec![
-        line.points[0].0.x.into(),
-        line.points[0].0.y.into(),
-    ]));
+    operations.push(LoOp::new(
+        OP_PATH_CONST_MOVE_TO,
+        vec![line.points[0].p.x.into(), line.points[0].p.y.into()],
+    ));
 
     // Skip first element
     let mut current = 1;
@@ -677,7 +678,7 @@ fn line_to_stream_ops(line: &Line) -> Vec<LoOp> {
         let p1 = &line.points[current - 1]; // prev pt
         let p2 = &line.points[current]; // current pt
 
-        if p1.1 && p2.1 {
+        if p1.bezier && p2.bezier {
             // current point is a bezier handle
             // valid bezier curve must have two sequential bezier handles
             // we also can"t build a valid cubic bezier curve if the cuve contains less than
@@ -685,32 +686,31 @@ fn line_to_stream_ops(line: &Line) -> Vec<LoOp> {
             // matter
             if let Some(p3) = line.points.get(current + 1) {
                 if let Some(p4) = line.points.get(current + 2) {
-                    if p1.0 == p2.0 {
+                    if p1.p == p2.p {
                         // first control point coincides with initial point of curve
-                        operations.push(LoOp::new(OP_PATH_CONST_3BEZIER_V1, vec![
-                            p3.0.x.into(),
-                            p3.0.y.into(),
-                            p4.0.x.into(),
-                            p4.0.y.into(),
-                        ]));
-                    } else if p2.0 == p3.0 {
+                        operations.push(LoOp::new(
+                            OP_PATH_CONST_3BEZIER_V1,
+                            vec![p3.p.x.into(), p3.p.y.into(), p4.p.x.into(), p4.p.y.into()],
+                        ));
+                    } else if p2.p == p3.p {
                         // first control point coincides with final point of curve
-                        operations.push(LoOp::new(OP_PATH_CONST_3BEZIER_V2, vec![
-                            p2.0.x.into(),
-                            p2.0.y.into(),
-                            p4.0.x.into(),
-                            p4.0.y.into(),
-                        ]));
+                        operations.push(LoOp::new(
+                            OP_PATH_CONST_3BEZIER_V2,
+                            vec![p2.p.x.into(), p2.p.y.into(), p4.p.x.into(), p4.p.y.into()],
+                        ));
                     } else {
                         // regular bezier curve with four points
-                        operations.push(LoOp::new(OP_PATH_CONST_4BEZIER, vec![
-                            p2.0.x.into(),
-                            p2.0.y.into(),
-                            p3.0.x.into(),
-                            p3.0.y.into(),
-                            p4.0.x.into(),
-                            p4.0.y.into(),
-                        ]));
+                        operations.push(LoOp::new(
+                            OP_PATH_CONST_4BEZIER,
+                            vec![
+                                p2.p.x.into(),
+                                p2.p.y.into(),
+                                p3.p.x.into(),
+                                p3.p.y.into(),
+                                p4.p.x.into(),
+                                p4.p.y.into(),
+                            ],
+                        ));
                     }
                     current += 3;
                     continue;
@@ -719,10 +719,10 @@ fn line_to_stream_ops(line: &Line) -> Vec<LoOp> {
         }
 
         // normal straight line
-        operations.push(LoOp::new(OP_PATH_CONST_LINE_TO, vec![
-            p2.0.x.into(),
-            p2.0.y.into(),
-        ]));
+        operations.push(LoOp::new(
+            OP_PATH_CONST_LINE_TO,
+            vec![p2.p.x.into(), p2.p.y.into()],
+        ));
         current += 1;
     }
 
@@ -759,55 +759,54 @@ fn polygon_to_stream_ops(poly: &Polygon) -> Vec<LoOp> {
     };
 
     for ring in poly.rings.iter() {
-        operations.push(LoOp::new(OP_PATH_CONST_MOVE_TO, vec![
-            ring[0].0.x.into(),
-            ring[0].0.y.into(),
-        ]));
+        operations.push(LoOp::new(
+            OP_PATH_CONST_MOVE_TO,
+            vec![ring.points[0].p.x.into(), ring.points[0].p.y.into()],
+        ));
 
         // Skip first element
         let mut current = 1;
-        let max_len = ring.len();
+        let max_len = ring.points.len();
 
         // Loop over every points, determine if v, y, c or l operation should be used and build
         // curve / line accordingly
         while current < max_len {
-            let p1 = &ring[current - 1]; // prev pt
-            let p2 = &ring[current]; // current pt
+            let p1 = &ring.points[current - 1]; // prev pt
+            let p2 = &ring.points[current]; // current pt
 
-            if p1.1 && p2.1 {
+            if p1.bezier && p2.bezier {
                 // current point is a bezier handle
                 // valid bezier curve must have two sequential bezier handles
                 // we also can"t build a valid cubic bezier curve if the cuve contains less than
                 // four points. If p3 or p4 is marked as "next point is bezier handle" or not,
                 // doesn"t matter
-                if let Some(p3) = ring.get(current + 1) {
-                    if let Some(p4) = ring.get(current + 2) {
-                        if p1.0 == p2.0 {
+                if let Some(p3) = ring.points.get(current + 1) {
+                    if let Some(p4) = ring.points.get(current + 2) {
+                        if p1.p == p2.p {
                             // first control point coincides with initial point of curve
-                            operations.push(LoOp::new(OP_PATH_CONST_3BEZIER_V1, vec![
-                                p3.0.x.into(),
-                                p3.0.y.into(),
-                                p4.0.x.into(),
-                                p4.0.y.into(),
-                            ]));
-                        } else if p2.0 == p3.0 {
+                            operations.push(LoOp::new(
+                                OP_PATH_CONST_3BEZIER_V1,
+                                vec![p3.p.x.into(), p3.p.y.into(), p4.p.x.into(), p4.p.y.into()],
+                            ));
+                        } else if p2.p == p3.p {
                             // first control point coincides with final point of curve
-                            operations.push(LoOp::new(OP_PATH_CONST_3BEZIER_V2, vec![
-                                p2.0.x.into(),
-                                p2.0.y.into(),
-                                p4.0.x.into(),
-                                p4.0.y.into(),
-                            ]));
+                            operations.push(LoOp::new(
+                                OP_PATH_CONST_3BEZIER_V2,
+                                vec![p2.p.x.into(), p2.p.y.into(), p4.p.x.into(), p4.p.y.into()],
+                            ));
                         } else {
                             // regular bezier curve with four points
-                            operations.push(LoOp::new(OP_PATH_CONST_4BEZIER, vec![
-                                p2.0.x.into(),
-                                p2.0.y.into(),
-                                p3.0.x.into(),
-                                p3.0.y.into(),
-                                p4.0.x.into(),
-                                p4.0.y.into(),
-                            ]));
+                            operations.push(LoOp::new(
+                                OP_PATH_CONST_4BEZIER,
+                                vec![
+                                    p2.p.x.into(),
+                                    p2.p.y.into(),
+                                    p3.p.x.into(),
+                                    p3.p.y.into(),
+                                    p4.p.x.into(),
+                                    p4.p.y.into(),
+                                ],
+                            ));
                         }
                         current += 3;
                         continue;
@@ -816,10 +815,10 @@ fn polygon_to_stream_ops(poly: &Polygon) -> Vec<LoOp> {
             }
 
             // normal straight line
-            operations.push(LoOp::new(OP_PATH_CONST_LINE_TO, vec![
-                p2.0.x.into(),
-                p2.0.y.into(),
-            ]));
+            operations.push(LoOp::new(
+                OP_PATH_CONST_LINE_TO,
+                vec![p2.p.x.into(), p2.p.y.into()],
+            ));
             current += 1;
         }
     }
@@ -879,17 +878,20 @@ pub(crate) fn prepare_fonts(
         let glyph_ids = font.get_used_glyph_ids(font_id, pages);
         let cid_to_unicode = font.generate_cid_to_unicode_map(font_id, &glyph_ids);
         let widths = font.get_normalized_widths(&glyph_ids);
-        fonts_in_pdf.insert(font_id.clone(), PreparedFont {
-            original: font.clone(),
-            subset_font,
-            cid_to_unicode_map: cid_to_unicode,
-            vertical_writing: false, // !font.vmtx_data.is_empty(),
-            ascent: font.font_metrics.ascender as i64,
-            descent: font.font_metrics.descender as i64,
-            widths_list: widths,
-            max_height: font.get_max_height(&glyph_ids),
-            total_width: font.get_total_width(&glyph_ids),
-        });
+        fonts_in_pdf.insert(
+            font_id.clone(),
+            PreparedFont {
+                original: font.clone(),
+                subset_font,
+                cid_to_unicode_map: cid_to_unicode,
+                vertical_writing: false, // !font.vmtx_data.is_empty(),
+                ascent: font.font_metrics.ascender as i64,
+                descent: font.font_metrics.descender as i64,
+                widths_list: widths,
+                max_height: font.get_max_height(&glyph_ids),
+                total_width: font.get_total_width(&glyph_ids),
+            },
+        );
     }
 
     fonts_in_pdf

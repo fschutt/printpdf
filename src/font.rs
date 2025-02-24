@@ -16,7 +16,9 @@ use allsorts::{
         loca::{LocaOffsets, LocaTable},
     },
 };
+use base64::Engine;
 use lopdf::Object::{Array, Integer};
+use serde_derive::{Deserialize, Serialize};
 use time::error::Parse;
 
 use crate::{FontId, Op, PdfPage};
@@ -31,7 +33,7 @@ pub enum Font {
 }
 
 /// Standard built-in PDF fonts
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum BuiltinFont {
     TimesRoman,
     TimesBold,
@@ -225,14 +227,14 @@ impl BuiltinFont {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct ParsedFont {
     pub font_metrics: FontMetrics,
     pub num_glyphs: u16,
-    pub hhea_table: HheaTable,
+    pub hhea_table: Option<HheaTable>,
     pub hmtx_data: Vec<u8>,
     pub vmtx_data: Vec<u8>,
-    pub maxp_table: MaxpTable,
+    pub maxp_table: Option<MaxpTable>,
     pub gsub_cache: Option<LayoutCache<GSUB>>,
     pub gpos_cache: Option<LayoutCache<GPOS>>,
     pub opt_gdef_table: Option<Rc<GDEFTable>>,
@@ -241,6 +243,31 @@ pub struct ParsedFont {
     pub cmap_subtable: Option<OwnedCmapSubtable>,
     pub original_bytes: Vec<u8>,
     pub original_index: usize,
+}
+
+const FONT_B64_START: &str = "data:font/ttf;base64,";
+
+impl serde::Serialize for ParsedFont {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let s = format!(
+            "{FONT_B64_START}{}",
+            base64::prelude::BASE64_STANDARD.encode(&self.original_bytes)
+        );
+        s.serialize(serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ParsedFont {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<ParsedFont, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        let b64 = if s.starts_with(FONT_B64_START) {
+            let b = &s[FONT_B64_START.len()..];
+            base64::prelude::BASE64_STANDARD.decode(&b).ok()
+        } else {
+            None
+        };
+        Ok(ParsedFont::from_bytes(&b64.unwrap_or_default(), 0).unwrap_or_default())
+    }
 }
 
 impl PartialEq for ParsedFont {
@@ -774,10 +801,10 @@ impl ParsedFont {
         let mut font = ParsedFont {
             font_metrics,
             num_glyphs,
-            hhea_table,
+            hhea_table: Some(hhea_table),
             hmtx_data,
             vmtx_data,
-            maxp_table,
+            maxp_table: Some(maxp_table),
             gsub_cache,
             gpos_cache,
             opt_gdef_table,
@@ -796,14 +823,11 @@ impl ParsedFont {
 
     fn get_space_width_internal(&mut self) -> Option<usize> {
         let glyph_index = self.lookup_glyph_index(' ' as u32)?;
-        allsorts::glyph_info::advance(
-            &self.maxp_table,
-            &self.hhea_table,
-            &self.hmtx_data,
-            glyph_index,
-        )
-        .ok()
-        .map(|s| s as usize)
+        let maxp_table = self.maxp_table.as_ref()?;
+        let hhea_table = self.hhea_table.as_ref()?;
+        allsorts::glyph_info::advance(&maxp_table, &hhea_table, &self.hmtx_data, glyph_index)
+            .ok()
+            .map(|s| s as usize)
     }
 
     /// Returns the width of the space " " character (unscaled units)

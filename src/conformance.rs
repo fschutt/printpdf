@@ -6,12 +6,15 @@
 //!
 //! [PDF/A Versions](https://en.wikipedia.org/wiki/PDF/A)
 
+use serde_derive::{Deserialize, Serialize};
+
 /// List of (relevant) PDF versions
 /// Please note the difference between **PDF/A** (archiving), **PDF/UA** (universal acessibility),
 /// **PDF/X** (printing), **PDF/E** (engineering / CAD), **PDF/VT** (large volume transactions with
 /// repeated content)
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 #[allow(non_camel_case_types)]
+#[serde(rename_all = "kebab-case", tag = "type", content = "data")]
 pub enum PdfConformance {
     /// `PDF/A-1b` basic PDF, many features restricted
     A1B_2005_PDF_1_4,
@@ -74,7 +77,7 @@ impl Default for PdfConformance {
 
 /// Allows building custom conformance profiles. This is useful if you want very small documents for
 /// example and you don't __need__ conformance with any PDF standard, you just want a PDF file.
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct CustomPdfConformance {
     /// Identifier for this conformance
     ///

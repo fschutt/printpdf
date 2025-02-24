@@ -2,6 +2,8 @@
 
 use std::collections::BTreeMap;
 
+use serde_derive::{Deserialize, Serialize};
+
 // #[cfg(target_family = "wasm")]
 /// Link / bookmark annotation handling
 pub mod annotation;
@@ -59,7 +61,8 @@ pub(crate) mod render;
 pub use render::PdfToSvgOptions;
 
 /// Internal ID for page annotations
-#[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct PageAnnotId(pub String);
 
 impl PageAnnotId {
@@ -69,7 +72,8 @@ impl PageAnnotId {
 }
 
 /// Internal ID for XObjects
-#[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct XObjectId(pub String);
 
 impl XObjectId {
@@ -79,7 +83,8 @@ impl XObjectId {
 }
 
 /// Internal ID for Fonts
-#[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct FontId(pub String);
 
 impl FontId {
@@ -89,7 +94,8 @@ impl FontId {
 }
 
 /// Internal ID for Layers
-#[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct LayerInternalId(pub String);
 
 impl LayerInternalId {
@@ -99,7 +105,8 @@ impl LayerInternalId {
 }
 
 /// Internal ID for extended graphic states
-#[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct ExtendedGraphicsStateId(pub String);
 
 impl ExtendedGraphicsStateId {
@@ -109,7 +116,8 @@ impl ExtendedGraphicsStateId {
 }
 
 /// Internal ID for ICC profiles
-#[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct IccProfileId(pub String);
 
 impl IccProfileId {
@@ -119,7 +127,7 @@ impl IccProfileId {
 }
 
 /// Parsed PDF document
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct PdfDocument {
     /// Metadata about the document (author, info, XMP metadata, etc.)
     pub metadata: PdfMetadata,
@@ -194,10 +202,13 @@ impl PdfDocument {
     /// Adds a new page-level bookmark on page `$page`, returning the bookmarks internal ID
     pub fn add_bookmark(&mut self, name: &str, page: usize) -> PageAnnotId {
         let id = PageAnnotId::new();
-        self.bookmarks.map.insert(id.clone(), PageAnnotation {
-            name: name.to_string(),
-            page,
-        });
+        self.bookmarks.map.insert(
+            id.clone(),
+            PageAnnotation {
+                name: name.to_string(),
+                page,
+            },
+        );
         id
     }
 
@@ -233,7 +244,7 @@ impl PdfDocument {
     }
 }
 
-#[derive(Debug, Default, PartialEq, Clone)]
+#[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
 pub struct PdfResources {
     /// Fonts found in the PDF file, indexed by the sha256 of their contents
     pub fonts: PdfFontMap,
@@ -245,12 +256,12 @@ pub struct PdfResources {
     pub layers: PdfLayerMap,
 }
 
-#[derive(Debug, PartialEq, Default, Clone)]
+#[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize)]
 pub struct PdfLayerMap {
     pub map: BTreeMap<LayerInternalId, Layer>,
 }
 
-#[derive(Debug, PartialEq, Default, Clone)]
+#[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize)]
 pub struct PdfFontMap {
     pub map: BTreeMap<FontId, ParsedFont>,
 }
@@ -258,28 +269,29 @@ pub struct PdfFontMap {
 #[derive(Debug, PartialEq, Default, Clone)]
 pub struct ParsedIccProfile {}
 
-#[derive(Debug, PartialEq, Default, Clone)]
+#[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize)]
 pub struct XObjectMap {
     pub map: BTreeMap<XObjectId, XObject>,
 }
 
-#[derive(Debug, PartialEq, Default, Clone)]
+#[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize)]
 pub struct PageAnnotMap {
     pub map: BTreeMap<PageAnnotId, PageAnnotation>,
 }
 
-#[derive(Debug, PartialEq, Default, Clone)]
+#[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize)]
 pub struct ExtendedGraphicsStateMap {
     pub map: BTreeMap<ExtendedGraphicsStateId, ExtendedGraphicsState>,
 }
 
 /// This is a wrapper in order to keep shared data between the documents XMP metadata and
 /// the "Info" dictionary in sync
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct PdfMetadata {
     /// Document information
     pub info: PdfDocumentInfo,
     /// XMP Metadata. Is ignored on save if the PDF conformance does not allow XMP
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub xmp: Option<XmpMetadata>,
 }
 
@@ -328,13 +340,13 @@ impl PdfMetadata {
 
 /// Initial struct for Xmp metatdata. This should be expanded later for XML handling, etc.
 /// Right now it just fills out the necessary fields
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct XmpMetadata {
     /// Web-viewable or "default" or to be left empty. Usually "default".
     pub rendition_class: Option<String>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct PdfDocumentInfo {
     /// Is the document trapped?
     pub trapped: bool,

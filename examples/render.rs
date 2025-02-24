@@ -14,5 +14,9 @@ fn main() {
     let page = PdfPage::new(Mm(100.0), Mm(100.0), ops);
     let svg = page.to_svg(&doc.resources, &PdfToSvgOptions::web());
     std::fs::write("./helloworld.svg", svg).unwrap();
-    std::fs::write("./helloworld.pdf", doc.with_pages(vec![page]).save(&PdfSaveOptions::default())).unwrap();
+    std::fs::write(
+        "./helloworld.pdf",
+        doc.with_pages(vec![page]).save(&PdfSaveOptions::default()),
+    )
+    .unwrap();
 }

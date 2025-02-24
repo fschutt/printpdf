@@ -1,7 +1,10 @@
+use serde_derive::{Deserialize, Serialize};
+
 use crate::IccProfileId;
 
 /// Color space (enum for marking the number of bits a color has)
-#[derive(Debug, Copy, PartialEq, Clone)]
+#[derive(Debug, Copy, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum ColorSpace {
     Rgb,
     Rgba,
@@ -38,7 +41,8 @@ impl From<image::ColorType> for ColorSpace {
 }
 
 /// How many bits does a color have?
-#[derive(Debug, Copy, PartialEq, Clone)]
+#[derive(Debug, Copy, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum ColorBits {
     Bit1,
     Bit8,
@@ -56,7 +60,8 @@ impl ColorBits {
 }
 
 /// Wrapper for Rgb, Cmyk and other color types
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "data")]
 pub enum Color {
     Rgb(Rgb),
     Cmyk(Cmyk),
@@ -95,11 +100,12 @@ impl Color {
 }
 
 /// RGB color
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Rgb {
     pub r: f32,
     pub g: f32,
     pub b: f32,
+    #[serde(default)]
     pub icc_profile: Option<IccProfileId>,
 }
 
@@ -115,12 +121,13 @@ impl Rgb {
 }
 
 /// CMYK color
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Cmyk {
     pub c: f32,
     pub m: f32,
     pub y: f32,
     pub k: f32,
+    #[serde(default)]
     pub icc_profile: Option<IccProfileId>,
 }
 
@@ -138,9 +145,10 @@ impl Cmyk {
 }
 
 /// Greyscale color
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Greyscale {
     pub percent: f32,
+    #[serde(default)]
     pub icc_profile: Option<IccProfileId>,
 }
 
@@ -155,7 +163,7 @@ impl Greyscale {
 
 /// Spot colors are like Cmyk, but without color space. They are essentially "named" colors
 /// from specific vendors - currently they are the same as a CMYK color.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SpotColor {
     pub c: f32,
     pub m: f32,

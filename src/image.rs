@@ -1,18 +1,62 @@
 use core::fmt;
 use std::io::Cursor;
 
+use base64::Engine;
 use image::{DynamicImage, GenericImageView};
+use serde::de::Error;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{ColorBits, ColorSpace};
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct RawImage {
     pub pixels: RawImageData,
     pub width: usize,
     pub height: usize,
     pub data_format: RawImageFormat,
     pub tag: Vec<u8>,
+}
+
+impl serde::Serialize for RawImage {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        // Cycle through all output image formats until one succeeds.
+        let output_formats = [
+            OutputImageFormat::Png,
+            OutputImageFormat::Jpeg,
+            OutputImageFormat::Gif,
+            OutputImageFormat::WebP,
+            OutputImageFormat::Pnm,
+            OutputImageFormat::Tiff,
+            OutputImageFormat::Tga,
+            OutputImageFormat::Bmp,
+            OutputImageFormat::Avif,
+        ];
+        let (bytes, fmt) = self
+            .encode_to_bytes(&output_formats)
+            .map_err(serde::ser::Error::custom)?;
+        let base64_str = base64::prelude::BASE64_STANDARD.encode(&bytes);
+        let data_url = format!("data:{};base64,{}", fmt.mime_type(), base64_str);
+        serializer.serialize_str(&data_url)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for RawImage {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        // If the string is a data URL (e.g. "data:image/png;base64,..."),
+        // strip the header and keep the base64 payload.
+        let base64_part = if s.starts_with("data:") {
+            s.find(',')
+                .map(|idx| &s[idx + 1..])
+                .ok_or_else(|| D::Error::custom("Invalid data URL: missing comma"))?
+        } else {
+            &s
+        };
+        let bytes = base64::prelude::BASE64_STANDARD
+            .decode(base64_part)
+            .map_err(serde::de::Error::custom)?;
+        Self::decode_from_bytes(&bytes).map_err(serde::de::Error::custom)
+    }
 }
 
 struct RawImageU8 {
@@ -154,7 +198,8 @@ impl RawImageData {
 }
 
 /// Format to encode the image into
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum OutputImageFormat {
     /// An Image in PNG Format
     Png,
@@ -388,9 +433,10 @@ impl RawImage {
 
     /// NOTE: depends on the enabled image formats!
     ///
-    /// Function will try to encode the image to the given formats and return an Error on exhaustion.
-    /// Tries to encode the image into one of the given target formats, returning the encoded
-    /// bytes if successful. For simplicity this implementation supports only 8‑bit image data.
+    /// Function will try to encode the image to the given formats and return an Error on
+    /// exhaustion. Tries to encode the image into one of the given target formats, returning
+    /// the encoded bytes if successful. For simplicity this implementation supports only 8‑bit
+    /// image data.
     pub fn encode_to_bytes(
         &self,
         target_fmt: &[OutputImageFormat],

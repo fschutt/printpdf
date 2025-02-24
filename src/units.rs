@@ -2,6 +2,8 @@
 
 use std::{cmp::Ordering, num::FpCategory};
 
+use serde_derive::{Deserialize, Serialize};
+
 macro_rules! impl_partialeq {
     ($t:ty) => {
         impl PartialEq for $t {
@@ -40,7 +42,7 @@ macro_rules! impl_ord {
 }
 
 /// Scale in millimeter
-#[derive(Debug, Default, Copy, Clone, PartialOrd)]
+#[derive(Debug, Default, Copy, Clone, PartialOrd, Serialize, Deserialize)]
 pub struct Mm(pub f32);
 
 impl Mm {
@@ -62,7 +64,7 @@ impl_partialeq!(Mm);
 impl_ord!(Mm);
 
 /// Scale in point
-#[derive(Debug, Default, Copy, Clone, PartialOrd)]
+#[derive(Debug, Default, Copy, Clone, PartialOrd, Serialize, Deserialize)]
 pub struct Pt(pub f32);
 
 impl Pt {
@@ -103,7 +105,7 @@ impl_partialeq!(Pt);
 impl_ord!(Pt);
 
 /// Scale in pixels
-#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 pub struct Px(pub usize);
 
 impl Px {

@@ -1,9 +1,8 @@
 use std::collections::BTreeMap;
 
-use lopdf::Object;
 use svg2pdf::{ConversionOptions, PageOptions, usvg};
 
-use crate::{ColorSpace, PdfResources, xobject::ExternalXObject};
+use crate::{ColorSpace, DictItem, ExternalStream, PdfResources, xobject::ExternalXObject};
 
 /// SVG - wrapper around an `XObject` to allow for more
 /// control within the library.
@@ -39,11 +38,13 @@ impl Svg {
         let pdf_bytes = svg2pdf::to_pdf(&tree, co, po)
             .map_err(|err| format!("convert svg tree to pdf: {err}"))?;
 
-        let (pdf, _) =
-            crate::deserialize::parse_pdf_from_bytes(&pdf_bytes, &crate::PdfParseOptions {
+        let (pdf, _) = crate::deserialize::parse_pdf_from_bytes(
+            &pdf_bytes,
+            &crate::PdfParseOptions {
                 fail_on_error: false,
-            })
-            .map_err(|err| format!("convert svg tree to pdf: parse pdf: {err}"))?;
+            },
+        )
+        .map_err(|err| format!("convert svg tree to pdf: parse pdf: {err}"))?;
 
         let page = pdf
             .pages
@@ -61,27 +62,29 @@ impl Svg {
         let px_width = width_pt.into_px(dpi);
         let px_height = height_pt.into_px(dpi);
 
-        let dict = lopdf::Dictionary::from_iter(vec![
-            ("Type", Object::Name("XObject".into())),
-            ("Subtype", Object::Name("Form".into())),
-            ("Width", Object::Integer(px_width.0 as i64)),
-            (
-                "ColorSpace",
-                Object::Name(ColorSpace::Rgb.as_string().into()),
-            ),
+        let rgb = ColorSpace::Rgb.as_string();
+        let dict = [
+            ("Type", DictItem::Name("XObject".into())),
+            ("Subtype", DictItem::Name("Form".into())),
+            ("Width", DictItem::Int(px_width.0 as i64)),
+            ("ColorSpace", DictItem::Name(rgb.into())),
             (
                 "BBox",
-                Object::Array(vec![
-                    Object::Integer(0),
-                    Object::Integer(0),
-                    Object::Integer(px_width.0 as i64),
-                    Object::Integer(px_height.0 as i64),
+                DictItem::Array(vec![
+                    DictItem::Int(0),
+                    DictItem::Int(0),
+                    DictItem::Int(px_width.0 as i64),
+                    DictItem::Int(px_height.0 as i64),
                 ]),
             ),
-        ]);
+        ];
 
         Ok(ExternalXObject {
-            stream: lopdf::Stream::new(dict, stream),
+            stream: ExternalStream {
+                dict: dict.into_iter().map(|(k, v)| (k.to_string(), v)).collect(),
+                content: stream,
+                compress: false,
+            },
             width: Some(px_width),
             height: Some(px_height),
             dpi: Some(dpi),

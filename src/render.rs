@@ -1,23 +1,26 @@
-use crate::ops::PdfPage;
-use crate::serialize::prepare_fonts;
-use crate::{OutputImageFormat, PdfResources};
+use base64::Engine;
+use serde_derive::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+use crate::{OutputImageFormat, PdfResources, ops::PdfPage, serialize::prepare_fonts};
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct PdfToSvgOptions {
     /// When rendering ImageXObjects, the images are embedded in the SVG.
     /// You can specify here, which image formats you'd like to output, i.e.
     /// `[Jpeg, Png, Avif]` will first try to encode the image to
     /// `image/jpeg,base64=...`, if the encoding fails, it will try
-    /// `Png`, and last `Avif`. This is because if you want to render the SVG later on
-    /// using `svg2png`, not all image formats might be supported, but generally in a
-    /// browser context you can use `WebP` and `Avif` to save space.
-    pub output_image_formats: Vec<OutputImageFormat>,
+    /// `Png`, and last `Avif`.
+    ///
+    /// If you want to render the SVG later using `svg2png`, not all image
+    /// formats might be supported, but generally in a
+    /// browser context you can prefer `WebP` and `Avif` to save space.
+    pub image_formats: Vec<OutputImageFormat>,
 }
 
 impl Default for PdfToSvgOptions {
     fn default() -> Self {
         Self {
-            output_image_formats: vec![
+            image_formats: vec![
                 OutputImageFormat::Png,
                 OutputImageFormat::Jpeg,
                 OutputImageFormat::Bmp,
@@ -29,7 +32,7 @@ impl Default for PdfToSvgOptions {
 impl PdfToSvgOptions {
     pub fn web() -> Self {
         Self {
-            output_image_formats: vec![
+            image_formats: vec![
                 OutputImageFormat::Avif,
                 OutputImageFormat::WebP,
                 OutputImageFormat::Jpeg,
@@ -62,7 +65,7 @@ pub fn render_to_svg(page: &PdfPage, resources: &PdfResources, opts: &PdfToSvgOp
     for (font_id, font) in prepare_fonts(resources, &[page.clone()]).iter() {
         svg.push_str(&format!(
             r#"@font-face {{ font-family: "{}"; src: url("data:font/otf;charset=utf-8;base64,{}"); }}"#,
-            font_id.0, base64::encode(&font.subset_font.bytes),
+            font_id.0, base64::prelude::BASE64_STANDARD.encode(&font.subset_font.bytes),
         ));
     }
     svg.push_str("</style>\n");
@@ -225,7 +228,7 @@ pub fn render_to_svg(page: &PdfPage, resources: &PdfResources, opts: &PdfToSvgOp
                 let points: Vec<String> = line
                     .points
                     .iter()
-                    .map(|(pt, _)| format!("{},{}", pt.x.0, pt.y.0))
+                    .map(|pt| format!("{},{}", pt.p.x.0, pt.p.y.0))
                     .collect();
                 let points_str = points.join(" ");
                 if line.is_closed {
@@ -258,10 +261,10 @@ pub fn render_to_svg(page: &PdfPage, resources: &PdfResources, opts: &PdfToSvgOp
             // Draw a polygon.
             crate::ops::Op::DrawPolygon { polygon } => {
                 for ring in &polygon.rings {
-                    if let Some((first_pt, _)) = ring.first() {
-                        let mut d = format!("M {} {}", first_pt.x.0, first_pt.y.0);
-                        for (pt, _) in &ring[1..] {
-                            d.push_str(&format!(" L {} {}", pt.x.0, pt.y.0));
+                    if let Some(first_pt) = ring.points.first() {
+                        let mut d = format!("M {} {}", first_pt.p.x.0, first_pt.p.y.0);
+                        for pt in &ring.points[1..] {
+                            d.push_str(&format!(" L {} {}", pt.p.x.0, pt.p.y.0));
                         }
                         if polygon.mode == crate::graphics::PaintMode::Fill
                             || polygon.mode == crate::graphics::PaintMode::FillStroke
@@ -294,10 +297,11 @@ pub fn render_to_svg(page: &PdfPage, resources: &PdfResources, opts: &PdfToSvgOp
                     if let crate::xobject::XObject::Image(raw_image) = xobj {
                         let img_width = raw_image.width;
                         let img_height = raw_image.height;
-                        match raw_image.encode_to_bytes(&opts.output_image_formats) {
+                        match raw_image.encode_to_bytes(&opts.image_formats) {
                             Ok((encoded_bytes, fmt)) => {
                                 let mime = fmt.mime_type();
-                                let image_data = base64::encode(&encoded_bytes);
+                                let image_data =
+                                    base64::prelude::BASE64_STANDARD.encode(&encoded_bytes);
                                 svg.push_str(&format!(
                                     r#"<image x="{}" y="{}" width="{}" height="{}" xlink:href="data:{};base64,{}" transform="{}"/>"#,
                                     current_x,

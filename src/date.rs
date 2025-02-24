@@ -1,26 +1,38 @@
-#[cfg(not(any(target_arch = "wasm32", target_os = "unknown")))]
+#[cfg(not(target_arch = "wasm32"))]
 pub use time::{OffsetDateTime, UtcOffset};
 
 /// wasm32-unknown-unknown polyfill
 
-#[cfg(all(feature = "js-sys", target_arch = "wasm32", target_os = "unknown"))]
+#[cfg(all(feature = "js-sys", target_arch = "wasm32"))]
 pub use self::js_sys_date::OffsetDateTime;
-#[cfg(not(feature = "js-sys"))]
-#[cfg(any(
-    all(target_arch = "wasm32", target_os = "unknown"),
-    all(target_arch = "wasm32", target_os = "wasi")
-))]
-pub use self::unix_epoch_stub_date::OffsetDateTime;
-
-#[cfg(all(feature = "js-sys", target_arch = "wasm32", target_os = "unknown"))]
+#[cfg(all(feature = "js-sys", target_arch = "wasm32"))]
 mod js_sys_date {
     use js_sys::Date;
     use time::Month;
 
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Debug, Clone, Default, PartialEq, PartialOrd, Ord, Eq, Hash)]
     pub struct OffsetDateTime(Date);
 
+    impl serde::Serialize for OffsetDateTime {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            "1970-01-01 00:00:00.00 +00:00:00".serialize(serializer)
+        }
+    }
+
+    impl<'de> serde::Deserialize<'de> for OffsetDateTime {
+        fn deserialize<D: serde::Deserializer<'de>>(
+            deserializer: D,
+        ) -> Result<OffsetDateTime, D::Error> {
+            let _ = String::deserialize(deserializer)?;
+            Ok(OffsetDateTime::now_utc())
+        }
+    }
+
     impl OffsetDateTime {
+        pub fn unix_timestamp(self) -> i64 {
+            0
+        }
+
         pub fn from_unix_timestamp(_: i64) -> Option<Self> {
             Some(Self(Date::new(&(1000.0 * 60.0 * 24.0 * 5.0).into())))
         }
@@ -98,19 +110,37 @@ mod js_sys_date {
     }
 }
 
-#[cfg(not(feature = "js-sys"))]
-#[cfg(any(
-    all(target_arch = "wasm32", target_os = "unknown"),
-    all(target_arch = "wasm32", target_os = "wasi")
-))]
+#[cfg(all(not(feature = "js-sys"), target_arch = "wasm32"))]
+pub use self::unix_epoch_stub_date::OffsetDateTime;
+#[cfg(all(not(feature = "js-sys"), target_arch = "wasm32"))]
 mod unix_epoch_stub_date {
     use time::Month;
 
-    #[derive(Debug, PartialEq, Copy, Clone, Eq, Ord, PartialOrd, Hash)]
+    #[derive(Debug, PartialEq, Default, Copy, Clone, Eq, Ord, PartialOrd, Hash)]
     pub struct OffsetDateTime;
+
+    impl serde::Serialize for OffsetDateTime {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            "1970-01-01 00:00:00.00 +00:00:00".serialize(serializer)
+        }
+    }
+
+    impl<'de> serde::Deserialize<'de> for OffsetDateTime {
+        fn deserialize<D: serde::Deserializer<'de>>(
+            deserializer: D,
+        ) -> Result<OffsetDateTime, D::Error> {
+            let _ = String::deserialize(deserializer)?;
+            Ok(OffsetDateTime::from_unix_timestamp(0).unwrap_or_default())
+        }
+    }
+
     impl OffsetDateTime {
         pub fn from_unix_timestamp(_: usize) -> Result<Self, String> {
             Ok(OffsetDateTime)
+        }
+
+        pub fn unix_timestamp(self) -> i64 {
+            0
         }
 
         #[inline(always)]
@@ -124,7 +154,7 @@ mod unix_epoch_stub_date {
         }
 
         #[inline(always)]
-        pub fn format(&self, format: impl ToString) -> String {
+        pub fn format(&self, _: impl ToString) -> String {
             // TODO
             "".into()
         }
@@ -170,10 +200,7 @@ mod unix_epoch_stub_date {
     }
 }
 
-#[cfg(any(
-    all(target_arch = "wasm32", target_os = "unknown"),
-    all(target_arch = "wasm32", target_os = "wasi")
-))]
+#[cfg(target_arch = "wasm32")]
 #[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct UtcOffset {
     hours: i8,
@@ -181,11 +208,16 @@ pub struct UtcOffset {
     seconds: i8,
 }
 
-#[cfg(any(
-    all(target_arch = "wasm32", target_os = "unknown"),
-    all(target_arch = "wasm32", target_os = "wasi")
-))]
+#[cfg(target_arch = "wasm32")]
 impl UtcOffset {
+    pub const fn from_hms(hours: i8, minutes: i8, seconds: i8) -> Result<Self, &'static str> {
+        Ok(Self {
+            hours,
+            minutes,
+            seconds,
+        })
+    }
+
     pub const fn whole_hours(self) -> i8 {
         self.hours
     }

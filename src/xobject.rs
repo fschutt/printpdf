@@ -1,5 +1,10 @@
+use std::collections::BTreeMap;
+
+use lopdf::StringFormat;
+use serde_derive::{Deserialize, Serialize};
+
 use crate::{
-    OffsetDateTime,
+    date::OffsetDateTime,
     image::RawImage,
     matrix::CurTransMat,
     units::{Pt, Px},
@@ -10,13 +15,14 @@ use crate::{
 /// Gets constructed similar to the `ExtGState`, then inserted into the `/XObject` dictionary
 /// on the page. You can instantiate `XObjects` with the `/Do` operator. The `layer.add_xobject()`
 /// (or better yet, the `layer.add_image()`, `layer.add_form()`) methods will do this for you.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", content = "data")]
 pub enum XObject {
     /// Image XObject, for images
     Image(RawImage),
     /// Form XObject, NOT A PDF FORM, this just allows repeatable content
     /// on a page
-    Form(Box<FormXObject>),
+    Form(FormXObject),
     /// XObject embedded from an external stream
     ///
     /// This is mainly used to add XObjects to the resources that the library
@@ -58,7 +64,7 @@ pub(crate) fn add_xobject_to_document(
         }
         XObject::External(external_xobject) => {
             use lopdf::Object::Integer;
-            let mut stream = external_xobject.stream.clone();
+            let mut stream = external_xobject.stream.into_lopdf();
             if let Some(w) = external_xobject.width {
                 stream
                     .dict
@@ -75,16 +81,142 @@ pub(crate) fn add_xobject_to_document(
 }
 
 /// External XObject, invoked by `/Do` graphics operator
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct ExternalXObject {
     /// External stream of graphics operations
-    pub stream: lopdf::Stream,
+    pub stream: ExternalStream,
     /// Optional width
+    #[serde(default)]
     pub width: Option<Px>,
     /// Optional height
+    #[serde(default)]
     pub height: Option<Px>,
     /// Optional DPI of the object
+    #[serde(default)]
     pub dpi: Option<f32>,
+}
+
+#[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize)]
+pub struct ExternalStream {
+    /// Stream description, for simplicity a simple map, corresponds to PDF dict
+    pub dict: BTreeMap<String, DictItem>,
+    /// Stream content
+    pub content: Vec<u8>,
+    /// Whether the stream can be compressed
+    pub compress: bool,
+}
+
+impl ExternalStream {
+    pub(crate) fn into_lopdf(&self) -> lopdf::Stream {
+        lopdf::Stream::new(build_dict(&self.dict), self.content.clone())
+            .with_compression(self.compress)
+    }
+}
+
+/// Simplified dict item for external streams
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename = "kebab-case", tag = "type", content = "data")]
+pub enum DictItem {
+    Array(Vec<DictItem>),
+    String { data: Vec<u8>, literal: bool },
+    Bytes(Vec<u8>),
+    Bool(bool),
+    Float(f32),
+    Int(i64),
+    Real(f32),
+    Name(Vec<u8>),
+    Ref { obj: u32, gen: u16 },
+    Dict { map: BTreeMap<String, DictItem> },
+    Stream { stream: ExternalStream },
+    Null,
+}
+
+impl DictItem {
+    pub fn to_lopdf(&self) -> lopdf::Object {
+        use lopdf::{Object, StringFormat};
+        match self {
+            DictItem::Array(items) => {
+                let objs = items.iter().map(|item| item.to_lopdf()).collect();
+                Object::Array(objs)
+            }
+            DictItem::String { data, literal } => {
+                let format = if *literal {
+                    StringFormat::Literal
+                } else {
+                    StringFormat::Hexadecimal
+                };
+                Object::String(data.clone(), format)
+            }
+            DictItem::Bytes(data) => {
+                // Treat bytes as a hexadecimal string.
+                Object::String(data.clone(), StringFormat::Hexadecimal)
+            }
+            DictItem::Bool(b) => Object::Boolean(*b),
+            DictItem::Float(f) => Object::Real(*f),
+            DictItem::Int(i) => Object::Integer(*i),
+            DictItem::Real(f) => Object::Real(*f),
+            DictItem::Name(name) => Object::Name(name.clone()),
+            DictItem::Ref { obj, gen } => Object::Reference((*obj, *gen)),
+            DictItem::Dict { map } => {
+                let dict = map
+                    .iter()
+                    .map(|(k, v)| (k.as_bytes().to_vec(), v.to_lopdf()))
+                    .collect();
+                Object::Dictionary(dict)
+            }
+            DictItem::Stream { stream } => {
+                let stream_obj = stream.into_lopdf();
+                Object::Stream(stream_obj)
+            }
+            DictItem::Null => Object::Null,
+        }
+    }
+
+    pub fn from_lopdf(o: &lopdf::Object) -> Self {
+        use lopdf::Object;
+        match o {
+            Object::Null => DictItem::Null,
+            Object::Boolean(t) => DictItem::Bool(*t),
+            Object::Integer(i) => DictItem::Int(*i),
+            Object::Real(r) => DictItem::Real(*r),
+            Object::Name(items) => DictItem::Name(items.clone()),
+            Object::String(items, string_format) => DictItem::String {
+                data: items.clone(),
+                literal: *string_format == StringFormat::Literal,
+            },
+            Object::Array(objects) => {
+                DictItem::Array(objects.iter().map(DictItem::from_lopdf).collect())
+            }
+            Object::Dictionary(dictionary) => DictItem::Dict {
+                map: dictionary
+                    .iter()
+                    .map(|s| {
+                        (
+                            String::from_utf8_lossy(&s.0).to_string(),
+                            DictItem::from_lopdf(s.1),
+                        )
+                    })
+                    .collect(),
+            },
+            Object::Stream(stream) => DictItem::Stream {
+                stream: ExternalStream {
+                    compress: stream.allows_compression,
+                    content: stream.content.clone(),
+                    dict: stream
+                        .dict
+                        .iter()
+                        .map(|s| {
+                            (
+                                String::from_utf8_lossy(&s.0).to_string(),
+                                DictItem::from_lopdf(s.1),
+                            )
+                        })
+                        .collect(),
+                },
+            },
+            Object::Reference((a, b)) => DictItem::Ref { obj: *a, gen: *b },
+        }
+    }
 }
 
 /// Describes the format the image bytes are compressed with.
@@ -105,7 +237,7 @@ pub enum ImageFilter {
 /// A `FormXObject` is basically a layer-like content stream and can contain anything
 /// as long as it's a valid strem. A `FormXObject` is intended to be used for reapeated
 /// content on one page.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct FormXObject {
     // /Type /XObject
     // /Subtype /Form
@@ -137,7 +269,7 @@ pub struct FormXObject {
     /// XObject is required and contains all named resources used by the form XObject.
     /// These resources are not promoted to the outer content stream’s resource
     /// dictionary, although that stream’s resource dictionary refers to the form XObject.
-    pub resources: Option<lopdf::Dictionary>,
+    pub resources: Option<BTreeMap<String, DictItem>>,
     /* /Group << dictionary >> */
     /// (Optional; PDF 1.4) A group attributes dictionary indicating that the contents of the
     /// form XObject are to be treated as a group and specifying the attributes of that group
@@ -151,15 +283,15 @@ pub struct FormXObject {
     /// (Optional; PDF 1.4) A reference dictionary identifying a page to be imported from another
     /// PDF file, and for which the form XObject serves as a proxy (see Section 4.9.3, “Reference
     /// XObjects”).
-    pub ref_dict: Option<lopdf::Dictionary>,
+    pub ref_dict: Option<BTreeMap<String, DictItem>>,
     /* /Metadata [stream] */
     /// (Optional; PDF 1.4) A metadata stream containing metadata for the form XObject
     /// (see Section 10.2.2, “Metadata Streams”).
-    pub metadata: Option<lopdf::Stream>,
+    pub metadata: Option<BTreeMap<String, DictItem>>,
     /* /PieceInfo << dictionary >> */
     /// (Optional; PDF 1.3) A page-piece dictionary associated with the form XObject
     /// (see Section 10.4, “Page-Piece Dictionaries”).
-    pub piece_info: Option<lopdf::Dictionary>,
+    pub piece_info: Option<BTreeMap<String, DictItem>>,
     /* /LastModified (date) */
     /// (Required if PieceInfo is present; optional otherwise; PDF 1.3) The date and time
     /// (see Section 3.8.3, “Dates”) when the form XObject’s contents were most recently
@@ -184,13 +316,13 @@ pub struct FormXObject {
     /* /OPI << dictionary >> */
     /// (Optional; PDF 1.2) An OPI version dictionary for the form XObject
     /// (see Section 10.10.6, “Open Prepress Interface (OPI)”).
-    pub opi: Option<lopdf::Dictionary>,
+    pub opi: Option<BTreeMap<String, DictItem>>,
     /// (Optional; PDF 1.5) An optional content group or optional content membership dictionary
     /// (see Section 4.10, “Optional Content”) specifying the optional content properties for
     /// the form XObject. Before the form is processed, its visibility is determined based on
     /// this entry. If it is determined to be invisible, the entire form is skipped, as if there
     /// were no Do operator to invoke it.
-    pub oc: Option<lopdf::Dictionary>,
+    pub oc: Option<BTreeMap<String, DictItem>>,
     /* /Name /MyName */
     /// __(Required in PDF 1.0; optional otherwise)__ The name by which this form XObject is
     /// referenced in the XObject subdictionary of the current resource dictionary
@@ -217,7 +349,7 @@ fn form_xobject_to_stream(f: &FormXObject, doc: &mut lopdf::Document) -> lopdf::
     }
 
     if let Some(res) = f.resources.as_ref() {
-        dict.set("Resources", res.clone());
+        dict.set("Resources", build_dict(res));
     }
 
     if let Some(g) = f.group.as_ref() {
@@ -230,15 +362,15 @@ fn form_xobject_to_stream(f: &FormXObject, doc: &mut lopdf::Document) -> lopdf::
     }
 
     if let Some(r) = f.ref_dict.as_ref() {
-        dict.set("Ref", r.clone());
+        dict.set("Ref", build_dict(&r));
     }
 
     if let Some(r) = f.metadata.as_ref() {
-        dict.set("Metadata", doc.add_object(r.clone()));
+        dict.set("Metadata", doc.add_object(build_dict(&r)));
     }
 
     if let Some(r) = f.piece_info.as_ref() {
-        dict.set("PieceInfo", doc.add_object(r.clone()));
+        dict.set("PieceInfo", doc.add_object(build_dict(&r)));
     }
 
     if let Some(r) = f.last_modified.as_ref() {
@@ -252,11 +384,11 @@ fn form_xobject_to_stream(f: &FormXObject, doc: &mut lopdf::Document) -> lopdf::
     }
 
     if let Some(r) = f.opi.as_ref() {
-        dict.set("OPI", r.clone());
+        dict.set("OPI", build_dict(&r));
     }
 
     if let Some(r) = f.oc.as_ref() {
-        dict.set("OC", r.clone());
+        dict.set("OC", build_dict(&r));
     }
 
     if let Some(r) = f.name.as_ref() {
@@ -277,7 +409,12 @@ fn form_xobject_to_stream(f: &FormXObject, doc: &mut lopdf::Document) -> lopdf::
     stream
 }
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+pub fn build_dict(r: &BTreeMap<String, DictItem>) -> lopdf::Dictionary {
+    lopdf::Dictionary::from_iter(r.iter().map(|(k, v)| (k.clone(), v.to_lopdf())))
+}
+
+#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum FormType {
     /// The only form type ever declared by Adobe
     /* Integer(1) */
@@ -293,12 +430,13 @@ impl FormType {
 }
 
 /// `/Type /Group`` (PDF reference section 4.9.2)
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
 pub struct GroupXObject {
     pub grouptype: GroupXObjectType,
 }
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum GroupXObjectType {
     /// Transparency group XObject (currently the only valid GroupXObject type)
     TransparencyGroup,
@@ -314,7 +452,7 @@ impl GroupXObjectType {
 
 /// PDF 1.4 and higher
 /// Contains a PDF file to be embedded in the current PDF
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Default, Deserialize, Serialize)]
 pub struct ReferenceXObject {
     /// (Required) The file containing the target document. (?)
     pub file: Vec<u8>,
@@ -325,27 +463,33 @@ pub struct ReferenceXObject {
 }
 
 /// TODO, very low priority
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Default, Deserialize, Serialize)]
 pub struct PostScriptXObject {
     /// __(Optional)__ A stream whose contents are to be used in
     /// place of the PostScript XObject’s stream when the target
     /// PostScript interpreter is known to support only LanguageLevel 1
     #[allow(dead_code)]
-    level1: Option<Vec<u8>>,
+    pub level1: Option<Vec<u8>>,
 }
 
 /// Transform that is applied immediately before the
 /// image gets painted. Does not affect anything other
 /// than the image.
-#[derive(Debug, Copy, Clone, PartialEq, Default)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, Deserialize, Serialize)]
 pub struct XObjectTransform {
+    #[serde(default)]
     pub translate_x: Option<Pt>,
+    #[serde(default)]
     pub translate_y: Option<Pt>,
     /// Rotate (clockwise), in degree angles
+    #[serde(default)]
     pub rotate: Option<XObjectRotation>,
+    #[serde(default)]
     pub scale_x: Option<f32>,
+    #[serde(default)]
     pub scale_y: Option<f32>,
     /// If set to None, will be set to 300.0 for images
+    #[serde(default)]
     pub dpi: Option<f32>,
 }
 
@@ -390,8 +534,8 @@ impl XObjectTransform {
         transforms
     }
 
-    /// Combines the transformation matrices produced by `get_ctms` (with no width/height adjustment)
-    /// into one final transformation and returns it in SVG's matrix format.
+    /// Combines the transformation matrices produced by `get_ctms` (with no width/height
+    /// adjustment) into one final transformation and returns it in SVG's matrix format.
     pub fn as_svg_transform(&self) -> String {
         // Get the list of transformation matrices (using None for the width/height info)
         let ctms = self.get_ctms(None);
@@ -416,9 +560,12 @@ impl XObjectTransform {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Default)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct XObjectRotation {
+    #[serde(default)]
     pub angle_ccw_degrees: f32,
+    #[serde(default)]
     pub rotation_center_x: Px,
+    #[serde(default)]
     pub rotation_center_y: Px,
 }

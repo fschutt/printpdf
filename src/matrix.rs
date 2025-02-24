@@ -1,11 +1,14 @@
 //! Current transformation matrix, for transforming shapes (rotate, translate, scale)
 
+use serde_derive::{Deserialize, Serialize};
+
 use crate::units::Pt;
 
 /// PDF "current transformation matrix". Once set, will operate on all following shapes,
 /// until the `layer.restore_graphics_state()` is called. It is important to
 /// call `layer.save_graphics_state()` earlier.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename = "kebab-case", tag = "type", content = "data")]
 pub enum CurTransMat {
     /// Translation matrix (in points from bottom left corner)
     /// X and Y can have different values
@@ -231,7 +234,8 @@ fn mul_add(a: f32, b: f32, c: f32) -> f32 {
 /// Note: `TextScale` does not exist. Use `layer.set_word_spacing()`
 /// and `layer.set_character_spacing()` to specify the scaling between words
 /// and characters.
-#[derive(Debug, Copy, PartialEq, Clone)]
+#[derive(Debug, Copy, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum TextMatrix {
     /// Text rotation matrix, used for rotating text
     Rotate(f32),

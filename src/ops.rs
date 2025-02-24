@@ -1,8 +1,8 @@
-use lopdf::Object as LoObject;
+use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    BuiltinFont, ExtendedGraphicsStateId, FontId, LayerInternalId, LinkAnnotation, PdfResources,
-    PdfToSvgOptions, XObjectId, XObjectTransform,
+    BuiltinFont, DictItem, ExtendedGraphicsStateId, FontId, LayerInternalId, LinkAnnotation,
+    PdfResources, PdfToSvgOptions, XObjectId, XObjectTransform,
     color::Color,
     graphics::{
         Line, LineCapStyle, LineDashPattern, LineJoinStyle, Point, Polygon, Rect, TextRenderingMode,
@@ -11,7 +11,7 @@ use crate::{
     units::{Mm, Pt},
 };
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct PdfPage {
     pub media_box: Rect,
     pub trim_box: Rect,
@@ -44,9 +44,42 @@ impl PdfPage {
     pub fn to_svg(&self, resources: &PdfResources, opts: &PdfToSvgOptions) -> String {
         crate::render::render_to_svg(self, resources, opts)
     }
+
+    pub fn get_xobject_ids(&self) -> Vec<XObjectId> {
+        self.ops
+            .iter()
+            .filter_map(|s| match s {
+                Op::UseXObject { id, .. } => Some(id.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    pub fn get_external_font_ids(&self) -> Vec<FontId> {
+        self.ops
+            .iter()
+            .filter_map(|s| match s {
+                Op::WriteText { font, .. } => Some(font.clone()),
+                Op::WriteCodepoints { font, .. } => Some(font.clone()),
+                Op::WriteCodepointsWithKerning { font, .. } => Some(font.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    pub fn get_layers(&self) -> Vec<LayerInternalId> {
+        self.ops
+            .iter()
+            .filter_map(|s| match s {
+                Op::BeginLayer { layer_id } | Op::EndLayer { layer_id } => Some(layer_id.clone()),
+                _ => None,
+            })
+            .collect()
+    }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename = "kebab-case")]
 pub enum LayerIntent {
     View,
     Design,
@@ -61,7 +94,8 @@ impl LayerIntent {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename = "kebab-case")]
 pub enum LayerSubtype {
     Artwork,
 }
@@ -74,7 +108,8 @@ impl LayerSubtype {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename = "kebab-case")]
 pub struct Layer {
     pub name: String,
     pub creator: String,
@@ -94,7 +129,8 @@ impl Layer {
 }
 
 /// Operations that can occur in a PDF page
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "cmd", content = "args")]
 pub enum Op {
     /// Debugging or section marker (arbitrary id can mark a certain point in a stream of
     /// operations)
@@ -196,5 +232,5 @@ pub enum Op {
         transform: XObjectTransform,
     },
     /// Unknown, custom key / value operation
-    Unknown { key: String, value: Vec<LoObject> },
+    Unknown { key: String, value: Vec<DictItem> },
 }

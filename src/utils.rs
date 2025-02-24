@@ -69,13 +69,14 @@ pub(crate) fn to_pdf_time_stamp_metadata(date: &OffsetDateTime) -> String {
         date.second(),
     )
 }
-#[cfg(target_family = "wasm")]
-pub(crate) fn to_pdf_xmp_date(date: &OffsetDateTime) -> String {
+
+#[cfg(target_arch = "wasm")]
+pub(crate) fn to_pdf_xmp_date(_date: &OffsetDateTime) -> String {
     "D:1970-01-01T00:00:00+00'00'".to_string()
 }
 
 // D:2018-09-19T10:05:05+00'00'
-#[cfg(not(target_family = "wasm"))]
+#[cfg(not(target_arch = "wasm"))]
 pub(crate) fn to_pdf_xmp_date(date: &OffsetDateTime) -> String {
     // Since the time is in UTC, we know that the time zone
     // difference to UTC is 0 min, 0 sec, hence the 00'00
