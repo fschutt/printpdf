@@ -32,18 +32,11 @@ jobs:
         run: cargo install wasm-pack
       - name: wasm-pack build
         run: wasm-pack build --target web --no-pack --no-typescript --release
-      - name: Setup Python
-        uses: actions/setup-python@v5.3.0
-        with:
-          python-version: 3
-      - name: postbuild
-        run: python3 ./postbuild.py --production
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Upload entire repository
           path: '.'
       - name: Deploy to GitHub Pages
         id: deployment
