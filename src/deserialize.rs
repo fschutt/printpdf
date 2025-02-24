@@ -1110,18 +1110,18 @@ fn parse_pdf_date(s: &str) -> Result<OffsetDateTime, String> {
         _ => time::Month::January,
     };
 
-    #[cfg(all(feature = "js-sys", target_arch = "wasm32"))]
+    #[cfg(target_arch = "wasm32")]
+    {
+        Ok(OffsetDateTime::from_unix_timestamp(0).unwrap())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     {
         Ok(OffsetDateTime::new_in_offset(
             time::Date::from_calendar_date(year, month, day).map_err(|e| e.to_string())?,
             time::Time::from_hms(hour, minute, second).map_err(|e| e.to_string())?,
             UtcOffset::from_hms(0, 0, 0).map_err(|e| e.to_string())?,
         ))
-    }
-
-    #[cfg(not(all(feature = "js-sys", target_arch = "wasm32")))]
-    {
-        Ok(OffsetDateTime::from_unix_timestamp(0).unwrap())
     }
 }
 

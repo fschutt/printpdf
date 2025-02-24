@@ -10,7 +10,7 @@ mod js_sys_date {
     use js_sys::Date;
     use time::Month;
 
-    #[derive(Debug, Clone, Default, PartialEq, PartialOrd, Ord, Eq, Hash)]
+    #[derive(Debug, Clone, PartialEq)]
     pub struct OffsetDateTime(Date);
 
     impl serde::Serialize for OffsetDateTime {

@@ -9,7 +9,6 @@ test_*
 *.svg
 out.txt
 /pkg
-index.html
 .DS_Store
 web/pdfjs-4.7.76-legacy-dist
 web/pdfjs-4.7.76-legacy-dist/*

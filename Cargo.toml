@@ -16,6 +16,9 @@ exclude = ["./assets/*", "./doc/*", "./examples/*"]
 autoexamples = false
 edition = "2021"
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 lopdf = { git = "https://github.com/J-F-Liu/lopdf", rev = "80a6c505bf8303c74b3057c8e53d4f791e92e126", default-features = false, features = [
     "nom_parser",

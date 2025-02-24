@@ -1,0 +1,154 @@
+body {
+    font-family: sans-serif;
+    margin: 0;
+    padding: 0;
+}
+
+.container {
+    display: flex; /* Default to horizontal layout for desktop */
+    height: 100vh;
+}
+
+.input-panel, .output-panel {
+    flex: 1;
+    padding: 20px;
+    box-sizing: border-box;
+    overflow: auto; /* Enable scrolling if content overflows */
+}
+
+.output-panel {
+    border-left: 1px solid #ccc; /* Separator for desktop layout */
+    display: flex;
+    flex-direction: column;
+}
+
+/* Mobile layout adjustments (vertical) */
+@media (max-width: 768px) {
+    .container {
+        flex-direction: column; /* Vertical layout for mobile */
+    }
+    .output-panel {
+        border-left: none; /* Remove separator on mobile */
+        border-top: 1px solid #ccc; /* Separator for mobile layout */
+    }
+}
+
+.tab-selector {
+    margin-bottom: 10px;
+}
+
+.tab-content {
+    padding: 10px;
+    border: 1px solid #ddd;
+    margin-bottom: 10px;
+}
+
+.tab-content.hidden {
+    display: none;
+}
+
+.controls label {
+    display: block;
+    margin-top: 10px;
+}
+
+.controls input[type="text"],
+.controls input[type="number"],
+.controls input[type="file"] {
+    width: calc(100% - 10px);
+    padding: 5px;
+    margin-bottom: 10px;
+    box-sizing: border-box;
+}
+
+.file-inputs button {
+    margin-right: 10px;
+}
+
+.editor-container {
+    border: 1px solid #ccc;
+    display: flex;
+    overflow: auto; /* Allow editor to scroll */
+}
+
+.line-numbers {
+    background-color: #f0f0f0;
+    padding: 10px;
+    text-align: right;
+    white-space: nowrap;
+    user-select: none;
+}
+
+.editor {
+    flex: 1;
+    padding: 10px;
+    outline: none;
+    white-space: pre-wrap; /* Important for contenteditable to respect line breaks */
+    overflow-wrap: break-word;
+    tab-size: 4; /* Set tab size */
+}
+
+.pdf-viewer-controls {
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+}
+
+.pdf-viewer-controls button,
+.pdf-viewer-controls input {
+    margin-right: 10px;
+}
+
+.pdf-viewer {
+    border: 1px solid #ccc;
+    padding: 10px;
+    overflow-x: hidden; /* Prevent horizontal scrollbar in viewer */
+    overflow-y: auto;  /* Allow vertical scrolling for pages */
+    height: 70vh; /* Adjust height as needed */
+}
+
+.pdf-viewer svg {
+    width: 100%; /* Make SVG fill viewer width */
+    margin-bottom: 10px; /* Spacing between pages */
+    display: block; /* Prevent inline spacing */
+}
+
+.sidebar {
+    width: 200px; /* Adjust sidebar width */
+    border-left: 1px solid #ccc;
+    padding: 10px;
+    box-sizing: border-box;
+    overflow-y: auto; /* Scrollable sidebar */
+}
+
+.sidebar-modes button {
+    display: block;
+    width: 100%;
+    padding: 5px;
+    margin-bottom: 5px;
+    text-align: left;
+    background-color: #eee;
+    border: none;
+    cursor: pointer;
+}
+
+.sidebar-modes button.active {
+    background-color: #ddd;
+}
+
+.sidebar-content {
+    padding: 10px;
+    border: 1px solid #ddd;
+    margin-top: 10px;
+}
+
+.sidebar-content.hidden {
+    display: none;
+}
+
+#minimap-view svg {
+    width: 80%; /* Smaller SVGs for minimap */
+    margin-bottom: 5px;
+    display: block;
+    border: 1px solid #eee;
+}
