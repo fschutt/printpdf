@@ -4,7 +4,7 @@ import init, {
     Pdf_PdfPageToSvg,
     Pdf_PdfDocumentToBytes,
     Pdf_GetResourcesForPage,
-} from './gemini/pkg/printpdf.js';
+} from './pkg/printpdf.js';
 
 await init(); // Initialize WASM
 
