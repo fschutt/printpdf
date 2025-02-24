@@ -173,7 +173,7 @@ async function updatePdfViewer() {
                 modifiedPage = applySignatureToPage(page, resources);
             }
 
-            const svgInput = JSON.stringify({ page: modifiedPage, resources: resources, options: {} });
+            const svgInput = JSON.stringify({ page: modifiedPage, resources: resources, options: { image_formats: ["png", "jpeg", "web-p"] } });
             const svgJson = Pdf_PdfPageToSvg(svgInput);
             const svgResult = JSON.parse(svgJson);
 
@@ -185,7 +185,6 @@ async function updatePdfViewer() {
                 const minimapSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                 minimapSvg.innerHTML = svgString; // Directly set innerHTML for simplicity in demo
                 minimapSvg.setAttribute('width', '100'); // Fixed width for minimap
-                minimapSvg.setAttribute('height', 'auto');
                 minimapViewDiv.appendChild(minimapSvg);
 
             } else {
