@@ -78,3 +78,7 @@ required-features = []
 [[example]]
 name = "image"
 required-features = ["png"]
+
+[[example]]
+name = "render"
+required-features = []

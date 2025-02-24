@@ -622,7 +622,7 @@ pub(crate) fn translate_operations(
 
 pub(crate) struct PreparedFont {
     original: ParsedFont,
-    subset_font: SubsetFont,
+    pub(crate) subset_font: SubsetFont,
     cid_to_unicode_map: String,
     vertical_writing: bool, // default: false
     ascent: i64,

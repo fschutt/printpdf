@@ -52,6 +52,60 @@ pub enum BuiltinFont {
 include!("../defaultfonts/mapping.rs");
 
 impl BuiltinFont {
+    /// Returns a CSS font-family string appropriate for the built-in PDF font.
+    /// For example, TimesRoman maps to "Times New Roman, Times, serif".
+    pub fn get_svg_font_family(&self) -> &'static str {
+        match self {
+            BuiltinFont::TimesRoman => "Times New Roman, Times, serif",
+            BuiltinFont::TimesBold => "Times New Roman, Times, serif",
+            BuiltinFont::TimesItalic => "Times New Roman, Times, serif",
+            BuiltinFont::TimesBoldItalic => "Times New Roman, Times, serif",
+            BuiltinFont::Helvetica => "Helvetica, Arial, sans-serif",
+            BuiltinFont::HelveticaBold => "Helvetica, Arial, sans-serif",
+            BuiltinFont::HelveticaOblique => "Helvetica, Arial, sans-serif",
+            BuiltinFont::HelveticaBoldOblique => "Helvetica, Arial, sans-serif",
+            BuiltinFont::Courier => "Courier New, Courier, monospace",
+            BuiltinFont::CourierOblique => "Courier New, Courier, monospace",
+            BuiltinFont::CourierBold => "Courier New, Courier, monospace",
+            BuiltinFont::CourierBoldOblique => "Courier New, Courier, monospace",
+            BuiltinFont::Symbol => "Symbol",
+            BuiltinFont::ZapfDingbats => "Zapf Dingbats",
+        }
+    }
+
+    /// Returns the CSS font-weight for the built-in font.
+    pub fn get_font_weight(&self) -> &'static str {
+        match self {
+            BuiltinFont::TimesRoman
+            | BuiltinFont::TimesItalic
+            | BuiltinFont::Helvetica
+            | BuiltinFont::HelveticaOblique
+            | BuiltinFont::Courier
+            | BuiltinFont::CourierOblique
+            | BuiltinFont::Symbol
+            | BuiltinFont::ZapfDingbats => "normal",
+            BuiltinFont::TimesBold
+            | BuiltinFont::TimesBoldItalic
+            | BuiltinFont::HelveticaBold
+            | BuiltinFont::HelveticaBoldOblique
+            | BuiltinFont::CourierBold
+            | BuiltinFont::CourierBoldOblique => "bold",
+        }
+    }
+
+    /// Returns the CSS font-style for the built-in font.
+    pub fn get_font_style(&self) -> &'static str {
+        match self {
+            BuiltinFont::TimesItalic
+            | BuiltinFont::TimesBoldItalic
+            | BuiltinFont::HelveticaOblique
+            | BuiltinFont::HelveticaBoldOblique
+            | BuiltinFont::CourierOblique
+            | BuiltinFont::CourierBoldOblique => "italic",
+            _ => "normal",
+        }
+    }
+
     /// Returns the already-subsetted font (Win-1252 codepage)
     pub fn get_subset_font(&self) -> SubsetFont {
         use self::BuiltinFont::*;

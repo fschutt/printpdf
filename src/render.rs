@@ -1,4 +1,5 @@
 use crate::ops::PdfPage;
+use crate::serialize::prepare_fonts;
 use crate::{OutputImageFormat, PdfResources};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -11,6 +12,35 @@ pub struct PdfToSvgOptions {
     /// using `svg2png`, not all image formats might be supported, but generally in a
     /// browser context you can use `WebP` and `Avif` to save space.
     pub output_image_formats: Vec<OutputImageFormat>,
+}
+
+impl Default for PdfToSvgOptions {
+    fn default() -> Self {
+        Self {
+            output_image_formats: vec![
+                OutputImageFormat::Png,
+                OutputImageFormat::Jpeg,
+                OutputImageFormat::Bmp,
+            ],
+        }
+    }
+}
+
+impl PdfToSvgOptions {
+    pub fn web() -> Self {
+        Self {
+            output_image_formats: vec![
+                OutputImageFormat::Avif,
+                OutputImageFormat::WebP,
+                OutputImageFormat::Jpeg,
+                OutputImageFormat::Png,
+                OutputImageFormat::Bmp,
+                OutputImageFormat::Tiff,
+                OutputImageFormat::Gif,
+                OutputImageFormat::Tga,
+            ],
+        }
+    }
 }
 
 pub fn render_to_svg(page: &PdfPage, resources: &PdfResources, opts: &PdfToSvgOptions) -> String {
@@ -29,22 +59,17 @@ pub fn render_to_svg(page: &PdfPage, resources: &PdfResources, opts: &PdfToSvgOp
     // Embed fonts via a <style> block.
     svg.push_str("<style>\n");
     // Iterate over PDF fonts and embed each via an @font-face rule.
-    for (font_id, _font) in resources.fonts.map.iter() {
+    for (font_id, font) in prepare_fonts(resources, &[page.clone()]).iter() {
         svg.push_str(&format!(
-            r#"
-            @font-face {{
-                font-family: "{}";
-                src: url("data:application/font-woff;charset=utf-8;base64,REPLACE_WITH_FONT_DATA");
-            }}
-            "#,
-            font_id.0
+            r#"@font-face {{ font-family: "{}"; src: url("data:font/otf;charset=utf-8;base64,{}"); }}"#,
+            font_id.0, base64::encode(&font.subset_font.bytes),
         ));
     }
     svg.push_str("</style>\n");
 
     // Initialize rendering state.
     let mut current_x = 0.0;
-    let mut current_y = 0.0;
+    let mut current_y = height;
     let mut current_transform = String::new();
     let mut current_font: Option<String> = None;
     let mut current_font_size: f32 = 12.0;
@@ -175,14 +200,18 @@ pub fn render_to_svg(page: &PdfPage, resources: &PdfResources, opts: &PdfToSvgOp
             }
             // Render text using a built-in font.
             crate::ops::Op::WriteTextBuiltinFont { text, size, font } => {
-                current_font = Some(font.get_pdf_id().to_string());
+                current_font = Some(font.get_svg_font_family().to_string());
+                let font_weight = font.get_font_weight();
+                let font_style = font.get_font_style();
                 current_font_size = size.0;
                 svg.push_str(&format!(
-                    r#"<text x="{x}" y="{y}" font-family="{font}" font-size="{size}" fill="{fill}" transform="{transform}" letter-spacing="{ls}" baseline-shift="{lo}">{text}</text>"#,
+                    r#"<text x="{x}" y="{y}" font-family="{font}" font-size="{size}" font-weight="{fw}" font-style="{fs}" fill="{fill}" transform="{transform}" letter-spacing="{ls}" baseline-shift="{lo}">{text}</text>"#,
                     x = current_x,
                     y = current_y,
                     font = current_font.as_deref().unwrap_or("sans-serif"),
                     size = current_font_size,
+                    fw = font_weight,
+                    fs = font_style,
                     fill = current_fill_color,
                     transform = current_transform,
                     ls = current_letter_spacing,
@@ -270,7 +299,9 @@ pub fn render_to_svg(page: &PdfPage, resources: &PdfResources, opts: &PdfToSvgOp
                                 let mime = fmt.mime_type();
                                 let image_data = base64::encode(&encoded_bytes);
                                 svg.push_str(&format!(
-                                    r#"<image width="{}" height="{}" xlink:href="data:{};base64,{}" transform="{}"/>"#,
+                                    r#"<image x="{}" y="{}" width="{}" height="{}" xlink:href="data:{};base64,{}" transform="{}"/>"#,
+                                    current_x,
+                                    current_y,
                                     img_width,
                                     img_height,
                                     mime,
@@ -281,7 +312,9 @@ pub fn render_to_svg(page: &PdfPage, resources: &PdfResources, opts: &PdfToSvgOp
                             }
                             Err(e) => {
                                 svg.push_str(&format!(
-                                    r#"<div data-failed-svg="{}" data-encode-fail-cause="{e}" width="{}" height="{}" transform="{}"/>"#,
+                                    r#"<div x="{}" y="{}" data-failed-svg="{}" data-encode-fail-cause="{e}" width="{}" height="{}" transform="{}"/>"#,
+                                    current_x,
+                                    current_y,
                                     id.0,
                                     img_width,
                                     img_height,

@@ -6,6 +6,7 @@ test_*
 .cargo/*
 .idea/
 *.pdf
+*.svg
 out.txt
 /pkg
 index.html
