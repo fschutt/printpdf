@@ -1,8 +1,9 @@
-use base64::Engine;
-use serde_derive::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-use crate::{serialize::PdfSaveOptions, XmlRenderOptions};
+use base64::Engine;
+use serde_derive::{Deserialize, Serialize};
+
+use crate::{XmlRenderOptions, serialize::PdfSaveOptions};
 
 pub type Base64String = String;
 
@@ -69,8 +70,9 @@ pub fn PrintPdfFromXml(input: String) -> String {
 fn printpdf_from_xml_internal(
     input: PrintPdfApiInput,
 ) -> Result<PrintPdfApiReturn, PrintPdfApiReturn> {
-    use crate::units::Mm;
     use base64::prelude::*;
+
+    use crate::units::Mm;
 
     // TODO: extract document title from XML!
     let opts = XmlRenderOptions {

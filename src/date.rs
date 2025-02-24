@@ -1,14 +1,16 @@
+#[cfg(not(any(target_arch = "wasm32", target_os = "unknown")))]
+pub use time::{OffsetDateTime, UtcOffset};
+
 /// wasm32-unknown-unknown polyfill
 
 #[cfg(all(feature = "js-sys", target_arch = "wasm32", target_os = "unknown"))]
 pub use self::js_sys_date::OffsetDateTime;
-
 #[cfg(not(feature = "js-sys"))]
-#[cfg(any(all(target_arch = "wasm32", target_os = "unknown"), all(target_arch = "wasm32", target_os = "wasi")))]
+#[cfg(any(
+    all(target_arch = "wasm32", target_os = "unknown"),
+    all(target_arch = "wasm32", target_os = "wasi")
+))]
 pub use self::unix_epoch_stub_date::OffsetDateTime;
-
-#[cfg(not(any(target_arch = "wasm32", target_os = "unknown")))]
-pub use time::{OffsetDateTime, UtcOffset};
 
 #[cfg(all(feature = "js-sys", target_arch = "wasm32", target_os = "unknown"))]
 mod js_sys_date {
@@ -97,14 +99,16 @@ mod js_sys_date {
 }
 
 #[cfg(not(feature = "js-sys"))]
-#[cfg(any(all(target_arch = "wasm32", target_os = "unknown"), all(target_arch = "wasm32", target_os = "wasi")))]
+#[cfg(any(
+    all(target_arch = "wasm32", target_os = "unknown"),
+    all(target_arch = "wasm32", target_os = "wasi")
+))]
 mod unix_epoch_stub_date {
     use time::Month;
 
     #[derive(Debug, PartialEq, Copy, Clone, Eq, Ord, PartialOrd, Hash)]
     pub struct OffsetDateTime;
     impl OffsetDateTime {
-
         pub fn from_unix_timestamp(_: usize) -> Result<Self, String> {
             Ok(OffsetDateTime)
         }
@@ -166,7 +170,10 @@ mod unix_epoch_stub_date {
     }
 }
 
-#[cfg(any(all(target_arch = "wasm32", target_os = "unknown"), all(target_arch = "wasm32", target_os = "wasi")))]
+#[cfg(any(
+    all(target_arch = "wasm32", target_os = "unknown"),
+    all(target_arch = "wasm32", target_os = "wasi")
+))]
 #[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct UtcOffset {
     hours: i8,
@@ -174,7 +181,10 @@ pub struct UtcOffset {
     seconds: i8,
 }
 
-#[cfg(any(all(target_arch = "wasm32", target_os = "unknown"), all(target_arch = "wasm32", target_os = "wasi")))]
+#[cfg(any(
+    all(target_arch = "wasm32", target_os = "unknown"),
+    all(target_arch = "wasm32", target_os = "wasi")
+))]
 impl UtcOffset {
     pub const fn whole_hours(self) -> i8 {
         self.hours

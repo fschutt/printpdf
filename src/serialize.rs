@@ -1,36 +1,19 @@
-use std::collections::BTreeMap;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
-use crate::color::IccProfile;
-use crate::font::SubsetFont;
-use crate::Actions;
-use crate::BuiltinFont;
-use crate::Color;
-use crate::ColorArray;
-use crate::Destination;
-use crate::FontId;
-use crate::IccProfileType;
-use crate::Line;
-use crate::LinkAnnotation;
-use crate::Op;
-use crate::PaintMode;
-use crate::ParsedFont;
-use crate::PdfDocument;
-use crate::PdfDocumentInfo;
-use crate::PdfPage;
-use crate::PdfResources;
-use crate::Polygon;
-use crate::XObject;
-use crate::XObjectId;
-use lopdf::content::Operation as LoOp;
-use lopdf::Dictionary as LoDictionary;
-use lopdf::Object::{
-    Array, Dictionary, Integer, Name, Null, Real, Reference, Stream, String as LoString,
+use lopdf::{
+    Dictionary as LoDictionary,
+    Object::{Array, Dictionary, Integer, Name, Null, Real, Reference, Stream, String as LoString},
+    Stream as LoStream,
+    StringFormat::{Hexadecimal, Literal},
+    content::Operation as LoOp,
 };
-use lopdf::Stream as LoStream;
-use lopdf::StringFormat::{Hexadecimal, Literal};
-use serde_derive::Deserialize;
-use serde_derive::Serialize;
+use serde_derive::{Deserialize, Serialize};
+
+use crate::{
+    Actions, BuiltinFont, Color, ColorArray, Destination, FontId, IccProfileType, Line,
+    LinkAnnotation, Op, PaintMode, ParsedFont, PdfDocument, PdfDocumentInfo, PdfPage, PdfResources,
+    Polygon, XObject, XObjectId, color::IccProfile, font::SubsetFont,
+};
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PdfSaveOptions {
@@ -65,8 +48,8 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec
         const ICC_PROFILE_LICENSE: &str = include_str!("./res/CoatedFOGRA39.icc.LICENSE.txt");
 
         let icc_profile_descr = "Commercial and special offset print acccording to ISO \
-            12647-2:2004 / Amd 1, paper type 1 or 2 (matte or gloss-coated \
-            offset paper, 115 g/m2), screen ruling 60/cm";
+                                 12647-2:2004 / Amd 1, paper type 1 or 2 (matte or gloss-coated \
+                                 offset paper, 115 g/m2), screen ruling 60/cm";
         let icc_profile_str = "Coated FOGRA39 (ISO 12647-2:2004)";
         let icc_profile_short = LoString("FOGRA39".into(), Literal);
         let registry = LoString("http://www.color.org".into(), Literal);
@@ -76,7 +59,10 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec
         let icc_profile_id = doc.add_object(Stream(icc_to_stream(&icc)));
         let output_intents = LoDictionary::from_iter(vec![
             ("S", Name("GTS_PDFX".into())),
-            ("OutputCondition", LoString(icc_profile_descr.into(), Literal)),
+            (
+                "OutputCondition",
+                LoString(icc_profile_descr.into(), Literal),
+            ),
             ("License", LoString(ICC_PROFILE_LICENSE.into(), Literal)),
             ("Type", Name("OutputIntent".into())),
             ("OutputConditionIdentifier", icc_profile_short),
@@ -90,10 +76,7 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec
     // (Optional): Add XMP Metadata to catalog
     if pdf.metadata.info.conformance.must_have_xmp_metadata() {
         let xmp_obj = Stream(LoStream::new(
-            LoDictionary::from_iter(vec![
-                ("Type", "Metadata".into()),
-                ("Subtype", "XML".into()),
-            ]),
+            LoDictionary::from_iter(vec![("Type", "Metadata".into()), ("Subtype", "XML".into())]),
             pdf.metadata.xmp_metadata_string().as_bytes().to_vec(),
         ));
         let metadata_id = doc.add_object(xmp_obj);
@@ -131,10 +114,7 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec
                 (id.clone(), pdf_id)
             })
             .collect::<BTreeMap<_, _>>();
-        let flattened_ocg_list = map
-            .values()
-            .map(|s| Reference(*s))
-            .collect::<Vec<_>>();
+        let flattened_ocg_list = map.values().map(|s| Reference(*s)).collect::<Vec<_>>();
         catalog.set(
             "OCProperties",
             Dictionary(LoDictionary::from_iter(vec![
@@ -208,9 +188,9 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec
                     .iter()
                     .filter_map(|op| {
                         if let Op::BeginLayer { layer_id } = op {
-                            layer_ids.get(layer_id).map(|ocg_obj_id| {
-                                (layer_id.0.clone(), *ocg_obj_id)
-                            })
+                            layer_ids
+                                .get(layer_id)
+                                .map(|ocg_obj_id| (layer_id.0.clone(), *ocg_obj_id))
                         } else {
                             None
                         }
@@ -540,9 +520,10 @@ pub(crate) fn translate_operations(
                         content.push(LoOp::new("sc", vec![Real(*r), Real(*g), Real(*b)]));
                     }
                     Color::Cmyk(crate::Cmyk { c, m, y, k, .. }) => {
-                        content.push(LoOp::new("sc", vec![
-                            Real(*c), Real(*m), Real(*y), Real(*k)
-                        ]));
+                        content.push(LoOp::new(
+                            "sc",
+                            vec![Real(*c), Real(*m), Real(*y), Real(*k)],
+                        ));
                     }
                     Color::SpotColor(_) => {
                         // handle or unknown
@@ -698,7 +679,8 @@ fn line_to_stream_ops(line: &Line) -> Vec<LoOp> {
             // current point is a bezier handle
             // valid bezier curve must have two sequential bezier handles
             // we also can"t build a valid cubic bezier curve if the cuve contains less than
-            // four points. If p3 or p4 is marked as "next point is bezier handle" or not, doesn"t matter
+            // four points. If p3 or p4 is marked as "next point is bezier handle" or not, doesn"t
+            // matter
             if let Some(p3) = line.points.get(current + 1) {
                 if let Some(p4) = line.points.get(current + 2) {
                     if p1.0 == p2.0 {
@@ -793,7 +775,8 @@ fn polygon_to_stream_ops(poly: &Polygon) -> Vec<LoOp> {
                 // current point is a bezier handle
                 // valid bezier curve must have two sequential bezier handles
                 // we also can"t build a valid cubic bezier curve if the cuve contains less than
-                // four points. If p3 or p4 is marked as "next point is bezier handle" or not, doesn"t matter
+                // four points. If p3 or p4 is marked as "next point is bezier handle" or not,
+                // doesn"t matter
                 if let Some(p3) = ring.get(current + 1) {
                     if let Some(p4) = ring.get(current + 2) {
                         if p1.0 == p2.0 {
@@ -866,7 +849,10 @@ fn polygon_to_stream_ops(poly: &Polygon) -> Vec<LoOp> {
     operations
 }
 
-pub(crate) fn prepare_fonts(resources: &PdfResources, pages: &[PdfPage]) -> BTreeMap<FontId, PreparedFont> {
+pub(crate) fn prepare_fonts(
+    resources: &PdfResources,
+    pages: &[PdfPage],
+) -> BTreeMap<FontId, PreparedFont> {
     let mut fonts_in_pdf = BTreeMap::new();
 
     for (font_id, font) in resources.fonts.map.iter() {
@@ -1028,8 +1014,7 @@ fn docinfo_to_dict(m: &PdfDocumentInfo) -> LoDictionary {
 }
 
 fn icc_to_stream(val: &IccProfile) -> LoStream {
-    use lopdf::Object::*;
-    use lopdf::{Dictionary as LoDictionary, Stream as LoStream};
+    use lopdf::{Dictionary as LoDictionary, Object::*, Stream as LoStream};
 
     let (num_icc_fields, alternate) = match val.icc_type {
         IccProfileType::Cmyk => (4, "DeviceCMYK"),

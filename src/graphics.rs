@@ -1,7 +1,11 @@
-use crate::units::{Mm, Pt};
-use crate::FontId;
-use lopdf::Dictionary as LoDictionary;
 use std::collections::HashSet;
+
+use lopdf::Dictionary as LoDictionary;
+
+use crate::{
+    FontId,
+    units::{Mm, Pt},
+};
 
 /// Fill path using nonzero winding number rule
 pub const OP_PATH_PAINT_FILL_NZ: &str = "f";
@@ -99,8 +103,8 @@ impl Rect {
 ///
 /// This is meaningful in the following cases:
 ///
-/// - When a path uses one of the _fill_ paint operations, this will determine the rule used to
-///   fill the paths.
+/// - When a path uses one of the _fill_ paint operations, this will determine the rule used to fill
+///   the paths.
 /// - When a path uses a [clip] painting mode, this will determine the rule used to limit the
 ///   regions of the page affected by painting operators.
 ///
@@ -233,7 +237,8 @@ impl PartialEq for Point {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Line {
-    /// 2D Points for the line. The `bool` indicates whether the next point is a bezier control point.
+    /// 2D Points for the line. The `bool` indicates whether the next point is a bezier control
+    /// point.
     pub points: Vec<(Point, bool)>,
     /// Whether the line should automatically be closed
     pub is_closed: bool,
@@ -241,7 +246,8 @@ pub struct Line {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Polygon {
-    /// 2D Points for the line. The `bool` indicates whether the next point is a bezier control point.
+    /// 2D Points for the line. The `bool` indicates whether the next point is a bezier control
+    /// point.
     pub rings: Vec<Vec<(Point, bool)>>,
     /// What type of polygon is this?
     pub mode: PaintMode,
@@ -268,7 +274,8 @@ pub struct LineDashPattern {
     /// Offset at which the dashing pattern should start, measured from the beginning ot the line
     /// Default: 0 (start directly where the line starts)
     pub offset: i64,
-    /// Length of the first dash in the dash pattern. If `None`, the line will be solid (good for resetting the dash pattern)
+    /// Length of the first dash in the dash pattern. If `None`, the line will be solid (good for
+    /// resetting the dash pattern)
     pub dash_1: Option<i64>,
     /// Whitespace after the first dash. If `None`, whitespace will be the same as length_1st,
     /// meaning that the line will have dash - whitespace - dash - whitespace in even offsets
@@ -300,7 +307,7 @@ impl LineDashPattern {
         .collect()
     }
 
-        /// Builds a `LineDashPattern` from a slice of up to 6 integers.
+    /// Builds a `LineDashPattern` from a slice of up to 6 integers.
     ///
     /// - The array is interpreted in dash-gap pairs:
     ///   - If `dashes[0]` is present => `dash_1 = Some(...)`
@@ -514,7 +521,7 @@ pub struct ExtendedGraphicsState {
     /// integer (see “Line Dash Pattern” on page 217).
     pub(crate) line_dash_pattern: Option<LineDashPattern>,
 
-    /* RI name (or ri inside a stream)*/
+    /* RI name (or ri inside a stream) */
     /// __(Optional; PDF 1.3)__ The name of the rendering intent (see “Rendering
     /// Intents” on page 260).
     pub(crate) rendering_intent: RenderingIntent,
@@ -650,8 +657,9 @@ pub struct ExtendedGraphicsState {
 }
 
 pub fn extgstate_to_dict(val: &ExtendedGraphicsState) -> LoDictionary {
-    use lopdf::Object::*;
     use std::string::String;
+
+    use lopdf::Object::*;
 
     let mut gs_operations = Vec::<(String, lopdf::Object)>::new();
 
@@ -1055,7 +1063,7 @@ impl Default for ExtendedGraphicsState {
             stroke_adjustment: true,
             blend_mode: BlendMode::Seperable(SeperableBlendMode::Normal),
             soft_mask: None,
-            current_stroke_alpha: 1.0, /* 1.0 = opaque, not transparent*/
+            current_stroke_alpha: 1.0, /* 1.0 = opaque, not transparent */
             current_fill_alpha: 1.0,
             alpha_is_shape: false,
             text_knockout: false,
@@ -1317,9 +1325,7 @@ impl BlendMode {
         BlendMode::NonSeperable(NonSeperableBlendMode::Luminosity)
     }
     pub fn get_id(&self) -> &'static str {
-        use self::BlendMode::*;
-        use self::NonSeperableBlendMode::*;
-        use self::SeperableBlendMode::*;
+        use self::{BlendMode::*, NonSeperableBlendMode::*, SeperableBlendMode::*};
 
         match self {
             Seperable(s) => match s {
@@ -1351,8 +1357,8 @@ impl BlendMode {
 /// In the following reference, each function gets one new color (the thing to paint on top)
 /// and an old color (the color that was already present before the object gets painted)
 ///
-/// The function simply notes the formula that has to be applied to (`color_new`, `color_old`) in order
-/// to get the desired effect. You have to run each formula once for each color channel.
+/// The function simply notes the formula that has to be applied to (`color_new`, `color_old`) in
+/// order to get the desired effect. You have to run each formula once for each color channel.
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum SeperableBlendMode {
     /// Selects the source color, ignoring the old color. Default mode.
@@ -1469,8 +1475,8 @@ pub enum SeperableBlendMode {
 ///
 /// All of these blend modes conceptually entail the following steps:
 ///
-/// 1. Convert the backdrop and source colors from the blending color space to an intermediate
-///    HSL (hue-saturation-luminosity) representation.
+/// 1. Convert the backdrop and source colors from the blending color space to an intermediate HSL
+///    (hue-saturation-luminosity) representation.
 /// 2. Create a new color from some combination of hue, saturation, and luminosity components
 ///    selected from the backdrop and source colors.
 /// 3. Convert the result back to the original (blending) color space.
@@ -1562,7 +1568,7 @@ pub enum NonSeperableBlendMode {
     Luminosity,
 }
 
-/* RI name (or ri inside a stream)*/
+/* RI name (or ri inside a stream) */
 /// Although CIE-based color specifications are theoretically device-independent,
 /// they are subject to practical limitations in the color reproduction capabilities of
 /// the output device. Such limitations may sometimes require compromises to be

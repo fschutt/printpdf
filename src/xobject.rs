@@ -1,8 +1,8 @@
 use crate::{
+    OffsetDateTime,
     image::RawImage,
     matrix::CurTransMat,
     units::{Pt, Px},
-    OffsetDateTime,
 };
 
 /* Parent: Resources dictionary of the page */
@@ -107,9 +107,9 @@ pub enum ImageFilter {
 /// content on one page.
 #[derive(Debug, PartialEq, Clone)]
 pub struct FormXObject {
-    /* /Type /XObject */
-    /* /Subtype /Form */
-    /* /FormType Integer */
+    // /Type /XObject
+    // /Subtype /Form
+    // /FormType Integer
     /// Form type (currently only Type1)
     pub form_type: FormType,
     /// Optional width / height, affects the width / height on instantiation
@@ -149,7 +149,8 @@ pub struct FormXObject {
     pub group: Option<GroupXObject>,
     /* /Ref << dictionary >> */
     /// (Optional; PDF 1.4) A reference dictionary identifying a page to be imported from another
-    /// PDF file, and for which the form XObject serves as a proxy (see Section 4.9.3, “Reference XObjects”).
+    /// PDF file, and for which the form XObject serves as a proxy (see Section 4.9.3, “Reference
+    /// XObjects”).
     pub ref_dict: Option<lopdf::Dictionary>,
     /* /Metadata [stream] */
     /// (Optional; PDF 1.4) A metadata stream containing metadata for the form XObject
@@ -172,13 +173,13 @@ pub struct FormXObject {
     /// from Content Items” on page 868).
     pub struct_parent: Option<i64>,
     /* /StructParents integer */
-    /// __(Required if the form XObject contains marked-content sequences that are structural content
-    /// items; PDF 1.3)__ The integer key of the form XObject’s entry in the structural parent tree
-    /// (see “Finding Structure Elements from Content Items” on page 868).
+    /// __(Required if the form XObject contains marked-content sequences that are structural
+    /// content items; PDF 1.3)__ The integer key of the form XObject’s entry in the structural
+    /// parent tree (see “Finding Structure Elements from Content Items” on page 868).
     ///
     /// __Note:__ At most one of the entries StructParent or StructParents may be present. A form
-    /// XObject can be either a content item in its entirety or a container for marked-content sequences
-    /// that are content items, but not both.
+    /// XObject can be either a content item in its entirety or a container for marked-content
+    /// sequences that are content items, but not both.
     pub struct_parents: Option<i64>,
     /* /OPI << dictionary >> */
     /// (Optional; PDF 1.2) An OPI version dictionary for the form XObject
@@ -191,8 +192,8 @@ pub struct FormXObject {
     /// were no Do operator to invoke it.
     pub oc: Option<lopdf::Dictionary>,
     /* /Name /MyName */
-    /// __(Required in PDF 1.0; optional otherwise)__ The name by which this form XObject is referenced
-    /// in the XObject subdictionary of the current resource dictionary
+    /// __(Required in PDF 1.0; optional otherwise)__ The name by which this form XObject is
+    /// referenced in the XObject subdictionary of the current resource dictionary
     /// (see Section 3.7.2, “Resource Dictionaries”).
     /// __Note:__ This entry is obsolescent and its use is no longer recommended.
     /// (See implementation note 55 in Appendix H.)
@@ -200,8 +201,7 @@ pub struct FormXObject {
 }
 
 fn form_xobject_to_stream(f: &FormXObject, doc: &mut lopdf::Document) -> lopdf::Stream {
-    use lopdf::Object::String as LoString;
-    use lopdf::Object::*;
+    use lopdf::Object::{String as LoString, *};
 
     let mut dict = lopdf::Dictionary::from_iter(vec![
         ("Type", Name("XObject".into())),

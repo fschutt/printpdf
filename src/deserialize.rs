@@ -4,15 +4,13 @@
 //! printpdf::PdfDocument. In particular, it decompresses the content streams and then
 //! converts lopdf operations to printpdf Ops.
 
-use crate::{
-    conformance::PdfConformance, Color, LineDashPattern, Op, PageAnnotMap, PdfDocument, PdfDocumentInfo, PdfMetadata, PdfPage, PdfResources
-};
-use lopdf::{
-    Document as LopdfDocument, 
-    Dictionary as LopdfDictionary, 
-    Object, ObjectId
-};
+use lopdf::{Dictionary as LopdfDictionary, Document as LopdfDocument, Object, ObjectId};
 use time::{Date, OffsetDateTime, Time, UtcOffset};
+
+use crate::{
+    Color, LineDashPattern, Op, PageAnnotMap, PdfDocument, PdfDocumentInfo, PdfMetadata, PdfPage,
+    PdfResources, conformance::PdfConformance,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PdfParseOptions {
@@ -32,39 +30,50 @@ impl PdfWarnMsg {
     pub const WARNING: &'static str = "warning";
 
     pub fn error(page: usize, op_id: usize, e: String) -> Self {
-        PdfWarnMsg { page, op_id, severity: Self::ERROR, msg: e }
+        PdfWarnMsg {
+            page,
+            op_id,
+            severity: Self::ERROR,
+            msg: e,
+        }
     }
 }
 
 /// Parses a PDF file from bytes into a printpdf PdfDocument.
-pub fn parse_pdf_from_bytes(bytes: &[u8], opts: &PdfParseOptions) -> Result<(PdfDocument, Vec<PdfWarnMsg>), String> {
-    
+pub fn parse_pdf_from_bytes(
+    bytes: &[u8],
+    opts: &PdfParseOptions,
+) -> Result<(PdfDocument, Vec<PdfWarnMsg>), String> {
     // Load the PDF document using lopdf.
-    let doc = LopdfDocument::load_mem(bytes)
-        .map_err(|e| format!("Failed to load PDF: {}", e))?;
+    let doc = LopdfDocument::load_mem(bytes).map_err(|e| format!("Failed to load PDF: {}", e))?;
 
     // Get the catalog from the trailer.
-    let root_obj = doc.trailer.get(b"Root")
+    let root_obj = doc
+        .trailer
+        .get(b"Root")
         .map_err(|_| "Missing Root in trailer".to_string())?;
-    
+
     let root_ref = match root_obj {
         Object::Reference(r) => *r,
         _ => return Err("Invalid Root reference".to_string()),
     };
 
-    let catalog = doc.get_object(root_ref)
+    let catalog = doc
+        .get_object(root_ref)
         .map_err(|e| format!("Failed to get catalog: {}", e))?
         .as_dict()
         .map_err(|e| format!("Catalog is not a dictionary: {}", e))?;
 
     // Get the Pages tree from the catalog.
-    let pages_obj = catalog.get(b"Pages")
+    let pages_obj = catalog
+        .get(b"Pages")
         .map_err(|e| format!("Missing Pages key in catalog: {}", e))?;
     let pages_ref = match pages_obj {
         Object::Reference(r) => *r,
         _ => return Err("Pages key is not a reference".to_string()),
     };
-    let pages_dict = doc.get_object(pages_ref)
+    let pages_dict = doc
+        .get_object(pages_ref)
         .map_err(|e| format!("Failed to get Pages object: {}", e))?
         .as_dict()
         .map_err(|e| format!("Pages object is not a dictionary: {}", e))?;
@@ -76,7 +85,8 @@ pub fn parse_pdf_from_bytes(bytes: &[u8], opts: &PdfParseOptions) -> Result<(Pdf
     let mut pages = Vec::new();
     let mut warnings = Vec::new();
     for (i, page_ref) in page_refs.into_iter().enumerate() {
-        let page_obj = doc.get_object(page_ref)
+        let page_obj = doc
+            .get_object(page_ref)
             .map_err(|e| format!("Failed to get page object: {}", e))?
             .as_dict()
             .map_err(|e| format!("Page object is not a dictionary: {}", e))?;
@@ -92,8 +102,8 @@ pub fn parse_pdf_from_bytes(bytes: &[u8], opts: &PdfParseOptions) -> Result<(Pdf
 
     // Build the final PdfDocument.
     let pdf_doc = PdfDocument {
-        metadata: PdfMetadata { 
-            info: metadata, 
+        metadata: PdfMetadata {
+            info: metadata,
             xmp: None,
         },
         resources,
@@ -106,34 +116,39 @@ pub fn parse_pdf_from_bytes(bytes: &[u8], opts: &PdfParseOptions) -> Result<(Pdf
 
 /// Recursively collects page object references from a Pages tree dictionary.
 fn collect_page_refs(dict: &LopdfDictionary, doc: &LopdfDocument) -> Result<Vec<ObjectId>, String> {
-    
     let mut pages = Vec::new();
-    
+
     // The Pages tree must have a "Kids" array.
-    let kids = dict.get(b"Kids")
+    let kids = dict
+        .get(b"Kids")
         .map_err(|e| format!("Pages dictionary missing Kids key: {}", e))?;
-    
-    let page_refs = kids.as_array()
-    .map(|s| s.iter().filter_map(|k| k.as_reference().ok())
-    .collect::<Vec<_>>())
-    .map_err(|_| "Pages.Kids is not an array".to_string())?;
+
+    let page_refs = kids
+        .as_array()
+        .map(|s| {
+            s.iter()
+                .filter_map(|k| k.as_reference().ok())
+                .collect::<Vec<_>>()
+        })
+        .map_err(|_| "Pages.Kids is not an array".to_string())?;
 
     for r in page_refs {
-
-        let kid_obj = doc.get_object(r)
-        .map_err(|e| format!("Failed to get kid object: {}", e))?;
+        let kid_obj = doc
+            .get_object(r)
+            .map_err(|e| format!("Failed to get kid object: {}", e))?;
 
         if let Ok(kid_dict) = kid_obj.as_dict() {
-            let kid_type = kid_dict.get(b"Type")
+            let kid_type = kid_dict
+                .get(b"Type")
                 .map_err(|e| format!("Kid missing Type: {}", e))?;
             match kid_type {
                 Object::Name(ref t) if t == b"Page" => {
                     pages.push(r);
-                },
+                }
                 Object::Name(ref t) if t == b"Pages" => {
                     let mut child_pages = collect_page_refs(kid_dict, doc)?;
                     pages.append(&mut child_pages);
-                },
+                }
                 _ => return Err(format!("Unknown kid type: {:?}", kid_type)),
             }
         }
@@ -143,10 +158,15 @@ fn collect_page_refs(dict: &LopdfDictionary, doc: &LopdfDocument) -> Result<Vec<
 }
 
 /// Parses a single page dictionary into a PdfPage.
-fn parse_page(num: usize, page: &LopdfDictionary, doc: &LopdfDocument, warnings: &mut Vec<PdfWarnMsg>) -> Result<PdfPage, String> {
-    
+fn parse_page(
+    num: usize,
+    page: &LopdfDictionary,
+    doc: &LopdfDocument,
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> Result<PdfPage, String> {
     // Parse MediaBox (required). PDF defines it as an array of 4 numbers.
-    let media_box_obj = page.get(b"MediaBox")
+    let media_box_obj = page
+        .get(b"MediaBox")
         .map_err(|e| format!("Page missing MediaBox: {}", e))?;
     let media_box = parse_rect(media_box_obj)?;
     // TrimBox and CropBox are optional; use MediaBox as default.
@@ -162,40 +182,47 @@ fn parse_page(num: usize, page: &LopdfDictionary, doc: &LopdfDocument, warnings:
     };
 
     // Get the Contents entry (could be a reference, an array, or a stream)
-    let contents_obj = page.get(b"Contents")
+    let contents_obj = page
+        .get(b"Contents")
         .map_err(|e| format!("Page missing Contents: {}", e))?;
-    
+
     let mut content_data = Vec::new();
     match contents_obj {
         Object::Reference(r) => {
-            let stream = doc.get_object(*r)
+            let stream = doc
+                .get_object(*r)
                 .map_err(|e| format!("Failed to get content stream: {}", e))?
                 .as_stream()
                 .map_err(|e| format!("Content object is not a stream: {}", e))?;
-            let data = stream.decompressed_content()
+            let data = stream
+                .decompressed_content()
                 .unwrap_or_else(|_| stream.content.clone());
             content_data.extend(data);
-        },
+        }
         Object::Array(arr) => {
             for obj in arr {
                 if let Object::Reference(r) = obj {
-                    let stream = doc.get_object(*r)
+                    let stream = doc
+                        .get_object(*r)
                         .map_err(|e| format!("Failed to get content stream: {}", e))?
                         .as_stream()
                         .map_err(|e| format!("Content object is not a stream: {}", e))?;
-                    let data = stream.decompressed_content()
+                    let data = stream
+                        .decompressed_content()
                         .unwrap_or_else(|_| stream.content.clone());
                     content_data.extend(data);
                 } else {
                     return Err("Content array element is not a reference".to_string());
                 }
             }
-        },
+        }
         _ => {
             // Try to interpret it as a stream.
-            let stream = contents_obj.as_stream()
+            let stream = contents_obj
+                .as_stream()
                 .map_err(|e| format!("Contents not a stream: {}", e))?;
-            let data = stream.decompressed_content()
+            let data = stream
+                .decompressed_content()
                 .map_err(|e| format!("Failed to decompress content: {}", e))?;
             content_data.extend(data);
         }
@@ -240,7 +267,6 @@ pub struct PageState {
     pub current_layer: Option<String>,
 
     // ------------------- PATH / SUBPATH STATE -------------------
-
     /// Accumulated subpaths. Each subpath is a list of `(Point, is_bezier_control_point)`.
     /// We store multiple subpaths so that if the path has `m`, `l`, `c`, `m` again, etc.,
     /// they become separate “rings” or subpaths. We only produce a final shape on stroke/fill.
@@ -260,7 +286,7 @@ pub struct PageState {
 pub fn parse_op(
     page: usize,
     op_id: usize,
-    op: &lopdf::content::Operation, 
+    op: &lopdf::content::Operation,
     state: &mut PageState,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> Result<Vec<Op>, String> {
@@ -269,16 +295,22 @@ pub fn parse_op(
     match op.operator.as_str() {
         // --- Graphics State Save/Restore ---
         "q" => {
-            let top = state.transform_stack.last()
+            let top = state
+                .transform_stack
+                .last()
                 .copied()
-                .unwrap_or([1.0,0.0,0.0,1.0,0.0,0.0]);
+                .unwrap_or([1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
             state.transform_stack.push(top);
             out_ops.push(Op::SaveGraphicsState);
         }
         "Q" => {
             if state.transform_stack.pop().is_none() {
                 // we won't fail the parse, just warn
-                warnings.push(PdfWarnMsg::error(page, op_id, format!("Warning: 'Q' with empty transform stack")));
+                warnings.push(PdfWarnMsg::error(
+                    page,
+                    op_id,
+                    format!("Warning: 'Q' with empty transform stack"),
+                ));
             }
             out_ops.push(Op::RestoreGraphicsState);
         }
@@ -312,10 +344,17 @@ pub fn parse_op(
                     });
                 }
             } else {
-                warnings.push(PdfWarnMsg::error(page, op_id, format!("Warning: 'Tf' expects 2 operands, got {}", op.operands.len())));
+                warnings.push(PdfWarnMsg::error(
+                    page,
+                    op_id,
+                    format!(
+                        "Warning: 'Tf' expects 2 operands, got {}",
+                        op.operands.len()
+                    ),
+                ));
                 out_ops.push(Op::Unknown {
                     key: "Tf".into(),
-                    value: op.operands.clone()
+                    value: op.operands.clone(),
                 });
             }
         }
@@ -323,21 +362,33 @@ pub fn parse_op(
         // --- Show text (Tj) single string example ---
         "Tj" => {
             if !state.in_text_mode {
-                warnings.push(PdfWarnMsg::error(page, op_id, format!("Warning: 'Tj' outside of text mode!")));
+                warnings.push(PdfWarnMsg::error(
+                    page,
+                    op_id,
+                    format!("Warning: 'Tj' outside of text mode!"),
+                ));
             }
             if op.operands.is_empty() {
-                warnings.push(PdfWarnMsg::error(page, op_id, format!("Warning: 'Tj' with no operands")));
+                warnings.push(PdfWarnMsg::error(
+                    page,
+                    op_id,
+                    format!("Warning: 'Tj' with no operands"),
+                ));
             } else if let lopdf::Object::String(bytes, _) = &op.operands[0] {
                 let text_str = String::from_utf8_lossy(bytes).to_string();
                 if let (Some(fid), Some(sz)) = (&state.current_font, state.current_font_size) {
                     out_ops.push(Op::WriteText {
                         text: text_str,
                         font: fid.clone(),
-                        size: sz
+                        size: sz,
                     });
                 }
             } else {
-                warnings.push(PdfWarnMsg::error(page, op_id, format!("Warning: 'Tj' operand is not string")));
+                warnings.push(PdfWarnMsg::error(
+                    page,
+                    op_id,
+                    format!("Warning: 'Tj' operand is not string"),
+                ));
             }
         }
 
@@ -357,7 +408,7 @@ pub fn parse_op(
 
         // --- Begin/End layer (BDC/EMC) ---
         "BDC" => {
-            // Typically something like: [Name("OC"), Name("MyLayer")] 
+            // Typically something like: [Name("OC"), Name("MyLayer")]
             if op.operands.len() == 2 {
                 if let Some(layer_nm) = as_name(&op.operands[1]) {
                     state.current_layer = Some(layer_nm.clone());
@@ -373,7 +424,11 @@ pub fn parse_op(
                     layer_id: crate::LayerInternalId(layer_str),
                 });
             } else {
-                warnings.push(PdfWarnMsg::error(page, op_id, format!("Warning: 'EMC' with no current_layer")));
+                warnings.push(PdfWarnMsg::error(
+                    page,
+                    op_id,
+                    format!("Warning: 'EMC' with no current_layer"),
+                ));
             }
         }
 
@@ -383,24 +438,32 @@ pub fn parse_op(
                 let floats: Vec<f32> = op.operands.iter().map(to_f32).collect();
                 if let Some(top) = state.transform_stack.last_mut() {
                     // multiply top by these floats
-                    let combined = crate::matrix::CurTransMat::combine_matrix(*top, floats.as_slice().try_into().unwrap());
+                    let combined = crate::matrix::CurTransMat::combine_matrix(
+                        *top,
+                        floats.as_slice().try_into().unwrap(),
+                    );
                     *top = combined;
                 }
                 out_ops.push(Op::SetTransformationMatrix {
                     matrix: crate::matrix::CurTransMat::Raw(floats.try_into().unwrap()),
                 });
             } else {
-                warnings.push(PdfWarnMsg::error(page, op_id, format!("Warning: 'cm' expects 6 floats")));
+                warnings.push(PdfWarnMsg::error(
+                    page,
+                    op_id,
+                    format!("Warning: 'cm' expects 6 floats"),
+                ));
             }
         }
 
         // --- Path building: moveTo (m), lineTo (l), closepath (h), curveTo (c), etc. ---
-
         "m" => {
             // Start a new subpath
             if !state.current_subpath.is_empty() {
                 // push the old subpath into subpaths
-                state.subpaths.push(std::mem::take(&mut state.current_subpath));
+                state
+                    .subpaths
+                    .push(std::mem::take(&mut state.current_subpath));
             }
             let x = to_f32(&op.operands.get(0).unwrap_or(&lopdf::Object::Null));
             let y = to_f32(&op.operands.get(1).unwrap_or(&lopdf::Object::Null));
@@ -409,7 +472,7 @@ pub fn parse_op(
                     x: crate::units::Pt(x),
                     y: crate::units::Pt(y),
                 },
-                false
+                false,
             ));
             state.current_subpath_closed = false;
         }
@@ -422,7 +485,7 @@ pub fn parse_op(
                     x: crate::units::Pt(x),
                     y: crate::units::Pt(y),
                 },
-                false
+                false,
             ));
         }
         "c" => {
@@ -443,16 +506,25 @@ pub fn parse_op(
 
                 // For example:
                 state.current_subpath.push((
-                    crate::graphics::Point { x: Pt(x1), y: Pt(y1) },
-                    true  // could mark as "control point"
+                    crate::graphics::Point {
+                        x: Pt(x1),
+                        y: Pt(y1),
+                    },
+                    true, // could mark as "control point"
                 ));
                 state.current_subpath.push((
-                    crate::graphics::Point { x: Pt(x2), y: Pt(y2) },
-                    true
+                    crate::graphics::Point {
+                        x: Pt(x2),
+                        y: Pt(y2),
+                    },
+                    true,
                 ));
                 state.current_subpath.push((
-                    crate::graphics::Point { x: Pt(x3), y: Pt(y3) },
-                    false // endpoint
+                    crate::graphics::Point {
+                        x: Pt(x3),
+                        y: Pt(y3),
+                    },
+                    false, // endpoint
                 ));
             } else {
                 // handle error / warning
@@ -470,17 +542,23 @@ pub fn parse_op(
                 let y2 = to_f32(&op.operands[1]);
                 let x3 = to_f32(&op.operands[2]);
                 let y3 = to_f32(&op.operands[3]);
-    
+
                 // The first control point is the same as the last subpath point:
                 // but we still need to mark the next one as a control point:
                 state.current_subpath.push((
-                    crate::graphics::Point { x: Pt(x2), y: Pt(y2) },
-                    true // second control
+                    crate::graphics::Point {
+                        x: Pt(x2),
+                        y: Pt(y2),
+                    },
+                    true, // second control
                 ));
                 // And the final endpoint:
                 state.current_subpath.push((
-                    crate::graphics::Point { x: Pt(x3), y: Pt(y3) },
-                    false
+                    crate::graphics::Point {
+                        x: Pt(x3),
+                        y: Pt(y3),
+                    },
+                    false,
                 ));
             } else {
                 // handle error
@@ -495,22 +573,28 @@ pub fn parse_op(
                 let y1 = to_f32(&op.operands[1]);
                 let x3 = to_f32(&op.operands[2]);
                 let y3 = to_f32(&op.operands[3]);
-    
+
                 // The second control point is the same as final endpoint,
                 // so we store the first control point explicitly:
                 state.current_subpath.push((
-                    crate::graphics::Point { x: Pt(x1), y: Pt(y1) },
-                    true  // first control
+                    crate::graphics::Point {
+                        x: Pt(x1),
+                        y: Pt(y1),
+                    },
+                    true, // first control
                 ));
                 // Then the final endpoint (which is also the second control)
                 state.current_subpath.push((
-                    crate::graphics::Point { x: Pt(x3), y: Pt(y3) },
-                    false
+                    crate::graphics::Point {
+                        x: Pt(x3),
+                        y: Pt(y3),
+                    },
+                    false,
                 ));
             } else {
                 // handle error
             }
-        }    
+        }
         "h" => {
             // closepath, i.e. connect last point to first point
             // We'll just mark a flag that we want to close it in fill/stroke
@@ -589,8 +673,7 @@ pub fn parse_op(
             }
         }
 
-        // --- Painting state operators 
-
+        // --- Painting state operators
         "w" => {
             // Set line width
             // "w" sets the line width (stroke thickness in user‐space units)
@@ -616,7 +699,7 @@ pub fn parse_op(
         }
 
         "j" => {
-                    // Set line join style
+            // Set line join style
             // "0 j" => miter join, "1 j" => round join, "2 j" => bevel
             if let Some(val) = op.operands.get(0) {
                 let style_num = to_f32(val).round() as i64;
@@ -653,7 +736,8 @@ pub fn parse_op(
                 if let Some(arr_obj) = op.operands.get(0) {
                     // parse array of numbers
                     if let Ok(arr) = arr_obj.as_array() {
-                        let pattern: Vec<i64> = arr.iter().map(|item| to_f32(item) as i64).collect();
+                        let pattern: Vec<i64> =
+                            arr.iter().map(|item| to_f32(item) as i64).collect();
                         let offset = to_f32(&op.operands[1]) as i64;
                         let dash = LineDashPattern::from_array(&pattern, offset);
                         out_ops.push(Op::SetLineDashPattern { dash });
@@ -672,21 +756,35 @@ pub fn parse_op(
                 1 => {
                     // grayscale
                     out_ops.push(Op::SetFillColor {
-                        col: Color::Greyscale(crate::Greyscale { percent: floats[0], icc_profile: None }),
+                        col: Color::Greyscale(crate::Greyscale {
+                            percent: floats[0],
+                            icc_profile: None,
+                        }),
                     });
-                },
+                }
                 3 => {
                     // rgb
                     out_ops.push(Op::SetFillColor {
-                        col: Color::Rgb(crate::Rgb { r: floats[0], g: floats[1], b: floats[2], icc_profile: None }),
+                        col: Color::Rgb(crate::Rgb {
+                            r: floats[0],
+                            g: floats[1],
+                            b: floats[2],
+                            icc_profile: None,
+                        }),
                     });
-                },
+                }
                 4 => {
                     // cmyk
                     out_ops.push(Op::SetFillColor {
-                        col: Color::Cmyk(crate::Cmyk { c: floats[0], m: floats[1], y: floats[2], k: floats[3], icc_profile: None }),
+                        col: Color::Cmyk(crate::Cmyk {
+                            c: floats[0],
+                            m: floats[1],
+                            y: floats[2],
+                            k: floats[3],
+                            icc_profile: None,
+                        }),
                     });
-                },
+                }
                 _ => {
                     // fallback
                     out_ops.push(Op::Unknown {
@@ -704,19 +802,33 @@ pub fn parse_op(
             match floats.len() {
                 1 => {
                     out_ops.push(Op::SetOutlineColor {
-                        col: Color::Greyscale(crate::Greyscale { percent: floats[0], icc_profile: None }),
+                        col: Color::Greyscale(crate::Greyscale {
+                            percent: floats[0],
+                            icc_profile: None,
+                        }),
                     });
-                },
+                }
                 3 => {
                     out_ops.push(Op::SetOutlineColor {
-                        col: Color::Rgb(crate::Rgb { r: floats[0], g: floats[1], b: floats[2], icc_profile: None }),
+                        col: Color::Rgb(crate::Rgb {
+                            r: floats[0],
+                            g: floats[1],
+                            b: floats[2],
+                            icc_profile: None,
+                        }),
                     });
-                },
+                }
                 4 => {
                     out_ops.push(Op::SetOutlineColor {
-                        col: Color::Cmyk(crate::Cmyk { c: floats[0], m: floats[1], y: floats[2], k: floats[3], icc_profile: None }),
+                        col: Color::Cmyk(crate::Cmyk {
+                            c: floats[0],
+                            m: floats[1],
+                            y: floats[2],
+                            k: floats[3],
+                            icc_profile: None,
+                        }),
                     });
-                },
+                }
                 _ => {
                     out_ops.push(Op::Unknown {
                         key: op.operator.clone(),
@@ -750,21 +862,23 @@ pub fn parse_op(
 
         // Catch everything else
         other => {
-            warnings.push(PdfWarnMsg::error(page, op_id, format!("Info: unhandled operator '{}'", other)));
+            warnings.push(PdfWarnMsg::error(
+                page,
+                op_id,
+                format!("Info: unhandled operator '{}'", other),
+            ));
         }
     }
 
     Ok(out_ops)
 }
 
-
 // Helper that finalizes subpaths and sets the specified winding order
 fn finalize_current_path_special(
     state: &mut PageState,
     paint_mode: crate::graphics::PaintMode,
     winding: crate::graphics::WindingOrder,
-) -> Option<Op>
-{
+) -> Option<Op> {
     // If there's a partially built subpath, move it into `subpaths`
     if !state.current_subpath.is_empty() {
         let sub = std::mem::take(&mut state.current_subpath);
@@ -790,7 +904,7 @@ fn finalize_current_path_special(
 // A small helper to produce a final shape if subpaths exist, e.g. on stroke or fill
 fn finalize_current_path(
     state: &mut PageState,
-    paint_mode: crate::graphics::PaintMode
+    paint_mode: crate::graphics::PaintMode,
 ) -> Option<Op> {
     if state.subpaths.is_empty() && state.current_subpath.is_empty() {
         return None;
@@ -819,11 +933,14 @@ fn parse_rect(obj: &Object) -> Result<crate::graphics::Rect, String> {
         if arr.len() != 4 {
             return Err("Rectangle array does not have 4 elements".to_string());
         }
-        let nums: Result<Vec<f32>, String> = arr.iter().map(|o| match o {
-            Object::Integer(i) => Ok(*i as f32),
-            Object::Real(r) => Ok(*r),
-            _ => Err("Rectangle element is not a number".to_string()),
-        }).collect();
+        let nums: Result<Vec<f32>, String> = arr
+            .iter()
+            .map(|o| match o {
+                Object::Integer(i) => Ok(*i as f32),
+                Object::Real(r) => Ok(*r),
+                _ => Err("Rectangle element is not a number".to_string()),
+            })
+            .collect();
         let nums = nums?;
         // In PDF the rectangle is given as [llx, lly, urx, ury].
         let x = nums[0];
@@ -847,7 +964,6 @@ fn parse_rect(obj: &Object) -> Result<crate::graphics::Rect, String> {
 /// extracts common metadata fields (Title, Author, Creator, Producer, Subject,
 /// Identifier, CreationDate, ModDate, and Trapped).
 fn parse_metadata(trailer: &LopdfDictionary) -> PdfDocumentInfo {
-    
     let mut doc_info = PdfDocumentInfo {
         document_title: "".to_string(),
         author: "".to_string(),
@@ -901,10 +1017,10 @@ fn parse_metadata(trailer: &LopdfDictionary) -> PdfDocumentInfo {
             }
         }
     }
-    
+
     // Use the modification date as metadata date.
     doc_info.metadata_date = doc_info.modification_date;
-    
+
     if let Ok(Object::Name(trapped_bytes)) = info_dict.get(b"Trapped") {
         let trapped_str = String::from_utf8(trapped_bytes.clone()).unwrap_or_default();
         doc_info.trapped = trapped_str == "True";

@@ -1,10 +1,5 @@
-use crate::{BuiltinFont, Mm, Op, PdfDocument, PdfPage, PdfResources, Pt};
-pub use azul_core::dom::Dom;
-pub use azul_core::styled_dom::StyledDom;
-pub use azul_core::xml::{
-    CompileError, ComponentArguments, FilteredComponentArguments, RenderDomError, XmlComponent,
-    XmlComponentMap, XmlComponentTrait, XmlNode, XmlTextContent,
-};
+use std::collections::BTreeMap;
+
 use azul_core::{
     app_resources::{
         DecodedImage, DpiScaleFactor, Epoch, IdNamespace, ImageCache, ImageRef, RendererResources,
@@ -15,16 +10,26 @@ use azul_core::{
         StyleBorderStyles, StyleBorderWidths,
     },
     dom::{NodeData, NodeId},
+    pagination::PaginatedPage,
     styled_dom::{ContentGroup, StyledNode},
     ui_solver::LayoutResult,
     window::{FullWindowState, LogicalSize},
+};
+pub use azul_core::{
+    dom::Dom,
+    styled_dom::StyledDom,
+    xml::{
+        CompileError, ComponentArguments, FilteredComponentArguments, RenderDomError, XmlComponent,
+        XmlComponentMap, XmlComponentTrait, XmlNode, XmlTextContent,
+    },
 };
 use azul_css::{CssPropertyValue, FloatValue, LayoutDisplay, StyleTextColor};
 pub use azul_css_parser::CssApiWrapper;
 use rust_fontconfig::{FcFont, FcFontCache, FcPattern};
 use serde_derive::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use svg2pdf::usvg::tiny_skia_path::Scalar;
+
+use crate::{BuiltinFont, Mm, Op, PdfDocument, PdfPage, PdfResources, Pt};
 
 const DPI_SCALE: DpiScaleFactor = DpiScaleFactor {
     inner: FloatValue::const_new(1),
@@ -180,20 +185,32 @@ pub(crate) fn xml_to_pages(
         &mut renderer_resources,
     );
 
-    let mut ops = Vec::new();
-    layout_result_to_ops(
-        document,
-        &layout,
-        &renderer_resources,
-        &mut ops,
-        config.page_height.into_pt(),
+    // Break layout into pages, TODO: add header / footer, then layout again!
+
+    let layout_results = azul_core::pagination::paginate_layout_result(
+        &layout.styled_dom.node_hierarchy.as_container(),
+        &layout.rects.as_ref(),
+        config.page_height.into_pt().0,
     );
 
-    Ok(vec![PdfPage::new(
-        config.page_width,
-        config.page_height,
-        ops,
-    )])
+    let pages = layout_results
+        .into_iter()
+        .map(|pp| {
+            let mut ops = Vec::new();
+            layout_result_to_ops(
+                document,
+                &mut ops,
+                &layout,
+                &pp,
+                &renderer_resources,
+                config.page_height.into_pt(),
+            );
+
+            PdfPage::new(config.page_width, config.page_height, ops)
+        })
+        .collect();
+
+    Ok(pages)
 }
 
 fn get_system_fonts() -> Vec<(FcPattern, FcFont)> {
@@ -330,16 +347,19 @@ fn fixup_xml_nodes(nodes: &[XmlNode]) -> Vec<XmlNode> {
 
 fn layout_result_to_ops(
     doc: &mut PdfDocument,
-    layout_result: &LayoutResult,
-    renderer_resources: &RendererResources,
     ops: &mut Vec<Op>,
+    layout_result: &LayoutResult,
+    pp: &PaginatedPage,
+    renderer_resources: &RendererResources,
     page_height: Pt,
 ) {
     let rects_in_rendering_order = layout_result.styled_dom.get_rects_in_rendering_order();
 
     // TODO: break layout result into pages
-    // let root_width = layout_result.width_calculated_rects.as_ref()[NodeId::ZERO].overflow_width();
-    // let root_height = layout_result.height_calculated_rects.as_ref()[NodeId::ZERO].overflow_height();
+    // let root_width =
+    // layout_result.width_calculated_rects.as_ref()[NodeId::ZERO].overflow_width();
+    // let root_height =
+    // layout_result.height_calculated_rects.as_ref()[NodeId::ZERO].overflow_height();
     // let root_size = LogicalSize::new(root_width, root_height);
 
     let _ = displaylist_handle_rect(
@@ -620,8 +640,9 @@ fn solve_layout(
     let callbacks = RenderCallbacks {
         insert_into_active_gl_textures_fn: azul_core::gl::insert_into_active_gl_textures,
         layout_fn: azul_layout::do_the_layout,
-        load_font_fn: azulc_lib::font_loading::font_source_get_bytes, // needs feature="font_loading"
-        parse_font_fn: azul_layout::parse_font_fn,                    // needs feature="text_layout"
+        load_font_fn: azulc_lib::font_loading::font_source_get_bytes, /* needs feature="
+                                                                       * font_loading" */
+        parse_font_fn: azul_layout::parse_font_fn, // needs feature="text_layout"
     };
 
     // Solve the layout (the extra parameters are necessary because of IFrame recursion)

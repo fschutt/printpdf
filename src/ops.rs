@@ -1,14 +1,15 @@
+use lopdf::Object as LoObject;
+
 use crate::{
+    BuiltinFont, ExtendedGraphicsStateId, FontId, LayerInternalId, LinkAnnotation, XObjectId,
+    XObjectTransform,
     color::Color,
     graphics::{
         Line, LineCapStyle, LineDashPattern, LineJoinStyle, Point, Polygon, Rect, TextRenderingMode,
     },
     matrix::{CurTransMat, TextMatrix},
     units::{Mm, Pt},
-    BuiltinFont, ExtendedGraphicsStateId, FontId, LayerInternalId, LinkAnnotation, XObjectId,
-    XObjectTransform,
 };
-use lopdf::Object as LoObject;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct PdfPage {
@@ -91,7 +92,8 @@ impl Layer {
 /// Operations that can occur in a PDF page
 #[derive(Debug, Clone, PartialEq)]
 pub enum Op {
-    /// Debugging or section marker (arbitrary id can mark a certain point in a stream of operations)
+    /// Debugging or section marker (arbitrary id can mark a certain point in a stream of
+    /// operations)
     Marker { id: String },
     /// Starts a layer
     BeginLayer { layer_id: LayerInternalId },
@@ -119,7 +121,8 @@ pub enum Op {
         size: Pt,
         font: BuiltinFont,
     },
-    /// Add text to the file at the current position by specifying font codepoints for an ExternalFont
+    /// Add text to the file at the current position by specifying font codepoints for an
+    /// ExternalFont
     ///
     /// NOTE: the `char` defines which codepoint this value is being mapped to (otherwise the
     /// user would not be able to copy-paste text from the PDF)
@@ -128,7 +131,8 @@ pub enum Op {
         size: Pt,
         cp: Vec<(u16, char)>,
     },
-    /// Add text to the file at the current position by specifying font codepoints with additional kerning offset
+    /// Add text to the file at the current position by specifying font codepoints with additional
+    /// kerning offset
     ///
     /// NOTE: the `char` defines which codepoint this value is being mapped to (otherwise the
     /// user would not be able to copy-paste text from the PDF)
@@ -143,9 +147,11 @@ pub enum Op {
     SetLineHeight { lh: Pt },
     /// Sets the word spacing in percent (default: 100.0)
     SetWordSpacing { percent: f32 },
-    /// Sets the font size for a given font, only valid between `StartTextSection` and `EndTextSection`
+    /// Sets the font size for a given font, only valid between `StartTextSection` and
+    /// `EndTextSection`
     SetFontSize { size: Pt, font: FontId },
-    /// Positions the text cursor in the page from the bottom left corner (can be manipulated further with `SetTextMatrix`)
+    /// Positions the text cursor in the page from the bottom left corner (can be manipulated
+    /// further with `SetTextMatrix`)
     SetTextCursor { pos: Point },
     /// Sets the fill color for texts / polygons
     SetFillColor { col: Color },
@@ -171,11 +177,13 @@ pub enum Op {
     DrawLine { line: Line },
     /// Draw a polygon
     DrawPolygon { polygon: Polygon },
-    /// Set the transformation matrix for this page. Make sure to save the old graphics state before invoking!
+    /// Set the transformation matrix for this page. Make sure to save the old graphics state before
+    /// invoking!
     SetTransformationMatrix { matrix: CurTransMat },
     /// Sets a matrix that only affects subsequent text objects.
     SetTextMatrix { matrix: TextMatrix },
-    /// Adds a link annotation (use `PdfDocument::add_link` to register the `LinkAnnotation` on the document)
+    /// Adds a link annotation (use `PdfDocument::add_link` to register the `LinkAnnotation` on the
+    /// document)
     LinkAnnotation { link: LinkAnnotation },
     /// Instantiates an XObject with a given transform (if the XObject has a width / height).
     /// Use `PdfDocument::add_xobject` to register the object and get the ID.

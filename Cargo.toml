@@ -24,13 +24,12 @@ time = { version = "0.3.25", default-features = false, features = ["std"] }
 allsorts = { version = "0.15", git = "https://github.com/fschutt/allsorts", branch = "optional-brotli", default-features = false, features = ["flate2_rust"] }
 image = { version = "0.25", default-features = false }
 svg2pdf = { version = "0.12.0" }
-# dependencies for wasm demo
-azul-css = { git = "https://github.com/fschutt/azul", rev = "a1470af7acda30fbb4416b64a787c038f552d54d", default-features = false }
-azul-css-parser = {  git = "https://github.com/fschutt/azul", rev = "a1470af7acda30fbb4416b64a787c038f552d54d", default-features = false }
-azul-core = {  git = "https://github.com/fschutt/azul", rev = "a1470af7acda30fbb4416b64a787c038f552d54d", default-features = false, features = ["std"] }
-azul-layout = {  git = "https://github.com/fschutt/azul", rev = "a1470af7acda30fbb4416b64a787c038f552d54d", default-features = false, features = ["std", "text_layout"] }
-azul-text-layout = {  git = "https://github.com/fschutt/azul", rev = "a1470af7acda30fbb4416b64a787c038f552d54d", default-features = false }
-azulc = {  git = "https://github.com/fschutt/azul", rev = "a1470af7acda30fbb4416b64a787c038f552d54d", default-features = false, features = ["std", "xml", "text_layout", "font_loading"] }
+azul-css = { git = "https://github.com/fschutt/azul", rev = "a09ccbd5be6429f8c40c1acd5ebe05850a45380f", default-features = false }
+azul-css-parser = {  git = "https://github.com/fschutt/azul", rev = "a09ccbd5be6429f8c40c1acd5ebe05850a45380f", default-features = false }
+azul-core = {  git = "https://github.com/fschutt/azul", rev = "a09ccbd5be6429f8c40c1acd5ebe05850a45380f", default-features = false, features = ["std"] }
+azul-layout = {  git = "https://github.com/fschutt/azul", rev = "a09ccbd5be6429f8c40c1acd5ebe05850a45380f", default-features = false, features = ["std", "text_layout"] }
+azul-text-layout = {  git = "https://github.com/fschutt/azul", rev = "a09ccbd5be6429f8c40c1acd5ebe05850a45380f", default-features = false }
+azulc = {  git = "https://github.com/fschutt/azul", rev = "a09ccbd5be6429f8c40c1acd5ebe05850a45380f", default-features = false, features = ["std", "xml", "text_layout", "font_loading"] }
 rust-fontconfig = { version = "0.1.13", default-features = false }
 xmlparser = { version = "0.13.6", default-features = false }
 serde = { version = "1" }
@@ -54,7 +53,6 @@ tga = ["image/tga"]
 hdr = ["image/hdr"]
 dds = ["image/dds"]
 webp = ["image/webp"]
-woff2 = ["allsorts/brotli", "azul-text-layout/woff2"]
 rayon = ["image/rayon"] # enables multithreading for decoding images
 js-sys = ["dep:js-sys", "wasm"] # enables js-sys features on wasm
 

@@ -1,7 +1,6 @@
 //! Scaling types for reducing errors between conversions between point (pt) and millimeter (mm)
 
-use std::cmp::Ordering;
-use std::num::FpCategory;
+use std::{cmp::Ordering, num::FpCategory};
 
 macro_rules! impl_partialeq {
     ($t:ty) => {
@@ -73,7 +72,7 @@ impl Pt {
         //
         // 1 mm = 2.834646 points
         // So, mm = pt / 2.834646
-        // And from Px::into_pt we know: 
+        // And from Px::into_pt we know:
         //     px -> mm = px * (25.4 / dpi)
         // So reversing it:
         //     mm -> px = mm * (dpi / 25.4)
@@ -113,8 +112,7 @@ impl Px {
     }
 }
 
-use std::ops::{Add, Div, Mul, Sub};
-use std::ops::{AddAssign, DivAssign, MulAssign, SubAssign};
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 
 macro_rules! impl_add_self {
     ($type:ident) => {

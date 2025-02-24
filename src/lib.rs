@@ -16,7 +16,8 @@ pub use matrix::*;
 /// Units (Pt, Mm, Px, etc.)
 pub mod units;
 pub use units::*;
-/// Date handling (stubs for platforms that don't support access to time clocks, such as wasm32-unknown)
+/// Date handling (stubs for platforms that don't support access to time clocks, such as
+/// wasm32-unknown)
 pub mod date;
 pub use date::*;
 /// Font and codepoint handling
@@ -52,7 +53,7 @@ pub(crate) mod serialize;
 pub use serialize::PdfSaveOptions;
 /// Parsing PDF
 pub(crate) mod deserialize;
-pub use deserialize::{PdfWarnMsg, PdfParseOptions};
+pub use deserialize::{PdfParseOptions, PdfWarnMsg};
 
 /// Internal ID for page annotations
 #[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord)]
@@ -143,7 +144,7 @@ impl PdfDocument {
         }
     }
 
-    /// Parses a PDF 
+    /// Parses a PDF
     pub fn parse(bytes: &[u8], opts: &PdfParseOptions) -> Result<(Self, Vec<PdfWarnMsg>), String> {
         self::deserialize::parse_pdf_from_bytes(bytes, opts)
     }

@@ -1,6 +1,9 @@
+use std::{
+    io::Read,
+    sync::atomic::{AtomicUsize, Ordering},
+};
+
 use crate::date::OffsetDateTime;
-use std::io::Read;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Since the random number generator doesn't have to be cryptographically secure
 /// it doesn't make sense to import the entire rand library, so this is just a
@@ -94,9 +97,9 @@ fn u8_to_char(input: u8) -> char {
 }
 
 pub fn compress(bytes: &[u8]) -> Vec<u8> {
-    use flate2::write::GzEncoder;
-    use flate2::Compression;
     use std::io::prelude::*;
+
+    use flate2::{Compression, write::GzEncoder};
     let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
     let _ = encoder.write_all(bytes);
     encoder.finish().unwrap_or_default()

@@ -72,8 +72,8 @@ impl Default for PdfConformance {
     }
 }
 
-/// Allows building custom conformance profiles. This is useful if you want very small documents for example and
-/// you don't __need__ conformance with any PDF standard, you just want a PDF file.
+/// Allows building custom conformance profiles. This is useful if you want very small documents for
+/// example and you don't __need__ conformance with any PDF standard, you just want a PDF file.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct CustomPdfConformance {
     /// Identifier for this conformance

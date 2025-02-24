@@ -1,24 +1,25 @@
-use crate::{FontId, Op, PdfPage};
-use allsorts::binary::read::ReadArray;
-use allsorts::tables::loca::LocaOffsets;
-use allsorts::tables::IndexToLocFormat;
+use core::fmt;
+use std::{
+    collections::{BTreeSet, btree_map::BTreeMap},
+    rc::Rc,
+    vec::Vec,
+};
+
 use allsorts::{
-    binary::read::ReadScope,
+    binary::read::{ReadArray, ReadScope},
     font_data::FontData,
-    layout::{GDEFTable, LayoutCache, GPOS, GSUB},
+    layout::{GDEFTable, GPOS, GSUB, LayoutCache},
     tables::{
-        cmap::{owned::CmapSubtable as OwnedCmapSubtable, CmapSubtable},
+        FontTableProvider, HeadTable, HheaTable, IndexToLocFormat, MaxpTable,
+        cmap::{CmapSubtable, owned::CmapSubtable as OwnedCmapSubtable},
         glyf::{GlyfRecord, GlyfTable, Glyph},
-        loca::LocaTable,
-        FontTableProvider, HeadTable, HheaTable, MaxpTable,
+        loca::{LocaOffsets, LocaTable},
     },
 };
-use core::fmt;
 use lopdf::Object::{Array, Integer};
-use std::collections::{btree_map::BTreeMap, BTreeSet};
-use std::rc::Rc;
-use std::vec::Vec;
 use time::error::Parse;
+
+use crate::{FontId, Op, PdfPage};
 
 /// Builtin or external font
 #[derive(Debug, Clone, PartialEq)]
@@ -223,8 +224,9 @@ pub struct SubsetFont {
 }
 
 impl SubsetFont {
-    /// Return the changed text so that when rendering with the subset font (instead of the original)
-    /// the renderer will end up at the same glyph IDs as if we used the original text on the original font
+    /// Return the changed text so that when rendering with the subset font (instead of the
+    /// original) the renderer will end up at the same glyph IDs as if we used the original text
+    /// on the original font
     pub fn subset_text(&self, text: &str) -> String {
         text.chars()
             .filter_map(|c| {
@@ -883,7 +885,8 @@ impl Default for FontMetrics {
 }
 
 impl FontMetrics {
-    /// Only for testing, zero-sized font, will always return 0 for every metric (`units_per_em = 1000`)
+    /// Only for testing, zero-sized font, will always return 0 for every metric (`units_per_em =
+    /// 1000`)
     pub const fn zero() -> Self {
         FontMetrics {
             units_per_em: 1000,
@@ -1131,7 +1134,8 @@ impl FontMetrics {
         }
     }
 
-    /// If set, use `OS/2.sTypoAscender - OS/2.sTypoDescender + OS/2.sTypoLineGap` to calculate the height
+    /// If set, use `OS/2.sTypoAscender - OS/2.sTypoDescender + OS/2.sTypoLineGap` to calculate the
+    /// height
     ///
     /// See [`USE_TYPO_METRICS`](https://docs.microsoft.com/en-us/typography/opentype/spec/os2#fss)
     pub fn use_typo_metrics(&self) -> bool {

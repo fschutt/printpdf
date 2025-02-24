@@ -1,8 +1,10 @@
-use crate::{ColorBits, ColorSpace};
 use core::fmt;
+use std::io::Cursor;
+
 use image::GenericImageView;
 use serde_derive::{Deserialize, Serialize};
-use std::io::Cursor;
+
+use crate::{ColorBits, ColorSpace};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, PartialOrd)]
 pub struct RawImage {
@@ -172,7 +174,10 @@ impl RawImage {
 
         #[cfg(not(feature = "gif"))]
         {
-            let err = format!("cannot decode image (len = {b_len} bytes): printpdf is missing feature 'gif' to decode GIF files. Please enable it or construct the RawImage manually.");
+            let err = format!(
+                "cannot decode image (len = {b_len} bytes): printpdf is missing feature 'gif' to \
+                 decode GIF files. Please enable it or construct the RawImage manually."
+            );
             if im == image::ImageFormat::Gif {
                 return Err(err);
             }
@@ -180,7 +185,10 @@ impl RawImage {
 
         #[cfg(not(feature = "jpeg"))]
         {
-            let err = format!("cannot decode image (len = {b_len} bytes): printpdf is missing feature 'jpeg' to decode JPEG files. Please enable it or construct the RawImage manually.");
+            let err = format!(
+                "cannot decode image (len = {b_len} bytes): printpdf is missing feature 'jpeg' to \
+                 decode JPEG files. Please enable it or construct the RawImage manually."
+            );
             if im == image::ImageFormat::Gif {
                 return Err(err);
             }
@@ -188,7 +196,10 @@ impl RawImage {
 
         #[cfg(not(feature = "png"))]
         {
-            let err = format!("cannot decode image (len = {b_len} bytes): printpdf is missing feature 'png' to decode PNG files. Please enable it or construct the RawImage manually.");
+            let err = format!(
+                "cannot decode image (len = {b_len} bytes): printpdf is missing feature 'png' to \
+                 decode PNG files. Please enable it or construct the RawImage manually."
+            );
             if im == image::ImageFormat::Png {
                 return Err(err);
             }
@@ -196,7 +207,10 @@ impl RawImage {
 
         #[cfg(not(feature = "pnm"))]
         {
-            let err = format!("cannot decode image (len = {b_len} bytes): printpdf is missing feature 'pnm' to decode PNM files. Please enable it or construct the RawImage manually.");
+            let err = format!(
+                "cannot decode image (len = {b_len} bytes): printpdf is missing feature 'pnm' to \
+                 decode PNM files. Please enable it or construct the RawImage manually."
+            );
             if im == image::ImageFormat::Pnm {
                 return Err(err);
             }
@@ -204,7 +218,10 @@ impl RawImage {
 
         #[cfg(not(feature = "tiff"))]
         {
-            let err = format!("cannot decode image (len = {b_len} bytes): printpdf is missing feature 'tiff' to decode TIFF files. Please enable it or construct the RawImage manually.");
+            let err = format!(
+                "cannot decode image (len = {b_len} bytes): printpdf is missing feature 'tiff' to \
+                 decode TIFF files. Please enable it or construct the RawImage manually."
+            );
             if im == image::ImageFormat::Tiff {
                 return Err(err);
             }
@@ -212,7 +229,10 @@ impl RawImage {
 
         #[cfg(not(feature = "tiff"))]
         {
-            let err = format!("cannot decode image (len = {b_len} bytes): printpdf is missing feature 'tiff' to decode TIFF files. Please enable it or construct the RawImage manually.");
+            let err = format!(
+                "cannot decode image (len = {b_len} bytes): printpdf is missing feature 'tiff' to \
+                 decode TIFF files. Please enable it or construct the RawImage manually."
+            );
             if im == image::ImageFormat::Tiff {
                 return Err(err);
             }
@@ -220,7 +240,10 @@ impl RawImage {
 
         #[cfg(not(feature = "bmp"))]
         {
-            let err = format!("cannot decode image (len = {b_len} bytes): printpdf is missing feature 'bmp' to decode BMP files. Please enable it or construct the RawImage manually.");
+            let err = format!(
+                "cannot decode image (len = {b_len} bytes): printpdf is missing feature 'bmp' to \
+                 decode BMP files. Please enable it or construct the RawImage manually."
+            );
             if im == image::ImageFormat::Bmp {
                 return Err(err);
             }
@@ -228,7 +251,10 @@ impl RawImage {
 
         #[cfg(not(feature = "ico"))]
         {
-            let err = format!("cannot decode image (len = {b_len} bytes): printpdf is missing feature 'ico' to decode ICO files. Please enable it or construct the RawImage manually.");
+            let err = format!(
+                "cannot decode image (len = {b_len} bytes): printpdf is missing feature 'ico' to \
+                 decode ICO files. Please enable it or construct the RawImage manually."
+            );
             if im == image::ImageFormat::Ico {
                 return Err(err);
             }
@@ -236,7 +262,10 @@ impl RawImage {
 
         #[cfg(not(feature = "tga"))]
         {
-            let err = format!("cannot decode image (len = {b_len} bytes): printpdf is missing feature 'tga' to decode TGA files. Please enable it or construct the RawImage manually.");
+            let err = format!(
+                "cannot decode image (len = {b_len} bytes): printpdf is missing feature 'tga' to \
+                 decode TGA files. Please enable it or construct the RawImage manually."
+            );
             if im == image::ImageFormat::Tga {
                 return Err(err);
             }
@@ -244,7 +273,10 @@ impl RawImage {
 
         #[cfg(not(feature = "hdr"))]
         {
-            let err = format!("cannot decode image (len = {b_len} bytes): printpdf is missing feature 'hdr' to decode HDR files. Please enable it or construct the RawImage manually.");
+            let err = format!(
+                "cannot decode image (len = {b_len} bytes): printpdf is missing feature 'hdr' to \
+                 decode HDR files. Please enable it or construct the RawImage manually."
+            );
             if im == image::ImageFormat::Hdr {
                 return Err(err);
             }
@@ -252,7 +284,10 @@ impl RawImage {
 
         #[cfg(not(feature = "dds"))]
         {
-            let err = format!("cannot decode image (len = {b_len} bytes): printpdf is missing feature 'dds' to decode DDS files. Please enable it or construct the RawImage manually.");
+            let err = format!(
+                "cannot decode image (len = {b_len} bytes): printpdf is missing feature 'dds' to \
+                 decode DDS files. Please enable it or construct the RawImage manually."
+            );
             if im == image::ImageFormat::Dds {
                 return Err(err);
             }
@@ -260,7 +295,10 @@ impl RawImage {
 
         #[cfg(not(feature = "webp"))]
         {
-            let err = format!("cannot decode image (len = {b_len} bytes): printpdf is missing feature 'webp' to decode WEBP files. Please enable it or construct the RawImage manually.");
+            let err = format!(
+                "cannot decode image (len = {b_len} bytes): printpdf is missing feature 'webp' to \
+                 decode WEBP files. Please enable it or construct the RawImage manually."
+            );
             if im == image::ImageFormat::WebP {
                 return Err(err);
             }
@@ -361,8 +399,7 @@ pub(crate) fn image_to_stream(im: RawImage, doc: &mut lopdf::Document) -> lopdf:
             ("ColorSpace", Name(ColorSpace::Greyscale.as_string().into())),
         ]);
 
-        let mut stream = lopdf::Stream::new(smask_dict, alpha.pixels)
-        .with_compression(true);
+        let mut stream = lopdf::Stream::new(smask_dict, alpha.pixels).with_compression(true);
 
         let _ = stream.compress();
 
