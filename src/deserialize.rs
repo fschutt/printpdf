@@ -1963,11 +1963,12 @@ mod links_and_bookmarks {
     use lopdf::{Dictionary, Document, Object, ObjectId};
 
     use crate::{
+        Pt,
         annotation::{
             Actions, BorderArray, ColorArray, DashPhase, Destination, HighlightingMode,
             LinkAnnotation, PageAnnotation,
         },
-        graphics::Rect, Pt,
+        graphics::Rect,
     };
 
     /// Returns an empty vector if any required key is missing.
@@ -2118,7 +2119,7 @@ mod links_and_bookmarks {
                                 .and_then(|obj| obj.as_array().ok())
                                 .map(|s| extract_color_array(s.as_slice()))
                                 .unwrap_or_else(ColorArray::default);
-                            
+
                             // Extract highlighting mode.
                             let highlighting = annot_dict
                                 .get(b"H")
@@ -2389,7 +2390,7 @@ mod extgstate {
         FontId,
         graphics::{
             BlendMode, ChangedField, ExtendedGraphicsState, LineCapStyle, LineDashPattern,
-            LineJoinStyle, OverprintMode, RenderingIntent, SoftMask,
+            LineJoinStyle, OverprintMode, RenderingIntent,
         },
     };
 
