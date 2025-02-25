@@ -12,6 +12,7 @@ use crate::{
 };
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PdfPage {
     pub media_box: Rect,
     pub trim_box: Rect,
@@ -79,7 +80,7 @@ impl PdfPage {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-#[serde(rename = "kebab-case")]
+#[serde(rename_all = "kebab-case")]
 pub enum LayerIntent {
     View,
     Design,
@@ -95,7 +96,7 @@ impl LayerIntent {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-#[serde(rename = "kebab-case")]
+#[serde(rename_all = "kebab-case")]
 pub enum LayerSubtype {
     Artwork,
 }
@@ -109,7 +110,7 @@ impl LayerSubtype {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-#[serde(rename = "kebab-case")]
+#[serde(rename_all = "camelCase")]
 pub struct Layer {
     pub name: String,
     pub creator: String,
@@ -130,7 +131,7 @@ impl Layer {
 
 /// Operations that can occur in a PDF page
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "cmd", content = "args")]
+#[serde(rename_all = "kebab-case", tag = "type", content = "data")]
 pub enum Op {
     /// Debugging or section marker (arbitrary id can mark a certain point in a stream of
     /// operations)

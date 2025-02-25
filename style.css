@@ -1,15 +1,22 @@
-body {
+body, html {
+    display: flex;
+    flex-grow: 1;
+    width: 100%;
     font-family: sans-serif;
     margin: 0;
     padding: 0;
 }
 
 .container {
-    display: flex; /* Default to horizontal layout for desktop */
-    height: 100vh;
+    display: flex;
+    min-height: 100vh;
+    flex-grow: 1;
 }
 
 .input-panel, .output-panel {
+    display: flex;
+    flex-grow: 1;
+    flex-direction: column;
     flex: 1;
     padding: 20px;
     box-sizing: border-box;
@@ -34,17 +41,48 @@ body {
 }
 
 .tab-selector {
+    display: flex;
+    flex-grow: 0;
     margin-bottom: 10px;
 }
 
+.tab-selector select {
+    display: flex;
+    flex-grow: 1;
+    font-size: 14px;
+    font-weight: bold;
+    padding: 10px;
+}
+
 .tab-content {
+    display: flex;
+    flex-grow: 1;
+    flex-direction: column;
     padding: 10px;
     border: 1px solid #ddd;
     margin-bottom: 10px;
+    overflow: scroll;
 }
 
 .tab-content.hidden {
     display: none;
+}
+
+.controls {
+    display: flex;
+    flex-grow: 0;
+    flex-direction: column;
+}
+
+.controls-row {
+    display: flex;
+    flex-direction: row;
+}
+
+.controls-cell {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
 }
 
 .controls label {
@@ -61,6 +99,11 @@ body {
     box-sizing: border-box;
 }
 
+.file-inputs {
+    margin-top: 10px;
+    margin-bottom: 10px;
+}
+
 .file-inputs button {
     margin-right: 10px;
 }
@@ -68,24 +111,61 @@ body {
 .editor-container {
     border: 1px solid #ccc;
     display: flex;
-    overflow: auto; /* Allow editor to scroll */
+    flex-grow: 1;
+    overflow: scroll;
+    max-height: 80vh;
 }
 
 .line-numbers {
     background-color: #f0f0f0;
-    padding: 10px;
     text-align: right;
     white-space: nowrap;
     user-select: none;
+    font-family: monospace;
+    font-weight: bold;
+    max-width: 20px;
+    text-wrap: auto;
+    padding-right: 5px;
+    padding-left: 5px;
+    font-size: 14px;
 }
 
 .editor {
     flex: 1;
-    padding: 10px;
     outline: none;
     white-space: pre-wrap; /* Important for contenteditable to respect line breaks */
     overflow-wrap: break-word;
     tab-size: 4; /* Set tab size */
+    margin: 0;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.editor#html-editor pre {
+    box-sizing: border-box;
+    font-family: monospace;
+    font-size: 14px;
+    margin-top: 0px;
+    margin-bottom: 0px;
+    overflow-wrap: normal;
+    padding: var(--base-size-16);
+    overflow: auto;
+    line-height: 1.45;
+    color: rgb(31, 35, 40);
+    border-radius: 6px;
+    word-break: normal;
+}
+
+.pdf-viewer-wrapper {
+    display: flex;
+    flex-direction: row;
+    flex-grow: 1;
+}
+
+.pdf-viewer-c1 {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
 }
 
 .pdf-viewer-controls {
@@ -102,23 +182,50 @@ body {
 .pdf-viewer {
     border: 1px solid #ccc;
     padding: 10px;
-    overflow-x: hidden; /* Prevent horizontal scrollbar in viewer */
-    overflow-y: auto;  /* Allow vertical scrolling for pages */
-    height: 70vh; /* Adjust height as needed */
+    display: flex;
+    flex-grow: 1;
+    flex-direction: column;
+    background-color: #333;
+    overflow-x: hidden;
+    overflow-y: scroll;
+    max-height: 80vh;
 }
 
 .pdf-viewer svg {
-    width: 100%; /* Make SVG fill viewer width */
-    margin-bottom: 10px; /* Spacing between pages */
-    display: block; /* Prevent inline spacing */
+    max-width: 100%;
+    max-height: min-content;
+    height: auto;
+    display: block;
+    margin-bottom: 5%;
+    background: white;
+    box-shadow: 0px 0px 10px #333;
 }
 
 .sidebar {
-    width: 200px; /* Adjust sidebar width */
+    min-width: 150px;
+    max-width: 150px;
     border-left: 1px solid #ccc;
     padding: 10px;
     box-sizing: border-box;
     overflow-y: auto; /* Scrollable sidebar */
+    display: flex;
+    flex-direction: column;
+}
+
+#pdf-viewer-error {
+    margin-top: 0px;
+    margin-bottom: 0px;
+    font-family: monospace;
+    font-size: 12px;
+    background: darkred;
+    font-weight: bold;
+    color: white;
+    border: none;
+    outline: none;
+}
+
+#pdf-viewer-error p {
+    padding: 10px;
 }
 
 .sidebar-modes button {
@@ -139,16 +246,34 @@ body {
 .sidebar-content {
     padding: 10px;
     border: 1px solid #ddd;
-    margin-top: 10px;
+    overflow-y: scroll;
+    display: flex;
+    flex-grow: 1;
+    flex-direction: column;
 }
 
 .sidebar-content.hidden {
     display: none;
 }
 
+#minimap-view {
+    background: #333;
+    max-height: 80vh;
+}
+
+svg {
+    object-fit: scale-down;
+}
+
 #minimap-view svg {
-    width: 80%; /* Smaller SVGs for minimap */
-    margin-bottom: 5px;
+    max-width: 100%;
+    width: 100%;
+    max-height: min-content;
+    height: min-content;
+    aspect-ratio: auto;
+    background-color: white;
+    box-shadow: 0px 0px 5px #333;
+    margin-bottom: 5%;
     display: block;
     border: 1px solid #eee;
 }

@@ -128,6 +128,7 @@ impl IccProfileId {
 
 /// Parsed PDF document
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PdfDocument {
     /// Metadata about the document (author, info, XMP metadata, etc.)
     pub metadata: PdfMetadata,
@@ -245,6 +246,7 @@ impl PdfDocument {
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PdfResources {
     /// Fonts found in the PDF file, indexed by the sha256 of their contents
     pub fonts: PdfFontMap,
@@ -257,11 +259,13 @@ pub struct PdfResources {
 }
 
 #[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct PdfLayerMap {
     pub map: BTreeMap<LayerInternalId, Layer>,
 }
 
 #[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct PdfFontMap {
     pub map: BTreeMap<FontId, ParsedFont>,
 }
@@ -270,16 +274,19 @@ pub struct PdfFontMap {
 pub struct ParsedIccProfile {}
 
 #[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct XObjectMap {
     pub map: BTreeMap<XObjectId, XObject>,
 }
 
 #[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct PageAnnotMap {
     pub map: BTreeMap<PageAnnotId, PageAnnotation>,
 }
 
 #[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct ExtendedGraphicsStateMap {
     pub map: BTreeMap<ExtendedGraphicsStateId, ExtendedGraphicsState>,
 }
@@ -287,11 +294,13 @@ pub struct ExtendedGraphicsStateMap {
 /// This is a wrapper in order to keep shared data between the documents XMP metadata and
 /// the "Info" dictionary in sync
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PdfMetadata {
     /// Document information
+    #[serde(default)]
     pub info: PdfDocumentInfo,
     /// XMP Metadata. Is ignored on save if the PDF conformance does not allow XMP
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub xmp: Option<XmpMetadata>,
 }
 
@@ -341,12 +350,15 @@ impl PdfMetadata {
 /// Initial struct for Xmp metatdata. This should be expanded later for XML handling, etc.
 /// Right now it just fills out the necessary fields
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct XmpMetadata {
     /// Web-viewable or "default" or to be left empty. Usually "default".
+    #[serde(default)]
     pub rendition_class: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PdfDocumentInfo {
     /// Is the document trapped?
     pub trapped: bool,

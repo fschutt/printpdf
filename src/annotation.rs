@@ -5,6 +5,7 @@ use serde_derive::{Deserialize, Serialize};
 use crate::graphics::Rect;
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PageAnnotation {
     /// Name of the bookmark annotation (i.e. "Chapter 5")
     pub name: String,
@@ -13,6 +14,7 @@ pub struct PageAnnotation {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LinkAnnotation {
     pub rect: Rect,
     pub actions: Actions,
@@ -45,7 +47,7 @@ impl LinkAnnotation {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", content = "data")]
+#[serde(rename_all = "kebab-case", tag = "type", content = "data")]
 pub enum BorderArray {
     Solid([f32; 3]),
     Dashed([f32; 3], DashPhase),
@@ -71,36 +73,37 @@ impl Default for BorderArray {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DashPhase {
     pub dash_array: Vec<f32>,
     pub phase: f32,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
-#[serde(tag = "type", content = "data")]
+#[serde(rename_all = "kebab-case", tag = "type", content = "data")]
 pub enum ColorArray {
     Transparent,
     Gray([f32; 1]),
-    RGB([f32; 3]),
-    CMYK([f32; 4]),
+    Rgb([f32; 3]),
+    Cmyk([f32; 4]),
 }
 
 impl Default for ColorArray {
     fn default() -> Self {
-        ColorArray::RGB([0.0, 1.0, 1.0])
+        ColorArray::Rgb([0.0, 1.0, 1.0])
     }
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
-#[serde(tag = "type", content = "data")]
+#[serde(rename_all = "kebab-case", tag = "type", content = "data")]
 pub enum Destination {
     /// Display `page` with coordinates `top` and `left` positioned at the upper-left corner of the
     /// window and the contents of the page magnified by `zoom`.
     ///
     /// A value of `None` for any parameter indicates to leave the current value unchanged, and a
     /// `zoom` value of 0 has the same meaning as `None`.
-    XYZ {
+    Xyz {
         page: usize,
         left: Option<f32>,
         top: Option<f32>,
@@ -132,8 +135,8 @@ pub enum Destination {
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", tag = "type", content = "data")]
 pub enum Actions {
-    GoTo(Destination),
-    URI(String),
+    Goto(Destination),
+    Uri(String),
 }
 
 impl Actions {
@@ -143,17 +146,17 @@ impl Actions {
     /// Plug-in extensions may add new action types.
     pub fn get_action_type_id(&self) -> &'static str {
         match self {
-            Actions::GoTo(_) => "GoTo",
-            Actions::URI(_) => "URI",
+            Actions::Goto(_) => "GoTo",
+            Actions::Uri(_) => "URI",
         }
     }
 
     pub fn go_to(destination: Destination) -> Self {
-        Self::GoTo(destination)
+        Self::Goto(destination)
     }
 
     pub fn uri(uri: String) -> Self {
-        Self::URI(uri)
+        Self::Uri(uri)
     }
 }
 

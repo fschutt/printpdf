@@ -4,6 +4,7 @@ use serde_derive::{Deserialize, Serialize};
 use crate::{OutputImageFormat, PdfResources, ops::PdfPage, serialize::prepare_fonts};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PdfToSvgOptions {
     /// When rendering ImageXObjects, the images are embedded in the SVG.
     /// You can specify here, which image formats you'd like to output, i.e.
@@ -14,6 +15,7 @@ pub struct PdfToSvgOptions {
     /// If you want to render the SVG later using `svg2png`, not all image
     /// formats might be supported, but generally in a
     /// browser context you can prefer `WebP` and `Avif` to save space.
+    #[serde(default = "default_image_formats_web")]
     pub image_formats: Vec<OutputImageFormat>,
 }
 
@@ -29,19 +31,23 @@ impl Default for PdfToSvgOptions {
     }
 }
 
+fn default_image_formats_web() -> Vec<OutputImageFormat> {
+    vec![
+        OutputImageFormat::Avif,
+        OutputImageFormat::Webp,
+        OutputImageFormat::Jpeg,
+        OutputImageFormat::Png,
+        OutputImageFormat::Bmp,
+        OutputImageFormat::Tiff,
+        OutputImageFormat::Gif,
+        OutputImageFormat::Tga,
+    ]
+}
+
 impl PdfToSvgOptions {
     pub fn web() -> Self {
         Self {
-            image_formats: vec![
-                OutputImageFormat::Avif,
-                OutputImageFormat::WebP,
-                OutputImageFormat::Jpeg,
-                OutputImageFormat::Png,
-                OutputImageFormat::Bmp,
-                OutputImageFormat::Tiff,
-                OutputImageFormat::Gif,
-                OutputImageFormat::Tga,
-            ],
+            image_formats: default_image_formats_web(),
         }
     }
 }
@@ -53,7 +59,7 @@ pub fn render_to_svg(page: &PdfPage, resources: &PdfResources, opts: &PdfToSvgOp
 
     let mut svg = String::new();
     svg.push_str(&format!(
-        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}">"#,
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}""#,
         w = width,
         h = height
     ));

@@ -27,6 +27,7 @@ pub const OP_PATH_CONST_CLIP_EO: &str = "W*";
 
 /// Rectangle struct (x, y, width, height) from the LOWER LEFT corner of the page
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Rect {
     pub x: Pt,
     pub y: Pt,
@@ -215,6 +216,7 @@ pub enum PaintMode {
 }
 
 #[derive(Debug, Default, Copy, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Point {
     /// x position from the bottom left corner in pt
     pub x: Pt,
@@ -259,6 +261,7 @@ impl PartialEq for Point {
 
 /// Either a point or a bezier control point
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LinePoint {
     /// Location of the point
     pub p: Point,
@@ -267,6 +270,7 @@ pub struct LinePoint {
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Line {
     /// 2D Points for the line
     pub points: Vec<LinePoint>,
@@ -275,6 +279,7 @@ pub struct Line {
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Polygon {
     /// 2D Points for the line. The `bool` indicates whether the next point is a bezier control
     /// point.
@@ -286,6 +291,7 @@ pub struct Polygon {
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PolygonRing {
     /// 2D Points for the ring
     pub points: Vec<LinePoint>,
@@ -309,6 +315,7 @@ impl FromIterator<(Point, bool)> for Polygon {
 
 /// Line dash pattern is made up of a total width
 #[derive(Debug, Copy, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LineDashPattern {
     /// Offset at which the dashing pattern should start, measured from the beginning ot the line
     /// Default: 0 (start directly where the line starts)
@@ -463,6 +470,19 @@ pub enum TextRenderingMode {
 }
 
 impl TextRenderingMode {
+    pub fn from_i64(i: i64) -> Self {
+        match i {
+            0 => TextRenderingMode::Fill,
+            1 => TextRenderingMode::Stroke,
+            2 => TextRenderingMode::FillStroke,
+            3 => TextRenderingMode::Invisible,
+            4 => TextRenderingMode::FillClip,
+            5 => TextRenderingMode::StrokeClip,
+            6 => TextRenderingMode::FillStrokeClip,
+            7 => TextRenderingMode::Clip,
+            _ => TextRenderingMode::Fill,
+        }
+    }
     pub fn id(&self) -> i64 {
         match self {
             TextRenderingMode::Fill => 0,
@@ -535,6 +555,7 @@ pub enum ChangedField {
 
 /// `ExtGState` dictionary
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExtendedGraphicsState {
     /// A set to track which fields have changed in relation to the default() method.
     /// Now using a strongly typed enum instead of string constants.
@@ -1306,7 +1327,7 @@ pub enum SpotFunction {
 }
 
 #[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case", tag = "type", content = "data")]
+#[serde(rename_all = "kebab-case", untagged)]
 pub enum BlendMode {
     Seperable(SeperableBlendMode),
     NonSeperable(NonSeperableBlendMode),
@@ -1615,7 +1636,7 @@ pub enum NonSeperableBlendMode {
 /// a given device. Specifying a rendering intent (PDF 1.1) allows a PDF file to set priorities
 /// regarding which of these properties to preserve and which to sacrifice.
 #[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
-#[serde(rename = "kebab-case")]
+#[serde(rename_all = "kebab-case")]
 pub enum RenderingIntent {
     /// Colors are represented solely with respect to the light source; no
     /// correction is made for the output medium’s white point (such as
@@ -1674,7 +1695,7 @@ impl RenderingIntent {
 /// Beware of color spaces!
 /// __See PDF Reference Page 545__ - Soft masks
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-#[serde(rename = "kebab-case")]
+#[serde(rename_all = "camelCase")]
 pub struct SoftMask {
     /// The data to be used as a soft mask
     data: Vec<u8>,
@@ -1683,7 +1704,7 @@ pub struct SoftMask {
 }
 
 #[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
-#[serde(rename = "kebab-case")]
+#[serde(rename_all = "kebab-case")]
 pub enum SoftMaskFunction {
     // (Color, Shape, Alpha) = Composite(Color0, Alpha0, Group)
     /// In this function, the old (backdrop) color does not contribute to the result.

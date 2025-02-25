@@ -41,13 +41,26 @@ const DOCUMENT_ID: DocumentId = DocumentId {
     id: 0,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct XmlRenderOptions {
+    #[serde(default)]
     pub images: BTreeMap<String, Vec<u8>>,
+    #[serde(default)]
     pub fonts: BTreeMap<String, Vec<u8>>,
+    #[serde(default = "default_page_width")]
     pub page_width: Mm,
+    #[serde(default = "default_page_height")]
     pub page_height: Mm,
+    #[serde(default, skip)]
     pub components: Vec<XmlComponent>,
+}
+
+fn default_page_width() -> Mm {
+    Mm(210.0)
+}
+fn default_page_height() -> Mm {
+    Mm(297.0)
 }
 
 impl Default for XmlRenderOptions {
@@ -55,8 +68,8 @@ impl Default for XmlRenderOptions {
         Self {
             images: Default::default(),
             fonts: Default::default(),
-            page_width: Mm(210.0),
-            page_height: Mm(297.0),
+            page_width: default_page_width(),
+            page_height: default_page_height(),
             components: Default::default(),
         }
     }
@@ -253,6 +266,7 @@ fn get_fcpat(b: BuiltinFont) -> (FcPattern, FcFont) {
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ImageInfo {
     pub original_id: String,
     pub xobject_id: String,
@@ -262,6 +276,7 @@ pub struct ImageInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum ImageTypeInfo {
     Image,
     Svg,

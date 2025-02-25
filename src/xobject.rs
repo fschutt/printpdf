@@ -16,7 +16,7 @@ use crate::{
 /// on the page. You can instantiate `XObjects` with the `/Do` operator. The `layer.add_xobject()`
 /// (or better yet, the `layer.add_image()`, `layer.add_form()`) methods will do this for you.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", content = "data")]
+#[serde(rename_all = "kebab-case", tag = "type", content = "data")]
 pub enum XObject {
     /// Image XObject, for images
     Image(RawImage),
@@ -82,6 +82,7 @@ pub(crate) fn add_xobject_to_document(
 
 /// External XObject, invoked by `/Do` graphics operator
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExternalXObject {
     /// External stream of graphics operations
     pub stream: ExternalStream,
@@ -97,6 +98,7 @@ pub struct ExternalXObject {
 }
 
 #[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExternalStream {
     /// Stream description, for simplicity a simple map, corresponds to PDF dict
     pub dict: BTreeMap<String, DictItem>,
@@ -115,7 +117,7 @@ impl ExternalStream {
 
 /// Simplified dict item for external streams
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-#[serde(rename = "kebab-case", tag = "type", content = "data")]
+#[serde(rename_all = "kebab-case", tag = "type", content = "data")]
 pub enum DictItem {
     Array(Vec<DictItem>),
     String { data: Vec<u8>, literal: bool },
@@ -238,6 +240,7 @@ pub enum ImageFilter {
 /// as long as it's a valid strem. A `FormXObject` is intended to be used for reapeated
 /// content on one page.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FormXObject {
     // /Type /XObject
     // /Subtype /Form
@@ -355,7 +358,7 @@ fn form_xobject_to_stream(f: &FormXObject, doc: &mut lopdf::Document) -> lopdf::
     if let Some(g) = f.group.as_ref() {
         let group_dict = lopdf::Dictionary::from_iter(vec![
             ("Type", Name("Group".into())),
-            ("S", Name(g.grouptype.get_id().into())),
+            ("S", Name(g.group_type.get_id().into())),
         ]);
 
         dict.set("Group", Dictionary(group_dict));
@@ -431,14 +434,17 @@ impl FormType {
 
 /// `/Type /Group`` (PDF reference section 4.9.2)
 #[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GroupXObject {
-    pub grouptype: GroupXObjectType,
+    #[serde(default)]
+    pub group_type: GroupXObjectType,
 }
 
-#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, PartialEq, Copy, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum GroupXObjectType {
     /// Transparency group XObject (currently the only valid GroupXObject type)
+    #[default]
     TransparencyGroup,
 }
 
@@ -561,6 +567,7 @@ impl XObjectTransform {
 }
 
 #[derive(Debug, Copy, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct XObjectRotation {
     #[serde(default)]
     pub angle_ccw_degrees: f32,

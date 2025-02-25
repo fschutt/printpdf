@@ -8,7 +8,7 @@ use crate::units::Pt;
 /// until the `layer.restore_graphics_state()` is called. It is important to
 /// call `layer.save_graphics_state()` earlier.
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename = "kebab-case", tag = "type", content = "data")]
+#[serde(rename_all = "kebab-case", tag = "type", content = "data")]
 pub enum CurTransMat {
     /// Translation matrix (in points from bottom left corner)
     /// X and Y can have different values

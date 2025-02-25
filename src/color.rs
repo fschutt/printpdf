@@ -61,7 +61,7 @@ impl ColorBits {
 
 /// Wrapper for Rgb, Cmyk and other color types
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", content = "data")]
+#[serde(rename_all = "kebab-case", tag = "type", content = "data")]
 pub enum Color {
     Rgb(Rgb),
     Cmyk(Cmyk),
@@ -101,11 +101,12 @@ impl Color {
 
 /// RGB color
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Rgb {
     pub r: f32,
     pub g: f32,
     pub b: f32,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icc_profile: Option<IccProfileId>,
 }
 
@@ -122,12 +123,13 @@ impl Rgb {
 
 /// CMYK color
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Cmyk {
     pub c: f32,
     pub m: f32,
     pub y: f32,
     pub k: f32,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icc_profile: Option<IccProfileId>,
 }
 
@@ -146,9 +148,10 @@ impl Cmyk {
 
 /// Greyscale color
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Greyscale {
     pub percent: f32,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icc_profile: Option<IccProfileId>,
 }
 
@@ -164,6 +167,7 @@ impl Greyscale {
 /// Spot colors are like Cmyk, but without color space. They are essentially "named" colors
 /// from specific vendors - currently they are the same as a CMYK color.
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SpotColor {
     pub c: f32,
     pub m: f32,

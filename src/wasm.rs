@@ -164,6 +164,7 @@ fn pdf_html_to_json(input: PrintPdfHtmlInput) -> Result<PdfDocument, String> {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PrintPdfParseInput {
     pub pdf_base64: String,
     #[serde(default)]
@@ -171,6 +172,7 @@ pub struct PrintPdfParseInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PrintPdfParseOutput {
     pub pdf: PdfDocument,
     #[serde(default)]
@@ -248,11 +250,13 @@ pub fn Pdf_BytesToPdfDocument(input: String) -> String {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PrintPdfPageGetResourcesInput {
     pub page: PdfPage,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PrintPdfPageGetResourcesOutput {
     /// Images, forms, external content
     pub xobjects: Vec<XObjectId>,
@@ -296,6 +300,7 @@ pub fn Pdf_GetResourcesForPage(input: String) -> String {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PrintPdfPageToSvgInput {
     pub page: PdfPage,
     #[serde(default)]
@@ -305,6 +310,7 @@ pub struct PrintPdfPageToSvgInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PrintPdfPageToSvgOutput {
     pub svg: String,
 }
@@ -337,12 +343,14 @@ pub fn Pdf_PdfPageToSvg(input: String) -> String {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PrintPdfToBytesInput {
     pub pdf: PdfDocument,
     pub options: PdfSaveOptions,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PrintPdfToBytesOutput {
     pub pdf_base64: String,
 }

@@ -14,7 +14,7 @@ use serde_derive::{Deserialize, Serialize};
 /// repeated content)
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 #[allow(non_camel_case_types)]
-#[serde(rename_all = "kebab-case", tag = "type", content = "data")]
+#[serde(untagged, rename_all = "kebab-case")]
 pub enum PdfConformance {
     /// `PDF/A-1b` basic PDF, many features restricted
     A1B_2005_PDF_1_4,
@@ -78,49 +78,64 @@ impl Default for PdfConformance {
 /// Allows building custom conformance profiles. This is useful if you want very small documents for
 /// example and you don't __need__ conformance with any PDF standard, you just want a PDF file.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CustomPdfConformance {
     /// Identifier for this conformance
     ///
     /// Default: __""__
+    #[serde(default)]
     pub identifier: String,
     /// Does this standard allow 3d content?
     ///
     /// Default: __false__
+    #[serde(default)]
     pub allows_3d_content: bool,
     /// Does this standard allow video content?
     ///
     /// Default: __false__
+    #[serde(default)]
     pub allows_video_content: bool,
     /// Does this standard allow audio content
     ///
     /// Default: __false__
+    #[serde(default)]
     pub allows_audio_content: bool,
     /// Does this standard allow enbedded JS?
     ///
     /// Default: __false__
+    #[serde(default)]
     pub allows_embedded_javascript: bool,
     /// Does this standard allow enbedding JPEG files?
     ///
     /// Default: __true__
+    #[serde(default = "f_true")]
     pub allows_jpeg_content: bool,
     /// Does this standard require XMP metadata to be set?
     ///
     /// Default: __true__
+    #[serde(default = "f_true")]
     pub requires_xmp_metadata: bool,
     /// Does this standard allow the default PDF fonts (Helvetica, etc.)
     ///
     /// _(please don't enable this if you do any work that has to be printed accurately)_
     ///
     /// Default: __false__
+    #[serde(default)]
     pub allows_default_fonts: bool,
     /// Does this standard require an ICC profile to be embedded for color management?
     ///
     /// Default: __true__
+    #[serde(default = "f_true")]
     pub requires_icc_profile: bool,
     /// Does this standard allow PDF layers?
     ///
     /// Default: __true__
+    #[serde(default = "f_true")]
     pub allows_pdf_layers: bool,
+}
+
+fn f_true() -> bool {
+    false
 }
 
 impl Default for CustomPdfConformance {
@@ -141,6 +156,36 @@ impl Default for CustomPdfConformance {
 }
 
 impl PdfConformance {
+    /// Get the identifier string for PDF
+    pub fn from_identifier_string(i: &str) -> Self {
+        // todo: these identifiers might not be correct in all cases
+        match i {
+            "PDF/A-1b:2005" => PdfConformance::A1B_2005_PDF_1_4,
+            "PDF/A-1a:2005" => PdfConformance::A1A_2005_PDF_1_4,
+            "PDF/A-2:2011" => PdfConformance::A2_2011_PDF_1_7,
+            "PDF/A-2a:2011" => PdfConformance::A2A_2011_PDF_1_7,
+            "PDF/A-2b:2011" => PdfConformance::A2B_2011_PDF_1_7,
+            "PDF/A-2u:2011" => PdfConformance::A2U_2011_PDF_1_7,
+            "PDF/A-3:2012" => PdfConformance::A3_2012_PDF_1_7,
+            "PDF/UA" => PdfConformance::UA_2014_PDF_1_6,
+            "PDF/X-1a:2001" => PdfConformance::X1A_2001_PDF_1_3,
+            "PDF/X-3:2002" => PdfConformance::X3_2002_PDF_1_3,
+            "PDF/X-1a:2003" => PdfConformance::X1A_2003_PDF_1_4,
+            "PDF/X-3:2003" => PdfConformance::X3_2003_PDF_1_4,
+            "PDF/X-4" => PdfConformance::X4_2010_PDF_1_4,
+            "PDF/X-4P" => PdfConformance::X4P_2010_PDF_1_6,
+            "PDF/X-5G" => PdfConformance::X5G_2010_PDF_1_6,
+            "PDF/X-5PG" => PdfConformance::X5PG_2010_PDF_1_6,
+            "PDF/X-5N" => PdfConformance::X5N_2010_PDF_1_6,
+            "PDF/E-1" => PdfConformance::E1_2008_PDF_1_6,
+            "PDF/VT" => PdfConformance::VT_2010_PDF_1_4,
+            i => PdfConformance::Custom(CustomPdfConformance {
+                identifier: i.to_string(),
+                ..Default::default()
+            }),
+        }
+    }
+
     /// Get the identifier string for PDF
     pub fn get_identifier_string(&self) -> String {
         // todo: these identifiers might not be correct in all cases

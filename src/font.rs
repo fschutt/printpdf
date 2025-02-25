@@ -34,6 +34,7 @@ pub enum Font {
 
 /// Standard built-in PDF fonts
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum BuiltinFont {
     TimesRoman,
     TimesBold,
@@ -203,6 +204,27 @@ impl BuiltinFont {
             CourierBoldOblique => 11,
             Symbol => 12,
             ZapfDingbats => 13,
+        }
+    }
+
+    pub fn from_id(s: &str) -> Option<Self> {
+        use self::BuiltinFont::*;
+        match s {
+            "Times-Roman" => Some(TimesRoman),
+            "Times-Bold" => Some(TimesBold),
+            "Times-Italic" => Some(TimesItalic),
+            "Times-BoldItalic" => Some(TimesBoldItalic),
+            "Helvetica" => Some(Helvetica),
+            "Helvetica-Bold" => Some(HelveticaBold),
+            "Helvetica-Oblique" => Some(HelveticaOblique),
+            "Helvetica-BoldOblique" => Some(HelveticaBoldOblique),
+            "Courier" => Some(Courier),
+            "Courier-Oblique" => Some(CourierOblique),
+            "Courier-Bold" => Some(CourierBold),
+            "Courier-BoldOblique" => Some(CourierBoldOblique),
+            "Symbol" => Some(Symbol),
+            "ZapfDingbats" => Some(ZapfDingbats),
+            _ => None,
         }
     }
 

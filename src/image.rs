@@ -24,7 +24,7 @@ impl serde::Serialize for RawImage {
             OutputImageFormat::Png,
             OutputImageFormat::Jpeg,
             OutputImageFormat::Gif,
-            OutputImageFormat::WebP,
+            OutputImageFormat::Webp,
             OutputImageFormat::Pnm,
             OutputImageFormat::Tiff,
             OutputImageFormat::Tga,
@@ -208,7 +208,7 @@ pub enum OutputImageFormat {
     /// An Image in GIF Format
     Gif,
     /// An Image in WEBP Format
-    WebP,
+    Webp,
     /// An Image in general PNM Format
     Pnm,
     /// An Image in TIFF Format
@@ -227,7 +227,7 @@ impl OutputImageFormat {
             OutputImageFormat::Png => "image/png",
             OutputImageFormat::Jpeg => "image/jpeg",
             OutputImageFormat::Gif => "image/gif",
-            OutputImageFormat::WebP => "image/webp",
+            OutputImageFormat::Webp => "image/webp",
             OutputImageFormat::Pnm => "image/pnm",
             OutputImageFormat::Tiff => "image/tiff",
             OutputImageFormat::Tga => "image/tga",
@@ -474,7 +474,7 @@ impl RawImage {
                 OutputImageFormat::Png => ImageFormat::Png,
                 OutputImageFormat::Jpeg => ImageFormat::Jpeg,
                 OutputImageFormat::Gif => ImageFormat::Gif,
-                OutputImageFormat::WebP => ImageFormat::WebP,
+                OutputImageFormat::Webp => ImageFormat::WebP,
                 OutputImageFormat::Pnm => ImageFormat::Pnm,
                 OutputImageFormat::Tiff => ImageFormat::Tiff,
                 OutputImageFormat::Tga => ImageFormat::Tga,

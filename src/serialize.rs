@@ -17,15 +17,24 @@ use crate::{
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PdfSaveOptions {
+    #[serde(default = "default_optimize")]
     pub optimize: bool,
+    #[serde(default = "default_subset_fonts")]
     pub subset_fonts: bool,
+}
+
+const fn default_optimize() -> bool {
+    true
+}
+const fn default_subset_fonts() -> bool {
+    true
 }
 
 impl Default for PdfSaveOptions {
     fn default() -> Self {
         Self {
-            optimize: true,
-            subset_fonts: true,
+            optimize: default_optimize(),
+            subset_fonts: default_subset_fonts(),
         }
     }
 }
@@ -1086,10 +1095,10 @@ fn actions_to_dict(a: &Actions, page_ids: &[lopdf::ObjectId]) -> LoDictionary {
     let mut dict = LoDictionary::new();
     dict.set("S", Name(a.get_action_type_id().into()));
     match a {
-        Actions::GoTo(destination) => {
+        Actions::Goto(destination) => {
             dict.set("D", destination_to_obj(destination, page_ids));
         }
-        Actions::URI(uri) => {
+        Actions::Uri(uri) => {
             dict.set("URI", LoString(uri.clone().into_bytes(), Literal));
         }
     }
@@ -1098,7 +1107,7 @@ fn actions_to_dict(a: &Actions, page_ids: &[lopdf::ObjectId]) -> LoDictionary {
 
 fn destination_to_obj(d: &Destination, page_ids: &[lopdf::ObjectId]) -> lopdf::Object {
     match d {
-        Destination::XYZ {
+        Destination::Xyz {
             page,
             left,
             top,
@@ -1121,7 +1130,7 @@ fn color_array_to_f32(c: &ColorArray) -> Vec<f32> {
     match c {
         ColorArray::Transparent => Vec::new(),
         ColorArray::Gray(arr) => arr.to_vec(),
-        ColorArray::RGB(arr) => arr.to_vec(),
-        ColorArray::CMYK(arr) => arr.to_vec(),
+        ColorArray::Rgb(arr) => arr.to_vec(),
+        ColorArray::Cmyk(arr) => arr.to_vec(),
     }
 }

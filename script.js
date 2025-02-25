@@ -42,6 +42,7 @@ const imageUploadInput = document.getElementById('image-upload');
 const fontUploadInput = document.getElementById('font-upload');
 const pdfFileUploadInput = document.getElementById('pdf-file-upload');
 const signatureImageUploadInput = document.getElementById('signature-image-upload');
+const pdfViewerErrorText = document.getElementById('pdf-viewer-error');
 
 document.getElementById('add-image-html').addEventListener('click', () => imageUploadInput.click());
 document.getElementById('add-font-html').addEventListener('click', () => fontUploadInput.click());
@@ -115,7 +116,7 @@ pdfFileUploadInput.addEventListener('change', async (event) => {
     if (!file) return;
 
     const arrayBuffer = await file.arrayBuffer();
-    const base64Pdf = btoa(String.fromCharCode.apply(null, new Uint8Array(arrayBuffer)));
+    const base64Pdf = await bufferToBase64(new Uint8Array(arrayBuffer));
 
     try {
         const inputParse = { pdfBase64: base64Pdf, options: {} };
@@ -125,14 +126,17 @@ pdfFileUploadInput.addEventListener('change', async (event) => {
 
         if (parseResult.status === 0) {
             pdfDocument = parseResult.data.pdf;
+            for (let i = 0; i < parseResult.data.warnings.length; i++) {
+                console.warn(parseResult.data.warnings[i]);
+            }
             jsonEditorPre.textContent = JSON.stringify(pdfDocument, null, 2); // Display JSON in editor
             updateLineNumbers(jsonEditorPre, jsonLineNumbersDiv);
             updatePdfViewer();
         } else {
-            alert("PDF Parsing Error: " + parseResult.data);
+            alert2("PDF Parsing Error: " + parseResult.data);
         }
     } catch (error) {
-        alert("Error parsing PDF: " + error);
+        alert2("Error parsing PDF: " + error);
     } finally {
         event.target.value = ''; // Reset input
     }
@@ -165,28 +169,28 @@ async function updatePdfViewer() {
                 console.error("Error getting resources for page:", resourcesResult.data);
                 continue; // Skip page rendering if resources fail
             }
-            const resources = pdfDocument.resources; // Use document resources directly
 
+            const resources = pdfDocument.resources; // Use document resources directly
+            
             // Apply signature if in "Sign PDF" tab and on correct page
             let modifiedPage = page;
             if (currentTab === 'sign-pdf' && (i + 1) === parseInt(document.getElementById('signature-page').value)) {
                 modifiedPage = applySignatureToPage(page, resources);
             }
 
-            const svgInput = JSON.stringify({ page: modifiedPage, resources: resources, options: { image_formats: ["png", "jpeg", "web-p"] } });
+            const svgInput = JSON.stringify({ 
+                page: modifiedPage, 
+                resources: copyResourcesForPage(pdfDocument.resources, resourcesResult.data), 
+                options: { image_formats: ["png", "jpeg", "webp"] } 
+            });
             const svgJson = Pdf_PdfPageToSvg(svgInput);
             const svgResult = JSON.parse(svgJson);
 
             if (svgResult.status === 0) {
                 const svgString = svgResult.data.svg;
-                pdfViewerDiv.innerHTML += svgString; // Append SVG to viewer
-
-                // Create minimap SVG (scaled down)
-                const minimapSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                minimapSvg.innerHTML = svgString; // Directly set innerHTML for simplicity in demo
-                minimapSvg.setAttribute('width', '100'); // Fixed width for minimap
-                minimapViewDiv.appendChild(minimapSvg);
-
+                pdfViewerDiv.innerHTML += svgString;
+                minimapViewDiv.innerHTML += svgString;
+                pdfViewerErrorText.innerHTML = "";
             } else {
                 console.error("Error rendering page to SVG:", svgResult.data);
                 pdfViewerDiv.innerHTML += `<p class="error">Error rendering page ${i + 1}: ${svgResult.data}</p>`;
@@ -197,6 +201,34 @@ async function updatePdfViewer() {
         }
     }
     updatePageNavigation();
+}
+
+/// Returns a new PdfResources object, but with only the resources needed for the page
+function copyResourcesForPage(resources, resourcesResult) {
+
+    let newResources = {
+        fonts: {},
+        xobjects: {},
+        layers: {},
+        extgstates: resources.extgstates,
+    };
+
+    for (let i = 0; i < resourcesResult.xobjects.length; i++) {
+        const id = resourcesResult.xobjects[i];
+        newResources.xobjects[id] = resources.xobjects[id];
+    }
+
+    for (let i = 0; i < resourcesResult.layers.length; i++) {
+        const id = resourcesResult.layers[i];
+        newResources.layers[id] = resources.layers[id];
+    }
+
+    for (let i = 0; i < resourcesResult.fonts.length; i++) {
+        const id = resourcesResult.fonts[i];
+        newResources.fonts[id] = resources.fonts[id];
+    }
+
+    return newResources;
 }
 
 function applySignatureToPage(page, resources) {
@@ -273,11 +305,15 @@ function updatePdfFromHtml() {
             pdfDocument = result.data;
             updatePdfViewer();
         } else {
-            alert("PDF Generation Error: " + result.data);
+            alert2("PDF Generation Error: " + result.data);
         }
     } catch (error) {
-        alert("Error generating PDF: " + error);
+        alert2("Error generating PDF: " + error);
     }
+}
+
+function alert2(s) {
+    pdfViewerErrorText.innerHTML = "<p>" + s + "</p>";
 }
 
 // Event listener for HTML editor changes (throttled)
@@ -321,7 +357,7 @@ function updatePdfFromJsonEditor() {
         pdfDocument = JSON.parse(jsonEditorPre.textContent);
         updatePdfViewer();
     } catch (e) {
-        alert("JSON Parse Error: " + e.message);
+        alert2("JSON Parse Error: " + e.message);
     }
 }
 
@@ -354,7 +390,7 @@ function updatePageNavigation() {
 
 savePdfButton.addEventListener('click', async () => {
     if (!pdfDocument) {
-        alert("No PDF document to save.");
+        alert2("No PDF document to save.");
         return;
     }
 
@@ -365,14 +401,14 @@ savePdfButton.addEventListener('click', async () => {
         const bytesResult = JSON.parse(bytesResultJson);
 
         if (bytesResult.status === 0) {
-            const base64Pdf = bytesResult.data.pdf_base64;
+            const base64Pdf = bytesResult.data.pdfBase64;
             const pdfBytes = base64ToUint8Array(base64Pdf);
             downloadPdf(pdfBytes, document.getElementById('pdf-title').value || 'document');
         } else {
-            alert("PDF Serialization Error: " + bytesResult.data);
+            alert2("PDF Serialization Error: " + bytesResult.data);
         }
     } catch (error) {
-        alert("Error saving PDF: " + error);
+        alert2("Error saving PDF: " + error);
     }
 });
 
@@ -384,6 +420,19 @@ function base64ToUint8Array(base64) {
     }
     return byteArray;
 }
+
+// note: `buffer` arg can be an ArrayBuffer or a Uint8Array
+// await bufferToBase64(new Uint8Array([1,2,3,100,200]))
+async function bufferToBase64(buffer) {
+    // use a FileReader to generate a base64 data URI:
+    const base64url = await new Promise(r => {
+      const reader = new FileReader()
+      reader.onload = () => r(reader.result)
+      reader.readAsDataURL(new Blob([buffer]))
+    });
+    // remove the `data:...;base64,` part from the start
+    return base64url.slice(base64url.indexOf(',') + 1);
+  }
 
 function downloadPdf(pdfBytes, filename) {
     const blob = new Blob([pdfBytes], { type: 'application/pdf' });

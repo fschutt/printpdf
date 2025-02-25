@@ -43,6 +43,7 @@ macro_rules! impl_ord {
 
 /// Scale in millimeter
 #[derive(Debug, Default, Copy, Clone, PartialOrd, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct Mm(pub f32);
 
 impl Mm {
@@ -65,6 +66,7 @@ impl_ord!(Mm);
 
 /// Scale in point
 #[derive(Debug, Default, Copy, Clone, PartialOrd, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct Pt(pub f32);
 
 impl Pt {
@@ -106,6 +108,7 @@ impl_ord!(Pt);
 
 /// Scale in pixels
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct Px(pub usize);
 
 impl Px {
