@@ -75,7 +75,7 @@ pub struct PrintPdfApiReturn<T: serde::Serialize> {
 /// Data or error of the output of the function.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(untagged)]
-enum StatusOrData<T: serde::Serialize> {
+pub enum StatusOrData<T: serde::Serialize> {
     Ok(T),
     Error(String),
 }
@@ -99,7 +99,7 @@ enum StatusOrData<T: serde::Serialize> {
 /// // }
 /// ```
 #[allow(non_snake_case)]
-#[cfg_attr(feature = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
+#[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
 pub fn Pdf_HtmlToPdfDocument(input: String) -> String {
     let input = match serde_json::from_str::<PrintPdfHtmlInput>(&input) {
         Ok(o) => o,
@@ -197,9 +197,8 @@ pub struct PrintPdfParseOutput {
 /// //    }
 /// // }
 /// ```
-#[cfg(feature = "wasm")]
 #[allow(non_snake_case)]
-#[wasm_bindgen::prelude::wasm_bindgen]
+#[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
 pub fn Pdf_BytesToPdfDocument(input: String) -> String {
     let input = match serde_json::from_str::<PrintPdfParseInput>(&input) {
         Ok(o) => o,
@@ -269,9 +268,8 @@ pub struct PrintPdfPageGetResourcesOutput {
 /// Helper function that takes a PDF page and outputs a list of all
 /// images IDs / fonts IDs that have to be gathered from the documents
 /// resources in order to render this page.
-#[cfg(feature = "wasm")]
 #[allow(non_snake_case)]
-#[wasm_bindgen::prelude::wasm_bindgen]
+#[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
 pub fn Pdf_GetResourcesForPage(input: String) -> String {
     let input = match serde_json::from_str::<PrintPdfPageGetResourcesInput>(&input) {
         Ok(o) => o,
@@ -316,9 +314,8 @@ pub struct PrintPdfPageToSvgOutput {
 }
 
 /// Takes a `PdfPage` JS object and outputs the SVG string for that page
-#[cfg(feature = "wasm")]
 #[allow(non_snake_case)]
-#[wasm_bindgen::prelude::wasm_bindgen]
+#[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
 pub fn Pdf_PdfPageToSvg(input: String) -> String {
     let input = match serde_json::from_str::<PrintPdfPageToSvgInput>(&input) {
         Ok(o) => o,
@@ -356,9 +353,8 @@ pub struct PrintPdfToBytesOutput {
 }
 
 /// Takes a `PdfDocument` JS object and returns the base64 PDF bytes
-#[cfg(feature = "wasm")]
 #[allow(non_snake_case)]
-#[wasm_bindgen::prelude::wasm_bindgen]
+#[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
 pub fn Pdf_PdfDocumentToBytes(input: String) -> String {
     let input = match serde_json::from_str::<PrintPdfToBytesInput>(&input) {
         Ok(o) => o,

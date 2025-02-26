@@ -35,17 +35,7 @@ jobs:
         uses: egor-tensin/setup-mingw@v2
         with:
           platform: "${{ contains(matrix.target-sys, 'x86_64') && 'x64' || 'i686' }}"
-          version: 12.2.0
-      - name: Uninstall MinGW if installed
-        if: ${{ matrix.target-abi == 'gnu' }}
-        shell: pwsh
-        run: |
-          if (choco list --local-only | Select-String "mingw") {
-            choco uninstall mingw -y
-          } else {
-            Write-Output "mingw is not installed"
-            exit 0
-          }
+          version: 13.2.0
       - name: Install toolchain for ${{ matrix.target-sys }}-${{ matrix.target-abi }}
         uses: dtolnay/rust-toolchain@stable
         with:

@@ -4,7 +4,6 @@ use std::collections::BTreeMap;
 
 use serde_derive::{Deserialize, Serialize};
 
-// #[cfg(target_family = "wasm")]
 /// Link / bookmark annotation handling
 pub mod annotation;
 pub mod wasm;
