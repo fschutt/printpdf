@@ -38,12 +38,13 @@ jobs:
           version: 12.2.0
       - name: Uninstall MinGW if installed
         if: ${{ matrix.target-abi == 'gnu' }}
+        shell: pwsh
         run: |
-          if choco list --local-only | findstr mingw; then
+          if (choco list --local-only | Select-String "mingw") {
             choco uninstall mingw -y
-          else
-            echo "mingw is not installed"
-          fi
+          } else {
+            Write-Output "mingw is not installed"
+          }
       - name: Install toolchain for ${{ matrix.target-sys }}-${{ matrix.target-abi }}
         uses: dtolnay/rust-toolchain@stable
         with:
