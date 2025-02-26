@@ -2,13 +2,13 @@ name: Build and test
 on: [push, pull_request]
 
 jobs:
+
   check-and-test-unix:
     name: Cargo check and test on Unix systems
     strategy:
       matrix:
         channel: [stable]
         os: [ubuntu-latest, macos-latest]
-
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -26,7 +26,6 @@ jobs:
       matrix:
         target-sys: ["i686-pc-windows", "x86_64-pc-windows"]
         target-abi: ["gnu", "msvc"]
-
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,12 +36,18 @@ jobs:
         with:
           platform: "${{ contains(matrix.target-sys, 'x86_64') && 'x64' || 'i686' }}"
           version: 12.2.0
-
+      - name: Uninstall MinGW if installed
+        if: ${{ matrix.target-abi == 'gnu' }}
+        run: |
+          if choco list --local-only | findstr mingw; then
+            choco uninstall mingw -y
+          else
+            echo "mingw is not installed"
+          fi
       - name: Install toolchain for ${{ matrix.target-sys }}-${{ matrix.target-abi }}
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target-sys }}-${{ matrix.target-abi }}
-
       - run: cargo check --verbose --target ${{ matrix.target-sys }}-${{ matrix.target-abi }} --examples
       - run: cargo check --verbose --target ${{ matrix.target-sys }}-${{ matrix.target-abi }}
       - run: cargo test --verbose --target ${{ matrix.target-sys }}-${{ matrix.target-abi }}
@@ -52,11 +57,9 @@ jobs:
     strategy:
       matrix:
         channel: [stable]
-
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Install toolchain using wasm32-unknown-unknown target
         uses: dtolnay/rust-toolchain@master
         with:
