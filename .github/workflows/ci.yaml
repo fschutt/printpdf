@@ -44,6 +44,7 @@ jobs:
             choco uninstall mingw -y
           } else {
             Write-Output "mingw is not installed"
+            exit 0
           }
       - name: Install toolchain for ${{ matrix.target-sys }}-${{ matrix.target-abi }}
         uses: dtolnay/rust-toolchain@stable
