@@ -15,6 +15,7 @@ categories = ["gui"]
 exclude = ["./assets/*", "./doc/*", "./examples/*"]
 autoexamples = false
 edition = "2021"
+build = "build.rs"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
