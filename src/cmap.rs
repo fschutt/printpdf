@@ -1,7 +1,8 @@
 /// ToUnicode CMap parsing
-
 use std::collections::BTreeMap;
+
 use lopdf::{Dictionary, Document, Object};
+
 use crate::text::CMap;
 
 /// The mapping from a CID to one or more Unicode code points.
@@ -97,7 +98,7 @@ fn parse_hex_token(token: &str) -> Result<u32, String> {
         return Err("Hex token too short".into());
     }
     if token.starts_with('<') && token.ends_with('>') {
-        let inner = &token[1..token.len()-1];
+        let inner = &token[1..token.len() - 1];
         u32::from_str_radix(inner, 16)
             .map_err(|e| format!("Failed to parse hex token {}: {}", token, e))
     } else {
@@ -113,7 +114,7 @@ impl CMap for ToUnicodeCMap {
         let mut result = String::new();
         let mut i = 0;
         while i + 1 < bytes.len() {
-            let cid = u16::from_be_bytes([bytes[i], bytes[i+1]]) as u32;
+            let cid = u16::from_be_bytes([bytes[i], bytes[i + 1]]) as u32;
             if let Some(unis) = self.mappings.get(&cid) {
                 for &u in unis {
                     if let Some(ch) = std::char::from_u32(u) {
@@ -133,23 +134,26 @@ pub fn get_to_unicode_cmap_from_font(
     font_dict: &Dictionary,
     doc: &Document,
 ) -> Result<ToUnicodeCMap, String> {
-
-    let to_unicode_obj = font_dict.get(b"ToUnicode").ok()
-    .ok_or("No ToUnicode entry found")?;
+    let to_unicode_obj = font_dict
+        .get(b"ToUnicode")
+        .ok()
+        .ok_or("No ToUnicode entry found")?;
 
     let stream = match to_unicode_obj {
-        Object::Reference(r) => doc.get_object(*r)
+        Object::Reference(r) => doc
+            .get_object(*r)
             .and_then(|obj| obj.as_stream().map(|s| s.clone()))
             .map_err(|e| format!("Error getting ToUnicode stream: {}", e))?,
         Object::Stream(s) => s.clone(),
         _ => return Err("Unexpected type for ToUnicode entry".into()),
     };
 
-    let content = stream.decompressed_content()
+    let content = stream
+        .decompressed_content()
         .map_err(|e| format!("Decompress error: {}", e))?;
 
-    let cmap_str = String::from_utf8(content)
-        .map_err(|e| format!("UTF-8 conversion error: {}", e))?;
+    let cmap_str =
+        String::from_utf8(content).map_err(|e| format!("UTF-8 conversion error: {}", e))?;
 
     ToUnicodeCMap::parse(&cmap_str)
 }

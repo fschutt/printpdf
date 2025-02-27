@@ -1,12 +1,11 @@
 /// PDF Text decoding / encoding and ToUnicode handling
-
 use lopdf::{Object, StringFormat};
 
 /// Represents a text segment (decoded as a UTF-8 String) or a spacing adjustment
 #[derive(Debug, Clone)]
 pub enum TextItem {
-    Text(String),    // A segment of text
-    Offset(i32),     // A spacing adjustment (in thousandths of an em)
+    Text(String), // A segment of text
+    Offset(i32),  // A spacing adjustment (in thousandths of an em)
 }
 
 /// A trait for mapping raw byte sequences to Unicode using a ToUnicode CMap.
@@ -29,19 +28,18 @@ pub fn decode_pdf_string(obj: &Object, to_unicode: Option<&impl CMap>) -> String
                 } else {
                     String::from_utf8_lossy(bytes).into_owned()
                 }
-            },
+            }
             StringFormat::Hexadecimal => {
                 // For hex strings the bytes are the raw binary data.
                 if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
                     // Contains a BOM – assume UTF-16BE.
-                    let utf16_iter = bytes[2..].chunks(2)
-                        .filter_map(|pair| {
-                            if pair.len() == 2 {
-                                Some(u16::from_be_bytes([pair[0], pair[1]]))
-                            } else {
-                                None
-                            }
-                        });
+                    let utf16_iter = bytes[2..].chunks(2).filter_map(|pair| {
+                        if pair.len() == 2 {
+                            Some(u16::from_be_bytes([pair[0], pair[1]]))
+                        } else {
+                            None
+                        }
+                    });
                     String::from_utf16(&utf16_iter.collect::<Vec<_>>()).unwrap_or_default()
                 } else {
                     // Without BOM, use the ToUnicode mapping if available, or fallback.
@@ -51,7 +49,7 @@ pub fn decode_pdf_string(obj: &Object, to_unicode: Option<&impl CMap>) -> String
                         String::from_utf8_lossy(bytes).into_owned()
                     }
                 }
-            },
+            }
         }
     } else {
         String::new()
@@ -68,13 +66,13 @@ pub fn decode_tj_operands(operands: &[Object], to_unicode: Option<&impl CMap>) -
             Object::String(_, _) => {
                 let s = decode_pdf_string(obj, to_unicode);
                 items.push(TextItem::Text(s));
-            },
+            }
             Object::Integer(i) => {
                 items.push(TextItem::Offset(*i as i32));
-            },
+            }
             Object::Real(r) => {
                 items.push(TextItem::Offset(*r as i32));
-            },
+            }
             _ => {
                 // Ignore unsupported types or log a warning.
             }
@@ -144,11 +142,11 @@ pub fn encode_text_items(items: &[TextItem]) -> Vec<Object> {
                 // Check if the encoding is hex or literal based on its delimiters.
                 if pdf_str.starts_with('<') {
                     // For hex, remove the delimiters and convert back to bytes.
-                    let inner = &pdf_str[1..pdf_str.len()-1];
+                    let inner = &pdf_str[1..pdf_str.len() - 1];
                     let mut bytes = Vec::new();
                     for i in (0..inner.len()).step_by(2) {
                         if i + 2 <= inner.len() {
-                            if let Ok(byte) = u8::from_str_radix(&inner[i..i+2], 16) {
+                            if let Ok(byte) = u8::from_str_radix(&inner[i..i + 2], 16) {
                                 bytes.push(byte);
                             }
                         }
@@ -158,10 +156,10 @@ pub fn encode_text_items(items: &[TextItem]) -> Vec<Object> {
                     // For literal strings, we assume a UTF-8 encoding.
                     objs.push(Object::String(s.as_bytes().to_vec(), StringFormat::Literal));
                 }
-            },
+            }
             TextItem::Offset(n) => {
                 objs.push(Object::Integer(*n as i64));
-            },
+            }
         }
     }
     objs

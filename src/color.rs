@@ -88,6 +88,40 @@ impl Color {
         }
     }
 
+    pub fn get_svg_id(&self) -> String {
+        match self {
+            Color::Rgb(rgb) => {
+                let r = (rgb.r * 255.0).round() as u8;
+                let g = (rgb.g * 255.0).round() as u8;
+                let b = (rgb.b * 255.0).round() as u8;
+                format!("rgb({}, {}, {})", r, g, b)
+            }
+            Color::Cmyk(cmyk) => {
+                let r = (1.0 - cmyk.c) * (1.0 - cmyk.k);
+                let g = (1.0 - cmyk.m) * (1.0 - cmyk.k);
+                let b = (1.0 - cmyk.y) * (1.0 - cmyk.k);
+                let r = (r * 255.0).round() as u8;
+                let g = (g * 255.0).round() as u8;
+                let b = (b * 255.0).round() as u8;
+                format!("rgb({}, {}, {})", r, g, b)
+            }
+            Color::Greyscale(gs) => {
+                let gray = (gs.percent * 255.0).round() as u8;
+                format!("rgb({}, {}, {})", gray, gray, gray)
+            }
+            Color::SpotColor(spot) => {
+                // SpotColor is treated the same as CMYK.
+                let r = (1.0 - spot.c) * (1.0 - spot.k);
+                let g = (1.0 - spot.m) * (1.0 - spot.k);
+                let b = (1.0 - spot.y) * (1.0 - spot.k);
+                let r = (r * 255.0).round() as u8;
+                let g = (g * 255.0).round() as u8;
+                let b = (b * 255.0).round() as u8;
+                format!("rgb({}, {}, {})", r, g, b)
+            }
+        }
+    }
+
     /// Returns if the color has an icc profile attached
     pub fn get_icc_profile(&self) -> Option<&Option<IccProfileId>> {
         match *self {

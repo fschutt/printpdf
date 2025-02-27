@@ -16,11 +16,20 @@ use crate::{
 };
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename = "camelCase")]
 pub struct PdfSaveOptions {
+    /// If set to true (default), compresses streams and
+    /// prunes unreferenced PDF objects. Set to false for debugging
     #[serde(default = "default_optimize")]
     pub optimize: bool,
+    /// Whether to include the entire font or to subset it.
+    /// Default is set to true because some CJK fonts can be massive.
     #[serde(default = "default_subset_fonts")]
     pub subset_fonts: bool,
+    /// Whether to ignore unknown operations. If set to true
+    /// (default), will skip any unknown PDF operations when serializing the file.
+    #[serde(default = "default_secure")]
+    pub secure: bool,
 }
 
 const fn default_optimize() -> bool {
@@ -29,12 +38,16 @@ const fn default_optimize() -> bool {
 const fn default_subset_fonts() -> bool {
     true
 }
+const fn default_secure() -> bool {
+    true
+}
 
 impl Default for PdfSaveOptions {
     fn default() -> Self {
         Self {
             optimize: default_optimize(),
             subset_fonts: default_subset_fonts(),
+            secure: default_secure(),
         }
     }
 }
@@ -241,8 +254,12 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec
             page_resources.set("XObject", Reference(global_xobject_dict_id));
             page_resources.set("ExtGState", Reference(global_extgstate_dict_id));
 
-            let layer_stream =
-                translate_operations(&page.ops, &prepared_fonts, &pdf.resources.xobjects.map); // Vec<u8>
+            let layer_stream = translate_operations(
+                &page.ops,
+                &prepared_fonts,
+                &pdf.resources.xobjects.map,
+                opts.secure,
+            ); // Vec<u8>
             let merged_layer_stream =
                 LoStream::new(LoDictionary::new(), layer_stream).with_compression(false);
 
@@ -383,6 +400,7 @@ pub(crate) fn translate_operations(
     ops: &[Op],
     fonts: &BTreeMap<FontId, PreparedFont>,
     xobjects: &BTreeMap<XObjectId, XObject>,
+    secure: bool,
 ) -> Vec<u8> {
     let mut content = Vec::new();
 
@@ -676,10 +694,13 @@ pub(crate) fn translate_operations(
                 content.push(LoOp::new("TD", vec![Real(*tx), Real(*ty)]));
             }
             Op::Unknown { key, value } => {
-                content.push(LoOp::new(
-                    key.as_str(),
-                    value.iter().map(|s| s.to_lopdf()).collect(),
-                ));
+                // Skip unknown operators for security reasons.
+                if !secure {
+                    content.push(LoOp::new(
+                        key.as_str(),
+                        value.iter().map(|s| s.to_lopdf()).collect(),
+                    ));
+                }
             }
         }
     }

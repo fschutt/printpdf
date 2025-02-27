@@ -359,6 +359,15 @@ impl LineDashPattern {
         .collect()
     }
 
+    pub fn get_svg_id(&self) -> String {
+        let dash_array = self.as_array();
+        dash_array
+            .iter()
+            .map(|num| num.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+
     /// Builds a `LineDashPattern` from a slice of up to 6 integers.
     ///
     /// - The array is interpreted in dash-gap pairs:
@@ -448,6 +457,13 @@ impl LineJoinStyle {
             LineJoinStyle::Bevel => 2,
         }
     }
+    pub fn to_svg_string(&self) -> &'static str {
+        match self {
+            LineJoinStyle::Miter => "miter",
+            LineJoinStyle::Round => "round",
+            LineJoinStyle::Bevel => "bevel",
+        }
+    }
 }
 
 /// The text rendering mode determines how a text is drawn
@@ -518,6 +534,14 @@ impl LineCapStyle {
             LineCapStyle::Butt => 0,
             LineCapStyle::Round => 1,
             LineCapStyle::ProjectingSquare => 2,
+        }
+    }
+
+    pub fn get_svg_id(&self) -> &'static str {
+        match self {
+            LineCapStyle::Butt => "butt",
+            LineCapStyle::Round => "round",
+            LineCapStyle::ProjectingSquare => "square",
         }
     }
 }
