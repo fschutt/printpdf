@@ -27,6 +27,14 @@ pub enum CurTransMat {
 }
 
 impl CurTransMat {
+    pub fn as_css_val(&self) -> String {
+        let m = self.as_array();
+        format!(
+            "matrix({} {} {} {} {} {})",
+            m[0], m[1], m[2], m[3], m[4], m[5]
+        )
+    }
+
     pub fn combine_matrix(a: [f32; 6], b: [f32; 6]) -> [f32; 6] {
         let a = [
             [a[0], a[1], 0.0, 0.0],
@@ -249,6 +257,20 @@ pub enum TextMatrix {
 }
 
 impl TextMatrix {
+    pub fn as_css_val(&self, invert_y: bool) -> String {
+        let m = self.as_array();
+        let factor = if invert_y { -1.0 } else { 1.0 };
+        format!(
+            "matrix({} {} {} {} {} {})",
+            m[0],
+            m[1],
+            m[2],
+            m[3],
+            m[4],
+            m[5] * factor
+        )
+    }
+
     pub fn as_array(&self) -> [f32; 6] {
         use self::TextMatrix::*;
         match self {

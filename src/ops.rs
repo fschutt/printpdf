@@ -2,7 +2,7 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::{
     BuiltinFont, DictItem, ExtendedGraphicsStateId, FontId, LayerInternalId, LinkAnnotation,
-    PdfResources, PdfToSvgOptions, XObjectId, XObjectTransform,
+    PdfResources, PdfToSvgOptions, RenderingIntent, XObjectId, XObjectTransform,
     color::Color,
     graphics::{
         Line, LineCapStyle, LineDashPattern, LineJoinStyle, Point, Polygon, Rect, TextRenderingMode,
@@ -182,7 +182,7 @@ pub enum Op {
         size: Pt,
         cpk: Vec<(i64, u16, char)>,
     },
-    /// Adds a line break to the text, depends on the line height
+    /// `T*` Adds a line break to the text, depends on the line height
     AddLineBreak,
     /// Sets the line height for the text
     SetLineHeight { lh: Pt },
@@ -212,7 +212,7 @@ pub enum Op {
     SetTextRenderingMode { mode: TextRenderingMode },
     /// Sets the character spacing (default: 1.0)
     SetCharacterSpacing { multiplier: f32 },
-    /// Sets the line offset (default: 1.0)
+    /// `Ts`: Sets the line offset (default: 1.0)
     SetLineOffset { multiplier: f32 },
     /// Draw a line (colors, dashes configured earlier)
     DrawLine { line: Line },
@@ -231,6 +231,44 @@ pub enum Op {
     UseXObject {
         id: XObjectId,
         transform: XObjectTransform,
+    },
+    /// `TD` operation
+    MoveTextCursorAndSetLeading { tx: f32, ty: f32 },
+    /// `ri` operation
+    SetRenderingIntent { intent: RenderingIntent },
+    /// `Tz` operation
+    SetHorizontalScaling { percent: f32 },
+    /// Begins an inline image object.
+    BeginInlineImage,
+    /// Begins the inline image data.
+    BeginInlineImageData,
+    /// Ends the inline image object.
+    EndInlineImage,
+    /// Begins a marked content sequence.
+    BeginMarkedContent { tag: String },
+    /// Begins a marked content sequence with an accompanying property list.
+    BeginMarkedContentWithProperties {
+        tag: String,
+        properties: Vec<DictItem>,
+    },
+    /// Defines a marked content point with properties.
+    DefineMarkedContentPoint {
+        tag: String,
+        properties: Vec<DictItem>,
+    },
+    /// Ends the current marked-content sequence.
+    EndMarkedContent,
+    /// Begins a compatibility section (operators inside are ignored).
+    BeginCompatibilitySection,
+    /// Ends a compatibility section.
+    EndCompatibilitySection,
+    /// Moves to the next line and shows text (the `'` operator).
+    MoveToNextLineShowText { text: String },
+    /// Sets spacing, moves to the next line, and shows text (the `"` operator).
+    SetSpacingMoveAndShowText {
+        word_spacing: f32,
+        char_spacing: f32,
+        text: String,
     },
     /// Unknown, custom key / value operation
     Unknown { key: String, value: Vec<DictItem> },

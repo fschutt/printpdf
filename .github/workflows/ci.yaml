@@ -36,6 +36,7 @@ jobs:
         with:
           platform: "${{ contains(matrix.target-sys, 'x86_64') && 'x64' || 'i686' }}"
           version: 13.2.0
+        continue-on-error: true
       - name: Install toolchain for ${{ matrix.target-sys }}-${{ matrix.target-abi }}
         uses: dtolnay/rust-toolchain@stable
         with:

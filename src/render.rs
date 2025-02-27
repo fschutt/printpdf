@@ -1,7 +1,12 @@
 use base64::Engine;
 use serde_derive::{Deserialize, Serialize};
+use svg2pdf::usvg::{Fill, Text};
 
-use crate::{OutputImageFormat, PdfResources, ops::PdfPage, serialize::prepare_fonts};
+use crate::{
+    ChangedField, Color, CurTransMat, ExtendedGraphicsState, LineCapStyle, LineDashPattern,
+    LineJoinStyle, OutputImageFormat, PdfResources, Point, Pt, RenderingIntent, TextMatrix,
+    TextRenderingMode, ops::PdfPage, serialize::prepare_fonts,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -52,185 +57,293 @@ impl PdfToSvgOptions {
     }
 }
 
+/// During rendering this holds all of the "graphics state" of a page, so we
+/// can push / save / pop GraphicsStates and restore the state with q / Q operations.
+#[derive(Debug, Clone, Default)]
+struct GraphicsState {
+    text_cursor: Point,
+    transform_matrix: Option<CurTransMat>,
+    text_matrix: Option<TextMatrix>,
+    fill_color: Option<Color>,
+    stroke_color: Option<Color>,
+    stroke_width: Option<Pt>,
+    dash_array: Option<LineDashPattern>,
+    line_join: Option<LineJoinStyle>,
+    line_cap: Option<LineCapStyle>,
+    character_spacing: Option<f32>,
+    letter_spacing: Option<f32>,
+    line_offset: Option<f32>,
+    miter_limit: Option<Pt>,
+    horizontal_scaling: Option<f32>,
+    text_leading: Option<Pt>,
+    rendering_intent: Option<RenderingIntent>,
+    text_rendering_mode: Option<TextRenderingMode>,
+    marked_content_stack: Vec<String>,
+    in_compatibility_section: bool,
+}
+
+struct GraphicsStateVec {
+    _internal: Vec<GraphicsState>,
+}
+
+impl GraphicsStateVec {
+    pub fn new() -> Self {
+        Self {
+            _internal: vec![GraphicsState::default()],
+        }
+    }
+    pub fn save_gs(&mut self) -> Option<()> {
+        let last_gs = self._internal.last().cloned()?;
+        self._internal.push(last_gs);
+        Some(())
+    }
+    pub fn restore_gs(&mut self) -> Option<()> {
+        self._internal.pop();
+        if self._internal.is_empty() {
+            self._internal.push(GraphicsState::default());
+        }
+        Some(())
+    }
+    pub fn set_rendering_intent(&mut self, c: RenderingIntent) -> Option<()> {
+        self._internal.last_mut()?.rendering_intent = Some(c);
+        Some(())
+    }
+    pub fn set_horizontal_scaling(&mut self, percent: f32) -> Option<()> {
+        self._internal.last_mut()?.horizontal_scaling = Some(percent);
+        Some(())
+    }
+    pub fn set_line_height(&mut self, lh: Pt) -> Option<()> {
+        self._internal.last_mut()?.text_leading = Some(lh);
+        Some(())
+    }
+    pub fn set_text_cursor(&mut self, tc: Point) -> Option<()> {
+        self._internal.last_mut()?.text_cursor = tc;
+        Some(())
+    }
+    pub fn set_character_spacing(&mut self, cs: f32) -> Option<()> {
+        self._internal.last_mut()?.character_spacing = Some(cs);
+        Some(())
+    }
+    pub fn set_cur_trans_mat(&mut self, cm: CurTransMat) -> Option<()> {
+        self._internal.last_mut()?.transform_matrix = Some(cm);
+        Some(())
+    }
+    pub fn set_text_mat(&mut self, tm: TextMatrix) -> Option<()> {
+        self._internal.last_mut()?.text_matrix = Some(tm);
+        Some(())
+    }
+    pub fn set_dash_pattern(&mut self, da: LineDashPattern) -> Option<()> {
+        self._internal.last_mut()?.dash_array = Some(da);
+        Some(())
+    }
+    pub fn set_fill_color(&mut self, c: Color) -> Option<()> {
+        self._internal.last_mut()?.fill_color = Some(c);
+        Some(())
+    }
+    pub fn set_outline_color(&mut self, c: Color) -> Option<()> {
+        self._internal.last_mut()?.stroke_color = Some(c);
+        Some(())
+    }
+    pub fn set_line_join(&mut self, c: LineJoinStyle) -> Option<()> {
+        self._internal.last_mut()?.line_join = Some(c);
+        Some(())
+    }
+    pub fn set_line_cap(&mut self, c: LineCapStyle) -> Option<()> {
+        self._internal.last_mut()?.line_cap = Some(c);
+        Some(())
+    }
+    pub fn set_line_offset(&mut self, c: f32) -> Option<()> {
+        self._internal.last_mut()?.line_offset = Some(c);
+        Some(())
+    }
+    pub fn set_stroke_width(&mut self, c: Pt) -> Option<()> {
+        self._internal.last_mut()?.stroke_width = Some(c);
+        Some(())
+    }
+    pub fn set_miter_limit(&mut self, c: Pt) -> Option<()> {
+        self._internal.last_mut()?.miter_limit = Some(c);
+        Some(())
+    }
+    pub fn set_text_rendering_mode(&mut self, c: TextRenderingMode) -> Option<()> {
+        self._internal.last_mut()?.text_rendering_mode = Some(c);
+        Some(())
+    }
+    pub fn begin_marked_content(&mut self, tag: String) -> Option<()> {
+        self._internal.last_mut()?.marked_content_stack.push(tag);
+        Some(())
+    }
+    pub fn end_marked_content(&mut self) -> Option<()> {
+        self._internal.last_mut()?.marked_content_stack.pop();
+        Some(())
+    }
+    pub fn begin_compatibility_section(&mut self) -> Option<()> {
+        self._internal.last_mut()?.in_compatibility_section = true;
+        Some(())
+    }
+
+    pub fn end_compatibility_section(&mut self) -> Option<()> {
+        self._internal.last_mut()?.in_compatibility_section = false;
+        Some(())
+    }
+}
+
 pub fn render_to_svg(page: &PdfPage, resources: &PdfResources, opts: &PdfToSvgOptions) -> String {
+    use crate::ops::Op;
+
     // Extract page dimensions from the media box.
     let width = page.media_box.width.0;
     let height = page.media_box.height.0;
 
     let mut svg = String::new();
     svg.push_str(&format!(
-        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}""#,
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}px" height="{h}px" preserveAspectRatio="xMidYMid meet" viewBox="0 0 {w} {h}">"#,
         w = width,
         h = height
     ));
     svg.push('\n');
 
-    // Embed fonts via a <style> block.
-    svg.push_str("<style>\n");
-    // Iterate over PDF fonts and embed each via an @font-face rule.
-    for (font_id, font) in prepare_fonts(resources, &[page.clone()]).iter() {
-        svg.push_str(&format!(
-            r#"@font-face {{ font-family: "{}"; src: url("data:font/otf;charset=utf-8;base64,{}"); }}"#,
-            font_id.0, base64::prelude::BASE64_STANDARD.encode(&font.subset_font.bytes),
-        ));
+    let fonts = prepare_fonts(resources, &[page.clone()]);
+    if !fonts.is_empty() {
+        // Embed fonts via a <style> block.
+        svg.push_str("<style>\n");
+        // Iterate over PDF fonts and embed each via an @font-face rule.
+        for (font_id, font) in fonts.iter() {
+            svg.push_str(&format!(
+                r#"@font-face {{ font-family: "{}"; src: url("data:font/otf;charset=utf-8;base64,{}"); }}"#,
+                font_id.0, base64::prelude::BASE64_STANDARD.encode(&font.subset_font.bytes),
+            ));
+        }
+        svg.push_str("</style>\n");
     }
-    svg.push_str("</style>\n");
 
-    // Initialize rendering state.
-    let mut current_x = 0.0;
-    let mut current_y = height;
-    let mut current_transform = String::new();
-    let mut current_font: Option<String> = None;
-    let mut current_font_size: f32 = 12.0;
-    let mut current_fill_color = String::from("black");
-    let mut current_stroke_color = String::from("none");
-    let mut current_stroke_width: f32 = 1.0;
-    let mut current_dash_array: Option<String> = None;
-    let mut current_line_join: Option<String> = None;
-    let mut current_line_cap: Option<String> = None;
-    let mut current_miter_limit: Option<f32> = None;
-    let mut current_letter_spacing: f32 = 0.0;
-    let mut current_line_offset: f32 = 0.0;
-    let mut current_text_rendering_mode: Option<String> = None;
+    let mut gs = GraphicsStateVec::new();
 
-    // Process each PDF operation.
     for op in &page.ops {
         match op {
-            // Position the text cursor.
-            crate::ops::Op::SetTextCursor { pos } => {
-                current_x = pos.x.0;
-                current_y = pos.y.0;
+            Op::SetRenderingIntent { intent } => {
+                gs.set_rendering_intent(*intent);
             }
-            // Set the current transformation matrix.
-            crate::ops::Op::SetTransformationMatrix { matrix } => {
-                // Assume matrix.as_array() returns [a, b, c, d, e, f].
-                let m = matrix.as_array();
-                current_transform = format!(
-                    "matrix({} {} {} {} {} {})",
-                    m[0], m[1], m[2], m[3], m[4], m[5]
-                );
+            Op::SetHorizontalScaling { percent } => {
+                gs.set_horizontal_scaling(*percent);
             }
-            // Set fill color.
-            crate::ops::Op::SetFillColor { col } => {
-                use crate::color::Color;
-                if let Color::Rgb(rgb) = col {
-                    current_fill_color = format!(
-                        "rgb({},{},{})",
-                        (rgb.r * 255.0) as u8,
-                        (rgb.g * 255.0) as u8,
-                        (rgb.b * 255.0) as u8
-                    );
-                }
+            Op::AddLineBreak => {
+                // TODO: move text cursor ??
             }
-            // Set outline (stroke) color.
-            crate::ops::Op::SetOutlineColor { col } => {
-                use crate::color::Color;
-                if let Color::Rgb(rgb) = col {
-                    current_stroke_color = format!(
-                        "rgb({},{},{})",
-                        (rgb.r * 255.0) as u8,
-                        (rgb.g * 255.0) as u8,
-                        (rgb.b * 255.0) as u8
-                    );
-                }
+            // Text “show” shortcut operators
+            Op::MoveToNextLineShowText { text } => {
+                // (Render text on a new line; exact implementation depends on your SVG output.)
             }
-            // Set outline thickness.
-            crate::ops::Op::SetOutlineThickness { pt } => {
-                current_stroke_width = pt.0;
+            Op::SetSpacingMoveAndShowText {
+                word_spacing,
+                char_spacing,
+                text,
+            } => {
+                // (Render text with the specified spacing; implement as needed.)
             }
-            // Set line dash pattern.
-            crate::ops::Op::SetLineDashPattern { dash } => {
-                let dash_array = dash.as_array();
-                current_dash_array = Some(
-                    dash_array
-                        .iter()
-                        .map(|num| num.to_string())
-                        .collect::<Vec<_>>()
-                        .join(","),
-                );
+            // Inline image operators (you may choose to handle these specially)
+            Op::BeginInlineImage => {
+                // (For now, possibly note that an inline image is beginning.)
             }
-            // Set line join style.
-            crate::ops::Op::SetLineJoinStyle { join } => {
-                use crate::graphics::LineJoinStyle;
-                current_line_join = Some(
-                    match join {
-                        LineJoinStyle::Miter => "miter",
-                        LineJoinStyle::Round => "round",
-                        LineJoinStyle::Bevel => "bevel",
-                    }
-                    .to_string(),
-                );
+            Op::BeginInlineImageData => { /* … */ }
+            Op::EndInlineImage => { /* … */ }
+            Op::SetLineOffset { multiplier } => {
+                gs.set_line_offset(*multiplier);
             }
-            // Set line cap style.
-            crate::ops::Op::SetLineCapStyle { cap } => {
-                use crate::graphics::LineCapStyle;
-                current_line_cap = Some(
-                    match cap {
-                        LineCapStyle::Butt => "butt",
-                        LineCapStyle::Round => "round",
-                        LineCapStyle::ProjectingSquare => "square",
-                    }
-                    .to_string(),
-                );
+            Op::SetLineHeight { lh } => {
+                gs.set_line_height(*lh);
             }
-            // Set miter limit.
-            crate::ops::Op::SetMiterLimit { limit } => {
-                current_miter_limit = Some(limit.0);
+            Op::SetTextCursor { pos } => {
+                gs.set_text_cursor(*pos);
             }
-            // Set text rendering mode.
-            crate::ops::Op::SetTextRenderingMode { mode } => {
-                current_text_rendering_mode = Some(format!("{:?}", mode));
+            Op::SetTransformationMatrix { matrix } => {
+                gs.set_cur_trans_mat(matrix.clone());
             }
-            // Set character spacing.
-            crate::ops::Op::SetCharacterSpacing { multiplier } => {
-                current_letter_spacing = *multiplier;
+            Op::SetTextMatrix { matrix } => {
+                gs.set_text_mat(matrix.clone());
             }
-            // Set line offset.
-            crate::ops::Op::SetLineOffset { multiplier } => {
-                current_line_offset = *multiplier;
+            Op::SetFillColor { col } => {
+                gs.set_fill_color(col.clone());
             }
+            Op::SetOutlineColor { col } => {
+                gs.set_outline_color(col.clone());
+            }
+            Op::SetOutlineThickness { pt } => {
+                gs.set_stroke_width(*pt);
+            }
+            Op::SetLineDashPattern { dash } => {
+                gs.set_dash_pattern(dash.clone());
+            }
+            Op::SetLineJoinStyle { join } => {
+                gs.set_line_join(*join);
+            }
+            Op::SetLineCapStyle { cap } => {
+                gs.set_line_cap(*cap);
+            }
+            Op::SetMiterLimit { limit } => {
+                gs.set_miter_limit(*limit);
+            }
+            Op::SetTextRenderingMode { mode } => {
+                gs.set_text_rendering_mode(*mode);
+            }
+            Op::SetCharacterSpacing { multiplier } => {
+                gs.set_character_spacing(*multiplier);
+            }
+            Op::BeginMarkedContent { tag } => {
+                gs.begin_marked_content(tag.clone());
+            }
+            Op::BeginMarkedContentWithProperties { tag, properties: _ } => {
+                gs.begin_marked_content(tag.clone());
+            }
+            Op::DefineMarkedContentPoint { tag, properties: _ } => {
+                gs.begin_marked_content(tag.clone());
+            }
+            Op::EndMarkedContent => {
+                gs.end_marked_content();
+            }
+            Op::BeginCompatibilitySection => {
+                gs.begin_compatibility_section();
+            }
+            Op::EndCompatibilitySection => {
+                gs.end_compatibility_section();
+            }
+
+            /*
             // Render text using an external font.
-            crate::ops::Op::WriteText { text, size, font } => {
-                current_font = Some(font.0.clone());
-                current_font_size = size.0;
+            Op::WriteText { text, size, font } => {
                 svg.push_str(&format!(
-                    r#"<text x="{x}" y="{y}" font-family="{font}" font-size="{size}" fill="{fill}" transform="{transform}" letter-spacing="{ls}" baseline-shift="{lo}">{text}</text>"#,
+                    r#"<text x="{x}px" y="{y}px" font-family="{font}" font-size="{size}px" fill="{fill}" transform="{transform}" letter-spacing="{ls}" baseline-shift="{lo}">{text}</text>"#,
                     x = current_x,
-                    y = current_y,
-                    font = current_font.as_deref().unwrap_or("sans-serif"),
-                    size = current_font_size,
+                    y = height - current_y,
+                    font = font.0,
+                    size = size.0,
                     fill = current_fill_color,
-                    transform = current_transform,
+                    transform = current_transform.as_css_val(true),
                     ls = current_letter_spacing,
                     lo = current_line_offset,
                     text = text
                 ));
                 svg.push('\n');
             }
-            // Render text using a built-in font.
-            crate::ops::Op::WriteTextBuiltinFont { text, size, font } => {
-                current_font = Some(font.get_svg_font_family().to_string());
+            Op::WriteTextBuiltinFont { text, size, font } => {
                 let font_weight = font.get_font_weight();
                 let font_style = font.get_font_style();
-                current_font_size = size.0;
                 svg.push_str(&format!(
-                    r#"<text x="{x}" y="{y}" font-family="{font}" font-size="{size}" font-weight="{fw}" font-style="{fs}" fill="{fill}" transform="{transform}" letter-spacing="{ls}" baseline-shift="{lo}">{text}</text>"#,
+                    r#"<text x="{x}px" y="{y}px" font-family="{font}" font-size="{size}px" font-weight="{fw}" font-style="{fs}" fill="{fill}" transform="{transform}" letter-spacing="{ls}" baseline-shift="{lo}">{text}</text>"#,
                     x = current_x,
-                    y = current_y,
-                    font = current_font.as_deref().unwrap_or("sans-serif"),
-                    size = current_font_size,
+                    y = height - current_y,
+                    font = font.get_svg_font_family(),
+                    size = size.0,
                     fw = font_weight,
                     fs = font_style,
                     fill = current_fill_color,
-                    transform = current_transform,
+                    transform = current_transform.as_css_val(true),
                     ls = current_letter_spacing,
                     lo = current_line_offset,
                     text = text
                 ));
                 svg.push('\n');
             }
-            // Draw a line.
-            crate::ops::Op::DrawLine { line } => {
+            Op::DrawLine { line } => {
                 let points: Vec<String> = line
                     .points
                     .iter()
@@ -239,7 +352,7 @@ pub fn render_to_svg(page: &PdfPage, resources: &PdfResources, opts: &PdfToSvgOp
                 let points_str = points.join(" ");
                 if line.is_closed {
                     svg.push_str(&format!(
-                        r#"<polygon points="{}" fill="none" stroke="{stroke}" stroke-width="{sw}" {dash} {join} {cap} {miter} transform="{transform}"/>"#,
+                        r#"<polygon points="{}" fill="none" stroke="{stroke}" stroke-width="{sw}" {dash} {join} {cap} {miter} />"#,
                         points_str,
                         stroke = current_stroke_color,
                         sw = current_stroke_width,
@@ -247,11 +360,10 @@ pub fn render_to_svg(page: &PdfPage, resources: &PdfResources, opts: &PdfToSvgOp
                         join = if let Some(ref j) = current_line_join { format!(r#"stroke-linejoin="{}""#, j) } else { "".to_string() },
                         cap = if let Some(ref c) = current_line_cap { format!(r#"stroke-linecap="{}""#, c) } else { "".to_string() },
                         miter = if let Some(ml) = current_miter_limit { format!(r#"stroke-miterlimit="{}""#, ml) } else { "".to_string() },
-                        transform = current_transform
                     ));
                 } else {
                     svg.push_str(&format!(
-                        r#"<polyline points="{}" fill="none" stroke="{stroke}" stroke-width="{sw}" {dash} {join} {cap} {miter} transform="{transform}"/>"#,
+                        r#"<polyline points="{}" fill="none" stroke="{stroke}" stroke-width="{sw}" {dash} {join} {cap} {miter} />"#,
                         points_str,
                         stroke = current_stroke_color,
                         sw = current_stroke_width,
@@ -259,13 +371,11 @@ pub fn render_to_svg(page: &PdfPage, resources: &PdfResources, opts: &PdfToSvgOp
                         join = if let Some(ref j) = current_line_join { format!(r#"stroke-linejoin="{}""#, j) } else { "".to_string() },
                         cap = if let Some(ref c) = current_line_cap { format!(r#"stroke-linecap="{}""#, c) } else { "".to_string() },
                         miter = if let Some(ml) = current_miter_limit { format!(r#"stroke-miterlimit="{}""#, ml) } else { "".to_string() },
-                        transform = current_transform
                     ));
                 }
                 svg.push('\n');
             }
-            // Draw a polygon.
-            crate::ops::Op::DrawPolygon { polygon } => {
+            Op::DrawPolygon { polygon } => {
                 for ring in &polygon.rings {
                     if let Some(first_pt) = ring.points.first() {
                         let mut d = format!("M {} {}", first_pt.p.x.0, first_pt.p.y.0);
@@ -278,7 +388,7 @@ pub fn render_to_svg(page: &PdfPage, resources: &PdfResources, opts: &PdfToSvgOp
                             d.push_str(" Z");
                         }
                         svg.push_str(&format!(
-                            r#"<path d="{}" fill="{}" stroke="{stroke}" stroke-width="{sw}" {dash} {join} {cap} {miter} transform="{transform}"/>"#,
+                            r#"<path d="{}" fill="{}" stroke="{stroke}" stroke-width="{sw}" {dash} {join} {cap} {miter} />"#,
                             d,
                             current_fill_color,
                             stroke = current_stroke_color,
@@ -287,14 +397,12 @@ pub fn render_to_svg(page: &PdfPage, resources: &PdfResources, opts: &PdfToSvgOp
                             join = if let Some(ref j) = current_line_join { format!(r#"stroke-linejoin="{}""#, j) } else { "".to_string() },
                             cap = if let Some(ref c) = current_line_cap { format!(r#"stroke-linecap="{}""#, c) } else { "".to_string() },
                             miter = if let Some(ml) = current_miter_limit { format!(r#"stroke-miterlimit="{}""#, ml) } else { "".to_string() },
-                            transform = current_transform
                         ));
                         svg.push('\n');
                     }
                 }
             }
-            // Render an image XObject.
-            crate::ops::Op::UseXObject {
+            Op::UseXObject {
                 id,
                 transform: xform,
             } => {
@@ -309,7 +417,7 @@ pub fn render_to_svg(page: &PdfPage, resources: &PdfResources, opts: &PdfToSvgOp
                                 let image_data =
                                     base64::prelude::BASE64_STANDARD.encode(&encoded_bytes);
                                 svg.push_str(&format!(
-                                    r#"<image x="{}" y="{}" width="{}" height="{}" xlink:href="data:{};base64,{}" transform="{}"/>"#,
+                                    r#"<image x="{}px" y="{}px" width="{}px" height="{}px" xlink:href="data:{};base64,{}" transform="{}"/>"#,
                                     current_x,
                                     current_y,
                                     img_width,
@@ -322,7 +430,7 @@ pub fn render_to_svg(page: &PdfPage, resources: &PdfResources, opts: &PdfToSvgOp
                             }
                             Err(e) => {
                                 svg.push_str(&format!(
-                                    r#"<div x="{}" y="{}" data-failed-svg="{}" data-encode-fail-cause="{e}" width="{}" height="{}" transform="{}"/>"#,
+                                    r#"<div x="{}px" y="{}px" data-failed-svg="{}" data-encode-fail-cause="{e}" width="{}px" height="{}px" transform="{}"/>"#,
                                     current_x,
                                     current_y,
                                     id.0,
@@ -336,6 +444,7 @@ pub fn render_to_svg(page: &PdfPage, resources: &PdfResources, opts: &PdfToSvgOp
                     }
                 }
             }
+            */
             _ => {}
         }
     }

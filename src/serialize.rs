@@ -388,6 +388,15 @@ pub(crate) fn translate_operations(
 
     for op in ops {
         match op {
+            Op::SetRenderingIntent { intent } => {
+                content.push(LoOp::new("ri", vec![Name(intent.get_id().into())]));
+            }
+            Op::SetHorizontalScaling { percent } => {
+                content.push(LoOp::new("Tz", vec![Real(*percent)]));
+            }
+            Op::AddLineBreak => {
+                content.push(LoOp::new("T*", vec![]));
+            }
             Op::Marker { id } => {
                 content.push(LoOp::new("MP", vec![Name(id.clone().into())]));
             }
@@ -613,6 +622,58 @@ pub(crate) fn translate_operations(
                 ));
                 content.push(LoOp::new("Do", vec![Name(id.0.as_bytes().to_vec())]));
                 content.push(LoOp::new("Q", vec![]));
+            }
+            Op::BeginInlineImage => {
+                content.push(LoOp::new("BI", vec![]));
+            }
+            Op::BeginInlineImageData => {
+                content.push(LoOp::new("ID", vec![]));
+            }
+            Op::EndInlineImage => {
+                content.push(LoOp::new("EI", vec![]));
+            }
+            Op::BeginMarkedContent { tag } => {
+                content.push(LoOp::new("BMC", vec![Name(tag.clone().into())]));
+            }
+            Op::BeginMarkedContentWithProperties { tag, properties } => {
+                let props = Array(properties.iter().map(|item| item.to_lopdf()).collect());
+                content.push(LoOp::new("BDC", vec![Name(tag.clone().into()), props]));
+            }
+            Op::DefineMarkedContentPoint { tag, properties } => {
+                let props = Array(properties.iter().map(|item| item.to_lopdf()).collect());
+                content.push(LoOp::new("DP", vec![Name(tag.clone().into()), props]));
+            }
+            Op::EndMarkedContent => {
+                content.push(LoOp::new("EMC", vec![]));
+            }
+            Op::BeginCompatibilitySection => {
+                content.push(LoOp::new("BX", vec![]));
+            }
+            Op::EndCompatibilitySection => {
+                content.push(LoOp::new("EX", vec![]));
+            }
+            Op::MoveToNextLineShowText { text } => {
+                content.push(LoOp::new(
+                    "'",
+                    vec![LoString(text.as_bytes().to_vec(), Hexadecimal)],
+                ));
+            }
+            Op::SetSpacingMoveAndShowText {
+                word_spacing,
+                char_spacing,
+                text,
+            } => {
+                content.push(LoOp::new(
+                    "\"",
+                    vec![
+                        Real(*word_spacing),
+                        Real(*char_spacing),
+                        LoString(text.as_bytes().to_vec(), Hexadecimal),
+                    ],
+                ));
+            }
+            Op::MoveTextCursorAndSetLeading { tx, ty } => {
+                content.push(LoOp::new("TD", vec![Real(*tx), Real(*ty)]));
             }
             Op::Unknown { key, value } => {
                 content.push(LoOp::new(

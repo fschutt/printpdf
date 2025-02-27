@@ -15,8 +15,8 @@ use serde_derive::{Deserialize, Serialize};
 use crate::{
     BuiltinFont, Color, DictItem, ExtendedGraphicsStateId, ExtendedGraphicsStateMap, FontId,
     LineDashPattern, LinePoint, Op, PageAnnotMap, ParsedFont, PdfDocument, PdfDocumentInfo,
-    PdfFontMap, PdfLayerMap, PdfMetadata, PdfPage, PdfResources, PolygonRing, RawImage, TextMatrix,
-    TextRenderingMode, XObject, XObjectId, XObjectMap,
+    PdfFontMap, PdfLayerMap, PdfMetadata, PdfPage, PdfResources, PolygonRing, RawImage,
+    RenderingIntent, TextMatrix, TextRenderingMode, XObject, XObjectId, XObjectMap,
     conformance::PdfConformance,
     date::{OffsetDateTime, UtcOffset},
 };
@@ -682,8 +682,6 @@ pub fn parse_op(
             }
             out_ops.push(Op::RestoreGraphicsState);
         }
-
-        /*
         "ri" => {
             if op.operands.len() != 1 {
                 warnings.push(PdfWarnMsg::error(
@@ -704,9 +702,25 @@ pub fn parse_op(
                     return Ok(Vec::new());
                 }
             };
+            let intent = match intent.as_str() {
+                "AbsoluteColorimetric" => RenderingIntent::AbsoluteColorimetric,
+                "RelativeColorimetric" => RenderingIntent::RelativeColorimetric,
+                "Saturation" => RenderingIntent::Saturation,
+                "Perceptual" => RenderingIntent::Perceptual,
+                other => {
+                    warnings.push(PdfWarnMsg::error(
+                        page,
+                        op_id,
+                        format!(
+                            "Unknown rendering intent '{}', defaulting to RelativeColorimetric",
+                            other
+                        ),
+                    ));
+                    RenderingIntent::RelativeColorimetric
+                }
+            };
             out_ops.push(Op::SetRenderingIntent { intent });
         }
-        */
         "rg" => {
             // 'rg' sets fill color in RGB.
             if op.operands.len() == 3 {
@@ -864,9 +878,61 @@ pub fn parse_op(
             }
         }
 
-        // --- Text transformation ---
+        "T*" => {
+            out_ops.push(Op::AddLineBreak);
+        }
+        "TL" => {
+            if op.operands.len() == 1 {
+                let val = to_f32(&op.operands[0]);
+                out_ops.push(Op::SetLineHeight { lh: Pt(val) });
+            } else {
+                warnings.push(PdfWarnMsg::error(
+                    page,
+                    op_id,
+                    format!("Warning: 'TL' expects 1 operand, got {}", op.operands.len()),
+                ));
+            }
+        }
+        "Ts" => {
+            if op.operands.len() == 1 {
+                let rise = to_f32(&op.operands[0]);
+                out_ops.push(Op::SetLineOffset { multiplier: rise });
+            } else {
+                warnings.push(PdfWarnMsg::error(
+                    page,
+                    op_id,
+                    format!("Warning: 'Ts' expects 1 operand, got {}", op.operands.len()),
+                ));
+            }
+        }
+        "Tz" => {
+            if op.operands.len() == 1 {
+                let scale_percent = to_f32(&op.operands[0]);
+                out_ops.push(Op::SetHorizontalScaling {
+                    percent: scale_percent,
+                });
+            } else {
+                warnings.push(PdfWarnMsg::error(
+                    page,
+                    op_id,
+                    format!("Warning: 'Tz' expects 1 operand, got {}", op.operands.len()),
+                ));
+            }
+        }
+        "TD" => {
+            if op.operands.len() == 2 {
+                let tx = to_f32(&op.operands[0]);
+                let ty = to_f32(&op.operands[1]);
+                out_ops.push(Op::MoveTextCursorAndSetLeading { tx, ty });
+            } else {
+                warnings.push(PdfWarnMsg::error(
+                    page,
+                    op_id,
+                    format!("'TD' expects 2 operands, got {}", op.operands.len()),
+                ));
+            }
+        }
         "Tm" => {
-            // 'Tm' sets the text matrix. It takes 6 operands.
             if op.operands.len() == 6 {
                 let a = to_f32(&op.operands[0]);
                 let b = to_f32(&op.operands[1]);
@@ -953,20 +1019,21 @@ pub fn parse_op(
             });
         }
 
-        // --- Text mode begin/end ---
         "BT" => {
+            // --- Text mode begin
             state.in_text_mode = true;
             state.current_font = None;
             state.current_font_size = None;
             out_ops.push(Op::StartTextSection);
         }
         "ET" => {
+            // --- Text mode end
             state.in_text_mode = false;
             out_ops.push(Op::EndTextSection);
         }
 
-        // --- Font + size (Tf) ---
         "Tf" => {
+            // --- Font + size (Tf) ---
             if op.operands.len() == 2 {
                 if let Some(font_name) = as_name(&op.operands[0]) {
                     state.current_font = Some(crate::FontId(font_name));

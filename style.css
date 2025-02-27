@@ -29,6 +29,10 @@ body, html {
     flex-direction: column;
 }
 
+.input-panel {
+    max-width: 600px;
+}
+
 /* Mobile layout adjustments (vertical) */
 @media (max-width: 768px) {
     .container {
@@ -182,23 +186,22 @@ body, html {
 .pdf-viewer {
     border: 1px solid #ccc;
     padding: 10px;
-    display: flex;
-    flex-grow: 1;
-    flex-direction: column;
+    display: block;
+    min-height: 100%;
+    max-height: 80vh;
     background-color: #333;
     overflow-x: hidden;
     overflow-y: scroll;
     max-height: 80vh;
 }
 
-.pdf-viewer svg {
-    max-width: 100%;
-    max-height: min-content;
-    height: auto;
-    display: block;
-    margin-bottom: 5%;
-    background: white;
-    box-shadow: 0px 0px 10px #333;
+.pdf-viewer svg,
+#minimap-view svg {
+  width: 100%;
+  height: auto;
+  background-color: #fff;
+  display: block;
+  margin-bottom: 5%;
 }
 
 .sidebar {
@@ -247,9 +250,7 @@ body, html {
     padding: 10px;
     border: 1px solid #ddd;
     overflow-y: scroll;
-    display: flex;
-    flex-grow: 1;
-    flex-direction: column;
+    display: block;
 }
 
 .sidebar-content.hidden {
@@ -258,22 +259,6 @@ body, html {
 
 #minimap-view {
     background: #333;
-    max-height: 80vh;
-}
-
-svg {
-    object-fit: scale-down;
-}
-
-#minimap-view svg {
-    max-width: 100%;
-    width: 100%;
-    max-height: min-content;
-    height: min-content;
-    aspect-ratio: auto;
-    background-color: white;
-    box-shadow: 0px 0px 5px #333;
-    margin-bottom: 5%;
-    display: block;
-    border: 1px solid #eee;
+    min-height: 100%;
+    max-height: 85vh;
 }

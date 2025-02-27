@@ -235,16 +235,14 @@ function applySignatureToPage(page, resources) {
     if (!signatureImageBase64) return page;
 
     const signatureImageId = 'user-signature-image'; // Unique ID for signature image
-    if (!resources.xobjects.map[signatureImageId]) {
-        resources.xobjects.map[signatureImageId] = { // Simplified XObject structure for demo
-            subtype: "Image",
-            image_data: signatureImageBase64, // Assuming base64 image data is directly usable
-            width: 200, // Placeholder, adjust based on actual image
-            height: 100, // Placeholder, adjust based on actual image
-            color_space: "DeviceRGB", // Or determine from image
-            bits_per_component: 8
-        };
-    }
+    resources.xobjects.map[signatureImageId] = { // Simplified XObject structure for demo
+        subtype: "Image",
+        image_data: signatureImageBase64, // Assuming base64 image data is directly usable
+        width: 200, // Placeholder, adjust based on actual image
+        height: 100, // Placeholder, adjust based on actual image
+        color_space: "DeviceRGB", // Or determine from image
+        bits_per_component: 8
+    };
 
     const signatureX = parseFloat(document.getElementById('signature-x').value);
     const signatureY = parseFloat(document.getElementById('signature-y').value);
