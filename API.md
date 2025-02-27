@@ -354,6 +354,6 @@ if (outputResult.status === 0) {
 
 Many advanced fields appear in the `pdfDocument` JSON (fonts, xobjects, layers, color definitions, etc.). 
 For most basic use cases, you only need to manipulate the top-level `pages`, or embed images/fonts. If you need 
-to dig deeper, the datastructures are documented in the (/STRUCTS.md)[/STRUCTS.md] file.
+to dig deeper, the datastructures are documented in the [/STRUCTS.md](/STRUCTS.md) file.
 
 Enjoy creating, parsing, and manipulating PDFs with `printpdf.js`!
