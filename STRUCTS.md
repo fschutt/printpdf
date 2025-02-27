@@ -176,32 +176,11 @@ interface EndLayer {
 ```
 
 ```typescript
-// Saves the graphics configuration on the stack
-// (line thickness, colors, overprint, etc.)
-interface SaveGraphicsState {}
-```
-
-```typescript
-// Pops the last graphics configuration state off the stack
-interface RestoreGraphicsState {}
-```
-
-```typescript
 // Loads a specific graphics state (necessary for describing extended graphics)
 interface LoadGraphicsState {
     // Extended graphics state identifier
     gs: ExtendedGraphicsStateId;
 }
-```
-
-```typescript
-// Starts a section of text
-interface StartTextSection {}
-```
-
-```typescript
-// Ends a text section (inserted by default at the page end)
-interface EndTextSection {}
 ```
 
 ```typescript
@@ -503,10 +482,8 @@ interface Unknown {
 ## XObjects
 
 ```typescript
-/**
- * External object that gets reference outside the PDF content stream.
- * Tagged enum, see variants for possible XObject types.
- */
+// External object that gets reference outside the PDF content stream.
+// Tagged enum, see variants for possible XObject types.
 export type XObject =
     | { type: "image"; data: RawImage }
     | { type: "form"; data: FormXObject }
@@ -514,7 +491,7 @@ export type XObject =
 ```
 
 ```typescript
-/** Image XObject, for images */
+// Image XObject, for images
 export interface RawImage {
     pixels: RawImageData;
     width: usize;
@@ -525,7 +502,7 @@ export interface RawImage {
 ```
 
 ```typescript
-/** Raw image pixel data, tagged enum to differentiate data types */
+// Raw image pixel data, tagged enum to differentiate data types
 export type RawImageData =
     | { tag: "u8"; data: Uint8Array }
     | { tag: "u16"; data: Uint16Array }
@@ -533,7 +510,7 @@ export type RawImageData =
 ```
 
 ```typescript
-/** Describes the format the image bytes are compressed with. */
+// Describes the format the image bytes are compressed with.
 export enum RawImageFormat {
     // 8-bit grayscale image
     R8 = "r8",
@@ -599,7 +576,7 @@ export interface FormXObject {
 ```
 
 ```typescript
-/** Form type, currently only Type1 is supported */
+// Form type, currently only Type1 is supported
 export enum FormType {
     // Type 1 form XObjects are the most common and versatile type.
     Type1 = "type1",
@@ -607,7 +584,7 @@ export enum FormType {
 ```
 
 ```typescript
-/** External XObject, invoked by `/Do` graphics operator */
+// External XObject, invoked by `/Do` graphics operator
 export interface ExternalXObject {
     // External stream of graphics operations
     stream: ExternalStream;
@@ -621,7 +598,7 @@ export interface ExternalXObject {
 ```
 
 ```typescript
-/** External Stream, allows embedding arbitrary content streams */
+// External Stream, allows embedding arbitrary content streams
 export interface ExternalStream {
     // Stream description, for simplicity a simple map, corresponds to PDF dict
     dict: { [key: string]: DictItem };
@@ -633,7 +610,7 @@ export interface ExternalStream {
 ```
 
 ```typescript
-/** Simplified dict item for external streams */
+// Simplified dict item for external streams
 export type DictItem =
     | { type: "array"; data: DictItem[] }
     | { type: "string"; data: DictItemString }
@@ -676,14 +653,14 @@ export interface DictItemStream {
 ```
 
 ```typescript
-// `/Type /Group`` (PDF reference section 4.9.2) */
+// `/Type /Group`` (PDF reference section 4.9.2)
 export interface GroupXObject {
     groupType?: GroupXObjectType | null;
 }
 ```
 
 ```typescript
-/** Type of a `/Group` XObject. Currently only Transparency groups are supported */
+// Type of a `/Group` XObject. Currently only Transparency groups are supported
 export enum GroupXObjectType {
     // Transparency group XObject (currently the only valid GroupXObject type)
     TransparencyGroup = "transparency-group",
