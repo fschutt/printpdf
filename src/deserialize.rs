@@ -1689,7 +1689,7 @@ pub fn parse_op(
             if let Some(name_str) = as_name(&op.operands.get(0).unwrap_or(&lopdf::Object::Null)) {
                 let xobj_id = crate::XObjectId(name_str);
                 // For simplicity, we ignore any transform that was previously set via `cm`.
-                out_ops.push(Op::UseXObject {
+                out_ops.push(Op::UseXobject {
                     id: xobj_id,
                     transform: crate::xobject::XObjectTransform::default(),
                 });

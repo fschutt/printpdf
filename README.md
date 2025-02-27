@@ -133,7 +133,7 @@ fn main() {
     let image_xobject_id = doc.add_image(image);
 
     let page1_contents = vec![
-        Op::UseXObject { 
+        Op::UseXobject { 
             id: image_xobject_id.clone(), 
             transform: XObjectTransform::default() 
         }

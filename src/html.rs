@@ -570,7 +570,7 @@ fn displaylist_handle_rect(
             || source_width == 0;
 
         if !is_zero {
-            ops.push(Op::UseXObject {
+            ops.push(Op::UseXobject {
                 id: crate::XObjectId(image_info.xobject_id.clone()),
                 transform: crate::XObjectTransform {
                     translate_x: Some(Pt(pos.x)),

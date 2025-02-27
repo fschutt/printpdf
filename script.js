@@ -74,10 +74,14 @@ actionTabSelect.addEventListener('change', (event) => {
 });
 
 // Function to base64 encode files
-const encodeFileToBase64 = (file) => {
+const encodeFileToBase64 = (file, keep_mime) => {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = () => resolve(reader.result.split(',')[1]); // Remove data:base64 prefix
+        if (keep_mime === true) {
+            reader.onload = () => resolve(reader.result);
+        } else {
+            reader.onload = () => resolve(reader.result.split(',')[1]); // Remove data:base64 prefix
+        }
         reader.onerror = reject;
         reader.readAsDataURL(file);
     });
@@ -145,7 +149,7 @@ pdfFileUploadInput.addEventListener('change', async (event) => {
 signatureImageUploadInput.addEventListener('change', async (event) => {
     const file = event.target.files[0];
     if (file) {
-        signatureImageBase64 = await encodeFileToBase64(file);
+        signatureImageBase64 = await encodeFileToBase64(file, true);
         // Optionally update PDF viewer immediately to preview signature
         updatePdfViewer();
     }
@@ -170,19 +174,23 @@ async function updatePdfViewer() {
                 continue; // Skip page rendering if resources fail
             }
 
-            const resources = pdfDocument.resources; // Use document resources directly
+            let res = pdfDocument.resources; // Use document resources directly
             
             // Apply signature if in "Sign PDF" tab and on correct page
             let modifiedPage = page;
-            if (currentTab === 'sign-pdf' && (i + 1) === parseInt(document.getElementById('signature-page').value)) {
-                modifiedPage = applySignatureToPage(page, resources);
+            if (signatureImageBase64 != null && currentTab === 'sign-pdf' && (i + 1) === parseInt(document.getElementById('signature-page').value)) {
+                const applied = applySignatureToPage(page, pdfDocument.resources);
+                modifiedPage = applied.data;
+                res = applied.resources;
+                resourcesResult.data.xobjects.push('user-signature-image');
             }
 
-            const svgInput = JSON.stringify({ 
+            const svgI = { 
                 page: modifiedPage, 
-                resources: copyResourcesForPage(pdfDocument.resources, resourcesResult.data), 
-                options: { image_formats: ["png", "jpeg", "webp"] } 
-            });
+                resources: copyResourcesForPage(res, resourcesResult.data), 
+                options: { image_formats: ["png", "jpeg"] }
+            };
+            const svgInput = JSON.stringify(svgI);
             const svgJson = Pdf_PdfPageToSvg(svgInput);
             const svgResult = JSON.parse(svgJson);
 
@@ -233,29 +241,28 @@ function copyResourcesForPage(resources, resourcesResult) {
 
 function applySignatureToPage(page, resources) {
     if (!signatureImageBase64) return page;
-
-    const signatureImageId = 'user-signature-image'; // Unique ID for signature image
-    resources.xobjects.map[signatureImageId] = { // Simplified XObject structure for demo
-        subtype: "Image",
-        image_data: signatureImageBase64, // Assuming base64 image data is directly usable
-        width: 200, // Placeholder, adjust based on actual image
-        height: 100, // Placeholder, adjust based on actual image
-        color_space: "DeviceRGB", // Or determine from image
-        bits_per_component: 8
+    
+    const signatureImageId = 'user-signature-image';
+    const res2 = {
+        ...resources,
+        xobjects: {
+            ...resources.xobjects,
+            'user-signature-image': { type: 'image', data: signatureImageBase64 },
+        }
     };
-
+    
     const signatureX = parseFloat(document.getElementById('signature-x').value);
     const signatureY = parseFloat(document.getElementById('signature-y').value);
     const signatureScaleX = parseFloat(document.getElementById('signature-scale-x').value);
     const signatureScaleY = parseFloat(document.getElementById('signature-scale-y').value);
 
     const newOps = [...page.ops, {
-        cmd: "use-xobject",
-        args: {
+        type: "use-xobject",
+        data: {
             id: signatureImageId,
             transform: {
-                translateX: { "0": signatureX },
-                translateY: { "0": signatureY },
+                translateX: signatureX,
+                translateY: signatureY,
                 scaleX: signatureScaleX,
                 scaleY: signatureScaleY,
                 rotate: null,
@@ -264,7 +271,10 @@ function applySignatureToPage(page, resources) {
         }
     }];
 
-    return { ...page, ops: newOps }; // Create a new page object with modified ops
+    return {
+        resources: res2,
+        data: { ...page, ops: newOps }
+    };
 }
 
 

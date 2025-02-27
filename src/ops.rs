@@ -50,7 +50,7 @@ impl PdfPage {
         self.ops
             .iter()
             .filter_map(|s| match s {
-                Op::UseXObject { id, .. } => Some(id.clone()),
+                Op::UseXobject { id, .. } => Some(id.clone()),
                 _ => None,
             })
             .collect()
@@ -228,7 +228,7 @@ pub enum Op {
     LinkAnnotation { link: LinkAnnotation },
     /// Instantiates an XObject with a given transform (if the XObject has a width / height).
     /// Use `PdfDocument::add_xobject` to register the object and get the ID.
-    UseXObject {
+    UseXobject {
         id: XObjectId,
         transform: XObjectTransform,
     },

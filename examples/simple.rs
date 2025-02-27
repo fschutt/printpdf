@@ -12,7 +12,7 @@ fn main() {
     let rotation_center_x = Px((svg.width.unwrap_or_default().0 as f32 / 2.0) as usize);
     let rotation_center_y = Px((svg.height.unwrap_or_default().0 as f32 / 2.0) as usize);
     let xobject_id = doc.add_xobject(&svg);
-    ops.extend_from_slice(&[Op::UseXObject {
+    ops.extend_from_slice(&[Op::UseXobject {
         id: xobject_id.clone(),
         transform: XObjectTransform::default(),
     }]);

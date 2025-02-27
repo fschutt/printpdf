@@ -624,7 +624,7 @@ pub(crate) fn translate_operations(
             Op::LinkAnnotation { link } => {
                 // TODO!
             }
-            Op::UseXObject { id, transform } => {
+            Op::UseXobject { id, transform } => {
                 use crate::matrix::CurTransMat;
                 let mut t = CurTransMat::Identity;
                 for q in

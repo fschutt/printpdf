@@ -2,13 +2,12 @@ use std::collections::BTreeMap;
 
 use base64::Engine;
 use serde_derive::{Deserialize, Serialize};
-use svg2pdf::usvg::{Fill, Text};
 
 use crate::{
-    BlackGenerationExtraFunction, BlackGenerationFunction, BlendMode, ChangedField, Color,
-    CurTransMat, ExtendedGraphicsState, FontId, HalftoneType, LineCapStyle, LineDashPattern,
-    LineJoinStyle, OutputImageFormat, OverprintMode, PdfResources, Point, Pt, RenderingIntent,
-    SoftMask, TextMatrix, TextRenderingMode, TransferExtraFunction, TransferFunction,
+    BlackGenerationExtraFunction, BlackGenerationFunction, BlendMode, Color, CurTransMat,
+    ExtendedGraphicsState, FontId, HalftoneType, LineCapStyle, LineDashPattern, LineJoinStyle,
+    OutputImageFormat, OverprintMode, PdfResources, Point, Pt, RenderingIntent, SoftMask,
+    TextMatrix, TextRenderingMode, TransferExtraFunction, TransferFunction,
     UnderColorRemovalExtraFunction, UnderColorRemovalFunction, ops::PdfPage,
     serialize::prepare_fonts,
 };
@@ -455,15 +454,35 @@ pub fn render_to_svg(page: &PdfPage, resources: &PdfResources, opts: &PdfToSvgOp
             Op::EndTextSection => {
                 svg.push_str("</text>");
             }
-            Op::WriteText { text, size, font } => todo!(),
-            Op::WriteTextBuiltinFont { text, size, font } => todo!(),
-            Op::WriteCodepoints { font, size, cp } => todo!(),
-            Op::WriteCodepointsWithKerning { font, size, cpk } => todo!(),
-            Op::DrawLine { line } => todo!(),
-            Op::DrawPolygon { polygon } => todo!(),
-            Op::UseXObject { id, transform } => todo!(),
-
-            Op::Unknown { key, value } => todo!(),
+            Op::WriteText { text, size, font } => {}
+            Op::WriteTextBuiltinFont { text, size, font } => {}
+            Op::WriteCodepoints { font, size, cp } => {}
+            Op::WriteCodepointsWithKerning { font, size, cpk } => {}
+            Op::DrawLine { line } => {}
+            Op::DrawPolygon { polygon } => {}
+            Op::UseXobject { id, transform } => {
+                if let Some(r) = resources.xobjects.map.get(id) {
+                    match r {
+                        crate::XObject::Image(raw_image) => {
+                            let w = raw_image.width;
+                            let h = raw_image.height;
+                            if let Ok((bytes, fmt)) = raw_image.encode_to_bytes(&opts.image_formats)
+                            {
+                                let base64_str = base64::prelude::BASE64_STANDARD.encode(&bytes);
+                                let data_url =
+                                    format!("data:{};base64,{}", fmt.mime_type(), base64_str);
+                                svg.push_str(&format!(
+                                    "<image width=\"{w}\" height=\"{h}\" \
+                                     xlink:href=\"{data_url}\" />"
+                                ));
+                            }
+                        }
+                        crate::XObject::Form(_) => {}
+                        crate::XObject::External(_) => {}
+                    }
+                }
+            }
+            Op::Unknown { key, value } => {}
         }
     }
 

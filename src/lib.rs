@@ -191,7 +191,7 @@ impl PdfDocument {
     }
 
     /// Adds an external XObject stream (usually SVG or other stream) to the PDF resources
-    /// so that it can be later be invoked with `UseXObject { id }`
+    /// so that it can be later be invoked with `UseXobject { id }`
     pub fn add_xobject(&mut self, parsed_svg: &ExternalXObject) -> XObjectId {
         let id = XObjectId::new();
         self.resources
@@ -250,12 +250,16 @@ impl PdfDocument {
 #[serde(rename_all = "camelCase")]
 pub struct PdfResources {
     /// Fonts found in the PDF file, indexed by the sha256 of their contents
+    #[serde(default)]
     pub fonts: PdfFontMap,
     /// XObjects (forms, images, embedded PDF contents, etc.)
+    #[serde(default)]
     pub xobjects: XObjectMap,
     /// Map of explicit extended graphics states
+    #[serde(default)]
     pub extgstates: ExtendedGraphicsStateMap,
     /// Map of optional content groups
+    #[serde(default)]
     pub layers: PdfLayerMap,
 }
 
