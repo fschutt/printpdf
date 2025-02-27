@@ -7,6 +7,7 @@ use serde_derive::{Deserialize, Serialize};
 /// Link / bookmark annotation handling
 pub mod annotation;
 pub mod text;
+pub mod cmap;
 pub mod wasm;
 pub use annotation::*;
 /// PDF standard handling
