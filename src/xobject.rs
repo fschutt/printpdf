@@ -7,7 +7,7 @@ use crate::{
     date::OffsetDateTime,
     image::RawImage,
     matrix::CurTransMat,
-    units::{Pt, Px},
+    units::{Pt, Px}, ImageOptimizationOptions,
 };
 
 /* Parent: Resources dictionary of the page */
@@ -51,11 +51,12 @@ impl XObject {
 pub(crate) fn add_xobject_to_document(
     xobj: &XObject,
     doc: &mut lopdf::Document,
+    image_opts: Option<&ImageOptimizationOptions>,
 ) -> lopdf::ObjectId {
     // in the PDF content stream, reference an XObject like this
     match xobj {
         XObject::Image(i) => {
-            let stream = crate::image::image_to_stream(i.clone(), doc);
+            let stream = crate::image::image_to_stream(i.clone(), doc, image_opts);
             doc.add_object(stream)
         }
         XObject::Form(f) => {

@@ -8,6 +8,7 @@ use crate::{
     PdfDocument, Mm, XmlRenderOptions, FontId,
     LayerInternalId, XObjectId, PdfPage, PdfParseOptions,
     PdfWarnMsg, PdfResources, PdfSaveOptions, PdfToSvgOptions,
+    ImageOptimizationOptions,
 };
 
 /// Base64 is necessary because there are a lot of JS issues surrounding 
@@ -92,9 +93,6 @@ pub struct HtmlToDocumentOutput {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct GeneratePdfOptions {
-    /// Whether to compress images and if yes, to what quality level
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub image_compression: Option<f32>,
     /// Whether to embed fonts in the PDF (default: true)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font_embedding: Option<bool>,
@@ -104,15 +102,18 @@ pub struct GeneratePdfOptions {
     /// Page height in mm, default 297.0
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page_height: Option<f32>,
+    /// Settings for automatic image optimization when saving PDF files
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_optimization: Option<ImageOptimizationOptions>,
 }
 
 impl Default for GeneratePdfOptions {
     fn default() -> Self {
         Self {
-            image_compression: None,
             font_embedding: Some(true),
             page_width: Some(210.0),
             page_height: Some(297.0),
+            image_optimization: None,
         }
     }
 }

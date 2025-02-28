@@ -13,9 +13,10 @@ use crate::{
     Actions, BuiltinFont, Color, ColorArray, Destination, FontId, IccProfileType, Line,
     LinkAnnotation, Op, PaintMode, ParsedFont, PdfDocument, PdfDocumentInfo, PdfPage, PdfResources,
     Polygon, XObject, XObjectId, color::IccProfile, font::SubsetFont,
+    ImageOptimizationOptions,
 };
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
 #[serde(rename = "camelCase")]
 pub struct PdfSaveOptions {
     /// If set to true (default), compresses streams and
@@ -30,17 +31,14 @@ pub struct PdfSaveOptions {
     /// (default), will skip any unknown PDF operations when serializing the file.
     #[serde(default = "default_secure")]
     pub secure: bool,
+    /// Image optimization options
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_optimization: Option<ImageOptimizationOptions>,
 }
 
-const fn default_optimize() -> bool {
-    true
-}
-const fn default_subset_fonts() -> bool {
-    true
-}
-const fn default_secure() -> bool {
-    true
-}
+const fn default_optimize() -> bool { true }
+const fn default_subset_fonts() -> bool { true }
+const fn default_secure() -> bool { true }
 
 impl Default for PdfSaveOptions {
     fn default() -> Self {
@@ -48,6 +46,7 @@ impl Default for PdfSaveOptions {
             optimize: default_optimize(),
             subset_fonts: default_subset_fonts(),
             secure: default_secure(),
+            image_optimization: Some(ImageOptimizationOptions::default()),
         }
     }
 }
@@ -177,7 +176,11 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec
     for (k, v) in pdf.resources.xobjects.map.iter() {
         global_xobject_dict.set(
             k.0.clone(),
-            crate::xobject::add_xobject_to_document(v, &mut doc),
+            crate::xobject::add_xobject_to_document(
+                v, 
+                &mut doc, 
+                opts.image_optimization.as_ref(),
+            ),
         );
     }
     let global_xobject_dict_id = doc.add_object(global_xobject_dict);
