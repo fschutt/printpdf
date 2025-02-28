@@ -9,6 +9,7 @@ test_*
 *.svg
 out.txt
 /pkg
+examples/.DS_Store
 Cargo.lock
 .DS_Store
 web/pdfjs-4.7.76-legacy-dist
