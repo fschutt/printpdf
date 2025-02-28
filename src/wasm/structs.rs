@@ -1,26 +1,26 @@
-//! Datastructures for the WASM API entrypoint. Useful if you want to 
+//! Datastructures for the WASM API entrypoint. Useful if you want to
 //! use the same WASM API but without JS serialization / deserialization
 
 use std::collections::BTreeMap;
-use serde_derive::{Serialize, Deserialize};
+
 use base64::Engine;
+use serde_derive::{Deserialize, Serialize};
+
 use crate::{
-    PdfDocument, Mm, XmlRenderOptions, FontId,
-    LayerInternalId, XObjectId, PdfPage, PdfParseOptions,
-    PdfWarnMsg, PdfResources, PdfSaveOptions, PdfToSvgOptions,
-    ImageOptimizationOptions,
+    FontId, ImageOptimizationOptions, LayerInternalId, Mm, PdfDocument, PdfPage, PdfParseOptions,
+    PdfResources, PdfSaveOptions, PdfToSvgOptions, PdfWarnMsg, XObjectId, XmlRenderOptions,
 };
 
-/// Base64 is necessary because there are a lot of JS issues surrounding 
-/// `ArrayBuffer` / `Uint8Buffer` / `ByteArray` type mismatches, so a simple 
+/// Base64 is necessary because there are a lot of JS issues surrounding
+/// `ArrayBuffer` / `Uint8Buffer` / `ByteArray` type mismatches, so a simple
 /// `atob` / `btoa` fixes that at the cost of slight performance decrease.
-/// 
+///
 /// Note: this enum is untagged, so from JS you can pass in either the base64 bytes
 /// or the bytearray and it'll work.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(untagged)]
 pub enum Base64OrRaw {
-    /// Base64 string, usually tagged with 
+    /// Base64 string, usually tagged with
     B64(String),
     /// Raw bytes
     Raw(Vec<u8>),
@@ -33,15 +33,16 @@ impl Default for Base64OrRaw {
 }
 
 impl Base64OrRaw {
-    // Decodes the bytes if base64 and also gets rid of the "data:...;base64," prefix    
+    // Decodes the bytes if base64 and also gets rid of the "data:...;base64," prefix
     pub fn decode_bytes(&self) -> Result<Vec<u8>, String> {
         match self {
-            Base64OrRaw::B64(r) => base64::prelude::BASE64_STANDARD.decode(get_base64_substr(r)).map_err(|e| e.to_string()),
+            Base64OrRaw::B64(r) => base64::prelude::BASE64_STANDARD
+                .decode(get_base64_substr(r))
+                .map_err(|e| e.to_string()),
             Base64OrRaw::Raw(r) => Ok(r.clone()),
         }
     }
 }
-
 
 fn get_base64_substr(input: &str) -> &str {
     // Check if the input starts with "data:" and contains a comma.
@@ -126,7 +127,6 @@ impl GeneratePdfOptions {
 
 #[cfg(feature = "html")]
 pub fn html_to_document(input: &HtmlToDocumentInput) -> Result<HtmlToDocumentOutput, String> {
-
     // TODO: extract document title from XML!
     let opts = XmlRenderOptions {
         page_width: Mm(input.options.page_width.unwrap_or(210.0)),
@@ -134,16 +134,12 @@ pub fn html_to_document(input: &HtmlToDocumentInput) -> Result<HtmlToDocumentOut
         images: input
             .images
             .iter()
-            .filter_map(|(k, v)| {
-                Some(((k.clone(), v.decode_bytes().ok()?)))
-            })
+            .filter_map(|(k, v)| Some(((k.clone(), v.decode_bytes().ok()?))))
             .collect(),
         fonts: input
             .fonts
             .iter()
-            .filter_map(|(k, v)| {
-                Some(((k.clone(), v.decode_bytes().ok()?)))
-            })
+            .filter_map(|(k, v)| Some(((k.clone(), v.decode_bytes().ok()?))))
             .collect(),
         components: Vec::new(),
     };
@@ -159,7 +155,9 @@ pub fn html_to_document(input: &HtmlToDocumentInput) -> Result<HtmlToDocumentOut
 
 #[cfg(not(feature = "html"))]
 pub fn html_to_document(input: &HtmlToDocumentInput) -> Result<HtmlToDocumentOutput, String> {
-    Err(format!("Pdf_HtmlToDocument failed: feature --html not enabled for printpdf crate"))
+    Err(format!(
+        "Pdf_HtmlToDocument failed: feature --html not enabled for printpdf crate"
+    ))
 }
 
 // Vec<u8> -> PdfDocument
@@ -181,12 +179,13 @@ pub struct BytesToDocumentOutput {
 }
 
 pub fn bytes_to_document(input: &BytesToDocumentInput) -> Result<BytesToDocumentOutput, String> {
-
-    let bytes = input.bytes.decode_bytes()
-    .map_err(|e| format!("failed to decode input bytes: {e}"))?;
+    let bytes = input
+        .bytes
+        .decode_bytes()
+        .map_err(|e| format!("failed to decode input bytes: {e}"))?;
 
     let (doc, warnings) = PdfDocument::parse(&bytes, &input.options)
-    .map_err(|e| format!("failed to parse PDF: {e}"))?;
+        .map_err(|e| format!("failed to parse PDF: {e}"))?;
 
     Ok(BytesToDocumentOutput { doc, warnings })
 }
@@ -214,7 +213,6 @@ pub struct DocumentToBytesOutput {
 }
 
 pub fn document_to_bytes(input: &DocumentToBytesInput) -> Result<DocumentToBytesOutput, String> {
-
     let return_base64 = input.return_byte_array;
     let bytes = input.doc.save(&input.options);
 
@@ -223,7 +221,7 @@ pub fn document_to_bytes(input: &DocumentToBytesInput) -> Result<DocumentToBytes
             Base64OrRaw::B64(base64::prelude::BASE64_STANDARD.encode(&bytes))
         } else {
             Base64OrRaw::Raw(bytes)
-        }
+        },
     })
 }
 
@@ -276,10 +274,6 @@ pub struct PageToSvgOutput {
 
 pub fn page_to_svg(input: &PageToSvgInput) -> Result<PageToSvgOutput, String> {
     Ok(PageToSvgOutput {
-        svg: crate::render::render_to_svg(
-            &input.page, 
-            &input.resources, 
-            &input.options
-        )
+        svg: crate::render::render_to_svg(&input.page, &input.resources, &input.options),
     })
 }

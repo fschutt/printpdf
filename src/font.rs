@@ -21,7 +21,7 @@ use lopdf::Object::{Array, Integer};
 use serde_derive::{Deserialize, Serialize};
 use time::error::Parse;
 
-use crate::{FontId, Op, PdfPage};
+use crate::{FontId, Op, PdfPage, TextItem};
 
 /// Builtin or external font
 #[derive(Debug, Clone, PartialEq)]
@@ -361,9 +361,17 @@ impl ParsedFont {
             .iter()
             .flat_map(|p| {
                 p.ops.iter().filter_map(|s| match s {
-                    Op::WriteText { font, text, .. } => {
+                    Op::WriteText { font, items, .. } => {
                         if font_id == font {
-                            Some(CharsOrCodepoint::Chars(text.clone()))
+                            Some(CharsOrCodepoint::Chars(
+                                items
+                                    .iter()
+                                    .filter_map(|s| match s {
+                                        TextItem::Text(t) => Some(t.clone()),
+                                        TextItem::Offset(_) => None,
+                                    })
+                                    .collect(),
+                            ))
                         } else {
                             None
                         }

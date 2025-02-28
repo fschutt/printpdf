@@ -9,7 +9,6 @@ use svg2pdf::usvg::Image;
 
 use crate::{ColorBits, ColorSpace};
 
-
 /// Options for optimizing images in PDF
 #[derive(Debug, Clone, Serialize, PartialOrd, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -18,24 +17,43 @@ pub struct ImageOptimizationOptions {
     #[serde(default = "default_quality", skip_serializing_if = "Option::is_none")]
     pub quality: Option<f32>,
     /// Maximum image size (e.g. "300kb")
-    #[serde(default = "default_max_img_size", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default = "default_max_img_size",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub max_image_size: Option<String>,
     /// Whether to apply dithering to greyscale images
-    #[serde(default = "default_dither_greyscale", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default = "default_dither_greyscale",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub dither_greyscale: Option<bool>,
     /// Auto-optimize images (remove alpha if not needed, detect greyscale)
-    #[serde(default = "default_auto_optimize", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default = "default_auto_optimize",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub auto_optimize: Option<bool>,
     /// Preferred compression format
     #[serde(default = "default_format", skip_serializing_if = "Option::is_none")]
     pub format: Option<ImageCompression>,
 }
 
-const fn default_quality() -> Option<f32> { Some(85.0) }
-fn default_max_img_size() -> Option<String> { Some("2MB".to_string()) }
-const fn default_dither_greyscale() -> Option<bool> { None }
-const fn default_auto_optimize() -> Option<bool> { Some(true) }
-const fn default_format() -> Option<ImageCompression> { Some(ImageCompression::Auto) }
+const fn default_quality() -> Option<f32> {
+    Some(85.0)
+}
+fn default_max_img_size() -> Option<String> {
+    Some("2MB".to_string())
+}
+const fn default_dither_greyscale() -> Option<bool> {
+    None
+}
+const fn default_auto_optimize() -> Option<bool> {
+    Some(true)
+}
+const fn default_format() -> Option<ImageCompression> {
+    Some(ImageCompression::Auto)
+}
 
 impl Default for ImageOptimizationOptions {
     fn default() -> Self {
@@ -116,7 +134,9 @@ impl<'de> serde::Deserialize<'de> for RawImage {
         let bytes = base64::prelude::BASE64_STANDARD
             .decode(base64_part)
             .map_err(serde::de::Error::custom)?;
-        Self::decode_from_bytes(&bytes).map_err(serde::de::Error::custom)
+        
+        Self::decode_from_bytes(&bytes)
+        .map_err(serde::de::Error::custom)
     }
 }
 
@@ -301,11 +321,16 @@ impl OutputImageFormat {
 /// Parses a size string like "300kb" into bytes
 pub fn parse_size_string(size_str: &str) -> Result<usize, String> {
     let size_str = size_str.trim().to_lowercase();
-    let numeric_part: String = size_str.chars().take_while(|c| c.is_digit(10) || *c == '.').collect();
+    let numeric_part: String = size_str
+        .chars()
+        .take_while(|c| c.is_digit(10) || *c == '.')
+        .collect();
     let unit_part: String = size_str.chars().skip(numeric_part.len()).collect();
-    
-    let num = numeric_part.parse::<f64>().map_err(|e| format!("Invalid size number: {}", e))?;
-    
+
+    let num = numeric_part
+        .parse::<f64>()
+        .map_err(|e| format!("Invalid size number: {}", e))?;
+
     let multiplier = match unit_part.as_str() {
         "b" => 1,
         "kb" | "k" => 1024,
@@ -313,7 +338,7 @@ pub fn parse_size_string(size_str: &str) -> Result<usize, String> {
         "gb" | "g" => 1024 * 1024 * 1024,
         _ => return Err(format!("Unknown size unit: {}", unit_part)),
     };
-    
+
     Ok((num * multiplier as f64) as usize)
 }
 
@@ -333,8 +358,18 @@ impl RawImage {
     pub fn decode_from_bytes(bytes: &[u8]) -> Result<Self, String> {
         use image::DynamicImage::*;
 
-        let im = image::guess_format(bytes).map_err(|e| e.to_string())?;
+        let im = image::guess_format(bytes)
+        .map_err(|e| e.to_string())?;
+
         let b_len = bytes.len();
+
+        // Try browser-native decoding first for better format support
+        #[cfg(all(feature = "js-sys", target_family = "wasm"))]
+        if let Ok(image) = wasm_bindgen_futures::spawn_local(async {
+            RawImage::decode_from_bytes_browser(bytes).await
+        }) {
+            return Ok(image);
+        }
 
         #[cfg(not(feature = "gif"))]
         {
@@ -522,6 +557,17 @@ impl RawImage {
         &self,
         target_fmt: &[OutputImageFormat],
     ) -> Result<(Vec<u8>, OutputImageFormat), String> {
+
+        // For browser, try formats in order with browser encoder
+        #[cfg(all(feature = "js-sys", target_family = "wasm"))]
+        for f in target_fmt {
+            if let Ok(bytes) = wasm_bindgen_futures::spawn_local(async {
+                self.encode_to_bytes_browser(*f).await
+            }) {
+                return Ok((bytes, *f));
+            }
+        }
+
         // For this example we only support the U8 variant.
         let dyn_image = match (&self.pixels, self.data_format) {
             (RawImageData::U8(ref vec), RawImageFormat::R8) => {
@@ -570,6 +616,7 @@ impl RawImage {
                 return Ok((buf, *fmt));
             }
         }
+        
         Err("Could not encode image in any of the requested target formats".to_string())
     }
 
@@ -590,7 +637,6 @@ impl RawImage {
         }
     }
 
-
     /// Optimizes the image based on the provided options
     pub fn optimize(&mut self, options: &ImageOptimizationOptions) -> Result<(), String> {
         // Remove alpha channel if all pixels are opaque and auto-optimize is enabled
@@ -599,79 +645,78 @@ impl RawImage {
                 self.remove_alpha_channel()?;
             }
         }
-        
+
         // Check if color image is actually greyscale
-        if options.auto_optimize.unwrap_or_default() && self.is_color_format() && self.is_actually_greyscale() {
+        if options.auto_optimize.unwrap_or_default()
+            && self.is_color_format()
+            && self.is_actually_greyscale()
+        {
             self.convert_to_greyscale()?;
         }
-        
+
         // Apply dithering to greyscale images if requested
         if options.dither_greyscale.unwrap_or_default() && self.is_greyscale_format() {
             self.apply_dithering()?;
         }
-        
+
         // Resize image if it exceeds max size
-        let max_img_size = options.max_image_size.as_deref()
-        .and_then(|s| parse_size_string(s).ok());
+        let max_img_size = options
+            .max_image_size
+            .as_deref()
+            .and_then(|s| parse_size_string(s).ok());
         if let Some(max_size) = max_img_size {
             let current_size = self.estimate_size_bytes();
             if current_size > max_size {
                 self.resize_to_fit_size(max_size)?;
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Checks if all pixels in the alpha channel are fully opaque
     pub fn is_fully_opaque(&self) -> bool {
         match &self.pixels {
-            RawImageData::U8(data) => {
-                match self.data_format {
-                    RawImageFormat::RGBA8 => {
-                        for i in 3..data.len() as usize {
-                            if i % 4 == 3 && data[i] != 255 {
-                                return false;
-                            }
+            RawImageData::U8(data) => match self.data_format {
+                RawImageFormat::RGBA8 => {
+                    for i in 3..data.len() as usize {
+                        if i % 4 == 3 && data[i] != 255 {
+                            return false;
                         }
-                        true
-                    },
-                    RawImageFormat::BGRA8 => {
-                        for i in 3..data.len() as usize {
-                            if i % 4 == 3 && data[i] != 255 {
-                                return false;
-                            }
-                        }
-                        true
-                    },
-                    _ => false,
+                    }
+                    true
                 }
+                RawImageFormat::BGRA8 => {
+                    for i in 3..data.len() as usize {
+                        if i % 4 == 3 && data[i] != 255 {
+                            return false;
+                        }
+                    }
+                    true
+                }
+                _ => false,
             },
-            RawImageData::U16(data) => {
-                match self.data_format {
-                    RawImageFormat::RGBA16 => {
-                        for i in 3..data.len() as usize {
-                            if i % 4 == 3 && data[i] != 65535 {
-                                return false;
-                            }
+            RawImageData::U16(data) => match self.data_format {
+                RawImageFormat::RGBA16 => {
+                    for i in 3..data.len() as usize {
+                        if i % 4 == 3 && data[i] != 65535 {
+                            return false;
                         }
-                        true
-                    },
-                    _ => false,
+                    }
+                    true
                 }
+                _ => false,
             },
-            RawImageData::F32(data) => {
-                match self.data_format {
-                    RawImageFormat::RGBAF32 => {
-                        for i in 3..data.len() as usize {
-                            if i % 4 == 3 && data[i] < 0.999 {
-                                return false;
-                            }
+            RawImageData::F32(data) => match self.data_format {
+                RawImageFormat::RGBAF32 => {
+                    for i in 3..data.len() as usize {
+                        if i % 4 == 3 && data[i] < 0.999 {
+                            return false;
                         }
-                        true
-                    },
-                    _ => false,
+                    }
+                    true
                 }
+                _ => false,
             },
         }
     }
@@ -690,7 +735,7 @@ impl RawImage {
                 }
                 self.data_format = RawImageFormat::RGB8;
                 RawImageData::U8(rgb)
-            },
+            }
             (RawImageData::U8(data), RawImageFormat::BGRA8) => {
                 let mut bgr = Vec::with_capacity(data.len() / 4 * 3);
                 for i in (0..data.len()).step_by(4) {
@@ -702,7 +747,7 @@ impl RawImage {
                 }
                 self.data_format = RawImageFormat::BGR8;
                 RawImageData::U8(bgr)
-            },
+            }
             (RawImageData::U16(data), RawImageFormat::RGBA16) => {
                 let mut rgb = Vec::with_capacity(data.len() / 4 * 3);
                 for i in (0..data.len()).step_by(4) {
@@ -714,7 +759,7 @@ impl RawImage {
                 }
                 self.data_format = RawImageFormat::RGB16;
                 RawImageData::U16(rgb)
-            },
+            }
             (RawImageData::F32(data), RawImageFormat::RGBAF32) => {
                 let mut rgb = Vec::with_capacity(data.len() / 4 * 3);
                 for i in (0..data.len()).step_by(4) {
@@ -726,28 +771,28 @@ impl RawImage {
                 }
                 self.data_format = RawImageFormat::RGBF32;
                 RawImageData::F32(rgb)
-            },
+            }
             _ => return Err("Image doesn't have an alpha channel".to_string()),
         };
-        
+
         Ok(())
     }
-    
+
     /// Returns true if the image is in an RGB color format
     pub fn is_color_format(&self) -> bool {
         match self.data_format {
-            RawImageFormat::RGB8 | 
-            RawImageFormat::RGBA8 | 
-            RawImageFormat::BGR8 | 
-            RawImageFormat::BGRA8 | 
-            RawImageFormat::RGB16 | 
-            RawImageFormat::RGBA16 | 
-            RawImageFormat::RGBF32 | 
-            RawImageFormat::RGBAF32 => true,
+            RawImageFormat::RGB8
+            | RawImageFormat::RGBA8
+            | RawImageFormat::BGR8
+            | RawImageFormat::BGRA8
+            | RawImageFormat::RGB16
+            | RawImageFormat::RGBA16
+            | RawImageFormat::RGBF32
+            | RawImageFormat::RGBAF32 => true,
             _ => false,
         }
     }
-    
+
     /// Returns true if the image is in a greyscale format
     pub fn is_greyscale_format(&self) -> bool {
         match self.data_format {
@@ -755,7 +800,7 @@ impl RawImage {
             _ => false,
         }
     }
-    
+
     /// Checks if an RGB image actually has only greyscale content
     pub fn is_actually_greyscale(&self) -> bool {
         match (&self.pixels, self.data_format) {
@@ -765,55 +810,59 @@ impl RawImage {
                         let r = data[i];
                         let g = data[i + 1];
                         let b = data[i + 2];
-                        
-                        // Allow small differences in color channels (accounting for compression artifacts)
-                        if (r as i16 - g as i16).abs() > 3 || 
-                            (r as i16 - b as i16).abs() > 3 || 
-                            (g as i16 - b as i16).abs() > 3 {
+
+                        // Allow small differences in color channels (accounting for compression
+                        // artifacts)
+                        if (r as i16 - g as i16).abs() > 3
+                            || (r as i16 - b as i16).abs() > 3
+                            || (g as i16 - b as i16).abs() > 3
+                        {
                             return false;
                         }
                     }
                 }
                 true
-            },
+            }
             (RawImageData::U8(data), RawImageFormat::RGBA8) => {
                 for i in (0..data.len()).step_by(4) {
                     if i + 2 < data.len() {
                         let r = data[i];
                         let g = data[i + 1];
                         let b = data[i + 2];
-                        
-                        if (r as i16 - g as i16).abs() > 3 || 
-                            (r as i16 - b as i16).abs() > 3 || 
-                            (g as i16 - b as i16).abs() > 3 {
+
+                        if (r as i16 - g as i16).abs() > 3
+                            || (r as i16 - b as i16).abs() > 3
+                            || (g as i16 - b as i16).abs() > 3
+                        {
                             return false;
                         }
                     }
                 }
                 true
-            },
+            }
             (RawImageData::U16(data), RawImageFormat::RGB16) => {
                 for i in (0..data.len()).step_by(3) {
                     if i + 2 < data.len() {
                         let r = data[i];
                         let g = data[i + 1];
                         let b = data[i + 2];
-                        
+
                         // Allow slightly larger differences for 16-bit
-                        if (r as i32 - g as i32).abs() > 768 || 
-                            (r as i32 - b as i32).abs() > 768 || 
-                            (g as i32 - b as i32).abs() > 768 {
+                        if (r as i32 - g as i32).abs() > 768
+                            || (r as i32 - b as i32).abs() > 768
+                            || (g as i32 - b as i32).abs() > 768
+                        {
                             return false;
                         }
                     }
                 }
                 true
-            },
+            }
             // Add other formats as needed
             _ => false,
         }
     }
-    
+
     /// Converts a color image to greyscale
     pub fn convert_to_greyscale(&mut self) -> Result<(), String> {
         self.pixels = match (&self.pixels, self.data_format) {
@@ -822,61 +871,61 @@ impl RawImage {
                 for i in (0..data.len()).step_by(3) {
                     if i + 2 < data.len() {
                         // Standard RGB to greyscale conversion weights
-                        let g = (0.299 * data[i] as f32 + 
-                                0.587 * data[i + 1] as f32 + 
-                                0.114 * data[i + 2] as f32) as u8;
+                        let g = (0.299 * data[i] as f32
+                            + 0.587 * data[i + 1] as f32
+                            + 0.114 * data[i + 2] as f32) as u8;
                         grey.push(g);
                     }
                 }
                 self.data_format = RawImageFormat::R8;
                 RawImageData::U8(grey)
-            },
+            }
             (RawImageData::U8(data), RawImageFormat::RGBA8) => {
                 let mut grey = Vec::with_capacity(data.len() / 4);
                 for i in (0..data.len()).step_by(4) {
                     if i + 2 < data.len() {
-                        let g = (0.299 * data[i] as f32 + 
-                                0.587 * data[i + 1] as f32 + 
-                                0.114 * data[i + 2] as f32) as u8;
+                        let g = (0.299 * data[i] as f32
+                            + 0.587 * data[i + 1] as f32
+                            + 0.114 * data[i + 2] as f32) as u8;
                         grey.push(g);
                     }
                 }
                 self.data_format = RawImageFormat::R8;
                 RawImageData::U8(grey)
-            },
+            }
             (RawImageData::U16(data), RawImageFormat::RGB16) => {
                 let mut grey = Vec::with_capacity(data.len() / 3);
                 for i in (0..data.len()).step_by(3) {
                     if i + 2 < data.len() {
-                        let g = (0.299 * data[i] as f32 + 
-                                0.587 * data[i + 1] as f32 + 
-                                0.114 * data[i + 2] as f32) as u16;
+                        let g = (0.299 * data[i] as f32
+                            + 0.587 * data[i + 1] as f32
+                            + 0.114 * data[i + 2] as f32) as u16;
                         grey.push(g);
                     }
                 }
                 self.data_format = RawImageFormat::R16;
                 RawImageData::U16(grey)
-            },
+            }
             // Add other formats as needed
             _ => return Err("Unsupported format for greyscale conversion".to_string()),
         };
-        
+
         Ok(())
     }
-    
+
     /// Applies Floyd-Steinberg dithering to a greyscale image
     pub fn apply_dithering(&mut self) -> Result<(), String> {
         if !self.is_greyscale_format() {
             return Err("Dithering can only be applied to greyscale images".to_string());
         }
-        
+
         match (&mut self.pixels, self.data_format) {
             (RawImageData::U8(data), RawImageFormat::R8) => {
                 // Create a mutable 2D grid for applying dithering
                 let width = self.width;
                 let height = self.height;
                 let mut grid = Vec::with_capacity(height);
-                
+
                 // Convert linear data to 2D grid
                 for y in 0..height {
                     let mut row = Vec::with_capacity(width);
@@ -889,35 +938,37 @@ impl RawImage {
                     }
                     grid.push(row);
                 }
-                
+
                 // Apply Floyd-Steinberg dithering
                 for y in 0..height {
                     for x in 0..width {
                         let old_pixel = grid[y][x];
                         let new_pixel = if old_pixel > 127 { 255 } else { 0 };
                         let quant_error = old_pixel - new_pixel;
-                        
+
                         grid[y][x] = new_pixel;
-                        
+
                         // Distribute the error to neighboring pixels
                         if x + 1 < width {
                             grid[y][x + 1] = (grid[y][x + 1] + quant_error * 7 / 16).clamp(0, 255);
                         }
-                        
+
                         if y + 1 < height {
                             if x > 0 {
-                                grid[y + 1][x - 1] = (grid[y + 1][x - 1] + quant_error * 3 / 16).clamp(0, 255);
+                                grid[y + 1][x - 1] =
+                                    (grid[y + 1][x - 1] + quant_error * 3 / 16).clamp(0, 255);
                             }
-                            
+
                             grid[y + 1][x] = (grid[y + 1][x] + quant_error * 5 / 16).clamp(0, 255);
-                            
+
                             if x + 1 < width {
-                                grid[y + 1][x + 1] = (grid[y + 1][x + 1] + quant_error * 1 / 16).clamp(0, 255);
+                                grid[y + 1][x + 1] =
+                                    (grid[y + 1][x + 1] + quant_error * 1 / 16).clamp(0, 255);
                             }
                         }
                     }
                 }
-                
+
                 // Convert back to linear data
                 let mut result = Vec::with_capacity(data.len());
                 for y in 0..height {
@@ -925,19 +976,19 @@ impl RawImage {
                         result.push(grid[y][x] as u8);
                     }
                 }
-                
+
                 // Update the original data
                 *data = result;
-                
+
                 // After dithering, the image is effectively 1-bit
                 // We could change the format to something like RawImageFormat::Bit1 if it existed
-                
+
                 Ok(())
-            },
+            }
             _ => Err("Unsupported format for dithering".to_string()),
         }
     }
-    
+
     /// Estimates the size of the image in bytes (uncompressed)
     pub fn estimate_size_bytes(&self) -> usize {
         let bits_per_pixel = match self.data_format {
@@ -952,11 +1003,11 @@ impl RawImage {
             RawImageFormat::RGBF32 => 96,   // 3 * 32 bits
             RawImageFormat::RGBAF32 => 128, // 4 * 32 bits
         };
-        
+
         // Calculate size in bytes (rounded up to nearest byte)
         (self.width * self.height * bits_per_pixel + 7) / 8
     }
-    
+
     /// Resizes the image to fit within a maximum size in bytes
     pub fn resize_to_fit_size(&mut self, max_size_bytes: usize) -> Result<(), String> {
         let current_size = self.estimate_size_bytes();
@@ -964,34 +1015,34 @@ impl RawImage {
             // Already small enough
             return Ok(());
         }
-        
+
         // Calculate the scaling factor needed to fit within max_size
         let scale_factor = (max_size_bytes as f64 / current_size as f64).sqrt();
-        
+
         // Calculate new dimensions
         let new_width = (self.width as f64 * scale_factor).round() as usize;
         let new_height = (self.height as f64 * scale_factor).round() as usize;
-        
+
         // Ensure new dimensions are at least 1 pixel
         let new_width = new_width.max(1);
         let new_height = new_height.max(1);
-        
+
         // For simplicity, we'll use a basic resampling approach
         // In a real implementation, you might want to use a library like image-rs
-        
+
         match (&self.pixels, self.data_format) {
             (RawImageData::U8(data), RawImageFormat::RGB8) => {
                 let mut new_data = Vec::with_capacity(new_width * new_height * 3);
-                
+
                 for y in 0..new_height {
                     for x in 0..new_width {
                         // Map new coordinates to old coordinates
                         let old_x = (x as f64 * self.width as f64 / new_width as f64) as usize;
                         let old_y = (y as f64 * self.height as f64 / new_height as f64) as usize;
-                        
+
                         // Calculate index in the original data
                         let old_idx = (old_y * self.width + old_x) * 3;
-                        
+
                         // Copy pixel if in bounds
                         if old_idx + 2 < data.len() {
                             new_data.push(data[old_idx]);
@@ -1005,13 +1056,13 @@ impl RawImage {
                         }
                     }
                 }
-                
+
                 self.pixels = RawImageData::U8(new_data);
                 self.width = new_width;
                 self.height = new_height;
-                
+
                 Ok(())
-            },
+            }
             // Implement other formats as needed
             _ => Err("Resize not implemented for this format".to_string()),
         }
@@ -1019,9 +1070,9 @@ impl RawImage {
 }
 
 pub(crate) fn image_to_stream(
-    im: RawImage, 
-    doc: &mut lopdf::Document, 
-    options: Option<&ImageOptimizationOptions>
+    im: RawImage,
+    doc: &mut lopdf::Document,
+    options: Option<&ImageOptimizationOptions>,
 ) -> lopdf::Stream {
     use lopdf::Object::*;
 
@@ -1054,19 +1105,22 @@ pub(crate) fn image_to_stream(
     if let Some(opts) = options {
         if let Some(filter) = get_compression_filter(opts, &rgb8) {
             dict.set("Filter", Name(filter.into()));
-            
+
             // Set DecodeParms for some filters
             if matches!(filter, "DCTDecode") && opts.quality.is_some() {
                 let quality = (opts.quality.unwrap() * 100.0) as i64;
-                dict.set("DecodeParms", Dictionary(lopdf::Dictionary::from_iter(vec![
-                    ("Quality", Integer(quality))
-                ])));
+                dict.set(
+                    "DecodeParms",
+                    Dictionary(lopdf::Dictionary::from_iter(vec![(
+                        "Quality",
+                        Integer(quality),
+                    )])),
+                );
             }
         }
     }
 
     if let Some(alpha) = alpha {
-
         use crate::image::ImageCompression::*;
 
         let mut smask_dict = lopdf::Dictionary::from_iter(vec![
@@ -1079,9 +1133,7 @@ pub(crate) fn image_to_stream(
             ("ColorSpace", Name(ColorSpace::Greyscale.as_string().into())),
         ]);
 
-        let format = options.as_ref()
-        .and_then(|s| s.format)
-        .unwrap_or_default();
+        let format = options.as_ref().and_then(|s| s.format).unwrap_or_default();
 
         // Create alpha-specific options that prefer lossless compression
         let alpha_opts = ImageOptimizationOptions {
@@ -1092,26 +1144,30 @@ pub(crate) fn image_to_stream(
             } else {
                 format // Otherwise use the same format as main image
             }),
-            .. options.cloned().unwrap_or_default()
+            ..options.cloned().unwrap_or_default()
         };
 
         // Apply compression to alpha channel too, but prefer lossless methods for alpha
         if let Some(filter) = get_compression_filter(&alpha_opts, &alpha) {
             smask_dict.set("Filter", Name(filter.into()));
-            
+
             // Set DecodeParms for alpha channel if needed
             let jpeg_quality = options.as_ref().and_then(|s| s.quality);
             if matches!(filter, "DCTDecode") && jpeg_quality.is_some() {
                 let quality = (jpeg_quality.unwrap() * 100.0) as i64;
-                smask_dict.set("DecodeParms", Dictionary(lopdf::Dictionary::from_iter(vec![
-                    ("Quality", Integer(quality))
-                ])));
+                smask_dict.set(
+                    "DecodeParms",
+                    Dictionary(lopdf::Dictionary::from_iter(vec![(
+                        "Quality",
+                        Integer(quality),
+                    )])),
+                );
             }
         }
 
         let smask_has_filter = smask_dict.has(b"Filter");
         let mut stream = lopdf::Stream::new(smask_dict, alpha.pixels);
-        
+
         // Only apply default compression if no filter was specified
         if !smask_has_filter {
             stream = stream.with_compression(true);
@@ -1123,7 +1179,7 @@ pub(crate) fn image_to_stream(
 
     let dict_has_filter = dict.has(b"Filter");
     let mut s = lopdf::Stream::new(dict, rgb8.pixels);
-    
+
     // Only apply default compression if no filter was specified
     if !dict_has_filter {
         s = s.with_compression(true);
@@ -1133,7 +1189,10 @@ pub(crate) fn image_to_stream(
     s
 }
 
-fn get_compression_filter(opts: &ImageOptimizationOptions, image: &RawImageU8) -> Option<&'static str> {
+fn get_compression_filter(
+    opts: &ImageOptimizationOptions,
+    image: &RawImageU8,
+) -> Option<&'static str> {
     match opts.format.unwrap_or_default() {
         ImageCompression::Auto => {
             if image.data_format == RawImageFormat::R8 {
@@ -1143,7 +1202,7 @@ fn get_compression_filter(opts: &ImageOptimizationOptions, image: &RawImageU8) -
                 // For color images, DCT (JPEG) is usually the best choice
                 Some("DCTDecode")
             }
-        },
+        }
         ImageCompression::Jpeg => Some("DCTDecode"),
         ImageCompression::Jpeg2000 => Some("JPXDecode"),
         ImageCompression::Flate => Some("FlateDecode"),
@@ -1221,5 +1280,153 @@ pub fn translate_to_internal_rawimage(im: &RawImage) -> azul_core::app_resources
         premultiplied_alpha: false,
         data_format: im.data_format.into_internal(),
         tag: im.tag.clone().into(),
+    }
+}
+
+#[cfg(all(feature = "js-sys", target_family = "wasm"))]
+mod browser_image {
+
+    use js_sys::{Array, Uint8Array, Promise, Object, Reflect};
+    use wasm_bindgen::{JsCast, JsValue, closure::Closure};
+    use wasm_bindgen_futures::JsFuture;
+    use web_sys::{js_sys, window, Blob, BlobPropertyBag, CanvasRenderingContext2d, HtmlCanvasElement, HtmlImageElement, ImageBitmap};
+    use std::io::Cursor;
+    use super::{RawImage, RawImageData, RawImageFormat, OutputImageFormat};
+
+    // Decode image bytes using browser's capabilities
+    pub async fn decode_image_with_browser(bytes: &[u8]) -> Result<RawImage, String> {
+        let window = window().ok_or("No window available")?;
+        
+        // Create a Blob from the bytes
+        let array = Array::new();
+        let uint8_array = Uint8Array::from(bytes);
+        array.push(&uint8_array.buffer());
+        
+        let options = BlobPropertyBag::new();
+        let blob = Blob::new_with_u8_array_sequence_and_options(
+            &array, &options).map_err(|e| format!("Failed to create Blob: {:?}", e))?;
+        
+        // Create ImageBitmap from Blob
+        let promise = window.create_image_bitmap_with_blob(&blob)
+            .map_err(|e| format!("Failed to create ImageBitmap: {:?}", e))?;
+        
+        let bitmap: ImageBitmap = JsFuture::from(promise)
+            .await
+            .map_err(|e| format!("Promise rejected: {:?}", e))?
+            .dyn_into()
+            .map_err(|_| "Failed to cast to ImageBitmap")?;
+        
+        // Create a canvas to extract pixel data
+        let document = window.document().ok_or("No document available")?;
+        let canvas = document
+            .create_element("canvas")
+            .map_err(|_| "Failed to create canvas")?
+            .dyn_into::<HtmlCanvasElement>()
+            .map_err(|_| "Failed to cast to HtmlCanvasElement")?;
+        
+        let width = bitmap.width() as usize;
+        let height = bitmap.height() as usize;
+        
+        canvas.set_width(width as u32);
+        canvas.set_height(height as u32);
+        
+        let context = canvas
+            .get_context("2d")
+            .map_err(|_| "Failed to get context")?
+            .ok_or("Context is null")?
+            .dyn_into::<CanvasRenderingContext2d>()
+            .map_err(|_| "Failed to cast to CanvasRenderingContext2d")?;
+        
+        context.draw_image_with_image_bitmap(&bitmap, 0.0, 0.0)
+            .map_err(|_| "Failed to draw image")?;
+        
+        let image_data = context
+            .get_image_data(0.0, 0.0, width as f64, height as f64)
+            .map_err(|_| "Failed to get image data")?;
+        
+        let data = image_data.data();
+        let data_vec = data.to_vec();
+        
+        // Convert to RawImage (RGBA8 format)
+        Ok(RawImage {
+            pixels: RawImageData::U8(data_vec),
+            width,
+            height,
+            data_format: RawImageFormat::RGBA8,
+            tag: Vec::new(),
+        })
+    }
+
+    // Encode image to specific format using browser's Canvas API
+    pub async fn encode_image_with_browser(
+        image: &RawImage, 
+        format: OutputImageFormat,
+    ) -> Result<Vec<u8>, String> {
+
+        // Convert format to mime type
+        let mime_type = match format {
+            OutputImageFormat::Jpeg => "image/jpeg",
+            OutputImageFormat::Png => "image/png",
+            OutputImageFormat::Webp => "image/webp",
+            _ => return Err(format!("Format {:?} not supported by browser", format)),
+        };
+
+        // Get pixel data
+        let pixels = match &image.pixels {
+            RawImageData::U8(data) => data,
+            _ => return Err("Only U8 data is supported for browser encoding".to_string()),
+        };
+
+        // Set up canvas
+        let window = window().ok_or("No window available")?;
+        let document = window.document().ok_or("No document available")?;
+        let canvas = document
+            .create_element("canvas")
+            .map_err(|_| "Failed to create canvas")?
+            .dyn_into::<HtmlCanvasElement>()
+            .map_err(|_| "Failed to cast to HtmlCanvasElement")?;
+        
+        canvas.set_width(image.width as u32);
+        canvas.set_height(image.height as u32);
+        
+        let context = canvas
+            .get_context("2d")
+            .map_err(|_| "Failed to get context")?
+            .ok_or("Context is null")?
+            .dyn_into::<CanvasRenderingContext2d>()
+            .map_err(|_| "Failed to cast to CanvasRenderingContext2d")?;
+        
+        // Create ImageData and put it on canvas
+        let uint8_clamped_array = js_sys::Uint8ClampedArray::from(pixels.as_slice());
+        let image_data = web_sys::ImageData::new_with_js_u8_clamped_array_and_sh(
+            &uint8_clamped_array,
+            image.width as u32,
+            image.height as u32,
+        ).map_err(|_| "Failed to create ImageData")?;
+        
+        context.put_image_data(&image_data, 0.0, 0.0)
+            .map_err(|_| "Failed to put image data")?;
+        
+        // Get data URL
+        let data_url = canvas.to_data_url_with_type(mime_type)
+        .map_err(|_| format!("Failed to encode to {}", mime_type))?;
+        
+        // Extract binary data from data URL
+        let bytes = crate::wasm::structs::Base64OrRaw::B64(data_url)
+            .decode_bytes()?;
+        
+        Ok(bytes)
+    }
+}
+
+// Extend the RawImage implementation with browser-specific methods
+#[cfg(all(feature = "js-sys", target_family = "wasm"))]
+impl RawImage {
+    pub async fn decode_from_bytes_browser(bytes: &[u8]) -> Result<Self, String> {
+        browser_image::decode_image_with_browser(bytes).await
+    }
+    
+    pub async fn encode_to_bytes_browser(&self, f: OutputImageFormat) -> Result<Vec<u8>, String> {
+        browser_image::encode_image_with_browser(self, f).await
     }
 }

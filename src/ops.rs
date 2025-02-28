@@ -1,5 +1,6 @@
 use serde_derive::{Deserialize, Serialize};
 
+pub use crate::text::TextItem;
 use crate::{
     BuiltinFont, DictItem, ExtendedGraphicsStateId, FontId, LayerInternalId, LinkAnnotation,
     PdfResources, PdfToSvgOptions, RenderingIntent, XObjectId, XObjectTransform,
@@ -152,13 +153,13 @@ pub enum Op {
     EndTextSection,
     /// Writes text, only valid between `StartTextSection` and `EndTextSection`
     WriteText {
-        text: String,
+        items: Vec<TextItem>,
         size: Pt,
         font: FontId,
     },
     /// Writes text using a builtin font.
     WriteTextBuiltinFont {
-        text: String,
+        items: Vec<TextItem>,
         size: Pt,
         font: BuiltinFont,
     },

@@ -3,6 +3,7 @@
 //! without the JS limitations of having to jump through base64 encoding / decoding.
 
 use std::collections::BTreeMap;
+
 use serde_derive::{Deserialize, Serialize};
 
 /// Generalized API return for WASM / JS
@@ -95,27 +96,26 @@ pub fn Pdf_DocumentToBytes(input: String) -> String {
     api_inner(&input, crate::wasm::structs::document_to_bytes)
 }
 
-
-fn api_inner<'a, T, Q>(input: &'a str, f: fn(&Q) -> Result<T, String>) -> String 
-where T: serde::Serialize, Q: serde::Deserialize<'a> {
+fn api_inner<'a, T, Q>(input: &'a str, f: fn(&Q) -> Result<T, String>) -> String
+where
+    T: serde::Serialize,
+    Q: serde::Deserialize<'a>,
+{
     serde_json::to_string(&match serde_json::from_str::<Q>(input) {
         Ok(input) => match (f)(&input) {
             Ok(o) => PdfApiReturn {
                 status: 0,
-                data: StatusOrData::Ok(o)
+                data: StatusOrData::Ok(o),
             },
-            Err(e) => {
-                PdfApiReturn {
-                    status: 2,
-                    data: StatusOrData::Error(e),
-                }
-            }
+            Err(e) => PdfApiReturn {
+                status: 2,
+                data: StatusOrData::Error(e),
+            },
         },
-        Err(e) => {
-            PdfApiReturn {
-                status: 1,
-                data: StatusOrData::Error(format!("failed to deserialize input: {e}")),
-            }
-        }
-    }).unwrap_or_default()
+        Err(e) => PdfApiReturn {
+            status: 1,
+            data: StatusOrData::Error(format!("failed to deserialize input: {e}")),
+        },
+    })
+    .unwrap_or_default()
 }

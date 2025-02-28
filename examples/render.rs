@@ -7,7 +7,7 @@ fn main() {
     let font = ParsedFont::from_bytes(ROBOTO_TTF, 0).unwrap();
     let fid = doc.add_font(&font);
     let ops = vec![Op::WriteText {
-        text: "Hello World!".to_string(),
+        items: vec!["Hello World!".into()],
         size: Pt(20.0),
         font: fid,
     }];

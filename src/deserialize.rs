@@ -16,7 +16,8 @@ use crate::{
     BuiltinFont, Color, DictItem, ExtendedGraphicsStateId, ExtendedGraphicsStateMap, FontId,
     LineDashPattern, LinePoint, Op, PageAnnotMap, ParsedFont, PdfDocument, PdfDocumentInfo,
     PdfFontMap, PdfLayerMap, PdfMetadata, PdfPage, PdfResources, PolygonRing, RawImage,
-    RenderingIntent, TextMatrix, TextRenderingMode, XObject, XObjectId, XObjectMap,
+    RenderingIntent, TextItem, TextMatrix, TextRenderingMode, XObject, XObjectId, XObjectMap,
+    cmap::ToUnicodeCMap,
     conformance::PdfConformance,
     date::{OffsetDateTime, UtcOffset},
 };
@@ -804,7 +805,6 @@ pub fn parse_op(
 
         // --- Text showing with spacing ---
         "TJ" => {
-            // 'TJ' shows text with individual spacing adjustments.
             if !state.in_text_mode {
                 warnings.push(PdfWarnMsg::error(
                     page,
@@ -812,6 +812,7 @@ pub fn parse_op(
                     "Warning: 'TJ' outside of text mode!".to_string(),
                 ));
             }
+
             if op.operands.is_empty() {
                 warnings.push(PdfWarnMsg::error(
                     page,
@@ -819,27 +820,23 @@ pub fn parse_op(
                     "Warning: 'TJ' with no operands".to_string(),
                 ));
             } else if let Some(arr) = op.operands.get(0).and_then(|o| o.as_array().ok()) {
-                let mut text_str = String::new();
-                for item in arr {
-                    match item {
-                        // When a string is encountered, append it.
-                        Object::String(bytes, _) => {
-                            text_str.push_str(&String::from_utf8_lossy(bytes));
+                // Get the font for CMap lookup
+                let to_unicode_cmap =
+                    if let (Some(fid), _) = (&state.current_font, state.current_font_size) {
+                        match fonts.get(fid) {
+                            Some(ParsedOrBuiltinFont::P(font)) => {
+                                // Try to get the CMap from the parsed font
+                                find_to_unicode_cmap(font)
+                            }
+                            _ => None,
                         }
-                        // Numeric values indicate spacing adjustments (kerning).
-                        // You could choose to handle these specially.
-                        Object::Integer(_i) => {
-                            // For simplicity, ignore spacing adjustments.
-                        }
-                        _ => {
-                            warnings.push(PdfWarnMsg::error(
-                                page,
-                                op_id,
-                                "Warning: unexpected element in TJ array".to_string(),
-                            ));
-                        }
-                    }
-                }
+                    } else {
+                        None
+                    };
+
+                // Decode the TJ array into TextItems
+                let text_items = crate::text::decode_tj_operands(arr, to_unicode_cmap.as_ref());
+
                 if let (Some(fid), Some(sz)) = (&state.current_font, state.current_font_size) {
                     let f = match fonts.get(fid) {
                         Some(s) => s,
@@ -849,14 +846,14 @@ pub fn parse_op(
                     match f {
                         ParsedOrBuiltinFont::B(b) => {
                             out_ops.push(Op::WriteTextBuiltinFont {
-                                text: text_str,
+                                items: text_items,
                                 font: b.clone(),
                                 size: sz,
                             });
                         }
                         ParsedOrBuiltinFont::P(_) => {
                             out_ops.push(Op::WriteText {
-                                text: text_str,
+                                items: text_items,
                                 font: fid.clone(),
                                 size: sz,
                             });
@@ -878,6 +875,77 @@ pub fn parse_op(
             }
         }
 
+        "Tj" => {
+            if !state.in_text_mode {
+                warnings.push(PdfWarnMsg::error(
+                    page,
+                    op_id,
+                    "Warning: 'Tj' outside of text mode!".to_string(),
+                ));
+            }
+
+            if op.operands.is_empty() {
+                warnings.push(PdfWarnMsg::error(
+                    page,
+                    op_id,
+                    "Warning: 'Tj' with no operands".to_string(),
+                ));
+            } else if let lopdf::Object::String(bytes, format) = &op.operands[0] {
+                // Get the font for CMap lookup
+                let to_unicode_cmap =
+                    if let (Some(fid), _) = (&state.current_font, state.current_font_size) {
+                        match fonts.get(fid) {
+                            Some(ParsedOrBuiltinFont::P(font)) => {
+                                // Try to get the CMap from the parsed font
+                                find_to_unicode_cmap_from_font(font)
+                            }
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    };
+
+                // Create a temporary lopdf::Object for decoding
+                let string_obj = lopdf::Object::String(bytes.clone(), *format);
+
+                // Decode the PDF string using the CMap if available
+                let text_str =
+                    crate::text::decode_pdf_string(&string_obj, to_unicode_cmap.as_ref());
+
+                // Create a single TextItem with no kerning
+                let text_items = vec![TextItem::Text(text_str)];
+
+                if let (Some(fid), Some(sz)) = (&state.current_font, state.current_font_size) {
+                    let f = match fonts.get(fid) {
+                        Some(s) => s,
+                        None => &ParsedOrBuiltinFont::B(BuiltinFont::TimesRoman),
+                    };
+
+                    match f {
+                        ParsedOrBuiltinFont::B(b) => {
+                            out_ops.push(Op::WriteTextBuiltinFont {
+                                items: text_items,
+                                font: b.clone(),
+                                size: sz,
+                            });
+                        }
+                        ParsedOrBuiltinFont::P(_) => {
+                            out_ops.push(Op::WriteText {
+                                items: text_items,
+                                font: fid.clone(),
+                                size: sz,
+                            });
+                        }
+                    }
+                }
+            } else {
+                warnings.push(PdfWarnMsg::error(
+                    page,
+                    op_id,
+                    "Warning: 'Tj' operand is not string".to_string(),
+                ));
+            }
+        }
         "T*" => {
             out_ops.push(Op::AddLineBreak);
         }
@@ -1065,55 +1133,6 @@ pub fn parse_op(
                         .map(|s| DictItem::from_lopdf(s))
                         .collect(),
                 });
-            }
-        }
-
-        // --- Show text (Tj) single string example ---
-        "Tj" => {
-            if !state.in_text_mode {
-                warnings.push(PdfWarnMsg::error(
-                    page,
-                    op_id,
-                    format!("Warning: 'Tj' outside of text mode!"),
-                ));
-            }
-            if op.operands.is_empty() {
-                warnings.push(PdfWarnMsg::error(
-                    page,
-                    op_id,
-                    format!("Warning: 'Tj' with no operands"),
-                ));
-            } else if let lopdf::Object::String(bytes, _) = &op.operands[0] {
-                let text_str = String::from_utf8_lossy(bytes).to_string();
-                if let (Some(fid), Some(sz)) = (&state.current_font, state.current_font_size) {
-                    let f = match fonts.get(fid) {
-                        Some(s) => s,
-                        None => &ParsedOrBuiltinFont::B(BuiltinFont::TimesRoman),
-                    };
-
-                    match f {
-                        ParsedOrBuiltinFont::B(b) => {
-                            out_ops.push(Op::WriteTextBuiltinFont {
-                                text: text_str,
-                                font: b.clone(),
-                                size: sz,
-                            });
-                        }
-                        ParsedOrBuiltinFont::P(_) => {
-                            out_ops.push(Op::WriteText {
-                                text: text_str,
-                                font: fid.clone(),
-                                size: sz,
-                            });
-                        }
-                    }
-                }
-            } else {
-                warnings.push(PdfWarnMsg::error(
-                    page,
-                    op_id,
-                    format!("Warning: 'Tj' operand is not string"),
-                ));
             }
         }
 
@@ -1715,6 +1734,46 @@ pub fn parse_op(
     }
 
     Ok(out_ops)
+}
+
+/// Try to find or create a ToUnicodeCMap from a ParsedFont
+fn find_to_unicode_cmap_from_font(font: &ParsedFont) -> Option<ToUnicodeCMap> {
+    // First check if the font has a direct reference to a CMap
+    if let Some(cmap_subtable) = &font.cmap_subtable {
+        // Convert from OwnedCmapSubtable to ToUnicodeCMap
+        let mut mappings = BTreeMap::new();
+
+        // Construct a manual mapping from the CMap subtable data
+        for c in 0..65535u32 {
+            if let Ok(Some(gid)) = cmap_subtable.map_glyph(c) {
+                mappings.insert(gid as u32, vec![c]);
+            }
+        }
+
+        return Some(ToUnicodeCMap { mappings });
+    }
+
+    // If no CMap found in the font, return None
+    None
+}
+
+/// Helper to decode TJ array contents using CMap if available
+fn find_to_unicode_cmap(font: &ParsedFont) -> Option<ToUnicodeCMap> {
+    // Fallback: Try to create a ToUnicode CMap from the font's cmap subtable
+    if let Some(cmap_subtable) = &font.cmap_subtable {
+        let mut mappings = BTreeMap::new();
+
+        // Construct a mapping from the CMap subtable data
+        for unicode in 0..65535u32 {
+            if let Ok(Some(gid)) = cmap_subtable.map_glyph(unicode) {
+                mappings.insert(gid as u32, vec![unicode]);
+            }
+        }
+
+        return Some(ToUnicodeCMap { mappings });
+    }
+
+    None
 }
 
 /// Returns a default date (Unix epoch)

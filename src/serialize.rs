@@ -10,10 +10,10 @@ use lopdf::{
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    Actions, BuiltinFont, Color, ColorArray, Destination, FontId, IccProfileType, Line,
-    LinkAnnotation, Op, PaintMode, ParsedFont, PdfDocument, PdfDocumentInfo, PdfPage, PdfResources,
-    Polygon, XObject, XObjectId, color::IccProfile, font::SubsetFont,
-    ImageOptimizationOptions,
+    Actions, BuiltinFont, Color, ColorArray, Destination, FontId, IccProfileType,
+    ImageOptimizationOptions, Line, LinkAnnotation, Op, PaintMode, ParsedFont, PdfDocument,
+    PdfDocumentInfo, PdfPage, PdfResources, Polygon, TextItem, XObject, XObjectId,
+    color::IccProfile, font::SubsetFont,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
@@ -36,9 +36,15 @@ pub struct PdfSaveOptions {
     pub image_optimization: Option<ImageOptimizationOptions>,
 }
 
-const fn default_optimize() -> bool { true }
-const fn default_subset_fonts() -> bool { true }
-const fn default_secure() -> bool { true }
+const fn default_optimize() -> bool {
+    true
+}
+const fn default_subset_fonts() -> bool {
+    true
+}
+const fn default_secure() -> bool {
+    true
+}
 
 impl Default for PdfSaveOptions {
     fn default() -> Self {
@@ -176,11 +182,7 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec
     for (k, v) in pdf.resources.xobjects.map.iter() {
         global_xobject_dict.set(
             k.0.clone(),
-            crate::xobject::add_xobject_to_document(
-                v, 
-                &mut doc, 
-                opts.image_optimization.as_ref(),
-            ),
+            crate::xobject::add_xobject_to_document(v, &mut doc, opts.image_optimization.as_ref()),
         );
     }
     let global_xobject_dict_id = doc.add_object(global_xobject_dict);
@@ -447,36 +449,81 @@ pub(crate) fn translate_operations(
             Op::EndTextSection => {
                 content.push(LoOp::new("ET", vec![]));
             }
-            Op::WriteText { text, font, size } => {
+            Op::WriteText { items, font, size } => {
                 if let Some(prepared_font) = fonts.get(font) {
                     content.push(LoOp::new(
                         "Tf",
                         vec![font.0.clone().into(), (size.0).into()],
                     ));
 
-                    let glyph_ids = text
-                        .chars()
-                        .filter_map(|s| prepared_font.original.lookup_glyph_index(s as u32))
-                        .collect::<Vec<_>>();
+                    // Convert TextItems to PDF objects for the TJ operator
+                    let mut tj_array = Vec::new();
 
-                    let bytes = glyph_ids
-                        .iter()
-                        .flat_map(|x| vec![(x >> 8) as u8, (x & 255) as u8])
-                        .collect::<Vec<u8>>();
+                    for item in items {
+                        match item {
+                            TextItem::Text(text) => {
+                                // Get glyph IDs for the text
+                                let glyph_ids = text
+                                    .chars()
+                                    .filter_map(|s| {
+                                        prepared_font.original.lookup_glyph_index(s as u32)
+                                    })
+                                    .collect::<Vec<_>>();
 
-                    content.push(LoOp::new("Tj", vec![LoString(bytes, Hexadecimal)]));
+                                let bytes = glyph_ids
+                                    .iter()
+                                    .flat_map(|x| vec![(x >> 8) as u8, (x & 255) as u8])
+                                    .collect::<Vec<u8>>();
+
+                                tj_array.push(LoString(bytes, Hexadecimal));
+                            }
+                            TextItem::Offset(offset) => {
+                                tj_array.push(Integer(*offset as i64));
+                            }
+                        }
+                    }
+
+                    // Only use TJ if we have multiple items or kerning offsets
+                    if items.len() > 1 || items.iter().any(|i| matches!(i, TextItem::Offset(_))) {
+                        content.push(LoOp::new("TJ", vec![Array(tj_array)]));
+                    } else if let Some(TextItem::Text(_)) = items.first() {
+                        // If it's a single text item with no kerning, use simpler Tj
+                        content.push(LoOp::new("TJ", vec![Array(tj_array)]));
+                    }
                 }
             }
-            Op::WriteTextBuiltinFont { text, font, size } => {
+
+            Op::WriteTextBuiltinFont { items, font, size } => {
                 content.push(LoOp::new(
                     "Tf",
                     vec![font.get_pdf_id().into(), (size.0).into()],
                 ));
-                let bytes = lopdf::Document::encode_text(
-                    &lopdf::Encoding::SimpleEncoding(b"WinAnsiEncoding"),
-                    text,
-                );
-                content.push(LoOp::new("Tj", vec![LoString(bytes, Hexadecimal)]));
+
+                // Convert TextItems to PDF objects for the TJ operator
+                let mut tj_array = Vec::new();
+
+                for item in items {
+                    match item {
+                        TextItem::Text(text) => {
+                            let bytes = lopdf::Document::encode_text(
+                                &lopdf::Encoding::SimpleEncoding(b"WinAnsiEncoding"),
+                                text,
+                            );
+                            tj_array.push(LoString(bytes, Hexadecimal));
+                        }
+                        TextItem::Offset(offset) => {
+                            tj_array.push(Integer(*offset as i64));
+                        }
+                    }
+                }
+
+                // Only use TJ if we have multiple items or kerning offsets
+                if items.len() > 1 || items.iter().any(|i| matches!(i, TextItem::Offset(_))) {
+                    content.push(LoOp::new("TJ", vec![Array(tj_array)]));
+                } else if let Some(TextItem::Text(_)) = items.first() {
+                    // If it's a single text item with no kerning, use simpler Tj
+                    content.push(LoOp::new("TJ", vec![Array(tj_array)]));
+                }
             }
             Op::WriteCodepoints { font, cp, size } => {
                 if let Some(prepared_font) = fonts.get(font) {

@@ -1,11 +1,56 @@
 /// PDF Text decoding / encoding and ToUnicode handling
 use lopdf::{Object, StringFormat};
+use serde_derive::{Deserialize, Serialize};
 
 /// Represents a text segment (decoded as a UTF-8 String) or a spacing adjustment
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[serde(untagged)]
 pub enum TextItem {
     Text(String), // A segment of text
     Offset(i32),  // A spacing adjustment (in thousandths of an em)
+}
+
+impl From<String> for TextItem {
+    fn from(s: String) -> Self {
+        TextItem::Text(s)
+    }
+}
+
+impl From<&str> for TextItem {
+    fn from(s: &str) -> Self {
+        TextItem::Text(s.to_string())
+    }
+}
+
+impl From<i32> for TextItem {
+    fn from(n: i32) -> Self {
+        TextItem::Offset(n)
+    }
+}
+
+impl From<i64> for TextItem {
+    fn from(n: i64) -> Self {
+        TextItem::Offset(n as i32)
+    }
+}
+
+impl From<f32> for TextItem {
+    fn from(n: f32) -> Self {
+        TextItem::Offset(n.round() as i32)
+    }
+}
+
+impl From<f64> for TextItem {
+    fn from(n: f64) -> Self {
+        TextItem::Offset(n.round() as i32)
+    }
+}
+
+// Optional: For convenience with small integer literals
+impl From<u8> for TextItem {
+    fn from(n: u8) -> Self {
+        TextItem::Offset(n as i32)
+    }
 }
 
 /// A trait for mapping raw byte sequences to Unicode using a ToUnicode CMap.

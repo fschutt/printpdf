@@ -6,7 +6,7 @@ use serde_derive::{Deserialize, Serialize};
 use crate::{
     BlackGenerationExtraFunction, BlackGenerationFunction, BlendMode, Color, CurTransMat,
     ExtendedGraphicsState, FontId, HalftoneType, LineCapStyle, LineDashPattern, LineJoinStyle,
-    OutputImageFormat, OverprintMode, PdfResources, Point, Pt, RenderingIntent, SoftMask,
+    OutputImageFormat, OverprintMode, PdfResources, Point, Pt, RenderingIntent, SoftMask, TextItem,
     TextMatrix, TextRenderingMode, TransferExtraFunction, TransferFunction,
     UnderColorRemovalExtraFunction, UnderColorRemovalFunction, ops::PdfPage,
     serialize::prepare_fonts,
@@ -454,8 +454,8 @@ pub fn render_to_svg(page: &PdfPage, resources: &PdfResources, opts: &PdfToSvgOp
             Op::EndTextSection => {
                 svg.push_str("</text>");
             }
-            Op::WriteText { text, size, font } => {}
-            Op::WriteTextBuiltinFont { text, size, font } => {}
+            Op::WriteText { items, size, font } => {}
+            Op::WriteTextBuiltinFont { items, size, font } => {}
             Op::WriteCodepoints { font, size, cp } => {}
             Op::WriteCodepointsWithKerning { font, size, cpk } => {}
             Op::DrawLine { line } => {}
@@ -488,4 +488,43 @@ pub fn render_to_svg(page: &PdfPage, resources: &PdfResources, opts: &PdfToSvgOp
 
     svg.push_str("</svg>");
     svg
+}
+
+// In render.rs
+fn render_text_to_svg(items: &[TextItem], size: Pt, font_family: &str) -> String {
+    let mut result = String::new();
+    let mut x_offset = 0.0;
+
+    for item in items {
+        match item {
+            TextItem::Text(text) => {
+                // Escape text for XML
+                let escaped = escape_xml_text(text);
+
+                // Add a tspan if we have an offset
+                if x_offset != 0.0 {
+                    result.push_str(&format!("<tspan dx=\"{}\">{}</tspan>", x_offset, escaped));
+                    x_offset = 0.0;
+                } else {
+                    result.push_str(&escaped);
+                }
+            }
+            TextItem::Offset(offset) => {
+                // Convert offset from thousandths of an em to actual points
+                // Negative numbers in TJ mean add space, positive mean remove space
+                let em_size = size.0; // Size in points
+                x_offset += -*offset as f32 * em_size / 1000.0;
+            }
+        }
+    }
+
+    result
+}
+
+fn escape_xml_text(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
 }
