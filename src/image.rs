@@ -5,6 +5,7 @@ use base64::Engine;
 use image::{DynamicImage, GenericImageView};
 use serde::de::Error;
 use serde_derive::{Deserialize, Serialize};
+use svg2pdf::usvg::Image;
 
 use crate::{ColorBits, ColorSpace};
 
@@ -1049,8 +1050,8 @@ pub(crate) fn image_to_stream(
         ),
     ]);
 
+    // Apply compression filter based on options
     if let Some(opts) = options {
-        // Set compression filter based on options
         if let Some(filter) = get_compression_filter(opts, &rgb8) {
             dict.set("Filter", Name(filter.into()));
             
@@ -1065,7 +1066,10 @@ pub(crate) fn image_to_stream(
     }
 
     if let Some(alpha) = alpha {
-        let smask_dict = lopdf::Dictionary::from_iter(vec![
+
+        use crate::image::ImageCompression::*;
+
+        let mut smask_dict = lopdf::Dictionary::from_iter(vec![
             ("Type", Name("XObject".into())),
             ("Subtype", Name("Image".into())),
             ("Width", Integer(rgb8.width as i64)),
@@ -1075,16 +1079,56 @@ pub(crate) fn image_to_stream(
             ("ColorSpace", Name(ColorSpace::Greyscale.as_string().into())),
         ]);
 
-        let mut stream = lopdf::Stream::new(smask_dict, alpha.pixels).with_compression(true);
+        let format = options.as_ref()
+        .and_then(|s| s.format)
+        .unwrap_or_default();
 
-        let _ = stream.compress();
+        // Create alpha-specific options that prefer lossless compression
+        let alpha_opts = ImageOptimizationOptions {
+            // For alpha channel, we generally want to use lossless compression
+            // unless specifically configured otherwise
+            format: Some(if matches!(format, Auto | Jpeg | Jpeg2000) {
+                Flate // Use Flate for alpha by default
+            } else {
+                format // Otherwise use the same format as main image
+            }),
+            .. options.cloned().unwrap_or_default()
+        };
+
+        // Apply compression to alpha channel too, but prefer lossless methods for alpha
+        if let Some(filter) = get_compression_filter(&alpha_opts, &alpha) {
+            smask_dict.set("Filter", Name(filter.into()));
+            
+            // Set DecodeParms for alpha channel if needed
+            let jpeg_quality = options.as_ref().and_then(|s| s.quality);
+            if matches!(filter, "DCTDecode") && jpeg_quality.is_some() {
+                let quality = (jpeg_quality.unwrap() * 100.0) as i64;
+                smask_dict.set("DecodeParms", Dictionary(lopdf::Dictionary::from_iter(vec![
+                    ("Quality", Integer(quality))
+                ])));
+            }
+        }
+
+        let smask_has_filter = smask_dict.has(b"Filter");
+        let mut stream = lopdf::Stream::new(smask_dict, alpha.pixels);
+        
+        // Only apply default compression if no filter was specified
+        if !smask_has_filter {
+            stream = stream.with_compression(true);
+            let _ = stream.compress();
+        }
 
         dict.set("SMask", Reference(doc.add_object(stream)));
     }
 
-    let mut s = lopdf::Stream::new(dict, rgb8.pixels).with_compression(true);
-
-    let _ = s.compress();
+    let dict_has_filter = dict.has(b"Filter");
+    let mut s = lopdf::Stream::new(dict, rgb8.pixels);
+    
+    // Only apply default compression if no filter was specified
+    if !dict_has_filter {
+        s = s.with_compression(true);
+        let _ = s.compress();
+    }
 
     s
 }
