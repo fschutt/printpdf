@@ -15,7 +15,6 @@ categories = ["gui"]
 exclude = ["./assets/*", "./doc/*", "./examples/*"]
 autoexamples = false
 edition = "2021"
-build = "build.rs"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -28,27 +27,29 @@ time = { version = "0.3.25", default-features = false, features = ["std", "serde
 allsorts = { version = "0.15", git = "https://github.com/fschutt/allsorts", branch = "optional-brotli", default-features = false, features = ["flate2_rust"] }
 image = { version = "0.25", default-features = false }
 svg2pdf = { version = "0.12.0" }
-azul-css = { git = "https://github.com/fschutt/azul", rev = "a09ccbd5be6429f8c40c1acd5ebe05850a45380f", default-features = false }
-azul-css-parser = {  git = "https://github.com/fschutt/azul", rev = "a09ccbd5be6429f8c40c1acd5ebe05850a45380f", default-features = false }
-azul-core = {  git = "https://github.com/fschutt/azul", rev = "a09ccbd5be6429f8c40c1acd5ebe05850a45380f", default-features = false, features = ["std"] }
-azul-layout = {  git = "https://github.com/fschutt/azul", rev = "a09ccbd5be6429f8c40c1acd5ebe05850a45380f", default-features = false, features = ["std", "text_layout"] }
-azul-text-layout = {  git = "https://github.com/fschutt/azul", rev = "a09ccbd5be6429f8c40c1acd5ebe05850a45380f", default-features = false }
-azulc = {  git = "https://github.com/fschutt/azul", rev = "a09ccbd5be6429f8c40c1acd5ebe05850a45380f", default-features = false, features = ["std", "xml", "text_layout", "font_loading"] }
-rust-fontconfig = { version = "0.1.13", default-features = false }
-xmlparser = { version = "0.13.6", default-features = false }
+base64 = "0.22.1"
 serde = { version = "1" }
 serde_derive = { version = "1" }
-serde_json = { version = "1" }
-wasm-bindgen = { version = "0.2", optional = true }
-base64 = "0.22.1"
-flate2 = "1.0.35"
+flate2 = "1.0.35" # for decompression of builtin fonts
+# feature=html, independent of feature=wasm
+azul-css = { git = "https://github.com/fschutt/azul", rev = "a09ccbd5be6429f8c40c1acd5ebe05850a45380f", default-features = false, optional = true }
+azul-css-parser = {  git = "https://github.com/fschutt/azul", rev = "a09ccbd5be6429f8c40c1acd5ebe05850a45380f", default-features = false, optional = true }
+azul-core = {  git = "https://github.com/fschutt/azul", rev = "a09ccbd5be6429f8c40c1acd5ebe05850a45380f", default-features = false, features = ["std"], optional = true }
+azul-layout = {  git = "https://github.com/fschutt/azul", rev = "a09ccbd5be6429f8c40c1acd5ebe05850a45380f", default-features = false, features = ["std", "text_layout"], optional = true }
+azul-text-layout = {  git = "https://github.com/fschutt/azul", rev = "a09ccbd5be6429f8c40c1acd5ebe05850a45380f", default-features = false, optional = true }
+azulc = {  git = "https://github.com/fschutt/azul", rev = "a09ccbd5be6429f8c40c1acd5ebe05850a45380f", default-features = false, features = ["std", "xml", "text_layout", "font_loading"], optional = true }
+rust-fontconfig = { version = "0.1.13", default-features = false, optional = true }
+xmlparser = { version = "0.13.6", default-features = false, optional = true }
+serde_json = { version = "1", optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 wasm-bindgen = { version = "0.2" }
+serde_json = { version = "1" }
 
 [features]
-default = []
-wasm = ["wasm-bindgen"]
+default = ["html"]
+html = ["azul-css", "azul-css-parser", "azul-core", "azul-layout", "azul-text-layout", "azulc", "rust-fontconfig", "xmlparser", "serde_json"]
+js-sys = ["dep:js-sys"] # enables js-sys features on wasm
 gif = ["image/gif"]
 jpeg = ["image/jpeg"]
 png = ["image/png"]
@@ -61,7 +62,6 @@ hdr = ["image/hdr"]
 dds = ["image/dds"]
 webp = ["image/webp"]
 rayon = ["image/rayon"] # enables multithreading for decoding images
-js-sys = ["dep:js-sys", "wasm"] # enables js-sys features on wasm
 
 [package.metadata.docs.rs]
 all-features = true
@@ -75,7 +75,7 @@ required-features = []
 
 [[example]]
 name = "html"
-required-features = []
+required-features = ["html"]
 
 # re-generates the /defaultfonts/*.ttf fonts
 [[example]]

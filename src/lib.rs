@@ -8,6 +8,7 @@ use serde_derive::{Deserialize, Serialize};
 pub mod annotation;
 pub mod cmap;
 pub mod text;
+#[cfg(target_family = "wasm")]
 pub mod wasm;
 pub use annotation::*;
 /// PDF standard handling
@@ -45,7 +46,9 @@ pub use svg::*;
 pub mod image;
 pub use image::*;
 /// HTML handling
+#[cfg(feature = "html")]
 pub mod html;
+#[cfg(feature = "html")]
 pub use html::*;
 /// Utility functions (random strings, numbers, timestamp formatting)
 pub(crate) mod utils;
@@ -215,7 +218,8 @@ impl PdfDocument {
     }
 
     /// Renders HTML to pages
-    pub fn html2pages(
+    #[cfg(feature = "html")]
+    pub fn html_to_pages(
         &mut self,
         html: &str,
         config: XmlRenderOptions,

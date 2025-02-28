@@ -1,11 +1,11 @@
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 pub use time::{OffsetDateTime, UtcOffset};
 
 /// wasm32-unknown-unknown polyfill
 
-#[cfg(all(feature = "js-sys", target_arch = "wasm32"))]
+#[cfg(all(feature = "js-sys", target_family = "wasm"))]
 pub use self::js_sys_date::OffsetDateTime;
-#[cfg(all(feature = "js-sys", target_arch = "wasm32"))]
+#[cfg(all(feature = "js-sys", target_family = "wasm"))]
 mod js_sys_date {
     use js_sys::Date;
     use time::Month;
@@ -110,9 +110,9 @@ mod js_sys_date {
     }
 }
 
-#[cfg(all(not(feature = "js-sys"), target_arch = "wasm32"))]
+#[cfg(all(not(feature = "js-sys"), target_family = "wasm"))]
 pub use self::unix_epoch_stub_date::OffsetDateTime;
-#[cfg(all(not(feature = "js-sys"), target_arch = "wasm32"))]
+#[cfg(all(not(feature = "js-sys"), target_family = "wasm"))]
 mod unix_epoch_stub_date {
     use time::Month;
 
@@ -200,7 +200,7 @@ mod unix_epoch_stub_date {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 #[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct UtcOffset {
     hours: i8,
@@ -208,7 +208,7 @@ pub struct UtcOffset {
     seconds: i8,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 impl UtcOffset {
     pub const fn from_hms(hours: i8, minutes: i8, seconds: i8) -> Result<Self, &'static str> {
         Ok(Self {
