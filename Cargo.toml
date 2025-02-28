@@ -64,7 +64,6 @@ hdr = ["image/hdr"]
 dds = ["image/dds"]
 webp = ["image/webp"]
 rayon = ["image/rayon"] # enables multithreading for decoding images
-wasm-bindgen-futures = ["dep:wasm-bindgen-futures"]
 
 [package.metadata.docs.rs]
 all-features = true

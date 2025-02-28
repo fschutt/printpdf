@@ -31,7 +31,7 @@ jobs:
       - name: Install wasm-pack
         run: cargo install wasm-pack
       - name: wasm-pack build
-        run: wasm-pack build --target web --no-pack --no-typescript --release
+        run: wasm-pack build --target web --no-pack --no-typescript --release --no-default-features --features "js-sys,html,gif,jpeg,png,pnm,tiff,bmp,webp"
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
