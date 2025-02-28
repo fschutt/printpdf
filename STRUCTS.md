@@ -1,3 +1,4 @@
+```markdown
 # printpdf.js Datastructures
 
 ## Document
@@ -10,7 +11,7 @@ interface PdfDocument {
     // Resources shared between pages, such as fonts, XObjects, images, forms, ICC profiles, etc.
     resources: PdfResources;
     // Document-level bookmarks (used for the outline)
-    bookmarks: { [key: string]: PageAnnotation };
+    bookmarks: { [uuid: string]: PageAnnotation };
     // Page contents
     pages: PdfPage[];
 }
@@ -85,13 +86,13 @@ interface XmpMetadata {
 // Resources shared between pages in the PDF document.
 interface PdfResources {
     // Fonts used in the PDF, mapped by FontId.
-    fonts: { [key: string]: ParsedFont };
+    fonts: { [uuid: string]: ParsedFont };
     // XObjects (forms, images, embedded PDF contents, etc.), mapped by XObjectId.
-    xobjects: { [key: string]: XObject };
+    xobjects: { [uuid: string]: XObject };
     // Map of explicit extended graphics states, mapped by ExtendedGraphicsStateId.
-    extgstates: { [key: string]: ExtendedGraphicsState };
+    extgstates: { [uuid: string]: ExtendedGraphicsState };
     // Map of optional content groups (layers), mapped by LayerInternalId.
-    layers: { [key: string]: Layer };
+    layers: { [uuid: string]: Layer };
 }
 ```
 
@@ -152,6 +153,14 @@ type Op =
 ```
 
 ```typescript
+// Represents a text segment or a spacing adjustment within text operations.
+// Untagged enum, can be either Text or Offset.
+type TextItem =
+    | string // Text segment (UTF-8 String)
+    | number; // Spacing adjustment (in thousandths of an em)
+```
+
+```typescript
 // Debugging or section marker
 interface Marker {
     // Arbitrary id to mark a certain point in a stream of operations
@@ -163,7 +172,7 @@ interface Marker {
 // Starts a layer
 interface BeginLayer {
     // Layer identifier
-    layerId: LayerInternalId;
+    layerId: string; // LayerInternalId
 }
 ```
 
@@ -171,7 +180,7 @@ interface BeginLayer {
 // Ends a layer
 interface EndLayer {
     // Layer identifier
-    layerId: LayerInternalId;
+    layerId: string; // LayerInternalId
 }
 ```
 
@@ -179,29 +188,29 @@ interface EndLayer {
 // Loads a specific graphics state (necessary for describing extended graphics)
 interface LoadGraphicsState {
     // Extended graphics state identifier
-    gs: ExtendedGraphicsStateId;
+    gs: string; // ExtendedGraphicsStateId
 }
 ```
 
 ```typescript
 // Writes text, only valid between `StartTextSection` and `EndTextSection`
 interface WriteText {
-    // Text to write
-    text: string;
+    // Array of text items to write
+    items: TextItem[];
     // Font size in points
-    size: Pt;
+    size: number; // Pt
     // Font identifier
-    font: FontId;
+    font: string; // FontId
 }
 ```
 
 ```typescript
 // Writes text using a builtin font.
 interface WriteTextBuiltinFont {
-    // Text to write
-    text: string;
+    // Array of text items to write
+    items: TextItem[];
     // Font size in points
-    size: Pt;
+    size: number; // Pt
     // Builtin font to use
     font: BuiltinFont;
 }
@@ -212,9 +221,9 @@ interface WriteTextBuiltinFont {
 // font codepoints for an ExternalFont
 interface WriteCodepoints {
     // Font identifier
-    font: FontId;
+    font: string; // FontId
     // Font size in points
-    size: Pt;
+    size: number; // Pt
     // Array of codepoint-character tuples
     cp: Array<[number, string]>;
 }
@@ -225,9 +234,9 @@ interface WriteCodepoints {
 // codepoints with additional kerning offset
 interface WriteCodepointsWithKerning {
     // Font identifier
-    font: FontId;
+    font: string; // FontId
     // Font size in points
-    size: Pt;
+    size: number; // Pt
     // Array of kerning-codepoint-character tuples
     cpk: Array<[number, number, string]>;
 }
@@ -237,7 +246,7 @@ interface WriteCodepointsWithKerning {
 // Sets the line height for the text
 interface SetLineHeight {
     // Line height in points
-    lh: Pt;
+    lh: number; // Pt
 }
 ```
 
@@ -253,9 +262,9 @@ interface SetWordSpacing {
 // Sets the font size for a given font, only valid between `StartTextSection` and `EndTextSection`
 interface SetFontSize {
     // Font size in points
-    size: Pt;
+    size: number; // Pt
     // Font identifier
-    font: FontId;
+    font: string; // FontId
 }
 ```
 
@@ -287,7 +296,7 @@ interface SetOutlineColor {
 // Sets the outline thickness for texts / lines / polygons
 interface SetOutlineThickness {
     // Outline thickness in points
-    pt: Pt;
+    pt: number; // Pt
 }
 ```
 
@@ -319,7 +328,7 @@ interface SetLineCapStyle {
 // Set a miter limit in Pt
 interface SetMiterLimit {
     // Miter limit in points
-    limit: Pt;
+    limit: number; // Pt
 }
 ```
 
@@ -391,7 +400,7 @@ interface LinkAnnotationOp {
 // Instantiates an XObject with a given transform (if the XObject has a width / height).
 interface UseXobject {
     // XObject identifier
-    id: XObjectId;
+    id: string; // XObjectId
     // Transformation to apply when using the XObject
     transform: XObjectTransform;
 }
@@ -425,7 +434,7 @@ interface SetHorizontalScaling {
 // Begins a marked content sequence.
 interface BeginMarkedContent {
     // Tag for marked content
-    tag: String;
+    tag: string;
 }
 ```
 
@@ -433,7 +442,7 @@ interface BeginMarkedContent {
 // Begins a marked content sequence with an accompanying property list.
 interface BeginMarkedContentWithProperties {
     // Tag for marked content
-    tag: String;
+    tag: string;
     // Properties for marked content
     properties: DictItem[];
 }
@@ -443,7 +452,7 @@ interface BeginMarkedContentWithProperties {
 // Defines a marked content point with properties.
 interface DefineMarkedContentPoint {
     // Tag for marked content point
-    tag: String;
+    tag: string;
     // Properties for marked content point
     properties: DictItem[];
 }
@@ -453,7 +462,7 @@ interface DefineMarkedContentPoint {
 // Moves to the next line and shows text (the `'` operator).
 interface MoveToNextLineShowText {
     // Text to show
-    text: String;
+    text: string;
 }
 ```
 
@@ -461,11 +470,11 @@ interface MoveToNextLineShowText {
 // Sets spacing, moves to the next line, and shows text (the `"` operator).
 interface SetSpacingMoveAndShowText {
     // Word spacing value
-    wordSpacing: f32;
+    wordSpacing: number;
     // Character spacing value
-    charSpacing: f32;
+    charSpacing: number;
     // Text to show
-    text: String;
+    text: string;
 }
 ```
 
@@ -473,7 +482,7 @@ interface SetSpacingMoveAndShowText {
 // Unknown, custom key / value operation
 interface Unknown {
     // Unknown operator key
-    key: String;
+    key: string;
     // Unknown operator value
     value: DictItem[];
 }
@@ -484,68 +493,24 @@ interface Unknown {
 ```typescript
 // External object that gets reference outside the PDF content stream.
 // Tagged enum, see variants for possible XObject types.
-export type XObject =
+type XObject =
     | { type: "image"; data: RawImage }
     | { type: "form"; data: FormXObject }
     | { type: "external"; data: ExternalXObject };
 ```
 
 ```typescript
-// Image XObject, for images
-export interface RawImage {
-    pixels: RawImageData;
-    width: usize;
-    height: usize;
-    data_format: RawImageFormat;
-    tag: Vec<u8>;
-}
+// Image XObject, for images - Serialized to base64 string
+type RawImage = string
 ```
 
 ```typescript
-// Raw image pixel data, tagged enum to differentiate data types
-export type RawImageData =
-    | { tag: "u8"; data: Uint8Array }
-    | { tag: "u16"; data: Uint16Array }
-    | { tag: "f32"; data: Float32Array };
-```
-
-```typescript
-// Describes the format the image bytes are compressed with.
-export enum RawImageFormat {
-    // 8-bit grayscale image
-    R8 = "r8",
-    // 8-bit grayscale with alpha
-    RG8 = "rg8",
-    // 8-bit RGB color
-    RGB8 = "rgb8",
-    // 8-bit RGBA color
-    RGBA8 = "rgba8",
-    // 16-bit grayscale image
-    R16 = "r16",
-    // 16-bit grayscale with alpha
-    RG16 = "rg16",
-    // 16-bit RGB color
-    RGB16 = "rgb16",
-    // 16-bit RGBA color
-    RGBA16 = "rgba16",
-    // 8-bit BGR color (used in some image formats)
-    BGR8 = "bgr8",
-    // 8-bit BGRA color (used in some image formats)
-    BGRA8 = "bgra8",
-    // 32-bit floating point RGB color (HDR)
-    RGBF32 = "rgbf32",
-    // 32-bit floating point RGBA color (HDR)
-    RGBAF32 = "rgbaf32",
-}
-```
-
-```typescript
-// __THIS IS NOT A PDF FORM!__ Form `XObject` for reusable content streams.
-export interface FormXObject {
+// Note: not a PDF form! Form `XObject` are just reusable content streams.
+interface FormXObject {
     // Form type (currently only Type1)
     formType: FormType;
     // Optional width / height, affects instantiation size
-    size?: [Px, Px] | null;
+    size?: [number, number] | null; // Px, Px
     // The actual content of this FormXObject
     bytes: Uint8Array;
     // Optional matrix, maps form to user space
@@ -577,7 +542,7 @@ export interface FormXObject {
 
 ```typescript
 // Form type, currently only Type1 is supported
-export enum FormType {
+enum FormType {
     // Type 1 form XObjects are the most common and versatile type.
     Type1 = "type1",
 }
@@ -585,13 +550,13 @@ export enum FormType {
 
 ```typescript
 // External XObject, invoked by `/Do` graphics operator
-export interface ExternalXObject {
+interface ExternalXObject {
     // External stream of graphics operations
     stream: ExternalStream;
     // Optional width
-    width?: Px | null;
+    width?: number | null; // Px
     // Optional height
-    height?: Px | null;
+    height?: number | null; // Px
     // Optional DPI of the object
     dpi?: number | null;
 }
@@ -599,7 +564,7 @@ export interface ExternalXObject {
 
 ```typescript
 // External Stream, allows embedding arbitrary content streams
-export interface ExternalStream {
+interface ExternalStream {
     // Stream description, for simplicity a simple map, corresponds to PDF dict
     dict: { [key: string]: DictItem };
     // Stream content
@@ -611,7 +576,7 @@ export interface ExternalStream {
 
 ```typescript
 // Simplified dict item for external streams
-export type DictItem =
+type DictItem =
     | { type: "array"; data: DictItem[] }
     | { type: "string"; data: DictItemString }
     | { type: "bytes"; data: Uint8Array }
@@ -627,41 +592,41 @@ export type DictItem =
 ```
 
 ```typescript
-export interface DictItemString {
-    data: Uint8Array, 
+interface DictItemString {
+    data: Uint8Array,
     literal: boolean
 }
 ```
 
 ```typescript
-export interface DictItemRef {
-    obj: number, 
-    gen: number 
+interface DictItemRef {
+    obj: number,
+    gen: number
 }
 ```
 
 ```typescript
-export interface DictItemDict {
+interface DictItemDict {
     map: { [key: string]: DictItem }
 }
 ```
 
 ```typescript
-export interface DictItemStream {
-    stream: ExternalStream 
+interface DictItemStream {
+    stream: ExternalStream
 }
 ```
 
 ```typescript
 // `/Type /Group`` (PDF reference section 4.9.2)
-export interface GroupXObject {
+interface GroupXObject {
     groupType?: GroupXObjectType | null;
 }
 ```
 
 ```typescript
 // Type of a `/Group` XObject. Currently only Transparency groups are supported
-export enum GroupXObjectType {
+enum GroupXObjectType {
     // Transparency group XObject (currently the only valid GroupXObject type)
     TransparencyGroup = "transparency-group",
 }
