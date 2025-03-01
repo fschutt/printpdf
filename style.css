@@ -7,6 +7,18 @@ body, html {
     padding: 0;
 }
 
+
+button {
+    background-color: #f0f0f0;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+button:hover {
+    background-color: #e0e0e0;
+}
+
 .container {
     display: flex;
     min-height: 100vh;
@@ -106,6 +118,10 @@ body, html {
 .file-inputs {
     margin-top: 10px;
     margin-bottom: 10px;
+    display: flex;
+    flex-grow: 1;
+    flex-direction: row;
+    justify-content: space-between;
 }
 
 .file-inputs button {
@@ -138,7 +154,7 @@ body, html {
 .editor {
     flex: 1;
     outline: none;
-    white-space: pre-wrap; /* Important for contenteditable to respect line breaks */
+    white-space: pre;
     overflow-wrap: break-word;
     tab-size: 4; /* Set tab size */
     margin: 0;
@@ -267,9 +283,7 @@ body, html {
 
 .resources-container {
     margin: 10px 0;
-    border: 1px solid #ddd;
     border-radius: 4px;
-    padding: 10px;
     background-color: #f9f9f9;
 }
 
@@ -372,14 +386,8 @@ body, html {
     margin-bottom: 10px;
 }
 
-.config-buttons-container button {
-    padding: 8px 12px;
-    background-color: #f0f0f0;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    cursor: pointer;
-}
-
-.config-buttons-container button:hover {
-    background-color: #e0e0e0;
+.examples-dropdown-container {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
 }

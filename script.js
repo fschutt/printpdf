@@ -663,20 +663,6 @@ const htmlExamples = {
 </html>`
 };
 
-// Add HTML examples dropdown to the HTML tab controls
-const examplesDropdownContainer = document.createElement('div');
-examplesDropdownContainer.className = 'examples-dropdown-container';
-examplesDropdownContainer.innerHTML = `
-    <label for="html-examples">Select Example: </label>
-    <select id="html-examples">
-        <option value="">-- Select Example --</option>
-        <option value="ramen-recipe">Japanese Ramen Recipe</option>
-        <option value="synthwave-gallery">Synthwave Art Gallery</option>
-        <option value="business-report">Business Report</option>
-    </select>
-`;
-document.querySelector('#html-to-pdf-tab .controls').prepend(examplesDropdownContainer);
-
 // Event listener for example selection
 document.getElementById('html-examples').addEventListener('change', (event) => {
     if (event.target.value) {
@@ -715,24 +701,10 @@ const pdfFileUploadInput = document.getElementById('pdf-file-upload');
 const signatureImageUploadInput = document.getElementById('signature-image-upload');
 const pdfViewerErrorText = document.getElementById('pdf-viewer-error');
 
-// Create resource previews container
-const htmlResourcesContainer = document.createElement('div');
-htmlResourcesContainer.className = 'resources-container';
-document.querySelector('#html-to-pdf-tab .controls').appendChild(htmlResourcesContainer);
-
 // Create resource previews container for parse tab
 const parseResourcesContainer = document.createElement('div');
 parseResourcesContainer.className = 'resources-container';
 document.querySelector('#parse-edit-pdf-tab .controls').appendChild(parseResourcesContainer);
-
-// Add save/load config buttons to HTML tab
-const configButtonsContainer = document.createElement('div');
-configButtonsContainer.className = 'config-buttons-container';
-configButtonsContainer.innerHTML = `
-    <button id="save-config">Save Configuration</button>
-    <button id="load-config">Load Configuration</button>
-`;
-document.querySelector('#html-to-pdf-tab .controls').prepend(configButtonsContainer);
 
 // Add config file upload input
 const configFileInput = document.createElement('input');

@@ -18,13 +18,26 @@
 
             <div id="html-to-pdf-tab" class="tab-content">
                 <div class="controls">
-                    <!-- Save/Load config buttons will be added here via JavaScript -->
-                    
-                    <!-- Resource previews container will be added here via JavaScript -->
+                    <div class="examples-dropdown-container">
+                        <label for="html-examples">Example:</label>
+                        <select id="html-examples">
+                            <option value="">-- Select Example --</option>
+                            <option value="ramen-recipe">Japanese Ramen Recipe</option>
+                            <option value="synthwave-gallery">Synthwave Art Gallery</option>
+                            <option value="business-report">Business Report</option>
+                        </select>
+                    </div>                    
+                    <div class="resources-container"></div>
                 </div>
                 <div class="file-inputs">
-                    <button id="add-image-html">Add Image</button>
-                    <button id="add-font-html">Add Font</button>
+                    <div>
+                        <button id="add-image-html">Add Image</button>
+                        <button id="add-font-html">Add Font</button>
+                    </div>
+                    <div class="config-buttons-container">
+                        <button id="save-config">Save Config</button>
+                        <button id="load-config">Load Config</button>
+                    </div>
                 </div>
                 <div class="editor-container">
                     <div class="line-numbers"></div>
