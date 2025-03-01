@@ -56,12 +56,15 @@ impl PdfWarnMsg {
     }
 }
 
-/// Parses a PDF file from bytes into a printpdf PdfDocument.
-pub fn parse_pdf_from_bytes(
-    bytes: &[u8],
-    opts: &PdfParseOptions,
-) -> Result<(PdfDocument, Vec<PdfWarnMsg>), String> {
-    let mut pages = Vec::new();
+struct InitialPdf {
+    doc: lopdf::Document,
+    objs_to_search_for_resources: Vec<(Object, Option<usize>)>,
+    warnings: Vec<PdfWarnMsg>,
+    page_refs: Vec<(u32, u16)>,
+    document_info: PdfDocumentInfo,
+}
+
+fn parse_pdf_from_bytes_start(bytes: &[u8], opts: &PdfParseOptions) -> Result<InitialPdf, String> {
     let mut warnings = Vec::new();
 
     // Load the PDF document using lopdf.
@@ -83,7 +86,7 @@ pub fn parse_pdf_from_bytes(
         .map(|s| parse_document_info(s))
         .unwrap_or_default();
 
-    objs_to_search_for_resources.push((root_obj, None));
+    objs_to_search_for_resources.push((root_obj.clone(), None));
 
     let root_ref = match root_obj {
         Object::Reference(r) => *r,
@@ -94,7 +97,7 @@ pub fn parse_pdf_from_bytes(
         .get_object(root_ref)
         .map_err(|e| format!("Failed to get catalog: {}", e))?;
 
-    objs_to_search_for_resources.push((catalog_obj, None));
+    objs_to_search_for_resources.push((catalog_obj.clone(), None));
 
     let catalog = catalog_obj
         .as_dict()
@@ -105,7 +108,7 @@ pub fn parse_pdf_from_bytes(
         .get(b"Pages")
         .map_err(|e| format!("Missing Pages key in catalog: {}", e))?;
 
-    objs_to_search_for_resources.push((pages_obj, None));
+    objs_to_search_for_resources.push((pages_obj.clone(), None));
 
     let pages_ref = match pages_obj {
         Object::Reference(r) => *r,
@@ -126,11 +129,68 @@ pub fn parse_pdf_from_bytes(
         .map(|s| LopdfObject::Reference(*s))
         .collect::<Vec<_>>();
 
-    objs_to_search_for_resources.extend(page_refs_2.iter().enumerate().map(|(i, s)| (s, Some(i))));
+    objs_to_search_for_resources.extend(
+        page_refs_2
+            .iter()
+            .enumerate()
+            .map(|(i, s)| (s.clone(), Some(i))),
+    );
 
-    let fonts = parse_fonts_from_entire_pdf(&doc, &objs_to_search_for_resources, &mut warnings);
+    Ok(InitialPdf {
+        doc,
+        objs_to_search_for_resources,
+        warnings,
+        page_refs,
+        document_info,
+    })
+}
+
+/// Parses a PDF file from bytes into a printpdf PdfDocument.
+pub fn parse_pdf_from_bytes(
+    bytes: &[u8],
+    opts: &PdfParseOptions,
+) -> Result<(PdfDocument, Vec<PdfWarnMsg>), String> {
+    let mut i = parse_pdf_from_bytes_start(bytes, opts)?;
+
+    let fonts =
+        parse_fonts_from_entire_pdf(&i.doc, &i.objs_to_search_for_resources, &mut i.warnings);
     let xobjects =
-        parse_xobjects_from_entire_pdf(&doc, &objs_to_search_for_resources, &mut warnings);
+        parse_xobjects_from_entire_pdf(&i.doc, &i.objs_to_search_for_resources, &mut i.warnings);
+    let xobjects = process_xobjects(xobjects);
+
+    parse_pdf_from_bytes_end(i, opts, fonts, xobjects)
+}
+
+pub async fn parse_pdf_from_bytes_async(
+    bytes: &[u8],
+    opts: &PdfParseOptions,
+) -> Result<(PdfDocument, Vec<PdfWarnMsg>), String> {
+    let mut i = parse_pdf_from_bytes_start(bytes, opts)?;
+
+    let fonts =
+        parse_fonts_from_entire_pdf(&i.doc, &i.objs_to_search_for_resources, &mut i.warnings);
+    let xobjects =
+        parse_xobjects_from_entire_pdf(&i.doc, &i.objs_to_search_for_resources, &mut i.warnings);
+    let xobjects = process_xobjects_async(xobjects).await;
+
+    parse_pdf_from_bytes_end(i, opts, fonts, xobjects)
+}
+
+fn parse_pdf_from_bytes_end(
+    initial_pdf: InitialPdf,
+    opts: &PdfParseOptions,
+    fonts: BTreeMap<FontId, ParsedOrBuiltinFont>,
+    xobjects: BTreeMap<XObjectId, XObject>,
+) -> Result<(PdfDocument, Vec<PdfWarnMsg>), String> {
+    let mut pages = Vec::new();
+
+    let InitialPdf {
+        doc,
+        objs_to_search_for_resources,
+        mut warnings,
+        page_refs,
+        document_info,
+    } = initial_pdf;
 
     for (i, page_ref) in page_refs.into_iter().enumerate() {
         let page_obj = doc
@@ -178,13 +238,6 @@ impl ParsedOrBuiltinFont {
         match self {
             ParsedOrBuiltinFont::P(p) => Some(p),
             ParsedOrBuiltinFont::B(_) => None,
-        }
-    }
-
-    fn is_builtin_font(&self) -> Option<&BuiltinFont> {
-        match self {
-            ParsedOrBuiltinFont::P(_) => None,
-            ParsedOrBuiltinFont::B(s) => Some(s),
         }
     }
 }
@@ -342,15 +395,37 @@ fn get_stream_or_resolve_ref<'a>(
     }
 }
 
+fn process_xobjects(xobjects: BTreeMap<XObjectId, Vec<u8>>) -> BTreeMap<XObjectId, XObject> {
+    let mut map = BTreeMap::new();
+    for (xobject_id, content) in xobjects {
+        if let Ok(o) = RawImage::decode_from_bytes(&content) {
+            map.insert(xobject_id, XObject::Image(o));
+        }
+    }
+    map
+}
+
+async fn process_xobjects_async(
+    xobjects: BTreeMap<XObjectId, Vec<u8>>,
+) -> BTreeMap<XObjectId, XObject> {
+    let mut map = BTreeMap::new();
+    for (xobject_id, content) in xobjects {
+        if let Ok(o) = RawImage::decode_from_bytes_async(&content).await {
+            map.insert(xobject_id, XObject::Image(o));
+        }
+    }
+    map
+}
+
 /// Given a Resources dictionary from a page or the document,
 /// parse all XObjects and return a mapping from XObjectId to XObject.
 /// (In this example we only handle image XObjects.)
-fn parse_xobjects(
+fn parse_xobjects_internal(
     doc: &LopdfDocument,
     resources: &LopdfDictionary,
     warnings: &mut Vec<PdfWarnMsg>,
     page: Option<usize>,
-) -> BTreeMap<XObjectId, XObject> {
+) -> BTreeMap<XObjectId, Vec<u8>> {
     let mut xobj_map = BTreeMap::new();
 
     let xobj_obj = match resources.get(b"XObject") {
@@ -412,9 +487,7 @@ fn parse_xobjects(
             .decompressed_content()
             .unwrap_or_else(|_| stream.content.clone());
 
-        if let Ok(o) = RawImage::decode_from_bytes(&content) {
-            xobj_map.insert(xobject_id, XObject::Image(o));
-        }
+        xobj_map.insert(xobject_id, content);
     }
 
     xobj_map
@@ -422,7 +495,7 @@ fn parse_xobjects(
 
 fn parse_fonts_from_entire_pdf(
     doc: &LopdfDocument,
-    objs_to_search_for_resources: &[(&LopdfObject, Option<usize>)],
+    objs_to_search_for_resources: &[(LopdfObject, Option<usize>)],
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> BTreeMap<FontId, ParsedOrBuiltinFont> {
     objs_to_search_for_resources
@@ -449,9 +522,9 @@ fn parse_fonts_from_entire_pdf(
 
 fn parse_xobjects_from_entire_pdf(
     doc: &LopdfDocument,
-    objs_to_search_for_resources: &[(&LopdfObject, Option<usize>)],
+    objs_to_search_for_resources: &[(LopdfObject, Option<usize>)],
     warnings: &mut Vec<PdfWarnMsg>,
-) -> BTreeMap<XObjectId, XObject> {
+) -> BTreeMap<XObjectId, Vec<u8>> {
     objs_to_search_for_resources
         .iter()
         .filter_map(|(obj, page_idx)| {
@@ -464,7 +537,7 @@ fn parse_xobjects_from_entire_pdf(
             let resources_obj = dict.get(b"Resources").ok()?;
             let resources_dict =
                 get_dict_or_resolve_ref(doc, resources_obj, warnings, Some(page_num))?;
-            Some(parse_xobjects(
+            Some(parse_xobjects_internal(
                 doc,
                 resources_dict,
                 warnings,
@@ -477,6 +550,8 @@ fn parse_xobjects_from_entire_pdf(
             });
             acc
         })
+        .into_iter()
+        .collect()
 }
 
 /// Recursively collects page object references from a Pages tree dictionary.

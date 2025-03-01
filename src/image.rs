@@ -5,7 +5,6 @@ use base64::Engine;
 use image::{DynamicImage, GenericImageView};
 use serde::de::Error;
 use serde_derive::{Deserialize, Serialize};
-use svg2pdf::usvg::Image;
 
 use crate::{ColorBits, ColorSpace};
 
@@ -134,9 +133,8 @@ impl<'de> serde::Deserialize<'de> for RawImage {
         let bytes = base64::prelude::BASE64_STANDARD
             .decode(base64_part)
             .map_err(serde::de::Error::custom)?;
-        
-        Self::decode_from_bytes(&bytes)
-        .map_err(serde::de::Error::custom)
+
+        Self::decode_from_bytes(&bytes).map_err(serde::de::Error::custom)
     }
 }
 
@@ -356,24 +354,24 @@ impl RawImage {
         }
     }
 
+    /// Same as decode_from_bytes, but uses async for browser-native image decoding
+    pub async fn decode_from_bytes_async(bytes: &[u8]) -> Result<Self, String> {
+        // Try browser-native decoding first for better format support
+        #[cfg(all(feature = "js-sys", target_family = "wasm"))]
+        if let Ok(image) = browser_image::decode_image_with_browser(bytes).await {
+            return Ok(image);
+        }
+
+        Self::decode_from_bytes(bytes)
+    }
+
     /// NOTE: depends on the enabled image formats!
     pub fn decode_from_bytes(bytes: &[u8]) -> Result<Self, String> {
         use image::DynamicImage::*;
 
-        let im = image::guess_format(bytes)
-        .map_err(|e| e.to_string())?;
+        let im = image::guess_format(bytes).map_err(|e| e.to_string())?;
 
         let b_len = bytes.len();
-
-        /*
-        // Try browser-native decoding first for better format support
-        #[cfg(all(feature = "js-sys", target_family = "wasm"))]
-        if let Ok(image) = wasm_bindgen_futures::spawn_local(async {
-            RawImage::decode_from_bytes_browser(bytes).await
-        }) {
-            return Ok(image);
-        }
-        */
 
         #[cfg(not(feature = "gif"))]
         {
@@ -551,6 +549,19 @@ impl RawImage {
         })
     }
 
+    pub async fn encode_to_bytes_async(
+        &self,
+        target_fmt: &[OutputImageFormat],
+    ) -> Result<(Vec<u8>, OutputImageFormat), String> {
+        #[cfg(all(feature = "js-sys", target_family = "wasm"))]
+        for f in target_fmt {
+            if let Ok(bytes) = browser_image::encode_image_with_browser(self, *f).await {
+                return Ok((bytes, *f));
+            }
+        }
+
+        self.encode_to_bytes(target_fmt)
+    }
     /// NOTE: depends on the enabled image formats!
     ///
     /// Function will try to encode the image to the given formats and return an Error on
@@ -561,7 +572,6 @@ impl RawImage {
         &self,
         target_fmt: &[OutputImageFormat],
     ) -> Result<(Vec<u8>, OutputImageFormat), String> {
-
         /*
         // For browser, try formats in order with browser encoder
         #[cfg(all(feature = "js-sys", target_family = "wasm"))]
@@ -622,7 +632,7 @@ impl RawImage {
                 return Ok((buf, *fmt));
             }
         }
-        
+
         Err("Could not encode image in any of the requested target formats".to_string())
     }
 
@@ -1294,36 +1304,40 @@ pub fn translate_to_internal_rawimage(im: &RawImage) -> azul_core::app_resources
 #[cfg(all(feature = "js-sys", target_family = "wasm"))]
 mod browser_image {
 
-    use js_sys::{Array, Uint8Array, Promise, Object, Reflect};
+    use js_sys::{Array, Object, Promise, Reflect, Uint8Array};
     use wasm_bindgen::{JsCast, JsValue, closure::Closure};
     use wasm_bindgen_futures::JsFuture;
-    use web_sys::{js_sys, window, Blob, BlobPropertyBag, CanvasRenderingContext2d, HtmlCanvasElement, HtmlImageElement, ImageBitmap};
-    use std::io::Cursor;
-    use super::{RawImage, RawImageData, RawImageFormat, OutputImageFormat};
+    use web_sys::{
+        Blob, BlobPropertyBag, CanvasRenderingContext2d, HtmlCanvasElement, HtmlImageElement,
+        ImageBitmap, js_sys, window,
+    };
+
+    use super::{OutputImageFormat, RawImage, RawImageData, RawImageFormat};
 
     // Decode image bytes using browser's capabilities
     pub async fn decode_image_with_browser(bytes: &[u8]) -> Result<RawImage, String> {
         let window = window().ok_or("No window available")?;
-        
+
         // Create a Blob from the bytes
         let array = Array::new();
         let uint8_array = Uint8Array::from(bytes);
         array.push(&uint8_array.buffer());
-        
+
         let options = BlobPropertyBag::new();
-        let blob = Blob::new_with_u8_array_sequence_and_options(
-            &array, &options).map_err(|e| format!("Failed to create Blob: {:?}", e))?;
-        
+        let blob = Blob::new_with_u8_array_sequence_and_options(&array, &options)
+            .map_err(|e| format!("Failed to create Blob: {:?}", e))?;
+
         // Create ImageBitmap from Blob
-        let promise = window.create_image_bitmap_with_blob(&blob)
+        let promise = window
+            .create_image_bitmap_with_blob(&blob)
             .map_err(|e| format!("Failed to create ImageBitmap: {:?}", e))?;
-        
+
         let bitmap: ImageBitmap = JsFuture::from(promise)
             .await
             .map_err(|e| format!("Promise rejected: {:?}", e))?
             .dyn_into()
             .map_err(|_| "Failed to cast to ImageBitmap")?;
-        
+
         // Create a canvas to extract pixel data
         let document = window.document().ok_or("No document available")?;
         let canvas = document
@@ -1331,30 +1345,31 @@ mod browser_image {
             .map_err(|_| "Failed to create canvas")?
             .dyn_into::<HtmlCanvasElement>()
             .map_err(|_| "Failed to cast to HtmlCanvasElement")?;
-        
+
         let width = bitmap.width() as usize;
         let height = bitmap.height() as usize;
-        
+
         canvas.set_width(width as u32);
         canvas.set_height(height as u32);
-        
+
         let context = canvas
             .get_context("2d")
             .map_err(|_| "Failed to get context")?
             .ok_or("Context is null")?
             .dyn_into::<CanvasRenderingContext2d>()
             .map_err(|_| "Failed to cast to CanvasRenderingContext2d")?;
-        
-        context.draw_image_with_image_bitmap(&bitmap, 0.0, 0.0)
+
+        context
+            .draw_image_with_image_bitmap(&bitmap, 0.0, 0.0)
             .map_err(|_| "Failed to draw image")?;
-        
+
         let image_data = context
             .get_image_data(0.0, 0.0, width as f64, height as f64)
             .map_err(|_| "Failed to get image data")?;
-        
+
         let data = image_data.data();
         let data_vec = data.to_vec();
-        
+
         // Convert to RawImage (RGBA8 format)
         Ok(RawImage {
             pixels: RawImageData::U8(data_vec),
@@ -1367,10 +1382,9 @@ mod browser_image {
 
     // Encode image to specific format using browser's Canvas API
     pub async fn encode_image_with_browser(
-        image: &RawImage, 
+        image: &RawImage,
         format: OutputImageFormat,
     ) -> Result<Vec<u8>, String> {
-
         // Convert format to mime type
         let mime_type = match format {
             OutputImageFormat::Jpeg => "image/jpeg",
@@ -1393,48 +1407,38 @@ mod browser_image {
             .map_err(|_| "Failed to create canvas")?
             .dyn_into::<HtmlCanvasElement>()
             .map_err(|_| "Failed to cast to HtmlCanvasElement")?;
-        
+
         canvas.set_width(image.width as u32);
         canvas.set_height(image.height as u32);
-        
+
         let context = canvas
             .get_context("2d")
             .map_err(|_| "Failed to get context")?
             .ok_or("Context is null")?
             .dyn_into::<CanvasRenderingContext2d>()
             .map_err(|_| "Failed to cast to CanvasRenderingContext2d")?;
-        
+
         // Create ImageData and put it on canvas
         let uint8_clamped_array = js_sys::Uint8ClampedArray::from(pixels.as_slice());
         let image_data = web_sys::ImageData::new_with_js_u8_clamped_array_and_sh(
             &uint8_clamped_array,
             image.width as u32,
             image.height as u32,
-        ).map_err(|_| "Failed to create ImageData")?;
-        
-        context.put_image_data(&image_data, 0.0, 0.0)
-            .map_err(|_| "Failed to put image data")?;
-        
-        // Get data URL
-        let data_url = canvas.to_data_url_with_type(mime_type)
-        .map_err(|_| format!("Failed to encode to {}", mime_type))?;
-        
-        // Extract binary data from data URL
-        let bytes = crate::wasm::structs::Base64OrRaw::B64(data_url)
-            .decode_bytes()?;
-        
-        Ok(bytes)
-    }
-}
+        )
+        .map_err(|_| "Failed to create ImageData")?;
 
-// Extend the RawImage implementation with browser-specific methods
-#[cfg(all(feature = "js-sys", target_family = "wasm"))]
-impl RawImage {
-    pub async fn decode_from_bytes_browser(bytes: &[u8]) -> Result<Self, String> {
-        browser_image::decode_image_with_browser(bytes).await
-    }
-    
-    pub async fn encode_to_bytes_browser(&self, f: OutputImageFormat) -> Result<Vec<u8>, String> {
-        browser_image::encode_image_with_browser(self, f).await
+        context
+            .put_image_data(&image_data, 0.0, 0.0)
+            .map_err(|_| "Failed to put image data")?;
+
+        // Get data URL
+        let data_url = canvas
+            .to_data_url_with_type(mime_type)
+            .map_err(|_| format!("Failed to encode to {}", mime_type))?;
+
+        // Extract binary data from data URL
+        let bytes = crate::wasm::structs::Base64OrRaw::B64(data_url).decode_bytes()?;
+
+        Ok(bytes)
     }
 }

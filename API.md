@@ -5,7 +5,7 @@ which wraps the Rust code in `wasm.rs`. These functions allow you to:
 
 1. Generate a PDF document from HTML (`Pdf_HtmlToDocument`)
 2. Parse an existing PDF document from PDF bytes (`Pdf_BytesToDocument`)
-3. Extract resource IDs (images, fonts, layers) from a PDF page (`Pdf_GetResourcesForPage`)
+3. Extract resource IDs (images, fonts, layers) from a PDF page (`Pdf_ResourcesForPage`)
 4. Convert a PDF page into an SVG string (`Pdf_PageToSvg`)
 5. Save a PDF document back into PDF bytes (`Pdf_DocumentToBytes`)
 
@@ -40,7 +40,7 @@ Before calling any of the below functions, **make sure** you have initialized th
 import init, {
   Pdf_HtmlToDocument,
   Pdf_BytesToDocument,
-  Pdf_GetResourcesForPage,
+  Pdf_ResourcesForPage,
   Pdf_PageToSvg,
   Pdf_PdfDocumentToBytes,
 } from './pkg/printpdf.js';
@@ -173,7 +173,7 @@ if (parseResult.status === 0) {
 }
 ```
 
-## Pdf_GetResourcesForPage
+## Pdf_ResourcesForPage
 
 Given a **single PDF page** (in JSON), returns the **xobject IDs**, **font IDs**, and 
 **layer IDs** that page references. This is especially useful if you want to render 
@@ -183,7 +183,7 @@ function didn't exist, we'd have to re-decode every single font in the entire PD
 rendering every page, even if the font isn't used by the page.
 
 ```ts
-interface PdfGetResourcesForPageInput {
+interface PdfResourcesForPageInput {
   page: PdfPage;  // single element from `pdfDocument.pages[index]`
 ```
 
@@ -205,7 +205,7 @@ const inputObj = {
   page: pdfDocument.pages[0]
 };
 
-const resourcesJson = Pdf_GetResourcesForPage(JSON.stringify(inputObj));
+const resourcesJson = Pdf_ResourcesForPage(JSON.stringify(inputObj));
 const resourcesResult = JSON.parse(resourcesJson);
 
 if (resourcesResult.status === 0) {
@@ -252,7 +252,7 @@ const pageResourcesRequest = {
   page: pdfDocument.pages[0]
 };
 
-const resourcesJson = Pdf_GetResourcesForPage(JSON.stringify(pageResourcesRequest));
+const resourcesJson = Pdf_ResourcesForPage(JSON.stringify(pageResourcesRequest));
 const resourcesResult = JSON.parse(resourcesJson);
 
 let pageResources = pdfDocument.resources; 

@@ -165,6 +165,13 @@ impl PdfDocument {
         self::deserialize::parse_pdf_from_bytes(bytes, opts)
     }
 
+    pub async fn parse_async(
+        bytes: &[u8],
+        opts: &PdfParseOptions,
+    ) -> Result<(Self, Vec<PdfWarnMsg>), String> {
+        self::deserialize::parse_pdf_from_bytes_async(bytes, opts).await
+    }
+
     pub fn add_graphics_state(&mut self, gs: ExtendedGraphicsState) -> ExtendedGraphicsStateId {
         let id = ExtendedGraphicsStateId::new();
         self.resources.extgstates.map.insert(id.clone(), gs);
@@ -227,6 +234,15 @@ impl PdfDocument {
         crate::html::xml_to_pages(html, config, self)
     }
 
+    #[cfg(feature = "html")]
+    pub async fn html_to_pages_async(
+        &mut self,
+        html: &str,
+        config: XmlRenderOptions,
+    ) -> Result<Vec<PdfPage>, String> {
+        crate::html::xml_to_pages_async(html, config, self).await
+    }
+
     /// Renders a PDF Page into an SVG String. Returns `None` on an invalid page number
     /// (note: 1-indexed, so the first PDF page is "page 1", not "page 0").
     pub fn page_to_svg(&self, page: usize, opts: &PdfToSvgOptions) -> Option<String> {
@@ -234,6 +250,15 @@ impl PdfDocument {
             self.pages
                 .get(page.saturating_sub(1))?
                 .to_svg(&self.resources, opts),
+        )
+    }
+
+    pub async fn page_to_svg_async(&self, page: usize, opts: &PdfToSvgOptions) -> Option<String> {
+        Some(
+            self.pages
+                .get(page.saturating_sub(1))?
+                .to_svg_async(&self.resources, opts)
+                .await,
         )
     }
 
@@ -246,6 +271,10 @@ impl PdfDocument {
 
     /// Serializes the PDF document to bytes
     pub fn save(&self, opts: &PdfSaveOptions) -> Vec<u8> {
+        self::serialize::serialize_pdf_into_bytes(self, opts)
+    }
+
+    pub async fn save_async(&self, opts: &PdfSaveOptions) -> Vec<u8> {
         self::serialize::serialize_pdf_into_bytes(self, opts)
     }
 }

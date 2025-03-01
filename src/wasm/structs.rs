@@ -126,48 +126,8 @@ impl GeneratePdfOptions {
 }
 
 #[cfg(feature = "html")]
-pub fn html_to_document(input: &HtmlToDocumentInput) -> Result<HtmlToDocumentOutput, String> {
-
-    // Transform HTML to XML with extracted configuration
-    let (transformed_xml, config) = crate::html::process_html_for_rendering(&input.html);
-    
-    // Create document with title from input or extracted from HTML
-    let title = if input.title.is_empty() {
-        config.title.clone().unwrap_or_default()
-    } else {
-        input.title.clone()
-    };
-    
-    let mut pdf = crate::PdfDocument::new(&title);
-    
-    // Prepare rendering options
-    let mut opts = crate::html::XmlRenderOptions {
-        page_width: Mm(input.options.page_width.unwrap_or(210.0)),
-        page_height: Mm(input.options.page_height.unwrap_or(297.0)),
-        images: input
-            .images
-            .iter()
-            .filter_map(|(k, v)| Some(((k.clone(), v.decode_bytes().ok()?))))
-            .collect(),
-        fonts: input
-            .fonts
-            .iter()
-            .filter_map(|(k, v)| Some(((k.clone(), v.decode_bytes().ok()?))))
-            .collect(),
-        components: Vec::new(),
-    };
-    
-    // Apply configuration from HTML to document and options
-    crate::html::apply_html_config(&mut pdf, &config, &mut opts);
-    
-    // Register component nodes extracted from HTML
-    for component_node in config.components {
-        opts.components.push(azul_core::xml::XmlComponent {
-            id: component_node.name.clone(),
-            renderer: Box::new(component_node),
-            inherit_vars: false,
-        });
-    }
+pub fn html_to_document(input: HtmlToDocumentInput) -> Result<HtmlToDocumentOutput, String> {
+    let (transformed_xml, mut pdf, opts) = html_to_document_inner(input)?;
 
     // Generate pages from the transformed XML
     let pages = pdf.html_to_pages(&transformed_xml, opts)?;
@@ -177,11 +137,80 @@ pub fn html_to_document(input: &HtmlToDocumentInput) -> Result<HtmlToDocumentOut
     Ok(HtmlToDocumentOutput { doc: pdf })
 }
 
+#[cfg(feature = "html")]
+pub async fn html_to_document_async(
+    input: HtmlToDocumentInput,
+) -> Result<HtmlToDocumentOutput, String> {
+    let (transformed_xml, mut pdf, opts) = html_to_document_inner(input)?;
+
+    // Generate pages from the transformed XML
+    let pages = pdf.html_to_pages_async(&transformed_xml, opts).await?;
+
+    pdf.with_pages(pages);
+
+    Ok(HtmlToDocumentOutput { doc: pdf })
+}
+
+#[cfg(feature = "html")]
+fn html_to_document_inner(
+    input: HtmlToDocumentInput,
+) -> Result<(String, PdfDocument, crate::XmlRenderOptions), String> {
+    // Transform HTML to XML with extracted configuration
+    let (transformed_xml, config) = crate::html::process_html_for_rendering(&input.html);
+
+    // Create document with title from input or extracted from HTML
+    let title = if input.title.is_empty() {
+        config.title.clone().unwrap_or_default()
+    } else {
+        input.title.clone()
+    };
+
+    let mut pdf = crate::PdfDocument::new(&title);
+
+    // Prepare rendering options
+    let mut opts = crate::html::XmlRenderOptions {
+        page_width: Mm(input.options.page_width.unwrap_or(210.0)),
+        page_height: Mm(input.options.page_height.unwrap_or(297.0)),
+        images: input
+            .images
+            .iter()
+            .filter_map(|(k, v)| Some((k.clone(), v.decode_bytes().ok()?)))
+            .collect(),
+        fonts: input
+            .fonts
+            .iter()
+            .filter_map(|(k, v)| Some((k.clone(), v.decode_bytes().ok()?)))
+            .collect(),
+        components: Vec::new(),
+    };
+
+    // Apply configuration from HTML to document and options
+    crate::html::apply_html_config(&mut pdf, &config, &mut opts);
+
+    // Register component nodes extracted from HTML
+    for component_node in config.components {
+        opts.components.push(azul_core::xml::XmlComponent {
+            id: component_node.name.clone(),
+            renderer: Box::new(component_node),
+            inherit_vars: false,
+        });
+    }
+
+    Ok((transformed_xml, pdf, opts))
+}
+
+const ERR: &str = "Pdf_HtmlToDocument failed: feature --html not enabled for printpdf crate";
+
 #[cfg(not(feature = "html"))]
-pub fn html_to_document(input: &HtmlToDocumentInput) -> Result<HtmlToDocumentOutput, String> {
-    Err(format!(
-        "Pdf_HtmlToDocument failed: feature --html not enabled for printpdf crate"
-    ))
+pub fn html_to_document(input: HtmlToDocumentInput) -> Result<HtmlToDocumentOutput, String> {
+    Err(ERR.to_string())
+}
+
+#[cfg(not(feature = "html"))]
+pub async fn html_to_document_async(
+    input: HtmlToDocumentInput,
+) -> Result<HtmlToDocumentOutput, String> {
+    Err(ERR.to_string())
 }
 
 // Vec<u8> -> PdfDocument
@@ -202,13 +231,28 @@ pub struct BytesToDocumentOutput {
     pub warnings: Vec<PdfWarnMsg>,
 }
 
-pub fn bytes_to_document(input: &BytesToDocumentInput) -> Result<BytesToDocumentOutput, String> {
+pub fn bytes_to_document(input: BytesToDocumentInput) -> Result<BytesToDocumentOutput, String> {
     let bytes = input
         .bytes
         .decode_bytes()
         .map_err(|e| format!("failed to decode input bytes: {e}"))?;
 
     let (doc, warnings) = PdfDocument::parse(&bytes, &input.options)
+        .map_err(|e| format!("failed to parse PDF: {e}"))?;
+
+    Ok(BytesToDocumentOutput { doc, warnings })
+}
+
+pub async fn bytes_to_document_async(
+    input: BytesToDocumentInput,
+) -> Result<BytesToDocumentOutput, String> {
+    let bytes = input
+        .bytes
+        .decode_bytes()
+        .map_err(|e| format!("failed to decode input bytes: {e}"))?;
+
+    let (doc, warnings) = PdfDocument::parse_async(&bytes, &input.options)
+        .await
         .map_err(|e| format!("failed to parse PDF: {e}"))?;
 
     Ok(BytesToDocumentOutput { doc, warnings })
@@ -236,9 +280,24 @@ pub struct DocumentToBytesOutput {
     pub bytes: Base64OrRaw,
 }
 
-pub fn document_to_bytes(input: &DocumentToBytesInput) -> Result<DocumentToBytesOutput, String> {
+pub fn document_to_bytes(input: DocumentToBytesInput) -> Result<DocumentToBytesOutput, String> {
     let return_base64 = input.return_byte_array;
     let bytes = input.doc.save(&input.options);
+
+    Ok(DocumentToBytesOutput {
+        bytes: if return_base64 {
+            Base64OrRaw::B64(base64::prelude::BASE64_STANDARD.encode(&bytes))
+        } else {
+            Base64OrRaw::Raw(bytes)
+        },
+    })
+}
+
+pub async fn document_to_bytes_async(
+    input: DocumentToBytesInput,
+) -> Result<DocumentToBytesOutput, String> {
+    let return_base64 = input.return_byte_array;
+    let bytes = input.doc.save_async(&input.options).await;
 
     Ok(DocumentToBytesOutput {
         bytes: if return_base64 {
@@ -269,12 +328,18 @@ pub struct ResourcesForPageOutput {
     pub layers: Vec<LayerInternalId>,
 }
 
-pub fn resources_for_page(input: &ResourcesForPageInput) -> Result<ResourcesForPageOutput, String> {
+pub fn resources_for_page(input: ResourcesForPageInput) -> Result<ResourcesForPageOutput, String> {
     Ok(ResourcesForPageOutput {
         xobjects: input.page.get_xobject_ids(),
         fonts: input.page.get_external_font_ids(),
         layers: input.page.get_layers(),
     })
+}
+
+pub async fn resources_for_page_async(
+    input: ResourcesForPageInput,
+) -> Result<ResourcesForPageOutput, String> {
+    resources_for_page(input)
 }
 
 // PdfPage -> SvgString
@@ -296,8 +361,15 @@ pub struct PageToSvgOutput {
     pub svg: String,
 }
 
-pub fn page_to_svg(input: &PageToSvgInput) -> Result<PageToSvgOutput, String> {
+pub fn page_to_svg(input: PageToSvgInput) -> Result<PageToSvgOutput, String> {
     Ok(PageToSvgOutput {
         svg: crate::render::render_to_svg(&input.page, &input.resources, &input.options),
+    })
+}
+
+pub async fn page_to_svg_async(input: PageToSvgInput) -> Result<PageToSvgOutput, String> {
+    Ok(PageToSvgOutput {
+        svg: crate::render::render_to_svg_async(&input.page, &input.resources, &input.options)
+            .await,
     })
 }

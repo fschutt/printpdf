@@ -57,9 +57,29 @@ impl Default for PdfSaveOptions {
     }
 }
 
-pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec<u8> {
+// Initializes the image resources and the document
+//
+// Note: this function may become async later on!
+pub fn init_doc_and_resources(
+    pdf: &PdfDocument,
+    opts: &PdfSaveOptions,
+) -> (lopdf::Document, lopdf::Dictionary) {
     let mut doc = lopdf::Document::with_version("1.3");
     doc.reference_table.cross_reference_type = lopdf::xref::XrefType::CrossReferenceTable;
+
+    let mut global_xobject_dict = LoDictionary::new();
+    for (k, v) in pdf.resources.xobjects.map.iter() {
+        global_xobject_dict.set(
+            k.0.clone(),
+            crate::xobject::add_xobject_to_document(v, &mut doc, opts.image_optimization.as_ref()),
+        );
+    }
+
+    (doc, global_xobject_dict)
+}
+
+pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec<u8> {
+    let (mut doc, global_xobject_dict) = init_doc_and_resources(pdf, opts);
     let pages_id = doc.new_object_id();
     let mut catalog = LoDictionary::from_iter(vec![
         ("Type", "Catalog".into()),
@@ -177,14 +197,6 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec
     }
     let global_font_dict_id = doc.add_object(global_font_dict);
 
-    // Build XObject dictionary
-    let mut global_xobject_dict = LoDictionary::new();
-    for (k, v) in pdf.resources.xobjects.map.iter() {
-        global_xobject_dict.set(
-            k.0.clone(),
-            crate::xobject::add_xobject_to_document(v, &mut doc, opts.image_optimization.as_ref()),
-        );
-    }
     let global_xobject_dict_id = doc.add_object(global_xobject_dict);
 
     let mut global_extgstate_dict = LoDictionary::new();

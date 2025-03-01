@@ -1,8 +1,8 @@
+#![allow(non_snake_case)]
+
 //! Entrypoint for the WASM API. Note that this module is seperated into `mod api`
 //! and `mod structs`, so that you can use the same API even on a non-WASM target,
 //! without the JS limitations of having to jump through base64 encoding / decoding.
-
-use std::collections::BTreeMap;
 
 use serde_derive::{Deserialize, Serialize};
 
@@ -45,7 +45,7 @@ pub enum StatusOrData<T: serde::Serialize> {
 /// ```
 #[allow(non_snake_case)]
 #[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
-pub fn Pdf_HtmlToDocument(input: String) -> String {
+pub fn Pdf_HtmlToDocumentSync(input: String) -> String {
     api_inner(&input, crate::wasm::structs::html_to_document)
 }
 
@@ -67,42 +67,38 @@ pub fn Pdf_HtmlToDocument(input: String) -> String {
 /// //    }
 /// // }
 /// ```
-#[allow(non_snake_case)]
 #[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
-pub fn Pdf_BytesToDocument(input: String) -> String {
+pub fn Pdf_BytesToDocumentSync(input: String) -> String {
     api_inner(&input, crate::wasm::structs::bytes_to_document)
 }
 
 /// Helper function that takes a PDF page and outputs a list of all
 /// images IDs / fonts IDs that have to be gathered from the documents
 /// resources in order to render this page.
-#[allow(non_snake_case)]
 #[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
-pub fn Pdf_ResourcesForPage(input: String) -> String {
+pub fn Pdf_ResourcesForPageSync(input: String) -> String {
     api_inner(&input, crate::wasm::structs::resources_for_page)
 }
 
 /// Takes a `PdfPage` JS object and outputs the SVG string for that page
-#[allow(non_snake_case)]
 #[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
-pub fn Pdf_PageToSvg(input: String) -> String {
+pub fn Pdf_PageToSvgSync(input: String) -> String {
     api_inner(&input, crate::wasm::structs::page_to_svg)
 }
 
 /// Takes a `PdfDocument` JS object and returns the base64 PDF bytes
-#[allow(non_snake_case)]
 #[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
-pub fn Pdf_DocumentToBytes(input: String) -> String {
+pub fn Pdf_DocumentToBytesSync(input: String) -> String {
     api_inner(&input, crate::wasm::structs::document_to_bytes)
 }
 
-fn api_inner<'a, T, Q>(input: &'a str, f: fn(&Q) -> Result<T, String>) -> String
+fn api_inner<'a, T, Q>(input: &'a str, f: fn(Q) -> Result<T, String>) -> String
 where
     T: serde::Serialize,
     Q: serde::Deserialize<'a>,
 {
     serde_json::to_string(&match serde_json::from_str::<Q>(input) {
-        Ok(input) => match (f)(&input) {
+        Ok(input) => match (f)(input) {
             Ok(o) => PdfApiReturn {
                 status: 0,
                 data: StatusOrData::Ok(o),
@@ -118,4 +114,75 @@ where
         },
     })
     .unwrap_or_default()
+}
+
+#[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
+pub async fn Pdf_HtmlToDocument(input: String) -> String {
+    api_inner_async(&input, |x| {
+        Box::pin(crate::wasm::structs::html_to_document_async(x))
+    })
+    .await
+}
+
+#[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
+pub async fn Pdf_BytesToDocument(input: String) -> String {
+    api_inner_async(&input, |x| {
+        Box::pin(crate::wasm::structs::bytes_to_document_async(x))
+    })
+    .await
+}
+
+#[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
+pub async fn Pdf_DocumentToBytes(input: String) -> String {
+    api_inner_async(&input, |x| {
+        Box::pin(crate::wasm::structs::document_to_bytes_async(x))
+    })
+    .await
+}
+
+#[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
+pub async fn Pdf_GetResourcesForPage(input: String) -> String {
+    api_inner_async(&input, |x| {
+        Box::pin(crate::wasm::structs::resources_for_page_async(x))
+    })
+    .await
+}
+
+#[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
+pub async fn Pdf_PageToSvg(input: String) -> String {
+    api_inner_async(&input, |x| {
+        Box::pin(crate::wasm::structs::page_to_svg_async(x))
+    })
+    .await
+}
+
+use std::{future::Future, pin::Pin};
+
+async fn api_inner_async<T, Q>(
+    input: &str,
+    f: fn(Q) -> Pin<Box<dyn Future<Output = Result<T, String>>>>,
+) -> String
+where
+    T: serde::Serialize,
+    Q: for<'de> serde::Deserialize<'de>,
+{
+    match serde_json::from_str::<Q>(input) {
+        Ok(input_obj) => match f(input_obj).await {
+            Ok(data) => serde_json::to_string(&PdfApiReturn {
+                status: 0,
+                data: StatusOrData::Ok(data),
+            })
+            .unwrap_or_default(),
+            Err(e) => serde_json::to_string(&PdfApiReturn {
+                status: 2,
+                data: StatusOrData::<T>::Error(e),
+            })
+            .unwrap_or_default(),
+        },
+        Err(e) => serde_json::to_string(&PdfApiReturn {
+            status: 1,
+            data: StatusOrData::<T>::Error(format!("failed to deserialize input: {}", e)),
+        })
+        .unwrap_or_default(),
+    }
 }

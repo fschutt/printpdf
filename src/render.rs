@@ -8,7 +8,7 @@ use crate::{
     ExtendedGraphicsState, FontId, HalftoneType, LineCapStyle, LineDashPattern, LineJoinStyle,
     OutputImageFormat, OverprintMode, PdfResources, Point, Pt, RenderingIntent, SoftMask, TextItem,
     TextMatrix, TextRenderingMode, TransferExtraFunction, TransferFunction,
-    UnderColorRemovalExtraFunction, UnderColorRemovalFunction, ops::PdfPage,
+    UnderColorRemovalExtraFunction, UnderColorRemovalFunction, XObject, XObjectId, ops::PdfPage,
     serialize::prepare_fonts,
 };
 
@@ -286,6 +286,68 @@ impl GraphicsStateVec {
 }
 
 pub fn render_to_svg(page: &PdfPage, resources: &PdfResources, opts: &PdfToSvgOptions) -> String {
+    let map = encoded_image_data_map(page, resources, opts);
+    render_to_svg_internal(page, resources, map)
+}
+
+pub async fn render_to_svg_async(
+    page: &PdfPage,
+    resources: &PdfResources,
+    opts: &PdfToSvgOptions,
+) -> String {
+    let map = encoded_image_data_map_async(page, resources, opts).await;
+    render_to_svg_internal(page, resources, map)
+}
+
+async fn encoded_image_data_map_async(
+    page: &PdfPage,
+    resources: &PdfResources,
+    opts: &PdfToSvgOptions,
+) -> BTreeMap<XObjectId, (Vec<u8>, OutputImageFormat)> {
+    let resources_needed = page.get_xobject_ids();
+    let mut map = BTreeMap::new();
+    for f in resources_needed {
+        let encoded = match resources.xobjects.map.get(&f) {
+            Some(XObject::Image(i)) => i.encode_to_bytes_async(&opts.image_formats).await,
+            _ => continue,
+        };
+        match encoded {
+            Ok(o) => {
+                map.insert(f.clone(), o);
+            }
+            Err(_) => continue,
+        }
+    }
+    map
+}
+
+fn encoded_image_data_map(
+    page: &PdfPage,
+    resources: &PdfResources,
+    opts: &PdfToSvgOptions,
+) -> BTreeMap<XObjectId, (Vec<u8>, OutputImageFormat)> {
+    let resources_needed = page.get_xobject_ids();
+    let mut map = BTreeMap::new();
+    for f in resources_needed {
+        let encoded = match resources.xobjects.map.get(&f) {
+            Some(XObject::Image(i)) => i.encode_to_bytes(&opts.image_formats),
+            _ => continue,
+        };
+        match encoded {
+            Ok(o) => {
+                map.insert(f.clone(), o);
+            }
+            Err(_) => continue,
+        }
+    }
+    map
+}
+
+fn render_to_svg_internal(
+    page: &PdfPage,
+    resources: &PdfResources,
+    map: BTreeMap<XObjectId, (Vec<u8>, OutputImageFormat)>,
+) -> String {
     use crate::ops::Op;
 
     // Extract page dimensions from the media box.
@@ -461,25 +523,21 @@ pub fn render_to_svg(page: &PdfPage, resources: &PdfResources, opts: &PdfToSvgOp
             Op::DrawLine { line } => {}
             Op::DrawPolygon { polygon } => {}
             Op::UseXobject { id, transform } => {
-                if let Some(r) = resources.xobjects.map.get(id) {
-                    match r {
-                        crate::XObject::Image(raw_image) => {
-                            let w = raw_image.width;
-                            let h = raw_image.height;
-                            if let Ok((bytes, fmt)) = raw_image.encode_to_bytes(&opts.image_formats)
-                            {
-                                let base64_str = base64::prelude::BASE64_STANDARD.encode(&bytes);
-                                let data_url =
-                                    format!("data:{};base64,{}", fmt.mime_type(), base64_str);
-                                svg.push_str(&format!(
-                                    "<image width=\"{w}\" height=\"{h}\" \
-                                     xlink:href=\"{data_url}\" />"
-                                ));
-                            }
-                        }
-                        crate::XObject::Form(_) => {}
-                        crate::XObject::External(_) => {}
-                    }
+                let rmap = resources
+                    .xobjects
+                    .map
+                    .get(id)
+                    .and_then(|s| Some((s, map.get(id)?)));
+                if let Some((raw_image, (bytes, fmt))) = rmap {
+                    let (w, h) = raw_image
+                        .get_width_height()
+                        .map(|(w, h)| (w.0, h.0))
+                        .unwrap_or((0, 0));
+                    let base64_str = base64::prelude::BASE64_STANDARD.encode(&bytes);
+                    let data_url = format!("data:{};base64,{}", fmt.mime_type(), base64_str);
+                    svg.push_str(&format!(
+                        "<image width=\"{w}\" height=\"{h}\" xlink:href=\"{data_url}\" />"
+                    ));
                 }
             }
             Op::Unknown { key, value } => {}

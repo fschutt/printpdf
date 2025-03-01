@@ -42,9 +42,14 @@ impl PdfPage {
     pub(crate) fn get_crop_box(&self) -> lopdf::Object {
         self.crop_box.to_array().into()
     }
+
     /// Render the page to an SVG string.
     pub fn to_svg(&self, resources: &PdfResources, opts: &PdfToSvgOptions) -> String {
         crate::render::render_to_svg(self, resources, opts)
+    }
+
+    pub async fn to_svg_async(&self, resources: &PdfResources, opts: &PdfToSvgOptions) -> String {
+        crate::render::render_to_svg_async(self, resources, opts).await
     }
 
     pub fn get_xobject_ids(&self) -> Vec<XObjectId> {

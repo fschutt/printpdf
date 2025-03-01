@@ -1,5 +1,5 @@
-use std::collections::BTreeMap;
-use std::str::FromStr;
+use std::{collections::BTreeMap, str::FromStr};
+
 use azul_core::{
     app_resources::{
         DecodedImage, DpiScaleFactor, Epoch, IdNamespace, ImageCache, ImageRef, RendererResources,
@@ -19,18 +19,19 @@ pub use azul_core::{
     dom::Dom,
     styled_dom::StyledDom,
     xml::{
-        CompileError, ComponentArguments, FilteredComponentArguments, RenderDomError, XmlComponent,
-        XmlComponentMap, XmlComponentTrait, XmlNode, XmlTextContent, ComponentParseError, DynamicXmlComponent,
+        CompileError, ComponentArguments, ComponentParseError, DynamicXmlComponent,
+        FilteredComponentArguments, RenderDomError, XmlComponent, XmlComponentMap,
+        XmlComponentTrait, XmlNode, XmlTextContent,
     },
 };
 use azul_css::{CssPropertyValue, FloatValue, LayoutDisplay, StyleTextColor};
 pub use azul_css_parser::CssApiWrapper;
+use kuchiki::{NodeRef, traits::*};
 use rust_fontconfig::{FcFont, FcFontCache, FcPattern};
 use serde_derive::{Deserialize, Serialize};
 use svg2pdf::usvg::tiny_skia_path::Scalar;
-use kuchiki::traits::*;
-use kuchiki::{NodeRef, parse_html};
-use crate::{BuiltinFont, PdfDocument, Mm, Op, PdfPage, PdfResources, Pt};
+
+use crate::{BuiltinFont, Mm, Op, PdfDocument, PdfPage, PdfResources, Pt};
 
 const DPI_SCALE: DpiScaleFactor = DpiScaleFactor {
     inner: FloatValue::const_new(1),
@@ -76,10 +77,58 @@ impl Default for XmlRenderOptions {
     }
 }
 
+pub(crate) async fn xml_to_pages_async(
+    file_contents: &str,
+    config: XmlRenderOptions,
+    document: &mut PdfDocument,
+) -> Result<Vec<PdfPage>, String> {
+    let mut image_id_map = BTreeMap::new();
+
+    for (id, bytes) in config.images.iter() {
+        let decoded = match crate::image::RawImage::decode_from_bytes_async(&bytes)
+            .await
+            .ok()
+        {
+            Some(s) => s,
+            None => continue,
+        };
+        let raw_image = crate::image::translate_to_internal_rawimage(&decoded);
+        let ir = match ImageRef::new_rawimage(raw_image) {
+            Some(s) => s,
+            None => continue,
+        };
+        image_id_map.insert(id.clone().into(), ir);
+    }
+
+    xml_to_pages_inner(file_contents, config, document, ImageCache { image_id_map })
+}
+
 pub(crate) fn xml_to_pages(
     file_contents: &str,
     config: XmlRenderOptions,
     document: &mut PdfDocument,
+) -> Result<Vec<PdfPage>, String> {
+    let image_cache = ImageCache {
+        image_id_map: config
+            .images
+            .iter()
+            .filter_map(|(id, bytes)| {
+                // let bytes = base64::prelude::BASE64_STANDARD.decode(bytes).ok()?;
+                let decoded = crate::image::RawImage::decode_from_bytes(&bytes).ok()?;
+                let raw_image = crate::image::translate_to_internal_rawimage(&decoded);
+                Some((id.clone().into(), ImageRef::new_rawimage(raw_image)?))
+            })
+            .collect(),
+    };
+
+    xml_to_pages_inner(file_contents, config, document, image_cache)
+}
+
+fn xml_to_pages_inner(
+    file_contents: &str,
+    config: XmlRenderOptions,
+    document: &mut PdfDocument,
+    image_cache: ImageCache,
 ) -> Result<Vec<PdfPage>, String> {
     let size = LogicalSize {
         width: config.page_width.into_pt().0,
@@ -108,19 +157,6 @@ pub(crate) fn xml_to_pages(
     let mut fake_window_state = FullWindowState::default();
     fake_window_state.size.dimensions = size;
     let mut renderer_resources = RendererResources::default();
-
-    let image_cache = ImageCache {
-        image_id_map: config
-            .images
-            .iter()
-            .filter_map(|(id, bytes)| {
-                // let bytes = base64::prelude::BASE64_STANDARD.decode(bytes).ok()?;
-                let decoded = crate::image::RawImage::decode_from_bytes(&bytes).ok()?;
-                let raw_image = crate::image::translate_to_internal_rawimage(&decoded);
-                Some((id.clone().into(), ImageRef::new_rawimage(raw_image)?))
-            })
-            .collect(),
-    };
 
     let new_image_keys = styled_dom.scan_for_image_keys(&image_cache);
     let fonts_in_dom = styled_dom.scan_for_font_keys(&renderer_resources);
@@ -998,7 +1034,7 @@ fn extract_config(document: &NodeRef) -> HtmlExtractedConfig {
         metadata: BTreeMap::new(),
         components: Vec::new(),
     };
-    
+
     // Extract title
     if let Some(title_elem) = document.select_first("title").ok() {
         let elem = title_elem.text_contents();
@@ -1007,7 +1043,7 @@ fn extract_config(document: &NodeRef) -> HtmlExtractedConfig {
             config.title = Some(s.to_string())
         }
     }
-    
+
     // Extract components from head
     if let Some(head) = document.select_first("head").ok() {
         for component_node in head.as_node().select("component").unwrap() {
@@ -1017,12 +1053,12 @@ fn extract_config(document: &NodeRef) -> HtmlExtractedConfig {
             }
         }
     }
-    
+
     // Extract metadata from meta tags
     for meta in document.select("meta").unwrap() {
         let node = meta.as_node();
         let attrs = node.as_element().unwrap().attributes.borrow();
-        
+
         if let (Some(name), Some(content)) = (attrs.get("name"), attrs.get("content")) {
             // Handle PDF options via meta tags
             if name.starts_with("pdf.options.") {
@@ -1032,21 +1068,23 @@ fn extract_config(document: &NodeRef) -> HtmlExtractedConfig {
                         if let Ok(width) = f32::from_str(content) {
                             config.page_width = Some(width);
                         }
-                    },
+                    }
                     "pageHeight" => {
                         if let Ok(height) = f32::from_str(content) {
                             config.page_height = Some(height);
                         }
-                    },
+                    }
                     _ => {} // Ignore other options for now
                 }
             } else if name.starts_with("pdf.metadata.") {
                 let metadata_key = &name["pdf.metadata.".len()..];
-                config.metadata.insert(metadata_key.to_string(), content.to_string());
+                config
+                    .metadata
+                    .insert(metadata_key.to_string(), content.to_string());
             }
         }
     }
-    
+
     config
 }
 
@@ -1055,45 +1093,49 @@ fn serialize_to_xml(document: &NodeRef) -> String {
     // For this implementation, we'll create a simplified XML output
     // that includes only elements we can render
     let mut xml = String::new();
-    
+
     // Start with HTML tag
     xml.push_str("<html>");
-    
+
     // Process head
     if let Some(head) = document.select_first("head").ok() {
         xml.push_str("<head>");
-        
+
         // Only include elements we care about (style, component)
         for child in head.as_node().children() {
-            match child.as_element().map(|s| s.name.local.to_string()).as_deref() {
+            match child
+                .as_element()
+                .map(|s| s.name.local.to_string())
+                .as_deref()
+            {
                 Some("style") => {
                     xml.push_str("<style>");
                     xml.push_str(&child.text_contents());
                     xml.push_str("</style>");
-                },
+                }
                 Some("component") => {
                     // Serialize component with all attributes
                     xml.push_str(&serialize_element(&child));
-                },
+                }
                 _ => {} // Skip other head elements
             }
         }
-        
+
         xml.push_str("</head>");
     }
-    
+
     // Process body
     if let Some(body) = document.select_first("body").ok() {
         xml.push_str("<body>");
-        
+
         // Process all body children recursively
         for child in body.as_node().children() {
             process_node(&child, &mut xml);
         }
-        
+
         xml.push_str("</body>");
     }
-    
+
     xml.push_str("</html>");
     xml
 }
@@ -1105,23 +1147,23 @@ fn process_node(node: &NodeRef, xml: &mut String) {
         if is_renderable_element(&name) {
             // Start tag with attributes
             xml.push_str(&serialize_element(node));
-            
+
             // Process children
             for child in node.children() {
                 process_node(&child, xml);
             }
-            
+
             // End tag
             xml.push_str(&format!("</{}>", name));
         } else if is_custom_component(&name) {
             // Handle custom component (capitalized tag names)
             xml.push_str(&serialize_element(node));
-            
+
             // Process children if needed
             for child in node.children() {
                 process_node(&child, xml);
             }
-            
+
             // End tag
             xml.push_str(&format!("</{}>", name));
         }
@@ -1137,11 +1179,10 @@ fn process_node(node: &NodeRef, xml: &mut String) {
 fn is_renderable_element(name: &str) -> bool {
     // List of HTML elements we support rendering
     let supported_elements = [
-        "div", "p", "h1", "h2", "h3", "h4", "h5", "h6",
-        "span", "img", "a", "ul", "ol", "li", "table",
-        "tr", "td", "th", "hr", "br", "strong", "em", "b", "i"
+        "div", "p", "h1", "h2", "h3", "h4", "h5", "h6", "span", "img", "a", "ul", "ol", "li",
+        "table", "tr", "td", "th", "hr", "br", "strong", "em", "b", "i",
     ];
-    
+
     supported_elements.contains(&name.to_lowercase().as_str())
 }
 
@@ -1155,15 +1196,19 @@ fn is_custom_component(name: &str) -> bool {
 fn serialize_element(node: &NodeRef) -> String {
     if let Some(name) = node.as_element().map(|s| s.name.local.to_string()) {
         let mut result = format!("<{}", name);
-        
+
         // Add attributes
         if let Some(element) = node.as_element() {
             let attrs = element.attributes.borrow();
             for (key, value) in attrs.map.iter() {
-                result.push_str(&format!(" {}=\"{}\"", key.local.to_string(), escape_xml_attr(&value.value)));
+                result.push_str(&format!(
+                    " {}=\"{}\"",
+                    key.local.to_string(),
+                    escape_xml_attr(&value.value)
+                ));
             }
         }
-        
+
         // Close the opening tag
         result.push('>');
         result
@@ -1192,7 +1237,7 @@ fn escape_xml_attr(text: &str) -> String {
 pub fn apply_html_config(
     doc: &mut PdfDocument,
     config: &HtmlExtractedConfig,
-    options: &mut XmlRenderOptions
+    options: &mut XmlRenderOptions,
 ) {
     // Apply title if provided
     if let Some(title) = &config.title {
@@ -1200,12 +1245,12 @@ pub fn apply_html_config(
             doc.metadata.info.document_title = title.clone();
         }
     }
-    
+
     // Apply page dimensions
     if let Some(width) = config.page_width {
         options.page_width = Mm(width);
     }
-    
+
     if let Some(height) = config.page_height {
         options.page_height = Mm(height);
     }
@@ -1215,27 +1260,33 @@ pub fn apply_html_config(
         match (key.trim(), value.trim()) {
             ("trapped", "true") => doc.metadata.info.trapped = true,
             ("trapped", "false") => doc.metadata.info.trapped = false,
-            ("version", v) => if let Ok(p) = v.parse() { doc.metadata.info.version = p; },
-            // ("creationDate", v) => if let Ok(p) = v.parse() { doc.metadata.info.creation_date = p; },
-            // ("metadataDate", v) => if let Ok(p) = v.parse() { doc.metadata.info.metadata_date = p; },
-            // ("modificationDate", v) => if let Ok(p) = v.parse() { doc.metadata.info.modification_date = p; },
-            ("conformance", v) => if let Ok(p) = serde_json::from_str(v) { doc.metadata.info.conformance = p; },
+            ("version", v) => {
+                if let Ok(p) = v.parse() {
+                    doc.metadata.info.version = p;
+                }
+            }
+            // ("creationDate", v) => if let Ok(p) = v.parse() { doc.metadata.info.creation_date =
+            // p; }, ("metadataDate", v) => if let Ok(p) = v.parse() {
+            // doc.metadata.info.metadata_date = p; }, ("modificationDate", v) => if let
+            // Ok(p) = v.parse() { doc.metadata.info.modification_date = p; },
+            ("conformance", v) => {
+                if let Ok(p) = serde_json::from_str(v) {
+                    doc.metadata.info.conformance = p;
+                }
+            }
             ("documentTitle", v) => doc.metadata.info.document_title = v.to_string(),
             ("author", v) => doc.metadata.info.author = v.to_string(),
             ("creator", v) => doc.metadata.info.creator = v.to_string(),
             ("producer", v) => doc.metadata.info.producer = v.to_string(),
             ("subject", v) => doc.metadata.info.subject = v.to_string(),
             ("keywords", v) => {
-                doc.metadata.info.keywords = v.split(',')
-                    .map(|s| s.trim().to_string())
-                    .collect();
-            },
+                doc.metadata.info.keywords = v.split(',').map(|s| s.trim().to_string()).collect();
+            }
             ("identifier", v) => doc.metadata.info.identifier = v.to_string(),
             _ => {} // Ignore unknown metadata
         }
     }
 }
-
 
 // Dynamic XML component registration - handle component conversion from kuchiki to XML
 
@@ -1243,31 +1294,31 @@ pub fn apply_html_config(
 pub fn new_dynxml_from_kuchiki(node: &NodeRef) -> Result<DynamicXmlComponent, ComponentParseError> {
     // Convert kuchiki node to XmlNode format
     let xml_node = kuchiki_to_xml_node(node)?;
-    
+
     // Use the existing implementation to create the component
     DynamicXmlComponent::new(&xml_node)
 }
 
 /// Convert a kuchiki NodeRef to our XmlNode format
 fn kuchiki_to_xml_node(node: &NodeRef) -> Result<XmlNode, ComponentParseError> {
-
-    let element = node.as_element()
+    let element = node
+        .as_element()
         .ok_or(ComponentParseError::NotAComponent)?;
 
     let attrs = element.attributes.borrow();
-    
+
     // Get node type/name
     let node_type = element.name.local.to_string();
-    
+
     // Create a new XmlNode
     let mut xml_node = XmlNode::new(&*node_type);
-    
+
     // Copy attributes
     let mut attr = Vec::new();
     for (key, value) in attrs.map.iter() {
-        attr.push(AzStringPair { 
-            key: key.local.trim().to_string().into(), 
-            value: value.value.trim().to_string().into() 
+        attr.push(AzStringPair {
+            key: key.local.trim().to_string().into(),
+            value: value.value.trim().to_string().into(),
         });
     }
     xml_node.attributes = attr.into();
@@ -1284,14 +1335,16 @@ fn kuchiki_to_xml_node(node: &NodeRef) -> Result<XmlNode, ComponentParseError> {
             }
         }
     }
-    
+
     Ok(xml_node)
 }
 
-/// Transform component nodes into 
-pub fn parse_component_nodes(nodes: &[NodeRef]) -> Result<Vec<DynamicXmlComponent>, ComponentParseError> {
+/// Transform component nodes into
+pub fn parse_component_nodes(
+    nodes: &[NodeRef],
+) -> Result<Vec<DynamicXmlComponent>, ComponentParseError> {
     let mut components = Vec::new();
-    
+
     for node in nodes {
         if let Some(name) = node.as_element().map(|s| s.name.local.to_string()) {
             if name.to_lowercase() == "component" {
@@ -1300,14 +1353,14 @@ pub fn parse_component_nodes(nodes: &[NodeRef]) -> Result<Vec<DynamicXmlComponen
             }
         }
     }
-    
+
     Ok(components)
 }
 
 /// Convert DynamicXmlComponents to XmlComponents and register them
 pub fn register_components(
     component_defs: Vec<DynamicXmlComponent>,
-    component_map: &mut XmlComponentMap
+    component_map: &mut XmlComponentMap,
 ) {
     use azul_core::xml::normalize_casing;
 
@@ -1330,7 +1383,7 @@ struct CssRule {
 /// Parse CSS text into a list of rules
 fn parse_css(css_text: &str) -> Vec<CssRule> {
     let mut rules = Vec::new();
-    
+
     // Simple CSS parser (this is a very basic implementation)
     // In a real implementation, use a proper CSS parser library
     for rule_text in css_text.split('}') {
@@ -1338,7 +1391,7 @@ fn parse_css(css_text: &str) -> Vec<CssRule> {
         if parts.len() >= 2 {
             let selector = parts[0].trim();
             let declarations_text = parts[1].trim();
-            
+
             let mut declarations = Vec::new();
             for decl in declarations_text.split(';') {
                 let decl_parts: Vec<&str> = decl.split(':').collect();
@@ -1350,7 +1403,7 @@ fn parse_css(css_text: &str) -> Vec<CssRule> {
                     }
                 }
             }
-            
+
             if !selector.is_empty() && !declarations.is_empty() {
                 rules.push(CssRule {
                     selector: selector.to_string(),
@@ -1359,7 +1412,7 @@ fn parse_css(css_text: &str) -> Vec<CssRule> {
             }
         }
     }
-    
+
     rules
 }
 
@@ -1367,16 +1420,16 @@ fn parse_css(css_text: &str) -> Vec<CssRule> {
 fn element_matches_selector(element: &NodeRef, selector: &str) -> bool {
     // Very basic selector matching - only supports element, class, and ID selectors
     if let Some(element_data) = element.as_element() {
-        
-        let name = element.as_element()
-        .map(|s| s.name.local.to_string())
-        .unwrap_or_default();
-        
+        let name = element
+            .as_element()
+            .map(|s| s.name.local.to_string())
+            .unwrap_or_default();
+
         // Simple element selector (e.g., "div")
         if selector == name {
             return true;
         }
-        
+
         // Class selector (e.g., ".my-class")
         if selector.starts_with('.') {
             let class_name = &selector[1..];
@@ -1385,7 +1438,7 @@ fn element_matches_selector(element: &NodeRef, selector: &str) -> bool {
                 return classes.contains(&class_name);
             }
         }
-        
+
         // ID selector (e.g., "#my-id")
         if selector.starts_with('#') {
             let id_name = &selector[1..];
@@ -1394,7 +1447,7 @@ fn element_matches_selector(element: &NodeRef, selector: &str) -> bool {
             }
         }
     }
-    
+
     false
 }
 
@@ -1406,12 +1459,13 @@ fn apply_css_rules(document: &NodeRef, rules: &[CssRule]) {
             if element_matches_selector(&element, &rule.selector) {
                 if let Some(element_data) = element.as_element() {
                     let mut attributes = element_data.attributes.borrow_mut();
-                    
+
                     // Get or create style attribute
-                    let mut style = attributes.get("style")
+                    let mut style = attributes
+                        .get("style")
                         .map(|s| s.to_string())
                         .unwrap_or_default();
-                    
+
                     // Add rule declarations to inline style
                     for (property, value) in &rule.declarations {
                         // Only add if not already present in inline style
@@ -1422,7 +1476,7 @@ fn apply_css_rules(document: &NodeRef, rules: &[CssRule]) {
                             style.push_str(&format!("{}:{};", property, value));
                         }
                     }
-                    
+
                     // Set the updated style attribute
                     attributes.insert("style", style);
                 }
@@ -1435,20 +1489,23 @@ fn apply_css_rules(document: &NodeRef, rules: &[CssRule]) {
 pub fn inline_all_css(document: &NodeRef) {
     // Collect styles from all <style> elements
     let mut css_rules = Vec::new();
-    
+
     for style_elem in document.select("style").unwrap() {
         let css_text = style_elem.text_contents();
         let rules = parse_css(&css_text);
         css_rules.extend(rules);
     }
-    
+
     // Apply the collected rules to the document
     apply_css_rules(document, &css_rules);
-    
+
     // Remove <style> elements after inlining
     for style_elem in document.select("style").unwrap() {
         if let Some(parent) = style_elem.as_node().parent() {
-            parent.children().filter(|n| n == style_elem.as_node()).for_each(|n| n.detach());
+            parent
+                .children()
+                .filter(|n| n == style_elem.as_node())
+                .for_each(|n| n.detach());
         }
     }
 }
@@ -1456,10 +1513,10 @@ pub fn inline_all_css(document: &NodeRef) {
 /// Clean up HTML by removing elements that can't be rendered
 pub fn clean_html_for_rendering(document: &NodeRef) {
     let non_renderable_elements = [
-        "script", "noscript", "iframe", "canvas", "audio", "video",
-        "source", "track", "embed", "object", "param", "picture"
+        "script", "noscript", "iframe", "canvas", "audio", "video", "source", "track", "embed",
+        "object", "param", "picture",
     ];
-    
+
     for selector in non_renderable_elements.iter() {
         for element in document.select(selector).unwrap() {
             element.as_node().detach();
@@ -1469,16 +1526,15 @@ pub fn clean_html_for_rendering(document: &NodeRef) {
 
 /// Main function to process HTML for rendering
 pub fn process_html_for_rendering(html: &str) -> (String, HtmlExtractedConfig) {
-
     // First, inline all CSS
     let document = kuchiki::parse_html().one(html);
     clean_html_for_rendering(&document);
     inline_all_css(&document);
-    
+
     let mut bytes = Vec::new();
     document.serialize(&mut bytes).unwrap();
     let html = String::from_utf8(bytes).unwrap_or_else(|_| html.to_string());
-    
+
     // Extract configuration
     let document = kuchiki::parse_html().one(html);
     let config = extract_config(&document);
