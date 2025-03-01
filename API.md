@@ -30,6 +30,8 @@ Tagged enums are tagged with `type` for the variant and `data` for the payload.
 **Struct fields** in Rust are **always renamed** to `camelCase` when serialized to JSON. 
 > `foo.page_height` in Rust becomes `foo.pageHeight` in JSON
 
+**Note:** All documented async API functions also have equivalent synchronous counterparts with the same name plus "Sync" suffix (e.g., `Pdf_HtmlToDocumentSync`). These synchronous versions have the same input/output parameters but execute synchronously.
+
 ## Initialization
 
 Before calling any of the below functions, **make sure** you have initialized the WASM module. 
@@ -42,7 +44,7 @@ import init, {
   Pdf_BytesToDocument,
   Pdf_ResourcesForPage,
   Pdf_PageToSvg,
-  Pdf_PdfDocumentToBytes,
+  Pdf_DocumentToBytes,
 } from './pkg/printpdf.js';
 
 async function main() {
@@ -69,10 +71,16 @@ interface PdfHtmlToDocumentInput {
   images?: Record<string, string> // filename => base64-encoded image data
   fonts?: Record<string, string>  // filename => base64-encoded font data
   options?: {                     // PDF generation options
-    imageCompression?: number;    // e.g. 0.75 for 75% image quality, null/undefined to disable
     fontEmbedding?: boolean;      // default true
     pageWidth?: number;           // in mm; default 210
     pageHeight?: number;          // in mm; default 297
+    imageOptimization?: {
+      quality?: number;           // e.g. 0.75 for 75% image quality, null/undefined to disable
+      maxImageSize?: string;      // max size like "300kb"
+      ditherGreyscale?: boolean;  // apply dithering to greyscale images
+      autoOptimize?: boolean;     // auto-optimize images (remove unused alpha, etc.)
+      format?: string;            // preferred format: "auto", "jpeg", "flate", etc.
+    }
   }
 }
 ```
@@ -81,18 +89,20 @@ interface PdfHtmlToDocumentInput {
 {
   "status": 0,
   "data": {
-    "metadata": { /* ... */ },
-    "resources": { /* ... */ },
-    "bookmarks": { /* ... */ },
-    "pages": [
-      {
-        "mediaBox": { /* ... */ },
-        "trimBox": { /* ... */ },
-        "cropBox": { /* ... */ },
-        "ops": [ ... ]
-      }
-      // ...
-    ]
+    "doc": {                  // Changed from "pdf" to "doc"
+      "metadata": { /* ... */ },
+      "resources": { /* ... */ },
+      "bookmarks": { /* ... */ },
+      "pages": [
+        {
+          "mediaBox": { /* ... */ },
+          "trimBox": { /* ... */ },
+          "cropBox": { /* ... */ },
+          "ops": [ ... ]
+        }
+        // ...
+      ]
+    }
   }
 }
 ```
@@ -117,12 +127,12 @@ const inputObject = {
 };
 
 const inputJson = JSON.stringify(inputObject);
-const outputJson = Pdf_HtmlToDocument(inputJson);
+const outputJson = await Pdf_HtmlToDocument(inputJson);
 const result = JSON.parse(outputJson);
 
 if (result.status === 0) {
-  // result.data is the PdfDocument object
-  console.log("PDF document:", result.data); // { }
+  // result.data.doc is the PdfDocument object
+  console.log("PDF document:", result.data.doc); 
 } else {
   console.error("Error generating PDF:", result.data);
 }
@@ -135,9 +145,9 @@ Outputs a structured JSON representation of the PDF and any warnings that occurr
 
 ```ts
 interface PdfBytesToDocumentInput {
-  pdfBase64: string;          // Base64-encoded PDF bytes
+  bytes: string;               // Base64-encoded PDF bytes (can be raw or with data:application/pdf;base64, prefix)
   options?: {
-    failOnError?: boolean;    // default false; if true, parse errors become fatal
+    failOnError?: boolean;     // default false; if true, parse errors become fatal
   }
 }
 ```
@@ -146,8 +156,8 @@ interface PdfBytesToDocumentInput {
 {
   "status": 0,
   "data": {
-    "pdf": { /* ... */ },       // The PdfDocument JSON
-    "warnings": [ ... ]   // Array of any PDF parse warnings
+    "doc": { /* ... */ },       // The PdfDocument JSON
+    "warnings": [ /* ... */ ]   // Array of any PDF parse warnings
   }
 }
 ```
@@ -157,16 +167,16 @@ interface PdfBytesToDocumentInput {
 ```js
 const myPdfBase64 = "data:application/pdf;base64,JVBEAwIG9C9M...";
 const parseInput = {
-  pdfBase64: myPdfBase64,
+  bytes: myPdfBase64,
   options: { failOnError: false }
 };
 
-const parseOutputJson = Pdf_BytesToDocument(JSON.stringify(parseInput));
+const parseOutputJson = await Pdf_BytesToDocument(JSON.stringify(parseInput));
 const parseResult = JSON.parse(parseOutputJson);
 
 if (parseResult.status === 0) {
   console.log("PDF parsed!");
-  const pdfDoc = console.log(parseResult.data.pdf);
+  const pdfDoc = console.log(parseResult.data.doc);
   console.log("Warnings:", parseResult.data.warnings);
 } else {
   console.error("Failed to parse PDF:", parseResult.data);
@@ -185,6 +195,7 @@ rendering every page, even if the font isn't used by the page.
 ```ts
 interface PdfResourcesForPageInput {
   page: PdfPage;  // single element from `pdfDocument.pages[index]`
+}
 ```
 
 ```json5
@@ -205,7 +216,7 @@ const inputObj = {
   page: pdfDocument.pages[0]
 };
 
-const resourcesJson = Pdf_ResourcesForPage(JSON.stringify(inputObj));
+const resourcesJson = await Pdf_ResourcesForPage(JSON.stringify(inputObj));
 const resourcesResult = JSON.parse(resourcesJson);
 
 if (resourcesResult.status === 0) {
@@ -252,7 +263,7 @@ const pageResourcesRequest = {
   page: pdfDocument.pages[0]
 };
 
-const resourcesJson = Pdf_ResourcesForPage(JSON.stringify(pageResourcesRequest));
+const resourcesJson = await Pdf_ResourcesForPage(JSON.stringify(pageResourcesRequest));
 const resourcesResult = JSON.parse(resourcesJson);
 
 let pageResources = pdfDocument.resources; 
@@ -270,7 +281,7 @@ const svgRequest = {
   }
 };
 
-const svgOutputJson = Pdf_PageToSvg(JSON.stringify(svgRequest));
+const svgOutputJson = await Pdf_PageToSvg(JSON.stringify(svgRequest));
 const svgResult = JSON.parse(svgOutputJson);
 
 if (svgResult.status === 0) {
@@ -281,15 +292,15 @@ if (svgResult.status === 0) {
 }
 ```
 
-## Pdf_PdfDocumentToBytes
+## Pdf_DocumentToBytes
 
 Takes a **`PdfDocument`** (the JSON structure) plus optional save options, 
 and **serializes** it into a **Base64**-encoded PDF.
 
 ```ts
 interface PdfDocumentToBytesInput {
-  pdf: PdfDocument;          // The PdfDocument object you want to export
-  options: PdfSaveOptions {
+  doc: PdfDocument;          // The PdfDocument object you want to export
+  options?: {
     optimize?: boolean;      // default true, compress/prune unreferenced objects
     subsetFonts?: boolean;   // default true, subsets embedded fonts
     secure?: boolean;        // default true, skip unknown PDF ops if encountered
@@ -301,7 +312,7 @@ interface PdfDocumentToBytesInput {
 {
   "status": 0,
   "data": {
-    "pdfBase64": "<base64-encoded PDF bytes>" // use atob(data.pdfBase64)
+    "bytes": "<base64-encoded PDF bytes>" // use atob(data.bytes)
   }
 }
 ```
@@ -309,9 +320,8 @@ interface PdfDocumentToBytesInput {
 ### Example: Saving a PdfDocument back into PDF bytes
 
 ```js
-
 const inputObj = {
-  pdf: pdfDocument,
+  doc: pdfDocument,
   options: {
     optimize: true, 
     subsetFonts: true, 
@@ -320,12 +330,12 @@ const inputObj = {
 };
 
 const inputJson = JSON.stringify(inputObj);
-const outputJson = Pdf_PdfDocumentToBytes(inputJson);
+const outputJson = await Pdf_DocumentToBytes(inputJson);
 const outputResult = JSON.parse(outputJson);
 
 if (outputResult.status === 0) {
-  // outputResult.data.pdfBase64 is the PDF in base64 form
-  const base64Pdf = outputResult.data.pdfBase64;
+  // outputResult.data.bytes is the PDF in base64 form
+  const base64Pdf = outputResult.data.bytes;
 
   const pdfBytes = atob(base64Pdf); // decode base64
   const pdfBuffer = new Uint8Array(pdfBytes.length);
