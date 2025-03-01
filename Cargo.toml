@@ -71,6 +71,7 @@ all-features = true
 
 [target.'cfg(all(target_arch="wasm32",target_os="unknown"))'.dependencies]
 js-sys = { version = "0.3.40", optional = true }
+wasm-bindgen-futures = { version = "0.4.50", default-features = false }
 
 [[example]]
 name = "simple"

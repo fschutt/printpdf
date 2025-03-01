@@ -672,6 +672,7 @@ document.getElementById('html-examples').addEventListener('change', (event) => {
     }
 });
 
+const htmlResourcesContainer = document.getElementById('main-resources-container');
 const actionTabSelect = document.getElementById('action-tab');
 const tabContents = {
     'html-to-pdf': document.getElementById('html-to-pdf-tab'),
