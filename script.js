@@ -15,6 +15,677 @@ let images = {}; // Store uploaded images (filename => base64)
 let fonts = {};  // Store uploaded fonts (filename => base64)
 let signatureImageBase64 = null;
 
+// HTML Examples
+const htmlExamples = {
+    'ramen-recipe': `<!DOCTYPE html>
+<html title="Japanese Ramen Recipe">
+    <head>
+        <style>
+            body { font-family: "NotoSansJP", sans-serif; padding: 20mm; }
+            h1, h2 { color: #D63031; }
+            .section { margin-bottom: 15mm; }
+            .ingredients { background: #FFF7E0; padding: 10px; border-radius: 5px; }
+            .steps { background: #F1F9FF; padding: 10px; border-radius: 5px; }
+            .tip { background: #E8FDF5; padding: 5px; border-radius: 3px; margin-top: 10px; }
+            img { border-radius: 5px; }
+            table { width: 100%; border-collapse: collapse; }
+            td, th { border: 1px solid #ddd; padding: 8px; }
+            th { background-color: #f2f2f2; }
+        </style>
+        
+        <header exclude-pages="1">
+            <div style="text-align: right; color: #888; font-size: 10px;">
+                Japanese Cuisine Recipes - Page <page-number/>
+            </div>
+            <hr style="color: #ddd;">
+        </header>
+        
+        <footer>
+            <hr style="color: #ddd;">
+            <div style="text-align: center; color: #888; font-size: 10px;">
+                © 2025 Japanese Cuisine Recipes Collection
+            </div>
+        </footer>
+    </head>
+    <body>
+        <div class="section">
+            <h1 style="text-align: center; font-size: 24px;">とんこつラーメン</h1>
+            <h2 style="text-align: center; font-size: 18px;">Tonkotsu Ramen</h2>
+            
+            <div style="text-align: center; margin: 20px 0;">
+                <img src="ramen.png" style="width: 80%; max-width: 500px; height: auto;"></img>
+            </div>
+            
+            <p style="text-align: center; font-style: italic;">
+                とんこつラーメンは、豚骨を長時間煮込んで作るクリーミーで濃厚なスープが特徴の日本の伝統的な麺料理です。
+            </p>
+            <p style="text-align: center; font-style: italic;">
+                Tonkotsu ramen is a traditional Japanese noodle dish featuring a creamy, rich soup made by simmering pork bones for many hours.
+            </p>
+        </div>
+        
+        <div class="section ingredients">
+            <h2>材料 (4人分) / Ingredients (Serves 4)</h2>
+            <table>
+                <tr>
+                    <th>日本語 / Japanese</th>
+                    <th>英語 / English</th>
+                    <th>量 / Amount</th>
+                </tr>
+                <tr>
+                    <td>豚骨</td>
+                    <td>Pork Bones</td>
+                    <td>1.5 kg</td>
+                </tr>
+                <tr>
+                    <td>ラーメン麺</td>
+                    <td>Ramen Noodles</td>
+                    <td>4 portions</td>
+                </tr>
+                <tr>
+                    <td>チャーシュー</td>
+                    <td>Chashu (Braised Pork Belly)</td>
+                    <td>200g</td>
+                </tr>
+                <tr>
+                    <td>味玉</td>
+                    <td>Ajitama (Marinated Soft-Boiled Egg)</td>
+                    <td>4</td>
+                </tr>
+                <tr>
+                    <td>長ねぎ</td>
+                    <td>Green Onions</td>
+                    <td>2 stalks</td>
+                </tr>
+                <tr>
+                    <td>もやし</td>
+                    <td>Bean Sprouts</td>
+                    <td>200g</td>
+                </tr>
+                <tr>
+                    <td>にんにく</td>
+                    <td>Garlic</td>
+                    <td>4 cloves</td>
+                </tr>
+                <tr>
+                    <td>生姜</td>
+                    <td>Ginger</td>
+                    <td>30g</td>
+                </tr>
+                <tr>
+                    <td>醤油</td>
+                    <td>Soy Sauce</td>
+                    <td>100ml</td>
+                </tr>
+                <tr>
+                    <td>みりん</td>
+                    <td>Mirin</td>
+                    <td>50ml</td>
+                </tr>
+                <tr>
+                    <td>料理酒</td>
+                    <td>Cooking Sake</td>
+                    <td>50ml</td>
+                </tr>
+            </table>
+        </div>
+        
+        <div class="section steps">
+            <h2>作り方 / Instructions</h2>
+            <ol>
+                <li>
+                    <p><strong>豚骨スープを作る / Prepare the tonkotsu broth</strong></p>
+                    <p>豚骨を水で洗い、冷水から鍋に入れて強火で沸騰させます。沸騰したら一度ゆで汁を捨て、豚骨を洗います。</p>
+                    <p>Wash the pork bones, place them in a pot with cold water, and bring to a boil over high heat. Once boiling, discard the water and wash the bones.</p>
+                </li>
+                <li>
+                    <p><strong>スープを煮込む / Simmer the broth</strong></p>
+                    <p>豚骨と新しい水、にんにく、生姜を鍋に入れ、弱火で8〜12時間煮込みます。途中で水を足して適切な量を維持します。</p>
+                    <p>Place the bones in the pot with fresh water, garlic, and ginger. Simmer on low heat for 8-12 hours, adding water as needed to maintain the proper level.</p>
+                </li>
+                <li>
+                    <p><strong>タレを作る / Make the tare (seasoning base)</strong></p>
+                    <p>醤油、みりん、料理酒を小鍋に入れて沸騰させ、アルコール分を飛ばします。</p>
+                    <p>Combine soy sauce, mirin, and cooking sake in a small pot. Bring to a boil to cook off the alcohol.</p>
+                </li>
+                <li>
+                    <p><strong>麺を茹でる / Cook the noodles</strong></p>
+                    <p>ラーメン麺を袋の指示に従って茹でます。通常は2〜3分です。</p>
+                    <p>Cook the ramen noodles according to package instructions, typically 2-3 minutes.</p>
+                </li>
+                <li>
+                    <p><strong>ラーメンを組み立てる / Assemble the ramen</strong></p>
+                    <p>丼にタレを入れ、スープを注ぎ、麺を入れます。その上にチャーシュー、味玉、長ねぎ、もやしをのせて完成です。</p>
+                    <p>Place tare in a bowl, pour in the broth, and add the noodles. Top with chashu, ajitama, green onions, and bean sprouts to serve.</p>
+                </li>
+            </ol>
+            
+            <div class="tip">
+                <p><strong>ヒント / Tip:</strong> 本格的な豚骨スープを作るには、最低でも8時間、できれば12時間煮込むことをお勧めします。豚骨から十分にコラーゲンとうま味を抽出するために必要です。</p>
+                <p>For authentic tonkotsu broth, simmer for at least 8 hours, preferably 12 hours. This is necessary to extract sufficient collagen and umami from the pork bones.</p>
+            </div>
+        </div>
+    </body>
+</html>`,
+
+    'synthwave-gallery': `<!DOCTYPE html>
+<html title="Synthwave Digital Art Gallery">
+    <head>
+        <style>
+            body {
+                background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+                color: #fff;
+                font-family: 'Orbitron', sans-serif;
+                padding: 10mm;
+            }
+            h1, h2 {
+                color: #ff00cc;
+                text-shadow: 0 0 10px #ff00cc, 0 0 20px #ff00cc;
+            }
+            .gallery {
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: space-around;
+            }
+            .gallery-item {
+                margin: 5mm;
+                background: rgba(0, 0, 0, 0.5);
+                border-radius: 5px;
+                overflow: hidden;
+                box-shadow: 0 0 20px rgba(255, 0, 204, 0.5);
+                transition: transform 0.3s;
+                width: 45%;
+            }
+            .gallery-item img {
+                width: 100%;
+                display: block;
+            }
+            .gallery-caption {
+                padding: 10px;
+                text-align: center;
+                background: rgba(0, 0, 0, 0.7);
+            }
+            .grid-container {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px;
+                margin-top: 10mm;
+            }
+            .grid-item {
+                flex: 1;
+                min-width: 30%;
+                height: 80px;
+                background: linear-gradient(45deg, #fc00ff, #00dbde);
+                border-radius: 5px;
+            }
+            .intro {
+                border-left: 5px solid #ff00cc;
+                padding-left: 10px;
+                margin: 20px 0;
+            }
+        </style>
+        
+        <header>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="font-size: 12px; color: #00eeff;">DIGITAL ART COLLECTION</div>
+                <div style="font-size: 12px; color: #00eeff;">PAGE <page-number/></div>
+            </div>
+            <hr style="border-color: #ff00cc; height: 2px; background-color: #ff00cc; border: none;">
+        </header>
+        
+        <footer>
+            <hr style="border-color: #00eeff; height: 1px; background-color: #00eeff; border: none;">
+            <div style="text-align: center; color: #00eeff; font-size: 10px;">
+                © 2025 SYNTHWAVE ARCHIVES
+            </div>
+        </footer>
+    </head>
+    <body>
+        <h1 style="text-align: center; font-size: 36px; letter-spacing: 5px;">SYNTHWAVE</h1>
+        <h2 style="text-align: center; font-size: 24px; letter-spacing: 3px;">DIGITAL ART COLLECTION</h2>
+        
+        <div class="intro">
+            <p>Welcome to the definitive collection of synthwave and retrowave digital art. This gallery showcases the neon-soaked aesthetics of 80s-inspired futurism, featuring stunning works from the most innovative digital artists in the scene.</p>
+        </div>
+        
+        <div class="gallery">
+            <div class="gallery-item">
+                <img src="neon_city.png" alt="Neon City"></img>
+                <div class="gallery-caption">
+                    <h3>NEON CITY</h3>
+                    <p>Digital artwork featuring a futuristic cityscape with glowing neon lights</p>
+                </div>
+            </div>
+            
+            <div class="gallery-item">
+                <img src="cyber_sunset.png" alt="Cyber Sunset"></img>
+                <div class="gallery-caption">
+                    <h3>CYBER SUNSET</h3>
+                    <p>Retrowave sun setting over a digital grid landscape</p>
+                </div>
+            </div>
+            
+            <div class="gallery-item">
+                <img src="digital_highway.png" alt="Digital Highway"></img>
+                <div class="gallery-caption">
+                    <h3>DIGITAL HIGHWAY</h3>
+                    <p>Endless road through a neon-lit digital universe</p>
+                </div>
+            </div>
+            
+            <div class="gallery-item">
+                <img src="retro_arcade.png" alt="Retro Arcade"></img>
+                <div class="gallery-caption">
+                    <h3>RETRO ARCADE</h3>
+                    <p>80s-inspired gaming environment with classic arcade machines</p>
+                </div>
+            </div>
+        </div>
+        
+        <h2 style="text-align: center; margin-top: 20mm;">COLOR PALETTES</h2>
+        
+        <div class="grid-container">
+            <div class="grid-item" style="background: linear-gradient(45deg, #fc00ff, #00dbde);"></div>
+            <div class="grid-item" style="background: linear-gradient(45deg, #3f5efb, #fc466b);"></div>
+            <div class="grid-item" style="background: linear-gradient(45deg, #0072ff, #00c6ff);"></div>
+            <div class="grid-item" style="background: linear-gradient(45deg, #f953c6, #b91d73);"></div>
+            <div class="grid-item" style="background: linear-gradient(45deg, #7f00ff, #e100ff);"></div>
+            <div class="grid-item" style="background: linear-gradient(45deg, #ff0099, #493240);"></div>
+        </div>
+        
+        <div style="margin-top: 15mm; text-align: center;">
+            <p>The synthwave aesthetic draws inspiration from 1980s pop culture, combining the visual elements of that era with modern digital art techniques. At its core are vibrant neon colors contrasted against dark backgrounds.</p>
+        </div>
+        
+        <div style="page-break-before: always;">
+            <h2 style="text-align: center; margin-top: 10mm;">FEATURED TECHNIQUES</h2>
+            
+            <div style="display: flex; justify-content: space-between; margin-top: 10mm;">
+                <div style="width: 48%;">
+                    <img src="wireframe_technique.png" alt="Wireframe Technique" style="width: 100%;"></img>
+                    <h3 style="color: #00eeff;">WIREFRAMES</h3>
+                    <p>The use of simple wireframe models creates depth while maintaining the retro-digital aesthetic that defines synthwave art.</p>
+                </div>
+                
+                <div style="width: 48%;">
+                    <img src="scanline_technique.png" alt="Scanline Technique" style="width: 100%;"></img>
+                    <h3 style="color: #00eeff;">SCANLINES</h3>
+                    <p>Scanlines invoke the feel of vintage CRT monitors, adding an authentic retro quality to digital compositions.</p>
+                </div>
+            </div>
+            
+            <div style="display: flex; justify-content: space-between; margin-top: 10mm;">
+                <div style="width: 48%;">
+                    <img src="chrome_technique.png" alt="Chrome Technique" style="width: 100%;"></img>
+                    <h3 style="color: #ff00cc;">CHROME EFFECTS</h3>
+                    <p>Reflective chrome surfaces were a staple of 80s futurism, representing the sleek design aesthetics of the period.</p>
+                </div>
+                
+                <div style="width: 48%;">
+                    <img src="grid_technique.png" alt="Grid Technique" style="width: 100%;"></img>
+                    <h3 style="color: #ff00cc;">GRID PERSPECTIVES</h3>
+                    <p>Infinite grids extending to the horizon create the illusion of digital landscapes that stretch endlessly.</p>
+                </div>
+            </div>
+        </div>
+    </body>
+</html>`,
+
+    'business-report': `<!DOCTYPE html>
+<html title="Q1 2025 Financial Performance Report">
+    <head>
+        <style>
+            body {
+                font-family: 'Arial', sans-serif;
+                color: #333;
+                line-height: 1.5;
+                padding: 15mm;
+            }
+            h1 {
+                color: #1a5276;
+                border-bottom: 2px solid #1a5276;
+                padding-bottom: 5px;
+            }
+            h2 {
+                color: #2874a6;
+                margin-top: 15mm;
+            }
+            h3 {
+                color: #3498db;
+            }
+            .executive-summary {
+                background-color: #f8f9fa;
+                border-left: 5px solid #2874a6;
+                padding: 10px;
+                margin: 15px 0;
+            }
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                margin: 15px 0;
+            }
+            th {
+                background-color: #1a5276;
+                color: white;
+                font-weight: bold;
+                text-align: left;
+                padding: 8px;
+                border: 1px solid #ddd;
+            }
+            td {
+                padding: 8px;
+                border: 1px solid #ddd;
+            }
+            tr:nth-child(even) {
+                background-color: #f2f2f2;
+            }
+            .highlight {
+                background-color: #e8f4f8;
+                padding: 5px;
+                border-radius: 3px;
+            }
+            .chart-container {
+                text-align: center;
+                margin: 20px 0;
+            }
+            .footer-note {
+                font-size: 10px;
+                color: #777;
+                font-style: italic;
+                text-align: center;
+                margin-top: 10mm;
+            }
+            .kpi-cards {
+                display: flex;
+                justify-content: space-between;
+                margin: 20px 0;
+            }
+            .kpi-card {
+                width: 30%;
+                padding: 15px;
+                border-radius: 5px;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+                text-align: center;
+            }
+            .positive {
+                color: #27ae60;
+                font-weight: bold;
+            }
+            .negative {
+                color: #c0392b;
+                font-weight: bold;
+            }
+            .neutral {
+                color: #f39c12;
+                font-weight: bold;
+            }
+        </style>
+        
+        <header exclude-pages="1">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>ACME Corporation</div>
+                <div>Q1 2025 Financial Report - Page <page-number/></div>
+            </div>
+            <hr>
+        </header>
+        
+        <footer>
+            <hr>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>Confidential & Proprietary</div>
+                <div>© 2025 ACME Corporation</div>
+            </div>
+        </footer>
+    </head>
+    <body>
+        <div style="text-align: center; margin-bottom: 20mm;">
+            <h1 style="font-size: 24px; border: none;">ACME CORPORATION</h1>
+            <h2 style="font-size: 20px; margin-top: 5px;">Q1 2025 Financial Performance Report</h2>
+            <p style="font-style: italic;">Prepared for: Board of Directors and Shareholders</p>
+            <p>March 31, 2025</p>
+        </div>
+        
+        <div class="executive-summary">
+            <h3>Executive Summary</h3>
+            <p>ACME Corporation delivered strong financial performance in Q1 2025, with revenue growth of 12.3% year-over-year, exceeding our forecast of 10%. Operating margins improved by 2.1 percentage points to 18.5%, driven by operational efficiencies and strategic pricing initiatives. Our Technology segment continues to be the primary growth driver, while the Consumer Products division showed signs of recovery after two challenging quarters.</p>
+        </div>
+        
+        <h2>Key Performance Indicators</h2>
+        
+        <div class="kpi-cards">
+            <div class="kpi-card" style="background-color: #e8f8f5;">
+                <h3>Revenue</h3>
+                <p style="font-size: 24px;">$287.5M</p>
+                <p class="positive">+12.3% YoY</p>
+            </div>
+            
+            <div class="kpi-card" style="background-color: #fef9e7;">
+                <h3>Operating Margin</h3>
+                <p style="font-size: 24px;">18.5%</p>
+                <p class="positive">+2.1pts YoY</p>
+            </div>
+            
+            <div class="kpi-card" style="background-color: #ebf5fb;">
+                <h3>Net Income</h3>
+                <p style="font-size: 24px;">$42.3M</p>
+                <p class="positive">+15.7% YoY</p>
+            </div>
+        </div>
+        
+        <h2>Financial Performance by Segment</h2>
+        
+        <table>
+            <tr>
+                <th>Business Unit</th>
+                <th>Revenue ($M)</th>
+                <th>YoY Growth</th>
+                <th>Operating Margin</th>
+                <th>YoY Change</th>
+            </tr>
+            <tr>
+                <td>Technology</td>
+                <td>143.2</td>
+                <td class="positive">+18.7%</td>
+                <td>24.3%</td>
+                <td class="positive">+3.2pts</td>
+            </tr>
+            <tr>
+                <td>Manufacturing</td>
+                <td>82.5</td>
+                <td class="positive">+8.4%</td>
+                <td>15.8%</td>
+                <td class="positive">+1.5pts</td>
+            </tr>
+            <tr>
+                <td>Consumer Products</td>
+                <td>45.3</td>
+                <td class="positive">+5.2%</td>
+                <td>12.1%</td>
+                <td class="positive">+0.8pts</td>
+            </tr>
+            <tr>
+                <td>Services</td>
+                <td>16.5</td>
+                <td class="neutral">+2.1%</td>
+                <td>14.5%</td>
+                <td class="negative">-0.5pts</td>
+            </tr>
+        </table>
+        
+        <div class="chart-container">
+            <img src="revenue_chart.png" alt="Revenue by Segment" style="width: 80%; max-width: 600px;"></img>
+            <p style="font-size: 12px; color: #777;">Revenue distribution by business segment, Q1 2025</p>
+        </div>
+        
+        <h2>Financial Statement Highlights</h2>
+        
+        <h3>Income Statement</h3>
+        <table>
+            <tr>
+                <th>Metric ($M)</th>
+                <th>Q1 2025</th>
+                <th>Q1 2024</th>
+                <th>YoY Change</th>
+            </tr>
+            <tr>
+                <td>Revenue</td>
+                <td>287.5</td>
+                <td>256.0</td>
+                <td class="positive">+12.3%</td>
+            </tr>
+            <tr>
+                <td>Gross Profit</td>
+                <td>143.8</td>
+                <td>122.9</td>
+                <td class="positive">+17.0%</td>
+            </tr>
+            <tr>
+                <td>Operating Income</td>
+                <td>53.2</td>
+                <td>42.0</td>
+                <td class="positive">+26.7%</td>
+            </tr>
+            <tr>
+                <td>Net Income</td>
+                <td>42.3</td>
+                <td>36.6</td>
+                <td class="positive">+15.7%</td>
+            </tr>
+            <tr>
+                <td>EPS (Diluted)</td>
+                <td>$2.15</td>
+                <td>$1.87</td>
+                <td class="positive">+15.0%</td>
+            </tr>
+        </table>
+        
+        <h3>Balance Sheet Highlights</h3>
+        <table>
+            <tr>
+                <th>Metric ($M)</th>
+                <th>Mar 31, 2025</th>
+                <th>Dec 31, 2024</th>
+                <th>Change</th>
+            </tr>
+            <tr>
+                <td>Cash & Equivalents</td>
+                <td>175.3</td>
+                <td>156.8</td>
+                <td class="positive">+11.8%</td>
+            </tr>
+            <tr>
+                <td>Total Assets</td>
+                <td>842.7</td>
+                <td>825.4</td>
+                <td class="positive">+2.1%</td>
+            </tr>
+            <tr>
+                <td>Total Debt</td>
+                <td>215.0</td>
+                <td>230.0</td>
+                <td class="positive">-6.5%</td>
+            </tr>
+            <tr>
+                <td>Shareholders' Equity</td>
+                <td>498.4</td>
+                <td>462.1</td>
+                <td class="positive">+7.9%</td>
+            </tr>
+        </table>
+        
+        <div style="page-break-before: always;">
+            <h2>Market Analysis & Outlook</h2>
+            
+            <p>The global market environment remains favorable for our core business segments, despite ongoing geopolitical uncertainties and supply chain challenges. Technology spending continues to show resilience, particularly in digital transformation initiatives and cloud migration projects, which aligns with our strategic focus areas.</p>
+            
+            <div class="highlight">
+                <h3>Key Market Trends</h3>
+                <ul>
+                    <li><strong>AI Integration:</strong> Increasing demand for AI-powered solutions across industries, particularly in process automation and analytics.</li>
+                    <li><strong>Sustainability:</strong> Growing customer preference for eco-friendly products and services, creating new opportunities in our Manufacturing and Consumer Products segments.</li>
+                    <li><strong>Digital Experience:</strong> Continued investment in enhanced digital experiences, benefiting our Technology and Services divisions.</li>
+                </ul>
+            </div>
+            
+            <h3>FY 2025 Guidance</h3>
+            
+            <table>
+                <tr>
+                    <th>Metric</th>
+                    <th>Previous Guidance</th>
+                    <th>Updated Guidance</th>
+                </tr>
+                <tr>
+                    <td>Revenue Growth</td>
+                    <td>9-11%</td>
+                    <td class="positive">10-12%</td>
+                </tr>
+                <tr>
+                    <td>Operating Margin</td>
+                    <td>17.5-18.5%</td>
+                    <td class="positive">18.0-19.0%</td>
+                </tr>
+                <tr>
+                    <td>EPS (Diluted)</td>
+                    <td>$8.50-$8.75</td>
+                    <td class="positive">$8.75-$9.00</td>
+                </tr>
+                <tr>
+                    <td>Free Cash Flow ($M)</td>
+                    <td>$130-$140</td>
+                    <td class="positive">$140-$150</td>
+                </tr>
+            </table>
+            
+            <h2>Strategic Initiatives Update</h2>
+            
+            <h3>Digital Transformation Program</h3>
+            <p>Our enterprise-wide digital transformation initiative is progressing on schedule and within budget. Key achievements in Q1 include:</p>
+            <ul>
+                <li>Deployment of advanced analytics platform across 75% of business units, exceeding our target of 65%</li>
+                <li>Successful migration of core ERP modules to cloud infrastructure, reducing operational costs by approximately $3.2M annually</li>
+                <li>Launch of AI-powered customer service platform, improving response times by 35%</li>
+            </ul>
+            
+            <h3>Product Innovation</h3>
+            <p>R&D investments continue to yield positive results, with several new product launches planned for Q2 and Q3. Our innovation pipeline remains strong, with 28 active development projects across all business segments.</p>
+            
+            <div class="chart-container">
+                <img src="pipeline_chart.png" alt="Innovation Pipeline" style="width: 80%; max-width: 600px;"></img>
+                <p style="font-size: 12px; color: #777;">Innovation pipeline by development stage and business segment</p>
+            </div>
+            
+            <div class="footer-note">
+                <p>This report contains forward-looking statements based on current expectations and projections about future events. These statements are subject to risks and uncertainties that could cause actual results to differ materially from those projected.</p>
+            </div>
+        </div>
+    </body>
+</html>`
+};
+
+// Add HTML examples dropdown to the HTML tab controls
+const examplesDropdownContainer = document.createElement('div');
+examplesDropdownContainer.className = 'examples-dropdown-container';
+examplesDropdownContainer.innerHTML = `
+    <label for="html-examples">Select Example: </label>
+    <select id="html-examples">
+        <option value="">-- Select Example --</option>
+        <option value="ramen-recipe">Japanese Ramen Recipe</option>
+        <option value="synthwave-gallery">Synthwave Art Gallery</option>
+        <option value="business-report">Business Report</option>
+    </select>
+`;
+document.querySelector('#html-to-pdf-tab .controls').prepend(examplesDropdownContainer);
+
+// Event listener for example selection
+document.getElementById('html-examples').addEventListener('change', (event) => {
+    if (event.target.value) {
+        htmlEditorPre.textContent = htmlExamples[event.target.value];
+        updateLineNumbers(htmlEditorPre, htmlLineNumbersDiv);
+        updatePdfFromHtml();
+    }
+});
+
 const actionTabSelect = document.getElementById('action-tab');
 const tabContents = {
     'html-to-pdf': document.getElementById('html-to-pdf-tab'),
@@ -156,13 +827,13 @@ pdfFileUploadInput.addEventListener('change', async (event) => {
     const base64Pdf = await bufferToBase64(new Uint8Array(arrayBuffer));
 
     try {
-        const inputParse = { pdfBase64: base64Pdf, options: {} };
+        const inputParse = { bytes: base64Pdf, options: {} };
         const inputParseJson = JSON.stringify(inputParse);
         const parseResultJson = await Pdf_BytesToDocument(inputParseJson);
         const parseResult = JSON.parse(parseResultJson);
 
         if (parseResult.status === 0) {
-            pdfDocument = parseResult.data.pdf;
+            pdfDocument = parseResult.data.doc; // Changed from 'pdf' to 'doc'
             for (let i = 0; i < parseResult.data.warnings.length; i++) {
                 console.warn(parseResult.data.warnings[i]);
             }
@@ -351,7 +1022,7 @@ async function updatePdfViewer() {
             const svgI = { 
                 page: modifiedPage, 
                 resources: copyResourcesForPage(res, resourcesResult.data), 
-                options: { image_formats: ["png", "jpeg"] }
+                options: { imageFormats: ["png", "jpeg"] } // Changed from image_formats to imageFormats
             };
             const svgInput = JSON.stringify(svgI);
             const svgJson = await Pdf_PageToSvg(svgInput);
@@ -448,7 +1119,7 @@ async function updatePdfFromHtml() {
     const generationOptions = {
         pageWidth: 210,
         pageHeight: 297,
-        imageCompression: null,
+        imageOptimization: null, // Changed from imageCompression to imageOptimization
         fontEmbedding: true
     };
 
@@ -467,7 +1138,7 @@ async function updatePdfFromHtml() {
         const result = JSON.parse(resultJson);
 
         if (result.status === 0) {
-            pdfDocument = result.data;
+            pdfDocument = result.data.doc; // Changed from result.data to result.data.doc
             await updatePdfViewer();
         } else {
             alert2("PDF Generation Error: " + result.data);
@@ -588,13 +1259,13 @@ savePdfButton.addEventListener('click', async () => {
             }
         }
 
-        const inputBytes = { pdf: pdfDocument, options: {} };
+        const inputBytes = { doc: pdfDocument, options: {} }; // Changed from 'pdf' to 'doc'
         const inputBytesJson = JSON.stringify(inputBytes);
         const bytesResultJson = await Pdf_DocumentToBytes(inputBytesJson);
         const bytesResult = JSON.parse(bytesResultJson);
 
         if (bytesResult.status === 0) {
-            const base64Pdf = bytesResult.data.pdfBase64;
+            const base64Pdf = bytesResult.data.bytes; // Changed from pdfBase64 to bytes
             const pdfBytes = base64ToUint8Array(base64Pdf);
             downloadPdf(pdfBytes, "document");
         } else {
@@ -648,7 +1319,14 @@ function updateLineNumbers(editorElement, lineNumberDiv) {
     lineNumberDiv.textContent = numbers;
 }
 
-// Initial setup:
+// Initial setup with first example:
 updateLineNumbers(htmlEditorPre, htmlLineNumbersDiv);
 updateLineNumbers(jsonEditorPre, jsonLineNumbersDiv);
-updatePdfFromHtml(); // Generate initial PDF on load
+
+// Set the first example in the dropdown and editor
+document.getElementById('html-examples').value = 'ramen-recipe';
+htmlEditorPre.textContent = htmlExamples['ramen-recipe'];
+updateLineNumbers(htmlEditorPre, htmlLineNumbersDiv);
+
+// Generate initial PDF
+updatePdfFromHtml();

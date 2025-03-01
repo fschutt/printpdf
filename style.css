@@ -131,7 +131,8 @@ body, html {
     text-wrap: auto;
     padding-right: 5px;
     padding-left: 5px;
-    font-size: 14px;
+    font-size: 12px;
+    line-height: 1.2;
 }
 
 .editor {
@@ -141,7 +142,8 @@ body, html {
     overflow-wrap: break-word;
     tab-size: 4; /* Set tab size */
     margin: 0;
-    font-size: 14px;
+    font-size: 12px;
+    line-height: 1.2;
     font-weight: bold;
 }
 
