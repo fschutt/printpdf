@@ -8,7 +8,7 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::{
     FontId, ImageOptimizationOptions, LayerInternalId, Mm, PdfDocument, PdfPage, PdfParseOptions,
-    PdfResources, PdfSaveOptions, PdfToSvgOptions, PdfWarnMsg, XObjectId, XmlRenderOptions,
+    PdfResources, PdfSaveOptions, PdfToSvgOptions, PdfWarnMsg, XObjectId,
 };
 
 /// Base64 is necessary because there are a lot of JS issues surrounding
@@ -127,8 +127,21 @@ impl GeneratePdfOptions {
 
 #[cfg(feature = "html")]
 pub fn html_to_document(input: &HtmlToDocumentInput) -> Result<HtmlToDocumentOutput, String> {
-    // TODO: extract document title from XML!
-    let opts = XmlRenderOptions {
+
+    // Transform HTML to XML with extracted configuration
+    let (transformed_xml, config) = crate::html::process_html_for_rendering(&input.html);
+    
+    // Create document with title from input or extracted from HTML
+    let title = if input.title.is_empty() {
+        config.title.clone().unwrap_or_default()
+    } else {
+        input.title.clone()
+    };
+    
+    let mut pdf = crate::PdfDocument::new(&title);
+    
+    // Prepare rendering options
+    let mut opts = crate::html::XmlRenderOptions {
         page_width: Mm(input.options.page_width.unwrap_or(210.0)),
         page_height: Mm(input.options.page_height.unwrap_or(297.0)),
         images: input
@@ -143,10 +156,21 @@ pub fn html_to_document(input: &HtmlToDocumentInput) -> Result<HtmlToDocumentOut
             .collect(),
         components: Vec::new(),
     };
+    
+    // Apply configuration from HTML to document and options
+    crate::html::apply_html_config(&mut pdf, &config, &mut opts);
+    
+    // Register component nodes extracted from HTML
+    for component_node in config.components {
+        opts.components.push(azul_core::xml::XmlComponent {
+            id: component_node.name.clone(),
+            renderer: Box::new(component_node),
+            inherit_vars: false,
+        });
+    }
 
-    let mut pdf = crate::PdfDocument::new(&input.title);
-
-    let pages = pdf.html_to_pages(&input.html, opts)?;
+    // Generate pages from the transformed XML
+    let pages = pdf.html_to_pages(&transformed_xml, opts)?;
 
     pdf.with_pages(pages);
 

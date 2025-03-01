@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-
+use std::str::FromStr;
 use azul_core::{
     app_resources::{
         DecodedImage, DpiScaleFactor, Epoch, IdNamespace, ImageCache, ImageRef, RendererResources,
@@ -13,14 +13,14 @@ use azul_core::{
     pagination::PaginatedPage,
     styled_dom::{ContentGroup, StyledNode},
     ui_solver::LayoutResult,
-    window::{FullWindowState, LogicalSize},
+    window::{AzStringPair, FullWindowState, LogicalSize},
 };
 pub use azul_core::{
     dom::Dom,
     styled_dom::StyledDom,
     xml::{
         CompileError, ComponentArguments, FilteredComponentArguments, RenderDomError, XmlComponent,
-        XmlComponentMap, XmlComponentTrait, XmlNode, XmlTextContent,
+        XmlComponentMap, XmlComponentTrait, XmlNode, XmlTextContent, ComponentParseError, DynamicXmlComponent,
     },
 };
 use azul_css::{CssPropertyValue, FloatValue, LayoutDisplay, StyleTextColor};
@@ -28,8 +28,9 @@ pub use azul_css_parser::CssApiWrapper;
 use rust_fontconfig::{FcFont, FcFontCache, FcPattern};
 use serde_derive::{Deserialize, Serialize};
 use svg2pdf::usvg::tiny_skia_path::Scalar;
-
-use crate::{BuiltinFont, Mm, Op, PdfDocument, PdfPage, PdfResources, Pt};
+use kuchiki::traits::*;
+use kuchiki::{NodeRef, parse_html};
+use crate::{BuiltinFont, PdfDocument, Mm, Op, PdfPage, PdfResources, Pt};
 
 const DPI_SCALE: DpiScaleFactor = DpiScaleFactor {
     inner: FloatValue::const_new(1),
@@ -970,4 +971,517 @@ fn get_opt_border(
                 .cloned(),
         },
     })
+}
+
+// --- HTML to XML transformation
+
+/// Configuration options extracted from HTML meta tags
+pub struct HtmlExtractedConfig {
+    /// Title extracted from the <title> element
+    pub title: Option<String>,
+    /// PDF page width from meta tags
+    pub page_width: Option<f32>,
+    /// PDF page height from meta tags
+    pub page_height: Option<f32>,
+    /// PDF metadata from meta tags
+    pub metadata: BTreeMap<String, String>,
+    /// Raw component nodes
+    pub components: Vec<DynamicXmlComponent>,
+}
+
+/// Extract configuration from HTML document
+fn extract_config(document: &NodeRef) -> HtmlExtractedConfig {
+    let mut config = HtmlExtractedConfig {
+        title: None,
+        page_width: None,
+        page_height: None,
+        metadata: BTreeMap::new(),
+        components: Vec::new(),
+    };
+    
+    // Extract title
+    if let Some(title_elem) = document.select_first("title").ok() {
+        let elem = title_elem.text_contents();
+        let s = elem.trim();
+        if !s.is_empty() {
+            config.title = Some(s.to_string())
+        }
+    }
+    
+    // Extract components from head
+    if let Some(head) = document.select_first("head").ok() {
+        for component_node in head.as_node().select("component").unwrap() {
+            // Clone the component node for later use
+            if let Ok(o) = new_dynxml_from_kuchiki(component_node.as_node()) {
+                config.components.push(o);
+            }
+        }
+    }
+    
+    // Extract metadata from meta tags
+    for meta in document.select("meta").unwrap() {
+        let node = meta.as_node();
+        let attrs = node.as_element().unwrap().attributes.borrow();
+        
+        if let (Some(name), Some(content)) = (attrs.get("name"), attrs.get("content")) {
+            // Handle PDF options via meta tags
+            if name.starts_with("pdf.options.") {
+                let option_name = &name["pdf.options.".len()..];
+                match option_name {
+                    "pageWidth" => {
+                        if let Ok(width) = f32::from_str(content) {
+                            config.page_width = Some(width);
+                        }
+                    },
+                    "pageHeight" => {
+                        if let Ok(height) = f32::from_str(content) {
+                            config.page_height = Some(height);
+                        }
+                    },
+                    _ => {} // Ignore other options for now
+                }
+            } else if name.starts_with("pdf.metadata.") {
+                let metadata_key = &name["pdf.metadata.".len()..];
+                config.metadata.insert(metadata_key.to_string(), content.to_string());
+            }
+        }
+    }
+    
+    config
+}
+
+/// Convert the kuchiki document to XML string
+fn serialize_to_xml(document: &NodeRef) -> String {
+    // For this implementation, we'll create a simplified XML output
+    // that includes only elements we can render
+    let mut xml = String::new();
+    
+    // Start with HTML tag
+    xml.push_str("<html>");
+    
+    // Process head
+    if let Some(head) = document.select_first("head").ok() {
+        xml.push_str("<head>");
+        
+        // Only include elements we care about (style, component)
+        for child in head.as_node().children() {
+            match child.as_element().map(|s| s.name.local.to_string()).as_deref() {
+                Some("style") => {
+                    xml.push_str("<style>");
+                    xml.push_str(&child.text_contents());
+                    xml.push_str("</style>");
+                },
+                Some("component") => {
+                    // Serialize component with all attributes
+                    xml.push_str(&serialize_element(&child));
+                },
+                _ => {} // Skip other head elements
+            }
+        }
+        
+        xml.push_str("</head>");
+    }
+    
+    // Process body
+    if let Some(body) = document.select_first("body").ok() {
+        xml.push_str("<body>");
+        
+        // Process all body children recursively
+        for child in body.as_node().children() {
+            process_node(&child, &mut xml);
+        }
+        
+        xml.push_str("</body>");
+    }
+    
+    xml.push_str("</html>");
+    xml
+}
+
+/// Process a node and add it to the XML output if it's renderable
+fn process_node(node: &NodeRef, xml: &mut String) {
+    if let Some(name) = node.as_element().map(|s| s.name.local.to_string()) {
+        // Check if this is an element we can render
+        if is_renderable_element(&name) {
+            // Start tag with attributes
+            xml.push_str(&serialize_element(node));
+            
+            // Process children
+            for child in node.children() {
+                process_node(&child, xml);
+            }
+            
+            // End tag
+            xml.push_str(&format!("</{}>", name));
+        } else if is_custom_component(&name) {
+            // Handle custom component (capitalized tag names)
+            xml.push_str(&serialize_element(node));
+            
+            // Process children if needed
+            for child in node.children() {
+                process_node(&child, xml);
+            }
+            
+            // End tag
+            xml.push_str(&format!("</{}>", name));
+        }
+    } else if let Some(t) = node.as_text() {
+        // Add text content
+        if let Ok(tr) = t.try_borrow() {
+            xml.push_str(&escape_xml_text(&*tr));
+        }
+    }
+}
+
+/// Check if an element is one we can render
+fn is_renderable_element(name: &str) -> bool {
+    // List of HTML elements we support rendering
+    let supported_elements = [
+        "div", "p", "h1", "h2", "h3", "h4", "h5", "h6",
+        "span", "img", "a", "ul", "ol", "li", "table",
+        "tr", "td", "th", "hr", "br", "strong", "em", "b", "i"
+    ];
+    
+    supported_elements.contains(&name.to_lowercase().as_str())
+}
+
+/// Check if the element name appears to be a custom component
+fn is_custom_component(name: &str) -> bool {
+    // Custom components typically have capitalized first letter in React-style
+    !name.is_empty() && name.chars().next().unwrap().is_uppercase()
+}
+
+/// Serialize an element opening tag with attributes
+fn serialize_element(node: &NodeRef) -> String {
+    if let Some(name) = node.as_element().map(|s| s.name.local.to_string()) {
+        let mut result = format!("<{}", name);
+        
+        // Add attributes
+        if let Some(element) = node.as_element() {
+            let attrs = element.attributes.borrow();
+            for (key, value) in attrs.map.iter() {
+                result.push_str(&format!(" {}=\"{}\"", key.local.to_string(), escape_xml_attr(&value.value)));
+            }
+        }
+        
+        // Close the opening tag
+        result.push('>');
+        result
+    } else {
+        String::new()
+    }
+}
+
+/// Escape text for XML
+fn escape_xml_text(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+/// Escape attribute values for XML
+fn escape_xml_attr(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+/// Apply extracted configuration to the document and rendering options
+pub fn apply_html_config(
+    doc: &mut PdfDocument,
+    config: &HtmlExtractedConfig,
+    options: &mut XmlRenderOptions
+) {
+    // Apply title if provided
+    if let Some(title) = &config.title {
+        if doc.metadata.info.document_title.is_empty() {
+            doc.metadata.info.document_title = title.clone();
+        }
+    }
+    
+    // Apply page dimensions
+    if let Some(width) = config.page_width {
+        options.page_width = Mm(width);
+    }
+    
+    if let Some(height) = config.page_height {
+        options.page_height = Mm(height);
+    }
+
+    // Apply metadata
+    for (key, value) in &config.metadata {
+        match (key.trim(), value.trim()) {
+            ("trapped", "true") => doc.metadata.info.trapped = true,
+            ("trapped", "false") => doc.metadata.info.trapped = false,
+            ("version", v) => if let Ok(p) = v.parse() { doc.metadata.info.version = p; },
+            // ("creationDate", v) => if let Ok(p) = v.parse() { doc.metadata.info.creation_date = p; },
+            // ("metadataDate", v) => if let Ok(p) = v.parse() { doc.metadata.info.metadata_date = p; },
+            // ("modificationDate", v) => if let Ok(p) = v.parse() { doc.metadata.info.modification_date = p; },
+            ("conformance", v) => if let Ok(p) = serde_json::from_str(v) { doc.metadata.info.conformance = p; },
+            ("documentTitle", v) => doc.metadata.info.document_title = v.to_string(),
+            ("author", v) => doc.metadata.info.author = v.to_string(),
+            ("creator", v) => doc.metadata.info.creator = v.to_string(),
+            ("producer", v) => doc.metadata.info.producer = v.to_string(),
+            ("subject", v) => doc.metadata.info.subject = v.to_string(),
+            ("keywords", v) => {
+                doc.metadata.info.keywords = v.split(',')
+                    .map(|s| s.trim().to_string())
+                    .collect();
+            },
+            ("identifier", v) => doc.metadata.info.identifier = v.to_string(),
+            _ => {} // Ignore unknown metadata
+        }
+    }
+}
+
+
+// Dynamic XML component registration - handle component conversion from kuchiki to XML
+
+/// Create a DynamicXmlComponent from a kuchiki NodeRef
+pub fn new_dynxml_from_kuchiki(node: &NodeRef) -> Result<DynamicXmlComponent, ComponentParseError> {
+    // Convert kuchiki node to XmlNode format
+    let xml_node = kuchiki_to_xml_node(node)?;
+    
+    // Use the existing implementation to create the component
+    DynamicXmlComponent::new(&xml_node)
+}
+
+/// Convert a kuchiki NodeRef to our XmlNode format
+fn kuchiki_to_xml_node(node: &NodeRef) -> Result<XmlNode, ComponentParseError> {
+
+    let element = node.as_element()
+        .ok_or(ComponentParseError::NotAComponent)?;
+
+    let attrs = element.attributes.borrow();
+    
+    // Get node type/name
+    let node_type = element.name.local.to_string();
+    
+    // Create a new XmlNode
+    let mut xml_node = XmlNode::new(&*node_type);
+    
+    // Copy attributes
+    let mut attr = Vec::new();
+    for (key, value) in attrs.map.iter() {
+        attr.push(AzStringPair { 
+            key: key.local.trim().to_string().into(), 
+            value: value.value.trim().to_string().into() 
+        });
+    }
+    xml_node.attributes = attr.into();
+
+    // Process children recursively
+    for child in node.children() {
+        if child.as_element().is_some() {
+            let child_xml = kuchiki_to_xml_node(&child)?;
+            xml_node.children.push(child_xml);
+        } else if let Some(t) = child.as_text() {
+            // If this is a text node, set the text content
+            if let Ok(t) = t.try_borrow() {
+                xml_node.text = Some(t.clone().into()).into();
+            }
+        }
+    }
+    
+    Ok(xml_node)
+}
+
+/// Transform component nodes into 
+pub fn parse_component_nodes(nodes: &[NodeRef]) -> Result<Vec<DynamicXmlComponent>, ComponentParseError> {
+    let mut components = Vec::new();
+    
+    for node in nodes {
+        if let Some(name) = node.as_element().map(|s| s.name.local.to_string()) {
+            if name.to_lowercase() == "component" {
+                let component = new_dynxml_from_kuchiki(node)?;
+                components.push(component);
+            }
+        }
+    }
+    
+    Ok(components)
+}
+
+/// Convert DynamicXmlComponents to XmlComponents and register them
+pub fn register_components(
+    component_defs: Vec<DynamicXmlComponent>,
+    component_map: &mut XmlComponentMap
+) {
+    use azul_core::xml::normalize_casing;
+
+    for component in component_defs {
+        let component_name = normalize_casing(&component.name);
+        component_map.register_component(XmlComponent {
+            id: component_name,
+            renderer: Box::new(component),
+            inherit_vars: false,
+        });
+    }
+}
+
+/// CSS rule with selectors and declarations
+struct CssRule {
+    selector: String,
+    declarations: Vec<(String, String)>, // Property name, value
+}
+
+/// Parse CSS text into a list of rules
+fn parse_css(css_text: &str) -> Vec<CssRule> {
+    let mut rules = Vec::new();
+    
+    // Simple CSS parser (this is a very basic implementation)
+    // In a real implementation, use a proper CSS parser library
+    for rule_text in css_text.split('}') {
+        let parts: Vec<&str> = rule_text.split('{').collect();
+        if parts.len() >= 2 {
+            let selector = parts[0].trim();
+            let declarations_text = parts[1].trim();
+            
+            let mut declarations = Vec::new();
+            for decl in declarations_text.split(';') {
+                let decl_parts: Vec<&str> = decl.split(':').collect();
+                if decl_parts.len() >= 2 {
+                    let property = decl_parts[0].trim();
+                    let value = decl_parts[1].trim();
+                    if !property.is_empty() && !value.is_empty() {
+                        declarations.push((property.to_string(), value.to_string()));
+                    }
+                }
+            }
+            
+            if !selector.is_empty() && !declarations.is_empty() {
+                rules.push(CssRule {
+                    selector: selector.to_string(),
+                    declarations,
+                });
+            }
+        }
+    }
+    
+    rules
+}
+
+/// Check if an element matches a simple CSS selector
+fn element_matches_selector(element: &NodeRef, selector: &str) -> bool {
+    // Very basic selector matching - only supports element, class, and ID selectors
+    if let Some(element_data) = element.as_element() {
+        
+        let name = element.as_element()
+        .map(|s| s.name.local.to_string())
+        .unwrap_or_default();
+        
+        // Simple element selector (e.g., "div")
+        if selector == name {
+            return true;
+        }
+        
+        // Class selector (e.g., ".my-class")
+        if selector.starts_with('.') {
+            let class_name = &selector[1..];
+            if let Some(class_attr) = element_data.attributes.borrow().get("class") {
+                let classes: Vec<&str> = class_attr.split_whitespace().collect();
+                return classes.contains(&class_name);
+            }
+        }
+        
+        // ID selector (e.g., "#my-id")
+        if selector.starts_with('#') {
+            let id_name = &selector[1..];
+            if let Some(id_attr) = element_data.attributes.borrow().get("id") {
+                return id_attr == id_name;
+            }
+        }
+    }
+    
+    false
+}
+
+/// Apply CSS rules to matching elements
+fn apply_css_rules(document: &NodeRef, rules: &[CssRule]) {
+    for rule in rules {
+        // Find all elements matching the selector
+        for element in document.inclusive_descendants() {
+            if element_matches_selector(&element, &rule.selector) {
+                if let Some(element_data) = element.as_element() {
+                    let mut attributes = element_data.attributes.borrow_mut();
+                    
+                    // Get or create style attribute
+                    let mut style = attributes.get("style")
+                        .map(|s| s.to_string())
+                        .unwrap_or_default();
+                    
+                    // Add rule declarations to inline style
+                    for (property, value) in &rule.declarations {
+                        // Only add if not already present in inline style
+                        if !style.contains(&format!("{}:", property)) {
+                            if !style.is_empty() && !style.ends_with(';') {
+                                style.push(';');
+                            }
+                            style.push_str(&format!("{}:{};", property, value));
+                        }
+                    }
+                    
+                    // Set the updated style attribute
+                    attributes.insert("style", style);
+                }
+            }
+        }
+    }
+}
+
+/// Process and inline all CSS in the document
+pub fn inline_all_css(document: &NodeRef) {
+    // Collect styles from all <style> elements
+    let mut css_rules = Vec::new();
+    
+    for style_elem in document.select("style").unwrap() {
+        let css_text = style_elem.text_contents();
+        let rules = parse_css(&css_text);
+        css_rules.extend(rules);
+    }
+    
+    // Apply the collected rules to the document
+    apply_css_rules(document, &css_rules);
+    
+    // Remove <style> elements after inlining
+    for style_elem in document.select("style").unwrap() {
+        if let Some(parent) = style_elem.as_node().parent() {
+            parent.children().filter(|n| n == style_elem.as_node()).for_each(|n| n.detach());
+        }
+    }
+}
+
+/// Clean up HTML by removing elements that can't be rendered
+pub fn clean_html_for_rendering(document: &NodeRef) {
+    let non_renderable_elements = [
+        "script", "noscript", "iframe", "canvas", "audio", "video",
+        "source", "track", "embed", "object", "param", "picture"
+    ];
+    
+    for selector in non_renderable_elements.iter() {
+        for element in document.select(selector).unwrap() {
+            element.as_node().detach();
+        }
+    }
+}
+
+/// Main function to process HTML for rendering
+pub fn process_html_for_rendering(html: &str) -> (String, HtmlExtractedConfig) {
+
+    // First, inline all CSS
+    let document = kuchiki::parse_html().one(html);
+    clean_html_for_rendering(&document);
+    inline_all_css(&document);
+    
+    let mut bytes = Vec::new();
+    document.serialize(&mut bytes).unwrap();
+    let html = String::from_utf8(bytes).unwrap_or_else(|_| html.to_string());
+    
+    // Extract configuration
+    let document = kuchiki::parse_html().one(html);
+    let config = extract_config(&document);
+
+    (serialize_to_xml(&document), config)
 }

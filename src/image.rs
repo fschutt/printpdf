@@ -187,6 +187,7 @@ impl RawImageFormat {
         }
     }
 
+    #[cfg(feature = "html")]
     fn from_internal(f: &azul_core::app_resources::RawImageFormat) -> Self {
         use azul_core::app_resources::RawImageFormat;
         match f {
@@ -205,6 +206,7 @@ impl RawImageFormat {
         }
     }
 
+    #[cfg(feature = "html")]
     fn into_internal(&self) -> azul_core::app_resources::RawImageFormat {
         match self {
             RawImageFormat::R8 => azul_core::app_resources::RawImageFormat::R8,
@@ -363,6 +365,7 @@ impl RawImage {
 
         let b_len = bytes.len();
 
+        /*
         // Try browser-native decoding first for better format support
         #[cfg(all(feature = "js-sys", target_family = "wasm"))]
         if let Ok(image) = wasm_bindgen_futures::spawn_local(async {
@@ -370,6 +373,7 @@ impl RawImage {
         }) {
             return Ok(image);
         }
+        */
 
         #[cfg(not(feature = "gif"))]
         {
@@ -558,6 +562,7 @@ impl RawImage {
         target_fmt: &[OutputImageFormat],
     ) -> Result<(Vec<u8>, OutputImageFormat), String> {
 
+        /*
         // For browser, try formats in order with browser encoder
         #[cfg(all(feature = "js-sys", target_family = "wasm"))]
         for f in target_fmt {
@@ -567,6 +572,7 @@ impl RawImage {
                 return Ok((bytes, *f));
             }
         }
+        */
 
         // For this example we only support the U8 variant.
         let dyn_image = match (&self.pixels, self.data_format) {
@@ -621,6 +627,7 @@ impl RawImage {
     }
 
     /// Translates to an internal `RawImage`, necessary for the `<img>` component
+    #[cfg(feature = "html")]
     pub fn to_internal(&self) -> azul_core::app_resources::ImageRef {
         let invalid = azul_core::app_resources::ImageRef::null_image(
             self.width,
@@ -1264,6 +1271,7 @@ fn split_rawimage_into_rgb_plus_alpha(im: RawImage) -> (RawImageU8, Option<RawIm
     (orig, alpha_mask)
 }
 
+#[cfg(feature = "html")]
 pub fn translate_to_internal_rawimage(im: &RawImage) -> azul_core::app_resources::RawImage {
     azul_core::app_resources::RawImage {
         pixels: match &im.pixels {
