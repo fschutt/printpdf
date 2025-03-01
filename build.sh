@@ -1,1 +1,1 @@
-rm -rf ./pkg && wasm-pack build --target web --no-pack --no-typescript --release --no-default-features --features "js-sys,gif,jpeg,png,pnm,tiff,bmp,webp"
+rm -rf ./pkg && wasm-pack build --target web --no-pack --no-typescript --release --no-default-features --features "html,js-sys,gif,jpeg,png,pnm,tiff,bmp,webp"

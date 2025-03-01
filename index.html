@@ -18,32 +18,9 @@
 
             <div id="html-to-pdf-tab" class="tab-content">
                 <div class="controls">
-
-                    <div class="controls-row">
-                        <div class="controls-cell">
-                            <label for="pdf-title">Title:</label>
-                            <input type="text" id="pdf-title" value="My PDF Document">
-                        </div>
-                    </div>
-
-                    <div class="controls-row">
-                        <div class="controls-cell">
-                            <label for="page-width">Width (mm):</label>
-                            <input type="number" id="page-width" value="210">
-                        </div>
-                        <div class="controls-cell">
-                            <label for="page-height">Height (mm):</label>
-                            <input type="number" id="page-height" value="297">
-                        </div>
-                    </div>
-
-                    <div class="controls-row">
-                        <div class="controls-cell">
-                            <label for="image-compression">Image Compression (0-1, optional):</label>
-                            <input type="number" id="image-compression" placeholder="No Compression" min="0" max="1" step="0.1">
-                        </div>
-                    </div>
-
+                    <!-- Save/Load config buttons will be added here via JavaScript -->
+                    
+                    <!-- Resource previews container will be added here via JavaScript -->
                 </div>
                 <div class="file-inputs">
                     <button id="add-image-html">Add Image</button>
@@ -62,6 +39,7 @@
                         <button id="add-image-parse">Add Image</button>
                         <button id="add-font-parse">Add Font</button>
                     </div>
+                    <!-- Resource previews container will be added here via JavaScript -->
                 </div>
                 <div class="editor-container">
                     <div class="line-numbers"></div>
@@ -71,7 +49,7 @@
 
             <div id="sign-pdf-tab" class="tab-content hidden">
                 <div class="controls">
-                    <label for="signature-image">Signature Image:</label>
+                    <label for="signature-image-uploade">Signature Image:</label>
                     <input type="file" id="signature-image-upload" accept="image/*">
                     <label for="signature-page">Page Number:</label>
                     <input type="number" id="signature-page" value="1" min="1">
@@ -115,11 +93,13 @@
         </div>
     </div>
 
+    <!-- Hidden file inputs -->
     <input type="file" id="image-upload" accept="image/*" style="display: none;">
     <input type="file" id="font-upload" accept=".ttf,.otf,.woff,.woff2" style="display: none;">
     <input type="file" id="pdf-file-upload" accept=".pdf" style="display: none;">
+    <!-- Config file input will be added via JavaScript -->
 
     <script src="./pkg/printpdf.js" type="module"></script>
     <script src="./script.js" type="module"></script>
-</body >
+</body>
 </html>

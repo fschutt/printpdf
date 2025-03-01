@@ -1,9 +1,9 @@
 import init, {
-    Pdf_HtmlToPdfDocument,
-    Pdf_BytesToPdfDocument,
-    Pdf_PdfPageToSvg,
-    Pdf_PdfDocumentToBytes,
-    Pdf_ResourcesForPage,
+    Pdf_HtmlToDocument,
+    Pdf_BytesToDocument,
+    Pdf_PageToSvg,
+    Pdf_DocumentToBytes,
+    Pdf_GetResourcesForPage,
 } from './pkg/printpdf.js';
 
 await init(); // Initialize WASM
@@ -44,11 +44,40 @@ const pdfFileUploadInput = document.getElementById('pdf-file-upload');
 const signatureImageUploadInput = document.getElementById('signature-image-upload');
 const pdfViewerErrorText = document.getElementById('pdf-viewer-error');
 
+// Create resource previews container
+const htmlResourcesContainer = document.createElement('div');
+htmlResourcesContainer.className = 'resources-container';
+document.querySelector('#html-to-pdf-tab .controls').appendChild(htmlResourcesContainer);
+
+// Create resource previews container for parse tab
+const parseResourcesContainer = document.createElement('div');
+parseResourcesContainer.className = 'resources-container';
+document.querySelector('#parse-edit-pdf-tab .controls').appendChild(parseResourcesContainer);
+
+// Add save/load config buttons to HTML tab
+const configButtonsContainer = document.createElement('div');
+configButtonsContainer.className = 'config-buttons-container';
+configButtonsContainer.innerHTML = `
+    <button id="save-config">Save Configuration</button>
+    <button id="load-config">Load Configuration</button>
+`;
+document.querySelector('#html-to-pdf-tab .controls').prepend(configButtonsContainer);
+
+// Add config file upload input
+const configFileInput = document.createElement('input');
+configFileInput.type = 'file';
+configFileInput.id = 'config-file-upload';
+configFileInput.accept = '.json';
+configFileInput.style.display = 'none';
+document.body.appendChild(configFileInput);
+
 document.getElementById('add-image-html').addEventListener('click', () => imageUploadInput.click());
 document.getElementById('add-font-html').addEventListener('click', () => fontUploadInput.click());
 document.getElementById('add-image-parse').addEventListener('click', () => imageUploadInput.click());
 document.getElementById('add-font-parse').addEventListener('click', () => fontUploadInput.click());
 document.getElementById('upload-pdf').addEventListener('click', () => pdfFileUploadInput.click());
+document.getElementById('save-config').addEventListener('click', saveConfig);
+document.getElementById('load-config').addEventListener('click', () => configFileInput.click());
 
 sidebarModeButtons.forEach(button => {
     button.addEventListener('click', () => {
@@ -67,7 +96,7 @@ actionTabSelect.addEventListener('change', (event) => {
     if (currentTab === 'html-to-pdf') {
         updatePdfFromHtml(); // Initial PDF generation on tab switch if needed
     } else if (currentTab === 'parse-edit-pdf') {
-        // Potentially load JSON into editor if PDF is already parsed
+        updateResourcePreviews(parseResourcesContainer, true);
     } else if (currentTab === 'sign-pdf') {
         updatePdfViewer(); // Re-render to show signature if present
     }
@@ -94,9 +123,11 @@ imageUploadInput.addEventListener('change', async (event) => {
         images[file.name] = base64;
         event.target.value = ''; // Reset input
         if (currentTab === 'html-to-pdf') {
+            updateResourcePreviews(htmlResourcesContainer);
             updatePdfFromHtml();
         } else if (currentTab === 'parse-edit-pdf') {
-            // Might need to handle image update in JSON editor context
+            updateResourcePreviews(parseResourcesContainer, true);
+            updatePdfFromJsonEditor();
         }
     }
 });
@@ -108,9 +139,11 @@ fontUploadInput.addEventListener('change', async (event) => {
         fonts[file.name] = base64;
         event.target.value = ''; // Reset input
         if (currentTab === 'html-to-pdf') {
+            updateResourcePreviews(htmlResourcesContainer);
             updatePdfFromHtml();
         } else if (currentTab === 'parse-edit-pdf') {
-            // Might need to handle font update in JSON editor context
+            updateResourcePreviews(parseResourcesContainer, true);
+            updatePdfFromJsonEditor();
         }
     }
 });
@@ -125,7 +158,7 @@ pdfFileUploadInput.addEventListener('change', async (event) => {
     try {
         const inputParse = { pdfBase64: base64Pdf, options: {} };
         const inputParseJson = JSON.stringify(inputParse);
-        const parseResultJson = Pdf_BytesToPdfDocument(inputParseJson);
+        const parseResultJson = await Pdf_BytesToDocument(inputParseJson);
         const parseResult = JSON.parse(parseResultJson);
 
         if (parseResult.status === 0) {
@@ -135,6 +168,7 @@ pdfFileUploadInput.addEventListener('change', async (event) => {
             }
             jsonEditorPre.textContent = JSON.stringify(pdfDocument, null, 2); // Display JSON in editor
             updateLineNumbers(jsonEditorPre, jsonLineNumbersDiv);
+            updateResourcePreviews(parseResourcesContainer, true);
             updatePdfViewer();
         } else {
             alert2("PDF Parsing Error: " + parseResult.data);
@@ -146,14 +180,143 @@ pdfFileUploadInput.addEventListener('change', async (event) => {
     }
 });
 
+configFileInput.addEventListener('change', async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    try {
+        const text = await file.text();
+        const config = JSON.parse(text);
+        
+        // Load saved configuration
+        if (config.images) {
+            images = config.images;
+        }
+        if (config.fonts) {
+            fonts = config.fonts;
+        }
+        if (config.html) {
+            htmlEditorPre.textContent = config.html;
+            updateLineNumbers(htmlEditorPre, htmlLineNumbersDiv);
+        }
+        
+        updateResourcePreviews(htmlResourcesContainer);
+        await updatePdfFromHtml();
+    } catch (error) {
+        alert2("Error loading configuration: " + error);
+    } finally {
+        event.target.value = ''; // Reset input
+    }
+});
+
 signatureImageUploadInput.addEventListener('change', async (event) => {
     const file = event.target.files[0];
     if (file) {
         signatureImageBase64 = await encodeFileToBase64(file, true);
-        // Optionally update PDF viewer immediately to preview signature
-        updatePdfViewer();
+        // Update PDF viewer immediately to preview signature
+        await updatePdfViewer();
     }
 });
+
+// Update resource previews
+function updateResourcePreviews(container, isParseTab = false) {
+    container.innerHTML = '';
+    
+    // Create scrollable container
+    const scrollContainer = document.createElement('div');
+    scrollContainer.className = 'resources-scroll-container';
+    
+    // Add images section
+    if (Object.keys(images).length > 0) {
+        const imagesSection = document.createElement('div');
+        imagesSection.className = 'resources-section';
+        imagesSection.innerHTML = '<h4>Images</h4>';
+        const imagesGrid = document.createElement('div');
+        imagesGrid.className = 'resources-grid';
+        
+        Object.entries(images).forEach(([name, base64]) => {
+            const resourceItem = createResourceItem(name, `data:image/png;base64,${base64}`, 'image', isParseTab);
+            imagesGrid.appendChild(resourceItem);
+        });
+        
+        imagesSection.appendChild(imagesGrid);
+        scrollContainer.appendChild(imagesSection);
+    }
+    
+    // Add fonts section
+    if (Object.keys(fonts).length > 0) {
+        const fontsSection = document.createElement('div');
+        fontsSection.className = 'resources-section';
+        fontsSection.innerHTML = '<h4>Fonts</h4>';
+        const fontsGrid = document.createElement('div');
+        fontsGrid.className = 'resources-grid';
+        
+        Object.entries(fonts).forEach(([name, base64]) => {
+            const resourceItem = createResourceItem(name, null, 'font', isParseTab);
+            fontsGrid.appendChild(resourceItem);
+        });
+        
+        fontsSection.appendChild(fontsGrid);
+        scrollContainer.appendChild(fontsSection);
+    }
+    
+    container.appendChild(scrollContainer);
+}
+
+function createResourceItem(name, src, type, isReadOnly = false) {
+    const resourceItem = document.createElement('div');
+    resourceItem.className = 'resource-item';
+    
+    // Preview box
+    const preview = document.createElement('div');
+    preview.className = 'resource-preview';
+    
+    if (type === 'image' && src) {
+        const img = document.createElement('img');
+        img.src = src;
+        img.alt = name;
+        preview.appendChild(img);
+    } else if (type === 'font') {
+        preview.textContent = 'Aa';
+        preview.className += ' font-preview';
+    }
+    
+    // Name with truncation
+    const nameEl = document.createElement('div');
+    nameEl.className = 'resource-name';
+    nameEl.title = name; // Full name on hover
+    nameEl.textContent = name.length > 12 ? name.substring(0, 9) + '...' : name;
+    
+    // Delete button (only for non-readonly)
+    if (!isReadOnly) {
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'resource-delete';
+        deleteBtn.innerHTML = '×';
+        deleteBtn.title = 'Remove resource';
+        deleteBtn.addEventListener('click', async () => {
+            if (type === 'image') {
+                delete images[name];
+            } else if (type === 'font') {
+                delete fonts[name];
+            }
+            
+            // Update previews and re-render PDF
+            if (currentTab === 'html-to-pdf') {
+                updateResourcePreviews(htmlResourcesContainer);
+                await updatePdfFromHtml();
+            } else if (currentTab === 'parse-edit-pdf') {
+                updateResourcePreviews(parseResourcesContainer, true);
+                await updatePdfFromJsonEditor();
+            }
+        });
+        resourceItem.appendChild(deleteBtn);
+    }
+    
+    resourceItem.appendChild(preview);
+    resourceItem.appendChild(nameEl);
+    
+    return resourceItem;
+}
 
 // Function to update PDF viewer with SVGs from pdfDocument
 async function updatePdfViewer() {
@@ -166,7 +329,7 @@ async function updatePdfViewer() {
         const page = pdfDocument.pages[i];
         try {
             const resourcesInput = JSON.stringify({ page: page });
-            const resourcesJson = Pdf_ResourcesForPage(resourcesInput);
+            const resourcesJson = await Pdf_GetResourcesForPage(resourcesInput);
             const resourcesResult = JSON.parse(resourcesJson);
 
             if (resourcesResult.status !== 0) {
@@ -191,7 +354,7 @@ async function updatePdfViewer() {
                 options: { image_formats: ["png", "jpeg"] }
             };
             const svgInput = JSON.stringify(svgI);
-            const svgJson = Pdf_PdfPageToSvg(svgInput);
+            const svgJson = await Pdf_PageToSvg(svgInput);
             const svgResult = JSON.parse(svgJson);
 
             if (svgResult.status === 0) {
@@ -213,7 +376,6 @@ async function updatePdfViewer() {
 
 /// Returns a new PdfResources object, but with only the resources needed for the page
 function copyResourcesForPage(resources, resourcesResult) {
-
     let newResources = {
         fonts: {},
         xobjects: {},
@@ -240,7 +402,7 @@ function copyResourcesForPage(resources, resourcesResult) {
 }
 
 function applySignatureToPage(page, resources) {
-    if (!signatureImageBase64) return page;
+    if (!signatureImageBase64) return { data: page, resources: resources };
     
     const signatureImageId = 'user-signature-image';
     const res2 = {
@@ -277,26 +439,21 @@ function applySignatureToPage(page, resources) {
     };
 }
 
-
 // Function to update PDF from HTML editor content
-function updatePdfFromHtml() {
+async function updatePdfFromHtml() {
     const htmlContent = htmlEditorPre.textContent;
-    const pdfTitle = document.getElementById('pdf-title').value;
-    const pageWidth = parseFloat(document.getElementById('page-width').value);
-    const pageHeight = parseFloat(document.getElementById('page-height').value);
-    const imageCompressionInput = document.getElementById('image-compression').value;
-    const imageCompression = imageCompressionInput === "" ? null : parseFloat(imageCompressionInput);
 
-
+    // Extract the title, width, height, etc. from HTML content
+    // In a real implementation, these would be parsed from the HTML or CSS
     const generationOptions = {
-        pageWidth: pageWidth,
-        pageHeight: pageHeight,
-        imageCompression: imageCompression,
+        pageWidth: 210,
+        pageHeight: 297,
+        imageCompression: null,
         fontEmbedding: true
     };
 
     const input = {
-        title: pdfTitle,
+        title: "PDF Document",
         html: htmlContent,
         images: images,
         fonts: fonts,
@@ -306,12 +463,12 @@ function updatePdfFromHtml() {
     const inputJson = JSON.stringify(input);
 
     try {
-        const resultJson = Pdf_HtmlToPdfDocument(inputJson);
+        const resultJson = await Pdf_HtmlToDocument(inputJson);
         const result = JSON.parse(resultJson);
 
         if (result.status === 0) {
             pdfDocument = result.data;
-            updatePdfViewer();
+            await updatePdfViewer();
         } else {
             alert2("PDF Generation Error: " + result.data);
         }
@@ -324,11 +481,30 @@ function alert2(s) {
     pdfViewerErrorText.innerHTML = "<p>" + s + "</p>";
 }
 
+// Save configuration to JSON file
+function saveConfig() {
+    const config = {
+        html: htmlEditorPre.textContent,
+        images: images,
+        fonts: fonts
+    };
+    
+    const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'pdf-config.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
 // Event listener for HTML editor changes (throttled)
 let htmlEditorTimeout;
 htmlEditorPre.addEventListener('input', () => {
     clearTimeout(htmlEditorTimeout);
-    htmlEditorTimeout = setTimeout(updatePdfFromHtml, 500); // 500ms delay
+    htmlEditorTimeout = setTimeout(() => updatePdfFromHtml(), 500); // 500ms delay
     updateLineNumbers(htmlEditorPre, htmlLineNumbersDiv);
 });
 htmlEditorPre.addEventListener('scroll', () => {
@@ -341,12 +517,11 @@ htmlEditorPre.addEventListener('keydown', (event) => {
     }
 });
 
-
 // Event listener for JSON editor changes (throttled)
 let jsonEditorTimeout;
 jsonEditorPre.addEventListener('input', () => {
     clearTimeout(jsonEditorTimeout);
-    jsonEditorTimeout = setTimeout(updatePdfFromJsonEditor, 1000); // 1 sec delay
+    jsonEditorTimeout = setTimeout(() => updatePdfFromJsonEditor(), 1000); // 1 sec delay
     updateLineNumbers(jsonEditorPre, jsonLineNumbersDiv);
 });
 jsonEditorPre.addEventListener('scroll', () => {
@@ -359,16 +534,14 @@ jsonEditorPre.addEventListener('keydown', (event) => {
     }
 });
 
-
-function updatePdfFromJsonEditor() {
+async function updatePdfFromJsonEditor() {
     try {
         pdfDocument = JSON.parse(jsonEditorPre.textContent);
-        updatePdfViewer();
+        await updatePdfViewer();
     } catch (e) {
         alert2("JSON Parse Error: " + e.message);
     }
 }
-
 
 // PDF Viewer Navigation
 prevPageButton.addEventListener('click', () => {
@@ -403,15 +576,27 @@ savePdfButton.addEventListener('click', async () => {
     }
 
     try {
+        // Apply signature permanently to PDF if in sign mode
+        if (currentTab === 'sign-pdf' && signatureImageBase64) {
+            const signaturePage = parseInt(document.getElementById('signature-page').value) - 1;
+            if (signaturePage >= 0 && signaturePage < pdfDocument.pages.length) {
+                const applied = applySignatureToPage(pdfDocument.pages[signaturePage], pdfDocument.resources);
+                
+                // Update the signature in the document
+                pdfDocument.pages[signaturePage] = applied.data;
+                pdfDocument.resources = applied.resources;
+            }
+        }
+
         const inputBytes = { pdf: pdfDocument, options: {} };
         const inputBytesJson = JSON.stringify(inputBytes);
-        const bytesResultJson = Pdf_PdfDocumentToBytes(inputBytesJson);
+        const bytesResultJson = await Pdf_DocumentToBytes(inputBytesJson);
         const bytesResult = JSON.parse(bytesResultJson);
 
         if (bytesResult.status === 0) {
             const base64Pdf = bytesResult.data.pdfBase64;
             const pdfBytes = base64ToUint8Array(base64Pdf);
-            downloadPdf(pdfBytes, document.getElementById('pdf-title').value || 'document');
+            downloadPdf(pdfBytes, "document");
         } else {
             alert2("PDF Serialization Error: " + bytesResult.data);
         }
@@ -440,7 +625,7 @@ async function bufferToBase64(buffer) {
     });
     // remove the `data:...;base64,` part from the start
     return base64url.slice(base64url.indexOf(',') + 1);
-  }
+}
 
 function downloadPdf(pdfBytes, filename) {
     const blob = new Blob([pdfBytes], { type: 'application/pdf' });
@@ -453,7 +638,6 @@ function downloadPdf(pdfBytes, filename) {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 }
-
 
 function updateLineNumbers(editorElement, lineNumberDiv) {
     const lines = editorElement.textContent.split('\n').length;
