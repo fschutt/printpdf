@@ -141,7 +141,7 @@ pub async fn Pdf_DocumentToBytes(input: String) -> String {
 }
 
 #[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
-pub async fn Pdf_GetResourcesForPage(input: String) -> String {
+pub async fn Pdf_ResourcesForPage(input: String) -> String {
     api_inner_async(&input, |x| {
         Box::pin(crate::wasm::structs::resources_for_page_async(x))
     })

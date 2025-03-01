@@ -3,7 +3,7 @@ import init, {
     Pdf_BytesToDocument,
     Pdf_PageToSvg,
     Pdf_DocumentToBytes,
-    Pdf_GetResourcesForPage,
+    Pdf_ResourcesForPage,
 } from './pkg/printpdf.js';
 
 await init(); // Initialize WASM
@@ -329,7 +329,7 @@ async function updatePdfViewer() {
         const page = pdfDocument.pages[i];
         try {
             const resourcesInput = JSON.stringify({ page: page });
-            const resourcesJson = await Pdf_GetResourcesForPage(resourcesInput);
+            const resourcesJson = await Pdf_ResourcesForPage(resourcesInput);
             const resourcesResult = JSON.parse(resourcesJson);
 
             if (resourcesResult.status !== 0) {
