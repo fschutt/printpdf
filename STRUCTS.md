@@ -1,5 +1,10 @@
-```markdown
 # printpdf.js Datastructures
+
+This document describes the main datastructures used in the printpdf.js API. 
+
+Note that while the Rust code uses specific unit types like `Mm`, `Pt`, and `Px`, 
+these are serialized to simple numbers in the JSON API. Similarly, complex types 
+like `RawImage` and `ParsedFont` are serialized to base64-encoded data URL strings.
 
 ## Document
 
@@ -20,11 +25,11 @@ interface PdfDocument {
 ```typescript
 // Represents a single page in a PDF document.
 interface PdfPage {
-    // Media box of the page, defining the physical page size.
+    // Media box of the page, defining the physical page size in points (pt).
     mediaBox: Rect;
-    // Trim box of the page, defining the intended finished size of the page.
+    // Trim box of the page, defining the intended finished size of the page in points (pt).
     trimBox: Rect;
-    // Crop box of the page, defining the region to which the contents of the page are clipped when displayed or printed.
+    // Crop box of the page, defining the region to which the contents of the page are clipped in points (pt).
     cropBox: Rect;
     // List of operations to render this page.
     ops: Op[];
@@ -48,14 +53,14 @@ interface PdfDocumentInfo {
     trapped: boolean;
     // PDF document version, default: 1.
     version: number;
-    // Creation date of the document.
-    creationDate: OffsetDateTime;
-    // Modification date of the document.
-    modificationDate: OffsetDateTime;
-    // Creation date of the metadata.
-    metadataDate: OffsetDateTime;
-    // PDF conformance standard.
-    conformance: PdfConformance;
+    // Creation date of the document (ISO format string in JSON).
+    creationDate: string;
+    // Modification date of the document (ISO format string in JSON).
+    modificationDate: string;
+    // Creation date of the metadata (ISO format string in JSON).
+    metadataDate: string;
+    // PDF conformance standard (kebab-case string in JSON).
+    conformance: string;
     // PDF document title.
     documentTitle: string;
     // PDF document author.
@@ -74,8 +79,7 @@ interface PdfDocumentInfo {
 ```
 
 ```typescript
-// Initial struct for Xmp metatdata. This should be expanded later for XML handling, etc.
- * Right now it just fills out the necessary fields
+// Initial struct for Xmp metatdata.
 interface XmpMetadata {
     // Web-viewable or "default" or to be left empty. Usually "default".
     renditionClass?: string | null;
@@ -86,8 +90,10 @@ interface XmpMetadata {
 // Resources shared between pages in the PDF document.
 interface PdfResources {
     // Fonts used in the PDF, mapped by FontId.
-    fonts: { [uuid: string]: ParsedFont };
+    // Note: Parsed fonts are serialized as base64 data URLs in the JSON.
+    fonts: { [uuid: string]: string };
     // XObjects (forms, images, embedded PDF contents, etc.), mapped by XObjectId.
+    // Note: Images are serialized as base64 data URLs in the JSON.
     xobjects: { [uuid: string]: XObject };
     // Map of explicit extended graphics states, mapped by ExtendedGraphicsStateId.
     extgstates: { [uuid: string]: ExtendedGraphicsState };
@@ -100,7 +106,7 @@ interface PdfResources {
 
 ```typescript
 // Operations that can occur in a PDF page, defining the page content.
- * Tagged enum, see variants for possible operations.
+// Tagged enum, see variants for possible operations.
 type Op =
     | { type: "marker"; data: Marker }
     | { type: "begin-layer"; data: BeginLayer }
@@ -197,8 +203,8 @@ interface LoadGraphicsState {
 interface WriteText {
     // Array of text items to write
     items: TextItem[];
-    // Font size in points
-    size: number; // Pt
+    // Font size in points (number in JSON)
+    size: number;
     // Font identifier
     font: string; // FontId
 }
@@ -209,10 +215,10 @@ interface WriteText {
 interface WriteTextBuiltinFont {
     // Array of text items to write
     items: TextItem[];
-    // Font size in points
-    size: number; // Pt
-    // Builtin font to use
-    font: BuiltinFont;
+    // Font size in points (number in JSON)
+    size: number;
+    // Builtin font to use (kebab-case string in JSON)
+    font: string; // BuiltinFont
 }
 ```
 
@@ -222,8 +228,8 @@ interface WriteTextBuiltinFont {
 interface WriteCodepoints {
     // Font identifier
     font: string; // FontId
-    // Font size in points
-    size: number; // Pt
+    // Font size in points (number in JSON)
+    size: number;
     // Array of codepoint-character tuples
     cp: Array<[number, string]>;
 }
@@ -235,8 +241,8 @@ interface WriteCodepoints {
 interface WriteCodepointsWithKerning {
     // Font identifier
     font: string; // FontId
-    // Font size in points
-    size: number; // Pt
+    // Font size in points (number in JSON)
+    size: number;
     // Array of kerning-codepoint-character tuples
     cpk: Array<[number, number, string]>;
 }
@@ -245,8 +251,8 @@ interface WriteCodepointsWithKerning {
 ```typescript
 // Sets the line height for the text
 interface SetLineHeight {
-    // Line height in points
-    lh: number; // Pt
+    // Line height in points (number in JSON)
+    lh: number;
 }
 ```
 
@@ -261,8 +267,8 @@ interface SetWordSpacing {
 ```typescript
 // Sets the font size for a given font, only valid between `StartTextSection` and `EndTextSection`
 interface SetFontSize {
-    // Font size in points
-    size: number; // Pt
+    // Font size in points (number in JSON)
+    size: number;
     // Font identifier
     font: string; // FontId
 }
@@ -271,7 +277,7 @@ interface SetFontSize {
 ```typescript
 // Positions the text cursor in the page from the bottom left corner
 interface SetTextCursor {
-    // Position of the text cursor
+    // Position of the text cursor (point coordinates as numbers in JSON)
     pos: Point;
 }
 ```
@@ -279,7 +285,7 @@ interface SetTextCursor {
 ```typescript
 // Sets the fill color for texts / polygons
 interface SetFillColor {
-    // Color to use for filling
+    // Color to use for filling (see Color types below)
     col: Color;
 }
 ```
@@ -287,7 +293,7 @@ interface SetFillColor {
 ```typescript
 // Sets the outline color for texts / polygons
 interface SetOutlineColor {
-    // Color to use for outlining
+    // Color to use for outlining (see Color types below)
     col: Color;
 }
 ```
@@ -295,8 +301,8 @@ interface SetOutlineColor {
 ```typescript
 // Sets the outline thickness for texts / lines / polygons
 interface SetOutlineThickness {
-    // Outline thickness in points
-    pt: number; // Pt
+    // Outline thickness in points (number in JSON)
+    pt: number;
 }
 ```
 
@@ -311,32 +317,32 @@ interface SetLineDashPattern {
 ```typescript
 // Line join style: miter, round or limit
 interface SetLineJoinStyle {
-    // Line join style
-    join: LineJoinStyle;
+    // Line join style (kebab-case string in JSON)
+    join: string;
 }
 ```
 
 ```typescript
 // Line cap style: butt, round, or projecting-square
 interface SetLineCapStyle {
-    // Line cap style
-    cap: LineCapStyle;
+    // Line cap style (kebab-case string in JSON)
+    cap: string;
 }
 ```
 
 ```typescript
 // Set a miter limit in Pt
 interface SetMiterLimit {
-    // Miter limit in points
-    limit: number; // Pt
+    // Miter limit in points (number in JSON)
+    limit: number;
 }
 ```
 
 ```typescript
 // Sets the text rendering mode (fill, stroke, fill-stroke, clip, fill-clip)
 interface SetTextRenderingMode {
-    // Text rendering mode
-    mode: TextRenderingMode;
+    // Text rendering mode (kebab-case string in JSON)
+    mode: string;
 }
 ```
 
@@ -375,7 +381,7 @@ interface DrawPolygon {
 ```typescript
 // Set the transformation matrix for this page. Make sure to save the old graphics state before invoking!
 interface SetTransformationMatrix {
-    // Transformation matrix
+    // Transformation matrix (kebab-case type in JSON)
     matrix: CurTransMat;
 }
 ```
@@ -383,7 +389,7 @@ interface SetTransformationMatrix {
 ```typescript
 // Sets a matrix that only affects subsequent text objects.
 interface SetTextMatrix {
-    // Text matrix
+    // Text matrix (kebab-case type in JSON)
     matrix: TextMatrix;
 }
 ```
@@ -417,8 +423,8 @@ interface MoveTextCursorAndSetLeading {
 ```typescript
 // `ri` operation
 interface SetRenderingIntent {
-    // Rendering intent
-    intent: RenderingIntent;
+    // Rendering intent (kebab-case string in JSON)
+    intent: string;
 }
 ```
 
@@ -494,25 +500,20 @@ interface Unknown {
 // External object that gets reference outside the PDF content stream.
 // Tagged enum, see variants for possible XObject types.
 type XObject =
-    | { type: "image"; data: RawImage }
+    | { type: "image"; data: string } // Base64-encoded image data
     | { type: "form"; data: FormXObject }
     | { type: "external"; data: ExternalXObject };
-```
-
-```typescript
-// Image XObject, for images - Serialized to base64 string
-type RawImage = string
 ```
 
 ```typescript
 // Note: not a PDF form! Form `XObject` are just reusable content streams.
 interface FormXObject {
     // Form type (currently only Type1)
-    formType: FormType;
+    formType: string; // FormType (kebab-case in JSON)
     // Optional width / height, affects instantiation size
-    size?: [number, number] | null; // Px, Px
+    size?: [number, number] | null; // Width, height in pixels
     // The actual content of this FormXObject
-    bytes: Uint8Array;
+    bytes: number[]; // Uint8Array in JavaScript
     // Optional matrix, maps form to user space
     matrix?: CurTransMat | null;
     // (Optional, PDF 1.2+) Resources required by this form XObject
@@ -526,7 +527,7 @@ interface FormXObject {
     // (Optional; PDF 1.3) Page-piece dictionary associated with the form
     pieceInfo?: { [key: string]: DictItem } | null;
     // (Optional; PDF 1.3, required if PieceInfo is present) Last modification date
-    lastModified?: OffsetDateTime | null;
+    lastModified?: string | null; // ISO date string in JSON
     // (Optional; PDF 1.3, required for structural content) StructParent integer key
     structParent?: number | null;
     // (Optional; PDF 1.3, required for marked-content sequences) StructParents integer key
@@ -541,22 +542,14 @@ interface FormXObject {
 ```
 
 ```typescript
-// Form type, currently only Type1 is supported
-enum FormType {
-    // Type 1 form XObjects are the most common and versatile type.
-    Type1 = "type1",
-}
-```
-
-```typescript
 // External XObject, invoked by `/Do` graphics operator
 interface ExternalXObject {
     // External stream of graphics operations
     stream: ExternalStream;
-    // Optional width
-    width?: number | null; // Px
-    // Optional height
-    height?: number | null; // Px
+    // Optional width in pixels
+    width?: number | null;
+    // Optional height in pixels
+    height?: number | null;
     // Optional DPI of the object
     dpi?: number | null;
 }
@@ -568,7 +561,7 @@ interface ExternalStream {
     // Stream description, for simplicity a simple map, corresponds to PDF dict
     dict: { [key: string]: DictItem };
     // Stream content
-    content: Uint8Array;
+    content: number[]; // Uint8Array in JavaScript
     // Whether the stream can be compressed
     compress: boolean;
 }
@@ -579,12 +572,12 @@ interface ExternalStream {
 type DictItem =
     | { type: "array"; data: DictItem[] }
     | { type: "string"; data: DictItemString }
-    | { type: "bytes"; data: Uint8Array }
+    | { type: "bytes"; data: number[] } // Uint8Array in JavaScript
     | { type: "bool"; data: boolean }
     | { type: "float"; data: number }
     | { type: "int"; data: number }
     | { type: "real"; data: number }
-    | { type: "name"; data: Uint8Array }
+    | { type: "name"; data: number[] } // Uint8Array in JavaScript
     | { type: "ref"; data: DictItemRef }
     | { type: "dict"; data: DictItemDict }
     | { type: "stream"; data: DictItemStream }
@@ -593,7 +586,7 @@ type DictItem =
 
 ```typescript
 interface DictItemString {
-    data: Uint8Array,
+    data: number[], // Uint8Array in JavaScript
     literal: boolean
 }
 ```
@@ -620,14 +613,105 @@ interface DictItemStream {
 ```typescript
 // `/Type /Group`` (PDF reference section 4.9.2)
 interface GroupXObject {
-    groupType?: GroupXObjectType | null;
+    groupType?: string | null; // GroupXObjectType (kebab-case in JSON)
 }
 ```
 
+## Color Types
+
 ```typescript
-// Type of a `/Group` XObject. Currently only Transparency groups are supported
-enum GroupXObjectType {
-    // Transparency group XObject (currently the only valid GroupXObject type)
-    TransparencyGroup = "transparency-group",
+// Color wrapper
+type Color =
+    | { type: "rgb"; data: Rgb }
+    | { type: "cmyk"; data: Cmyk }
+    | { type: "greyscale"; data: Greyscale }
+    | { type: "spot-color"; data: SpotColor };
+
+// RGB color
+interface Rgb {
+    r: number; // 0.0-1.0
+    g: number; // 0.0-1.0
+    b: number; // 0.0-1.0
+    iccProfile?: string | null; // ICC profile ID
+}
+
+// CMYK color
+interface Cmyk {
+    c: number; // 0.0-1.0
+    m: number; // 0.0-1.0
+    y: number; // 0.0-1.0
+    k: number; // 0.0-1.0
+    iccProfile?: string | null; // ICC profile ID
+}
+
+// Greyscale color
+interface Greyscale {
+    percent: number; // 0.0-1.0
+    iccProfile?: string | null; // ICC profile ID
+}
+
+// Spot color (named vendor colors)
+interface SpotColor {
+    c: number; // 0.0-1.0
+    m: number; // 0.0-1.0
+    y: number; // 0.0-1.0
+    k: number; // 0.0-1.0
+}
+```
+
+## Geometry Types
+
+```typescript
+// Rectangle
+interface Rect {
+    x: number; // Points in JSON
+    y: number; // Points in JSON
+    width: number; // Points in JSON
+    height: number; // Points in JSON
+}
+
+// Point
+interface Point {
+    x: number; // Points in JSON
+    y: number; // Points in JSON
+}
+
+// Line
+interface Line {
+    points: Point[];
+}
+
+// Polygon
+interface Polygon {
+    points: Point[];
+    fill: boolean;
+    close: boolean;
+}
+```
+
+## Other Common Types
+
+```typescript
+// Line dash pattern
+interface LineDashPattern {
+    array: number[];
+    phase: number;
+}
+
+// XObject transformation
+interface XObjectTransform {
+    translateX?: number | null; // Points in JSON
+    translateY?: number | null; // Points in JSON
+    rotate?: XObjectRotation | null;
+    scaleX?: number | null;
+    scaleY?: number | null;
+    dpi?: number | null;
+}
+
+// XObject rotation
+interface XObjectRotation {
+    angleCcwDegrees: number;
+    rotationCenterX: number; // Pixels in JSON
+    rotationCenterY: number; // Pixels in JSON
 }
 ```
