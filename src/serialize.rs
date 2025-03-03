@@ -10,7 +10,10 @@ use lopdf::{
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    color::IccProfile, font::SubsetFont, Actions, BuiltinFont, Color, ColorArray, Destination, FontId, IccProfileType, ImageOptimizationOptions, Line, LinkAnnotation, Op, PaintMode, ParsedFont, PdfDocument, PdfDocumentInfo, PdfPage, PdfResources, PdfWarnMsg, Polygon, TextItem, XObject, XObjectId
+    Actions, BuiltinFont, Color, ColorArray, Destination, FontId, IccProfileType,
+    ImageOptimizationOptions, Line, LinkAnnotation, Op, PaintMode, ParsedFont, PdfDocument,
+    PdfDocumentInfo, PdfPage, PdfResources, PdfWarnMsg, Polygon, TextItem, XObject, XObjectId,
+    color::IccProfile, font::SubsetFont,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
@@ -75,7 +78,11 @@ pub fn init_doc_and_resources(
     (doc, global_xobject_dict)
 }
 
-pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions, warnings: &mut Vec<PdfWarnMsg>) -> Vec<u8> {
+pub fn serialize_pdf_into_bytes(
+    pdf: &PdfDocument,
+    opts: &PdfSaveOptions,
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> Vec<u8> {
     let (mut doc, global_xobject_dict) = init_doc_and_resources(pdf, opts);
     let pages_id = doc.new_object_id();
     let mut catalog = LoDictionary::from_iter(vec![
@@ -1015,7 +1022,7 @@ pub(crate) fn prepare_fonts(
             match font.subset(&glyph_ids.iter().map(|s| (*s.0, *s.1)).collect::<Vec<_>>()) {
                 Ok(o) => o,
                 Err(e) => {
-                    println!("{e}");
+                    warnings.push(PdfWarnMsg::error(0, 0, format!("failed to subset font: {e}")));
                     continue;
                 }
             };

@@ -8,7 +8,6 @@ use serde_derive::{Deserialize, Serialize};
 pub mod annotation;
 pub mod cmap;
 pub mod text;
-#[cfg(target_family = "wasm")]
 pub mod wasm;
 pub use annotation::*;
 /// PDF standard handling
@@ -249,7 +248,12 @@ impl PdfDocument {
 
     /// Renders a PDF Page into an SVG String. Returns `None` on an invalid page number
     /// (note: 1-indexed, so the first PDF page is "page 1", not "page 0").
-    pub fn page_to_svg(&self, page: usize, opts: &PdfToSvgOptions, warnings: &mut Vec<PdfWarnMsg>) -> Option<String> {
+    pub fn page_to_svg(
+        &self,
+        page: usize,
+        opts: &PdfToSvgOptions,
+        warnings: &mut Vec<PdfWarnMsg>,
+    ) -> Option<String> {
         Some(
             self.pages
                 .get(page.saturating_sub(1))?
@@ -257,7 +261,12 @@ impl PdfDocument {
         )
     }
 
-    pub async fn page_to_svg_async(&self, page: usize, opts: &PdfToSvgOptions, warnings: &mut Vec<PdfWarnMsg>) -> Option<String> {
+    pub async fn page_to_svg_async(
+        &self,
+        page: usize,
+        opts: &PdfToSvgOptions,
+        warnings: &mut Vec<PdfWarnMsg>,
+    ) -> Option<String> {
         Some(
             self.pages
                 .get(page.saturating_sub(1))?
@@ -278,7 +287,11 @@ impl PdfDocument {
         self::serialize::serialize_pdf_into_bytes(self, opts, warnings)
     }
 
-    pub async fn save_async(&self, opts: &PdfSaveOptions, warnings: &mut Vec<PdfWarnMsg>) -> Vec<u8> {
+    pub async fn save_async(
+        &self,
+        opts: &PdfSaveOptions,
+        warnings: &mut Vec<PdfWarnMsg>,
+    ) -> Vec<u8> {
         self::serialize::serialize_pdf_into_bytes(self, opts, warnings)
     }
 }

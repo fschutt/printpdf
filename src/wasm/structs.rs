@@ -142,7 +142,9 @@ pub async fn html_to_document_async(
 ) -> Result<HtmlToDocumentOutput, String> {
     let mut warnings = Vec::new();
     let (transformed_xml, mut pdf, opts) = html_to_document_inner(input)?;
-    let pages = pdf.html_to_pages_async(&transformed_xml, opts, &mut warnings).await?;
+    let pages = pdf
+        .html_to_pages_async(&transformed_xml, opts, &mut warnings)
+        .await?;
     pdf.with_pages(pages);
     Ok(HtmlToDocumentOutput { doc: pdf, warnings })
 }
@@ -366,12 +368,19 @@ pub struct PageToSvgOutput {
 
 pub fn page_to_svg(input: PageToSvgInput) -> Result<PageToSvgOutput, String> {
     let mut warnings = Vec::new();
-    let svg = crate::render::render_to_svg(&input.page, &input.resources, &input.options, &mut warnings);
+    let svg =
+        crate::render::render_to_svg(&input.page, &input.resources, &input.options, &mut warnings);
     Ok(PageToSvgOutput { svg, warnings })
 }
 
 pub async fn page_to_svg_async(input: PageToSvgInput) -> Result<PageToSvgOutput, String> {
     let mut warnings = Vec::new();
-    let svg = crate::render::render_to_svg_async(&input.page, &input.resources, &input.options, &mut warnings).await;
+    let svg = crate::render::render_to_svg_async(
+        &input.page,
+        &input.resources,
+        &input.options,
+        &mut warnings,
+    )
+    .await;
     Ok(PageToSvgOutput { svg, warnings })
 }

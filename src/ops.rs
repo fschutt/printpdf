@@ -2,9 +2,14 @@ use serde_derive::{Deserialize, Serialize};
 
 pub use crate::text::TextItem;
 use crate::{
-    color::Color, graphics::{
+    BuiltinFont, DictItem, ExtendedGraphicsStateId, FontId, LayerInternalId, LinkAnnotation,
+    PdfResources, PdfToSvgOptions, PdfWarnMsg, RenderingIntent, XObjectId, XObjectTransform,
+    color::Color,
+    graphics::{
         Line, LineCapStyle, LineDashPattern, LineJoinStyle, Point, Polygon, Rect, TextRenderingMode,
-    }, matrix::{CurTransMat, TextMatrix}, units::{Mm, Pt}, BuiltinFont, DictItem, ExtendedGraphicsStateId, FontId, LayerInternalId, LinkAnnotation, PdfResources, PdfToSvgOptions, PdfWarnMsg, RenderingIntent, XObjectId, XObjectTransform
+    },
+    matrix::{CurTransMat, TextMatrix},
+    units::{Mm, Pt},
 };
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -39,11 +44,21 @@ impl PdfPage {
     }
 
     /// Render the page to an SVG string.
-    pub fn to_svg(&self, resources: &PdfResources, opts: &PdfToSvgOptions, warnings: &mut Vec<PdfWarnMsg>) -> String {
+    pub fn to_svg(
+        &self,
+        resources: &PdfResources,
+        opts: &PdfToSvgOptions,
+        warnings: &mut Vec<PdfWarnMsg>,
+    ) -> String {
         crate::render::render_to_svg(self, resources, opts, warnings)
     }
 
-    pub async fn to_svg_async(&self, resources: &PdfResources, opts: &PdfToSvgOptions, warnings: &mut Vec<PdfWarnMsg>) -> String {
+    pub async fn to_svg_async(
+        &self,
+        resources: &PdfResources,
+        opts: &PdfToSvgOptions,
+        warnings: &mut Vec<PdfWarnMsg>,
+    ) -> String {
         crate::render::render_to_svg_async(self, resources, opts, warnings).await
     }
 

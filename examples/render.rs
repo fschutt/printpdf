@@ -16,7 +16,8 @@ fn main() {
     std::fs::write("./helloworld.svg", svg).unwrap();
     std::fs::write(
         "./helloworld.pdf",
-        doc.with_pages(vec![page]).save(&PdfSaveOptions::default(), &mut Vec::new()),
+        doc.with_pages(vec![page])
+            .save(&PdfSaveOptions::default(), &mut Vec::new()),
     )
     .unwrap();
 }
