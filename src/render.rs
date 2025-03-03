@@ -88,7 +88,7 @@ struct GraphicsState {
     overprint_stroke: bool,
     overprint_fill: bool,
     in_compatibility_section: bool,
-    word_spacing: Option<f32>,
+    word_spacing: Option<Pt>,
     font_sizes: BTreeMap<FontId, Pt>,
 
     // Extra options
@@ -248,7 +248,7 @@ impl GraphicsStateVec {
         self._internal.last_mut()?.stroke_width = Some(c);
         Some(())
     }
-    pub fn set_word_spacing(&mut self, c: f32) -> Option<()> {
+    pub fn set_word_spacing(&mut self, c: Pt) -> Option<()> {
         self._internal.last_mut()?.word_spacing = Some(c);
         Some(())
     }
@@ -470,8 +470,8 @@ fn render_to_svg_internal(
                     .get(gs)
                     .and_then(|s| gst.load_gs(s));
             }
-            Op::SetWordSpacing { percent } => {
-                gst.set_word_spacing(*percent);
+            Op::SetWordSpacing { pt } => {
+                gst.set_word_spacing(*pt);
             }
             Op::SetFontSize { size, font } => {
                 gst.set_font_size(font, *size);

@@ -624,7 +624,6 @@ fn displaylist_handle_rect(
         ops.push(Op::SetTextRenderingMode {
             mode: crate::TextRenderingMode::Fill,
         });
-        ops.push(Op::SetWordSpacing { percent: 100.0 });
         ops.push(Op::SetLineHeight {
             lh: Pt(text.font_size_px),
         });

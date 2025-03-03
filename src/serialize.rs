@@ -591,14 +591,11 @@ pub(crate) fn translate_operations(
                     content.push(LoOp::new("TJ", vec![Array(list)]));
                 }
             }
-            Op::AddLineBreak => {
-                content.push(LoOp::new("T*", vec![]));
-            }
             Op::SetLineHeight { lh } => {
                 content.push(LoOp::new("TL", vec![Real(lh.0)]));
             }
-            Op::SetWordSpacing { percent } => {
-                content.push(LoOp::new("Tw", vec![Real(*percent)]));
+            Op::SetWordSpacing { pt } => {
+                content.push(LoOp::new("Tw", vec![Real(pt.0)]));
             }
             Op::SetFontSize { size, font } => {
                 content.push(LoOp::new(

@@ -296,14 +296,14 @@ pub fn document_to_bytes(input: DocumentToBytesInput) -> Result<DocumentToBytesO
 pub async fn document_to_bytes_async(
     input: DocumentToBytesInput,
 ) -> Result<DocumentToBytesOutput, String> {
-    let return_base64 = input.return_byte_array;
+    let return_byte_array = input.return_byte_array;
     let bytes = input.doc.save_async(&input.options).await;
 
     Ok(DocumentToBytesOutput {
-        bytes: if return_base64 {
-            Base64OrRaw::B64(base64::prelude::BASE64_STANDARD.encode(&bytes))
-        } else {
+        bytes: if return_byte_array {
             Base64OrRaw::Raw(bytes)
+        } else {
+            Base64OrRaw::B64(base64::prelude::BASE64_STANDARD.encode(&bytes))
         },
     })
 }

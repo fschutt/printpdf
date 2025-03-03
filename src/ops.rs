@@ -192,8 +192,8 @@ pub enum Op {
     AddLineBreak,
     /// Sets the line height for the text
     SetLineHeight { lh: Pt },
-    /// Sets the word spacing in percent (default: 100.0)
-    SetWordSpacing { percent: f32 },
+    /// `Tw`: Sets the word spacing in point (default: 100.0)
+    SetWordSpacing { pt: Pt },
     /// Sets the font size for a given font, only valid between `StartTextSection` and
     /// `EndTextSection`
     SetFontSize { size: Pt, font: FontId },

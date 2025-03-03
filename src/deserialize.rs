@@ -1048,6 +1048,20 @@ pub fn parse_op(
                 ));
             }
         }
+        "Tw" => {
+            if op.operands.len() == 1 {
+                let spacing = to_f32(&op.operands[0]);
+                out_ops.push(Op::SetWordSpacing {
+                    pt: Pt(spacing),
+                });
+            } else {
+                warnings.push(PdfWarnMsg::error(
+                    page,
+                    op_id,
+                    format!("Warning: 'Tw' expects 1 operand, got {}", op.operands.len()),
+                ));
+            }
+        },
         "Tz" => {
             if op.operands.len() == 1 {
                 let scale_percent = to_f32(&op.operands[0]);

@@ -695,7 +695,10 @@ impl XmlComponentTrait for ImgComponent {
     fn get_available_arguments(&self) -> ComponentArguments {
         ComponentArguments {
             accepts_text: false,
-            args: vec![("src".to_string(), "String".to_string())],
+            args: vec![
+                ("src".to_string(), "String".to_string()),
+                ("alt".to_string(), "String".to_string()),
+            ],
         }
     }
 
