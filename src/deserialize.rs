@@ -79,14 +79,15 @@ impl PdfWarnMsg {
 struct InitialPdf {
     doc: lopdf::Document,
     objs_to_search_for_resources: Vec<(Object, Option<usize>)>,
-    warnings: Vec<PdfWarnMsg>,
     page_refs: Vec<(u32, u16)>,
     document_info: PdfDocumentInfo,
 }
 
-fn parse_pdf_from_bytes_start(bytes: &[u8], opts: &PdfParseOptions) -> Result<InitialPdf, String> {
-    let mut warnings = Vec::new();
-
+fn parse_pdf_from_bytes_start(
+    bytes: &[u8],
+    opts: &PdfParseOptions,
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> Result<InitialPdf, String> {
     // Load the PDF document using lopdf.
     let doc = LopdfDocument::load_mem(bytes).map_err(|e| format!("Failed to load PDF: {}", e))?;
 
@@ -163,16 +164,13 @@ fn parse_pdf_from_bytes_start(bytes: &[u8], opts: &PdfParseOptions) -> Result<In
         .trailer
         .get(b"Info")
         .ok()
-        .and_then(|s| {
-            get_dict_or_resolve_ref(&format!("document_info"), &doc, s, &mut warnings, None)
-        })
+        .and_then(|s| get_dict_or_resolve_ref(&format!("document_info"), &doc, s, warnings, None))
         .map(|s| parse_document_info(s))
         .unwrap_or_default();
 
     Ok(InitialPdf {
         doc,
         objs_to_search_for_resources,
-        warnings,
         page_refs,
         document_info,
     })
@@ -182,31 +180,31 @@ fn parse_pdf_from_bytes_start(bytes: &[u8], opts: &PdfParseOptions) -> Result<In
 pub fn parse_pdf_from_bytes(
     bytes: &[u8],
     opts: &PdfParseOptions,
-) -> Result<(PdfDocument, Vec<PdfWarnMsg>), String> {
-    let mut i = parse_pdf_from_bytes_start(bytes, opts)?;
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> Result<PdfDocument, String> {
+    let i = parse_pdf_from_bytes_start(bytes, opts, warnings)?;
 
-    let fonts =
-        parse_fonts_from_entire_pdf(&i.doc, &i.objs_to_search_for_resources, &mut i.warnings);
+    let fonts = parse_fonts_from_entire_pdf(&i.doc, &i.objs_to_search_for_resources, warnings);
     let xobjects =
-        parse_xobjects_from_entire_pdf(&i.doc, &i.objs_to_search_for_resources, &mut i.warnings);
-    let xobjects = process_xobjects(xobjects, &mut i.warnings);
+        parse_xobjects_from_entire_pdf(&i.doc, &i.objs_to_search_for_resources, warnings);
+    let xobjects = process_xobjects(xobjects, warnings);
 
-    parse_pdf_from_bytes_end(i, opts, fonts, xobjects)
+    parse_pdf_from_bytes_end(i, opts, fonts, xobjects, warnings)
 }
 
 pub async fn parse_pdf_from_bytes_async(
     bytes: &[u8],
     opts: &PdfParseOptions,
-) -> Result<(PdfDocument, Vec<PdfWarnMsg>), String> {
-    let mut i = parse_pdf_from_bytes_start(bytes, opts)?;
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> Result<PdfDocument, String> {
+    let i = parse_pdf_from_bytes_start(bytes, opts, warnings)?;
 
-    let fonts =
-        parse_fonts_from_entire_pdf(&i.doc, &i.objs_to_search_for_resources, &mut i.warnings);
+    let fonts = parse_fonts_from_entire_pdf(&i.doc, &i.objs_to_search_for_resources, warnings);
     let xobjects =
-        parse_xobjects_from_entire_pdf(&i.doc, &i.objs_to_search_for_resources, &mut i.warnings);
-    let xobjects = process_xobjects_async(xobjects, &mut i.warnings).await;
+        parse_xobjects_from_entire_pdf(&i.doc, &i.objs_to_search_for_resources, warnings);
+    let xobjects = process_xobjects_async(xobjects, warnings).await;
 
-    parse_pdf_from_bytes_end(i, opts, fonts, xobjects)
+    parse_pdf_from_bytes_end(i, opts, fonts, xobjects, warnings)
 }
 
 fn parse_pdf_from_bytes_end(
@@ -214,13 +212,13 @@ fn parse_pdf_from_bytes_end(
     opts: &PdfParseOptions,
     fonts: BTreeMap<FontId, ParsedOrBuiltinFont>,
     xobjects: BTreeMap<XObjectId, XObject>,
-) -> Result<(PdfDocument, Vec<PdfWarnMsg>), String> {
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> Result<PdfDocument, String> {
     let mut pages = Vec::new();
 
     let InitialPdf {
         doc,
         objs_to_search_for_resources,
-        mut warnings,
         page_refs,
         document_info,
     } = initial_pdf;
@@ -232,7 +230,7 @@ fn parse_pdf_from_bytes_end(
             .as_dict()
             .map_err(|e| format!("Page object is not a dictionary: {}", e))?;
 
-        let pdf_page = parse_page(i, page_obj, &doc, &fonts, &xobjects, &mut warnings)?;
+        let pdf_page = parse_page(i, page_obj, &doc, &fonts, &xobjects, warnings)?;
 
         pages.push(pdf_page);
     }
@@ -242,7 +240,7 @@ fn parse_pdf_from_bytes_end(
     let layers = layers::extract_layers(&doc);
 
     // Extract ExtGStates from resources
-    let extgstates = extract_extgstates(&doc, &objs_to_search_for_resources, &mut warnings);
+    let extgstates = extract_extgstates(&doc, &objs_to_search_for_resources, warnings);
 
     let fonts = fonts
         .into_iter()
@@ -277,7 +275,7 @@ fn parse_pdf_from_bytes_end(
         pages,
     };
 
-    Ok((pdf_doc, warnings))
+    Ok(pdf_doc)
 }
 
 enum ParsedOrBuiltinFont {

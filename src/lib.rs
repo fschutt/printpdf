@@ -162,15 +162,20 @@ impl PdfDocument {
     }
 
     /// Parses a PDF
-    pub fn parse(bytes: &[u8], opts: &PdfParseOptions) -> Result<(Self, Vec<PdfWarnMsg>), String> {
-        self::deserialize::parse_pdf_from_bytes(bytes, opts)
+    pub fn parse(
+        bytes: &[u8],
+        opts: &PdfParseOptions,
+        warnings: &mut Vec<PdfWarnMsg>,
+    ) -> Result<Self, String> {
+        self::deserialize::parse_pdf_from_bytes(bytes, opts, warnings)
     }
 
     pub async fn parse_async(
         bytes: &[u8],
         opts: &PdfParseOptions,
-    ) -> Result<(Self, Vec<PdfWarnMsg>), String> {
-        self::deserialize::parse_pdf_from_bytes_async(bytes, opts).await
+        warnings: &mut Vec<PdfWarnMsg>,
+    ) -> Result<Self, String> {
+        self::deserialize::parse_pdf_from_bytes_async(bytes, opts, warnings).await
     }
 
     pub fn add_graphics_state(&mut self, gs: ExtendedGraphicsState) -> ExtendedGraphicsStateId {

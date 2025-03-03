@@ -12,7 +12,7 @@ use azul_core::{
     dom::{NodeData, NodeId},
     id_tree::NodeDataContainer,
     pagination::PaginatedPage,
-    styled_dom::{ContentGroup, NodeHierarchyItem, StyledNode},
+    styled_dom::{NodeHierarchyItem, StyledNode},
     ui_solver::{LayoutResult, PositionedRectangle},
     window::{AzStringPair, FullWindowState, LogicalSize},
 };

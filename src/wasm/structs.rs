@@ -235,7 +235,8 @@ pub fn bytes_to_document(input: BytesToDocumentInput) -> Result<BytesToDocumentO
         .decode_bytes()
         .map_err(|e| format!("failed to decode input bytes: {e}"))?;
 
-    let (doc, warnings) = PdfDocument::parse(&bytes, &input.options)
+    let mut warnings = Vec::new();
+    let doc = PdfDocument::parse(&bytes, &input.options, &mut warnings)
         .map_err(|e| format!("failed to parse PDF: {e}"))?;
 
     Ok(BytesToDocumentOutput { doc, warnings })
@@ -249,7 +250,8 @@ pub async fn bytes_to_document_async(
         .decode_bytes()
         .map_err(|e| format!("failed to decode input bytes: {e}"))?;
 
-    let (doc, warnings) = PdfDocument::parse_async(&bytes, &input.options)
+    let mut warnings = Vec::new();
+    let doc = PdfDocument::parse_async(&bytes, &input.options, &mut warnings)
         .await
         .map_err(|e| format!("failed to parse PDF: {e}"))?;
 

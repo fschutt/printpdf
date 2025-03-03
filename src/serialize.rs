@@ -1022,7 +1022,11 @@ pub(crate) fn prepare_fonts(
             match font.subset(&glyph_ids.iter().map(|s| (*s.0, *s.1)).collect::<Vec<_>>()) {
                 Ok(o) => o,
                 Err(e) => {
-                    warnings.push(PdfWarnMsg::error(0, 0, format!("failed to subset font: {e}")));
+                    warnings.push(PdfWarnMsg::error(
+                        0,
+                        0,
+                        format!("failed to subset font: {e}"),
+                    ));
                     continue;
                 }
             };
