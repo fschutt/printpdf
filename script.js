@@ -1219,7 +1219,7 @@ savePdfButton.addEventListener('click', async () => {
         return;
     }
 
-    try {
+    // try {
         // Apply signature permanently to PDF if in sign mode
         if (currentTab === 'sign-pdf' && signatureImageBase64) {
             const signaturePage = parseInt(document.getElementById('signature-page').value) - 1;
@@ -1244,9 +1244,9 @@ savePdfButton.addEventListener('click', async () => {
         } else {
             alert2("PDF Serialization Error: " + bytesResult.data);
         }
-    } catch (error) {
-        alert2("Error saving PDF: " + error);
-    }
+    // } catch (error) {
+        // alert2("Error saving PDF: " + error);
+    // }
 });
 
 function base64ToUint8Array(base64) {
