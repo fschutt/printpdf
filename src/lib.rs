@@ -50,6 +50,8 @@ pub use image::*;
 pub mod html;
 #[cfg(feature = "html")]
 pub use html::*;
+#[cfg(feature = "html")]
+pub(crate) mod components;
 /// Utility functions (random strings, numbers, timestamp formatting)
 pub(crate) mod utils;
 use utils::*;

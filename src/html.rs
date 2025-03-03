@@ -31,7 +31,7 @@ use rust_fontconfig::{FcFont, FcFontCache, FcPattern};
 use serde_derive::{Deserialize, Serialize};
 use svg2pdf::usvg::tiny_skia_path::Scalar;
 
-use crate::{BuiltinFont, Mm, Op, PdfDocument, PdfPage, PdfResources, Pt};
+use crate::{BuiltinFont, Mm, Op, PdfDocument, PdfPage, PdfResources, Pt, components::ImageInfo};
 
 const DPI_SCALE: DpiScaleFactor = DpiScaleFactor {
     inner: FloatValue::const_new(1),
@@ -142,7 +142,7 @@ fn xml_to_pages_inner(
 
     let fixup = fixup_xml_nodes(&root_nodes);
 
-    let mut components = XmlComponentMap::default();
+    let mut components = crate::components::printpdf_default_components();
     for c in config.components {
         components.register_component(c);
     }
@@ -300,16 +300,6 @@ fn get_fcpat(b: BuiltinFont) -> (FcPattern, FcFont) {
             font_index: 0,
         },
     )
-}
-
-#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ImageInfo {
-    pub original_id: String,
-    pub xobject_id: String,
-    pub image_type: ImageTypeInfo,
-    pub width: usize,
-    pub height: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
