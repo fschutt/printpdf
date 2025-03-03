@@ -1,16 +1,7 @@
 //! HTML components for rendering
-use azul_core::{
-    dom::Dom,
-    styled_dom::StyledDom,
-    xml::{
-        CompileError, ComponentArgumentTypes, ComponentArguments, FilteredComponentArguments,
-        RenderDomError, XmlComponent, XmlComponentMap, XmlComponentTrait, XmlNode, XmlTextContent,
-        normalize_casing, prepare_string,
-    },
-};
+use azul_core::{dom::Dom, styled_dom::StyledDom, xml::{normalize_casing, prepare_string, CompileError, ComponentArgumentTypes, ComponentArguments, FilteredComponentArguments, RenderDomError, XmlComponent, XmlComponentMap, XmlComponentTrait, XmlNode, XmlTextContent}};
 use azul_css_parser::CssApiWrapper;
-use serde_derive::{Deserialize, Serialize};
-
+use serde_derive::{Serialize, Deserialize};
 use crate::{ImageTypeInfo, RawImage, RawImageData, RawImageFormat};
 
 /// Render for a `div` component
@@ -173,6 +164,7 @@ impl XmlComponentTrait for ImgComponent {
         arguments: &FilteredComponentArguments,
         content: &XmlTextContent,
     ) -> Result<StyledDom, RenderDomError> {
+
         let im_info = arguments
             .values
             .get("src")
@@ -202,24 +194,24 @@ pub fn printpdf_default_components() -> XmlComponentMap {
     let mut map = XmlComponentMap {
         components: Vec::new(),
     };
-    map.register_component(XmlComponent {
+    map.register_component(XmlComponent { 
         id: normalize_casing("body"),
-        renderer: Box::new(BodyRenderer::new()),
-        inherit_vars: true,
+        renderer: Box::new(BodyRenderer::new()), 
+        inherit_vars: true 
     });
-    map.register_component(XmlComponent {
+    map.register_component(XmlComponent { 
         id: normalize_casing("div"),
-        renderer: Box::new(DivRenderer::new()),
-        inherit_vars: true,
+        renderer: Box::new(DivRenderer::new()), 
+        inherit_vars: true 
     });
-    map.register_component(XmlComponent {
+    map.register_component(XmlComponent { 
         id: normalize_casing("p"),
-        renderer: Box::new(TextRenderer::new()),
-        inherit_vars: true,
+        renderer: Box::new(TextRenderer::new()), 
+        inherit_vars: true 
     });
     map.register_component(XmlComponent {
         id: "img".to_string(),
-        renderer: Box::new(ImgComponent {}),
+        renderer: Box::new(ImgComponent { }),
         inherit_vars: false,
     });
 
