@@ -110,7 +110,7 @@ impl TextRenderer {
             css: String::new(),
         }
     }
-    
+
     pub fn with_css(node_type: &str, css: &str) -> Self {
         Self {
             node: XmlNode::new(node_type),
@@ -137,7 +137,7 @@ impl XmlComponentTrait for TextRenderer {
             .as_ref()
             .map(|s| prepare_string(&s))
             .unwrap_or_default();
-        
+
         if self.css.is_empty() {
             Ok(Dom::text(content).style(CssApiWrapper::empty()))
         } else {
@@ -184,7 +184,8 @@ impl XmlComponentTrait for HrRenderer {
         _: &XmlTextContent,
     ) -> Result<StyledDom, RenderDomError> {
         Ok(Dom::div().style(CssApiWrapper::from_string(
-            "border: none; height: 1px; background-color: #ccc; margin: 10px 0; width: 100%;".into()
+            "border: none; height: 1px; background-color: #ccc; margin: 10px 0; width: 100%;"
+                .into(),
         )))
     }
 
@@ -227,7 +228,7 @@ impl XmlComponentTrait for TableRenderer {
         _: &XmlTextContent,
     ) -> Result<StyledDom, RenderDomError> {
         Ok(Dom::div().style(CssApiWrapper::from_string(
-            "display: flex; flex-direction: column; border: 1px solid #ccc; width: 100%;".into()
+            "display: flex; flex-direction: column; border: 1px solid #ccc; width: 100%;".into(),
         )))
     }
 
@@ -270,7 +271,7 @@ impl XmlComponentTrait for TrRenderer {
         _: &XmlTextContent,
     ) -> Result<StyledDom, RenderDomError> {
         Ok(Dom::div().style(CssApiWrapper::from_string(
-            "display: flex; flex-direction: row; width: 100%;".into()
+            "display: flex; flex-direction: row; width: 100%;".into(),
         )))
     }
 
@@ -319,14 +320,15 @@ impl XmlComponentTrait for ThRenderer {
             .as_ref()
             .map(|s| prepare_string(&s))
             .unwrap_or_default();
-        
-        let css = "padding: 8px; border: 1px solid #ccc; font-weight: bold; text-align: left; flex: 1;";
+
+        let css =
+            "padding: 8px; border: 1px solid #ccc; font-weight: bold; text-align: left; flex: 1;";
         let mut dom = Dom::div().style(CssApiWrapper::from_string(css.into()));
-        
+
         if !content.is_empty() {
             dom.append_child(Dom::text(content).style(CssApiWrapper::empty()));
         }
-        
+
         Ok(dom)
     }
 
@@ -375,14 +377,14 @@ impl XmlComponentTrait for TdRenderer {
             .as_ref()
             .map(|s| prepare_string(&s))
             .unwrap_or_default();
-        
+
         let css = "padding: 8px; border: 1px solid #ccc; flex: 1;";
         let mut dom = Dom::div().style(CssApiWrapper::from_string(css.into()));
-        
+
         if !content.is_empty() {
             dom.append_child(Dom::text(content).style(CssApiWrapper::empty()));
         }
-        
+
         Ok(dom)
     }
 
@@ -425,7 +427,7 @@ impl XmlComponentTrait for UlRenderer {
         _: &XmlTextContent,
     ) -> Result<StyledDom, RenderDomError> {
         Ok(Dom::div().style(CssApiWrapper::from_string(
-            "display: flex; flex-direction: column; padding-left: 20px; margin: 16px 0;".into()
+            "display: flex; flex-direction: column; padding-left: 20px; margin: 16px 0;".into(),
         )))
     }
 
@@ -468,7 +470,7 @@ impl XmlComponentTrait for OlRenderer {
         _: &XmlTextContent,
     ) -> Result<StyledDom, RenderDomError> {
         Ok(Dom::div().style(CssApiWrapper::from_string(
-            "display: flex; flex-direction: column; padding-left: 20px; margin: 16px 0;".into()
+            "display: flex; flex-direction: column; padding-left: 20px; margin: 16px 0;".into(),
         )))
     }
 
@@ -505,7 +507,7 @@ impl LiRenderer {
             list_type: ListType::Unordered,
         }
     }
-    
+
     pub fn with_list_type(list_type: ListType) -> Self {
         Self {
             node: XmlNode::new("li"),
@@ -532,37 +534,36 @@ impl XmlComponentTrait for LiRenderer {
             .as_ref()
             .map(|s| prepare_string(&s))
             .unwrap_or_default();
-        
+
         // Main container div for the list item (with flexbox row)
         let mut item_container = Dom::div().style(CssApiWrapper::from_string(
-            "display: flex; flex-direction: row; align-items: flex-start; margin: 4px 0;".into()
+            "display: flex; flex-direction: row; align-items: flex-start; margin: 4px 0;".into(),
         ));
-        
+
         // Bullet point div
         let bullet_text = match self.list_type {
             ListType::Unordered => "•",
-            ListType::Ordered => "1.",  // This would ideally be a counter in real CSS
+            ListType::Ordered => "1.", // This would ideally be a counter in real CSS
         };
-        
-        let bullet_div = Dom::div()
-        .with_child(Dom::text(bullet_text))
-        .style(CssApiWrapper::from_string(
-            "width: 20px; flex-shrink: 0; text-align: center; margin-right: 5px;".into()
-        ));
-        
+
+        let bullet_div =
+            Dom::div()
+                .with_child(Dom::text(bullet_text))
+                .style(CssApiWrapper::from_string(
+                    "width: 20px; flex-shrink: 0; text-align: center; margin-right: 5px;".into(),
+                ));
+
         // Content div
-        let mut content_div = Dom::div().style(CssApiWrapper::from_string(
-            "flex-grow: 1;".into()
-        ));
-        
+        let mut content_div = Dom::div().style(CssApiWrapper::from_string("flex-grow: 1;".into()));
+
         if !content.is_empty() {
             content_div.append_child(Dom::text(content).style(CssApiWrapper::empty()));
         }
-        
+
         // Add the bullet and content divs to the container
         item_container.append_child(bullet_div);
         item_container.append_child(content_div);
-        
+
         Ok(item_container)
     }
 
@@ -611,7 +612,7 @@ impl XmlComponentTrait for StrongRenderer {
             .as_ref()
             .map(|s| prepare_string(&s))
             .unwrap_or_default();
-            
+
         Ok(Dom::text(content).style(CssApiWrapper::from_string("font-weight: bold;".into())))
     }
 
@@ -660,7 +661,7 @@ impl XmlComponentTrait for EmRenderer {
             .as_ref()
             .map(|s| prepare_string(&s))
             .unwrap_or_default();
-            
+
         Ok(Dom::text(content).style(CssApiWrapper::from_string("font-style: italic;".into())))
     }
 
@@ -737,7 +738,7 @@ pub fn printpdf_default_components() -> XmlComponentMap {
     let mut map = XmlComponentMap {
         components: Vec::new(),
     };
-    
+
     // Register base elements
     map.register_component(XmlComponent {
         id: normalize_casing("body"),
@@ -754,39 +755,57 @@ pub fn printpdf_default_components() -> XmlComponentMap {
         renderer: Box::new(TextRenderer::new()),
         inherit_vars: true,
     });
-    
+
     // Register heading elements (h1-h6)
     map.register_component(XmlComponent {
         id: "h1".to_string(),
-        renderer: Box::new(TextRenderer::with_css("h1", "font-size: 2em; font-weight: bold; margin: 0.67em 0;")),
+        renderer: Box::new(TextRenderer::with_css(
+            "h1",
+            "font-size: 2em; font-weight: bold; margin: 0.67em 0;",
+        )),
         inherit_vars: true,
     });
     map.register_component(XmlComponent {
         id: "h2".to_string(),
-        renderer: Box::new(TextRenderer::with_css("h2", "font-size: 1.5em; font-weight: bold; margin: 0.83em 0;")),
+        renderer: Box::new(TextRenderer::with_css(
+            "h2",
+            "font-size: 1.5em; font-weight: bold; margin: 0.83em 0;",
+        )),
         inherit_vars: true,
     });
     map.register_component(XmlComponent {
         id: "h3".to_string(),
-        renderer: Box::new(TextRenderer::with_css("h3", "font-size: 1.17em; font-weight: bold; margin: 1em 0;")),
+        renderer: Box::new(TextRenderer::with_css(
+            "h3",
+            "font-size: 1.17em; font-weight: bold; margin: 1em 0;",
+        )),
         inherit_vars: true,
     });
     map.register_component(XmlComponent {
         id: "h4".to_string(),
-        renderer: Box::new(TextRenderer::with_css("h4", "font-size: 1em; font-weight: bold; margin: 1.33em 0;")),
+        renderer: Box::new(TextRenderer::with_css(
+            "h4",
+            "font-size: 1em; font-weight: bold; margin: 1.33em 0;",
+        )),
         inherit_vars: true,
     });
     map.register_component(XmlComponent {
         id: "h5".to_string(),
-        renderer: Box::new(TextRenderer::with_css("h5", "font-size: 0.83em; font-weight: bold; margin: 1.67em 0;")),
+        renderer: Box::new(TextRenderer::with_css(
+            "h5",
+            "font-size: 0.83em; font-weight: bold; margin: 1.67em 0;",
+        )),
         inherit_vars: true,
     });
     map.register_component(XmlComponent {
         id: "h6".to_string(),
-        renderer: Box::new(TextRenderer::with_css("h6", "font-size: 0.67em; font-weight: bold; margin: 2.33em 0;")),
+        renderer: Box::new(TextRenderer::with_css(
+            "h6",
+            "font-size: 0.67em; font-weight: bold; margin: 2.33em 0;",
+        )),
         inherit_vars: true,
     });
-    
+
     // Register text formatting elements
     map.register_component(XmlComponent {
         id: "strong".to_string(),
@@ -798,14 +817,14 @@ pub fn printpdf_default_components() -> XmlComponentMap {
         renderer: Box::new(EmRenderer::new()),
         inherit_vars: true,
     });
-    
+
     // Register hr element
     map.register_component(XmlComponent {
         id: "hr".to_string(),
         renderer: Box::new(HrRenderer::new()),
         inherit_vars: true,
     });
-    
+
     // Register table elements
     map.register_component(XmlComponent {
         id: "table".to_string(),
@@ -827,7 +846,7 @@ pub fn printpdf_default_components() -> XmlComponentMap {
         renderer: Box::new(TdRenderer::new()),
         inherit_vars: true,
     });
-    
+
     // Register list elements
     map.register_component(XmlComponent {
         id: "ul".to_string(),
@@ -844,7 +863,7 @@ pub fn printpdf_default_components() -> XmlComponentMap {
         renderer: Box::new(LiRenderer::new()),
         inherit_vars: true,
     });
-    
+
     // Register img component
     map.register_component(XmlComponent {
         id: "img".to_string(),

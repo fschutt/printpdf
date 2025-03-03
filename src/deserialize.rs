@@ -13,13 +13,7 @@ use lopdf::{
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    BuiltinFont, Color, DictItem, ExtendedGraphicsStateId, ExtendedGraphicsStateMap, FontId,
-    LineDashPattern, LinePoint, Op, PageAnnotMap, ParsedFont, PdfDocument, PdfDocumentInfo,
-    PdfFontMap, PdfLayerMap, PdfMetadata, PdfPage, PdfResources, PolygonRing, RawImage,
-    RenderingIntent, TextItem, TextMatrix, TextRenderingMode, XObject, XObjectId, XObjectMap,
-    cmap::ToUnicodeCMap,
-    conformance::PdfConformance,
-    date::{OffsetDateTime, UtcOffset},
+    cmap::ToUnicodeCMap, conformance::PdfConformance, date::{OffsetDateTime, UtcOffset}, BuiltinFont, Color, DictItem, ExtendedGraphicsState, ExtendedGraphicsStateId, ExtendedGraphicsStateMap, FontId, LayerInternalId, LineDashPattern, LinePoint, Op, PageAnnotId, PageAnnotMap, ParsedFont, PdfDocument, PdfDocumentInfo, PdfFontMap, PdfLayerMap, PdfMetadata, PdfPage, PdfResources, PolygonRing, RawImage, RenderingIntent, TextItem, TextMatrix, TextRenderingMode, XObject, XObjectId, XObjectMap
 };
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -78,14 +72,6 @@ fn parse_pdf_from_bytes_start(bytes: &[u8], opts: &PdfParseOptions) -> Result<In
         .get(b"Root")
         .map_err(|_| "Missing Root in trailer".to_string())?;
 
-    let document_info = doc
-        .trailer
-        .get(b"Info")
-        .ok()
-        .and_then(|s| get_dict_or_resolve_ref(&doc, s, &mut warnings, None))
-        .map(|s| parse_document_info(s))
-        .unwrap_or_default();
-
     objs_to_search_for_resources.push((root_obj.clone(), None));
 
     let root_ref = match root_obj {
@@ -102,6 +88,11 @@ fn parse_pdf_from_bytes_start(bytes: &[u8], opts: &PdfParseOptions) -> Result<In
     let catalog = catalog_obj
         .as_dict()
         .map_err(|e| format!("Catalog is not a dictionary: {}", e))?;
+
+    // Check if catalog has a Resources dictionary and include it
+    if let Ok(resources) = catalog.get(b"Resources") {
+        objs_to_search_for_resources.push((resources.clone(), None));
+    }
 
     // Get the Pages tree from the catalog.
     let pages_obj = catalog
@@ -121,20 +112,34 @@ fn parse_pdf_from_bytes_start(bytes: &[u8], opts: &PdfParseOptions) -> Result<In
         .as_dict()
         .map_err(|e| format!("Pages object is not a dictionary: {}", e))?;
 
+    // Check if Pages tree has Resources dictionary and include it
+    if let Ok(resources) = pages_dict.get(b"Resources") {
+        objs_to_search_for_resources.push((resources.clone(), None));
+    }
+
     // Recursively collect all page object references.
     let page_refs = collect_page_refs(pages_dict, &doc)?;
 
-    let page_refs_2 = page_refs
+    // Get page objects and their resources
+    let page_objects = page_refs
         .iter()
-        .map(|s| LopdfObject::Reference(*s))
+        .enumerate()
+        .filter_map(|(i, &page_ref)| {
+            doc.get_object(page_ref)
+                .ok()
+                .map(|obj| (obj.clone(), Some(i)))
+        })
         .collect::<Vec<_>>();
 
-    objs_to_search_for_resources.extend(
-        page_refs_2
-            .iter()
-            .enumerate()
-            .map(|(i, s)| (s.clone(), Some(i))),
-    );
+    objs_to_search_for_resources.extend(page_objects);
+
+    let document_info = doc
+        .trailer
+        .get(b"Info")
+        .ok()
+        .and_then(|s| get_dict_or_resolve_ref(&doc, s, &mut warnings, None))
+        .map(|s| parse_document_info(s))
+        .unwrap_or_default();
 
     Ok(InitialPdf {
         doc,
@@ -204,6 +209,13 @@ fn parse_pdf_from_bytes_end(
         pages.push(pdf_page);
     }
 
+    // Extract bookmarks and layers from the document
+    let bookmarks = links_and_bookmarks::extract_bookmarks(&doc);
+    let layers = layers::extract_layers(&doc);
+
+    // Extract ExtGStates from resources
+    let extgstates = extract_extgstates(&doc, &objs_to_search_for_resources, &mut warnings);
+
     let fonts = fonts
         .into_iter()
         .filter_map(|(id, pf)| Some((id, pf.as_parsed_font()?)))
@@ -218,10 +230,22 @@ fn parse_pdf_from_bytes_end(
         resources: PdfResources {
             fonts: PdfFontMap { map: fonts },
             xobjects: XObjectMap { map: xobjects },
-            extgstates: ExtendedGraphicsStateMap::default(), // TODO
-            layers: PdfLayerMap::default(),                  // TODO
+            extgstates: ExtendedGraphicsStateMap { map: extgstates },
+            layers: PdfLayerMap {
+                map: layers
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, layer)| (LayerInternalId(format!("layer_{}", i)), layer))
+                    .collect(),
+            },
         },
-        bookmarks: PageAnnotMap::default(),
+        bookmarks: PageAnnotMap {
+            map: bookmarks
+                .into_iter()
+                .enumerate()
+                .map(|(i, bookmark)| (PageAnnotId(format!("bookmark_{}", i)), bookmark))
+                .collect(),
+        },
         pages,
     };
 
@@ -403,6 +427,55 @@ fn process_xobjects(xobjects: BTreeMap<XObjectId, Vec<u8>>) -> BTreeMap<XObjectI
         }
     }
     map
+}
+
+// Extract all extended graphics states from the document using the extgstate module
+fn extract_extgstates(
+    doc: &LopdfDocument,
+    objs_to_search_for_resources: &[(LopdfObject, Option<usize>)],
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> BTreeMap<ExtendedGraphicsStateId, ExtendedGraphicsState> {
+    objs_to_search_for_resources
+        .iter()
+        .filter_map(|(obj, page_idx)| {
+            let page_num = page_idx.unwrap_or(0);
+
+            // Get dictionary from object
+            let dict = match obj {
+                LopdfObject::Dictionary(d) => Some(d),
+                LopdfObject::Reference(r) => doc.get_dictionary(*r).ok(),
+                _ => None,
+            }?;
+
+            // Look for Resources
+            let resources = if let Ok(res) = dict.get(b"Resources") {
+                get_dict_or_resolve_ref(doc, res, warnings, Some(page_num))
+            } else {
+                // If this is already a Resources dict
+                Some(dict)
+            }?;
+
+            // Look for ExtGState in Resources
+            let extgstate = resources.get(b"ExtGState").ok()?;
+            let extgstate_dict = get_dict_or_resolve_ref(doc, extgstate, warnings, Some(page_num))?;
+
+            // Build map of ExtGStates
+            let gs_entries = extgstate_dict
+                .iter()
+                .filter_map(|(key, value)| {
+                    let gs_dict = get_dict_or_resolve_ref(doc, value, warnings, Some(page_num))?;
+                    let gs_id = ExtendedGraphicsStateId(String::from_utf8_lossy(key).to_string());
+                    let gs = extgstate::parse_extgstate(gs_dict);
+                    Some((gs_id, gs))
+                })
+                .collect::<BTreeMap<_, _>>();
+
+            Some(gs_entries)
+        })
+        .fold(BTreeMap::new(), |mut acc, extgstates| {
+            acc.extend(extgstates);
+            acc
+        })
 }
 
 async fn process_xobjects_async(
@@ -1051,9 +1124,7 @@ pub fn parse_op(
         "Tw" => {
             if op.operands.len() == 1 {
                 let spacing = to_f32(&op.operands[0]);
-                out_ops.push(Op::SetWordSpacing {
-                    pt: Pt(spacing),
-                });
+                out_ops.push(Op::SetWordSpacing { pt: Pt(spacing) });
             } else {
                 warnings.push(PdfWarnMsg::error(
                     page,
@@ -1061,7 +1132,7 @@ pub fn parse_op(
                     format!("Warning: 'Tw' expects 1 operand, got {}", op.operands.len()),
                 ));
             }
-        },
+        }
         "Tz" => {
             if op.operands.len() == 1 {
                 let scale_percent = to_f32(&op.operands[0]);
