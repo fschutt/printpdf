@@ -55,6 +55,24 @@ impl PdfWarnMsg {
             msg: e,
         }
     }
+
+    pub fn warning(page: usize, op_id: usize, msg: String) -> Self {
+        PdfWarnMsg {
+            page,
+            op_id,
+            severity: PdfParseErrorSeverity::Warning,
+            msg,
+        }
+    }
+
+    pub fn info(page: usize, op_id: usize, msg: String) -> Self {
+        PdfWarnMsg {
+            page,
+            op_id,
+            severity: PdfParseErrorSeverity::Info,
+            msg,
+        }
+    }
 }
 
 struct InitialPdf {
@@ -144,7 +162,10 @@ fn parse_pdf_from_bytes_start(bytes: &[u8], opts: &PdfParseOptions) -> Result<In
         .trailer
         .get(b"Info")
         .ok()
-        .and_then(|s| get_dict_or_resolve_ref(&doc, s, &mut warnings, None))
+        .and_then(|s| get_dict_or_resolve_ref(
+            &format!("document_info"),
+            &doc, s, &mut warnings, None
+        ))
         .map(|s| parse_document_info(s))
         .unwrap_or_default();
 
@@ -168,7 +189,7 @@ pub fn parse_pdf_from_bytes(
         parse_fonts_from_entire_pdf(&i.doc, &i.objs_to_search_for_resources, &mut i.warnings);
     let xobjects =
         parse_xobjects_from_entire_pdf(&i.doc, &i.objs_to_search_for_resources, &mut i.warnings);
-    let xobjects = process_xobjects(xobjects);
+    let xobjects = process_xobjects(xobjects, &mut i.warnings);
 
     parse_pdf_from_bytes_end(i, opts, fonts, xobjects)
 }
@@ -183,7 +204,7 @@ pub async fn parse_pdf_from_bytes_async(
         parse_fonts_from_entire_pdf(&i.doc, &i.objs_to_search_for_resources, &mut i.warnings);
     let xobjects =
         parse_xobjects_from_entire_pdf(&i.doc, &i.objs_to_search_for_resources, &mut i.warnings);
-    let xobjects = process_xobjects_async(xobjects).await;
+    let xobjects = process_xobjects_async(xobjects, &mut i.warnings).await;
 
     parse_pdf_from_bytes_end(i, opts, fonts, xobjects)
 }
@@ -287,12 +308,17 @@ fn parse_fonts(
 ) -> BTreeMap<FontId, ParsedOrBuiltinFont> {
     let mut fonts_map = BTreeMap::new();
 
+    let page_num = page.unwrap_or_default();
+
     let font_map = match resources.get(b"Font") {
         Ok(s) => s,
         Err(_) => return fonts_map,
     };
 
-    let fonts_dict = match get_dict_or_resolve_ref(doc, font_map, warnings, page) {
+    let fonts_dict = match get_dict_or_resolve_ref(
+        &format!("parse_fonts Font page {page_num}"), 
+        doc, font_map, warnings, page
+    ) {
         Some(s) => s,
         None => return fonts_map,
     };
@@ -301,7 +327,10 @@ fn parse_fonts(
         // TODO: better parsing
         let font_id = FontId(String::from_utf8_lossy(key).to_string());
 
-        let font_entry = match get_dict_or_resolve_ref(doc, value, warnings, page) {
+        let font_entry = match get_dict_or_resolve_ref(
+            &format!("parse_fonts FontFile1 FontFile2 FontFile3 page {page_num}"),
+            doc, value, warnings, page
+        ) {
             Some(s) => s,
             None => continue,
         };
@@ -321,7 +350,11 @@ fn parse_fonts(
                 .decompressed_content()
                 .unwrap_or_else(|_| font_stream.content.clone());
 
-            match ParsedFont::from_bytes(&stream, 0) {
+            warnings.push(PdfWarnMsg::info(0, 0, 
+                format!("deserializing font stream for {}, {} bytes", font_id.0, stream.len())
+            ));
+
+            match ParsedFont::from_bytes(&stream, 0, warnings) {
                 Some(o) => {
                     fonts_map.insert(font_id, ParsedOrBuiltinFont::P(o));
                     continue 'outer;
@@ -362,6 +395,7 @@ fn parse_fonts(
 
 // Returns the dictionary, or resolves the reference
 fn get_dict_or_resolve_ref<'a>(
+    id: &str,
     doc: &'a LopdfDocument,
     xobj_obj: &'a LopdfObject,
     warnings: &mut Vec<PdfWarnMsg>,
@@ -375,7 +409,7 @@ fn get_dict_or_resolve_ref<'a>(
                 warnings.push(PdfWarnMsg::error(
                     page.unwrap_or(0),
                     0,
-                    format!("Invalid dictionary reference {r:?}: {e:?}"),
+                    format!("{id}: Invalid dictionary reference {r:?}: {e:?}"),
                 ));
                 return None;
             }
@@ -430,11 +464,23 @@ fn get_stream_or_resolve_ref<'a>(
     }
 }
 
-fn process_xobjects(xobjects: BTreeMap<XObjectId, Vec<u8>>) -> BTreeMap<XObjectId, XObject> {
+fn process_xobjects(xobjects: BTreeMap<XObjectId, Vec<u8>>, warnings: &mut Vec<PdfWarnMsg>) -> BTreeMap<XObjectId, XObject> {
     let mut map = BTreeMap::new();
     for (xobject_id, content) in xobjects {
-        if let Ok(o) = RawImage::decode_from_bytes(&content) {
-            map.insert(xobject_id, XObject::Image(o));
+        warnings.push(PdfWarnMsg::info(
+            0, 0, 
+            format!("process XObject {} ({} bytes)", xobject_id.0, content.len())
+        ));
+        match RawImage::decode_from_bytes(&content, warnings) {
+            Ok(o) => {
+                map.insert(xobject_id, XObject::Image(o));
+            },
+            Err(e) => {
+                warnings.push(PdfWarnMsg::error(
+                    0, 0, 
+                    format!("failed to decode XObject {} ({} bytes): {e}", xobject_id.0, content.len())
+                ));
+            }
         }
     }
     map
@@ -460,7 +506,9 @@ fn extract_extgstates(
             
             // Look for Resources
             let resources = if let Ok(res) = dict.get(b"Resources") {
-                get_dict_or_resolve_ref(doc, res, warnings, Some(page_num))
+                get_dict_or_resolve_ref(
+                    &format!("extract_extgstates Resources page {page_num}"), 
+                    doc, res, warnings, Some(page_num))
             } else {
                 // If this is already a Resources dict
                 Some(dict)
@@ -468,13 +516,19 @@ fn extract_extgstates(
             
             // Look for ExtGState in Resources
             let extgstate = resources.get(b"ExtGState").ok()?;
-            let extgstate_dict = get_dict_or_resolve_ref(doc, extgstate, warnings, Some(page_num))?;
+            let extgstate_dict = get_dict_or_resolve_ref(
+                &format!("extract_extgstates ExtGState page {page_num}"),
+                doc, extgstate, warnings, Some(page_num)
+            )?;
             
             // Build map of ExtGStates
             let gs_entries = extgstate_dict
                 .iter()
                 .filter_map(|(key, value)| {
-                    let gs_dict = get_dict_or_resolve_ref(doc, value, warnings, Some(page_num))?;
+                    let gs_dict = get_dict_or_resolve_ref(
+                        &format!("extract_extgstates GsDict page {page_num}"),
+                        doc, value, warnings, Some(page_num)
+                    )?;
                     let gs_id = ExtendedGraphicsStateId(String::from_utf8_lossy(key).to_string());
                     let gs = extgstate::parse_extgstate(gs_dict);
                     Some((gs_id, gs))
@@ -490,11 +544,12 @@ fn extract_extgstates(
 }
 
 async fn process_xobjects_async(
-    xobjects: BTreeMap<XObjectId, Vec<u8>>,
+    xobjects: BTreeMap<XObjectId, Vec<u8>>, 
+    warnings: &mut Vec<PdfWarnMsg>
 ) -> BTreeMap<XObjectId, XObject> {
     let mut map = BTreeMap::new();
     for (xobject_id, content) in xobjects {
-        if let Ok(o) = RawImage::decode_from_bytes_async(&content).await {
+        if let Ok(o) = RawImage::decode_from_bytes_async(&content, warnings).await {
             map.insert(xobject_id, XObject::Image(o));
         }
     }
@@ -512,23 +567,31 @@ fn parse_xobjects_internal(
 ) -> BTreeMap<XObjectId, Vec<u8>> {
     let mut xobj_map = BTreeMap::new();
 
+    let page_num = page.unwrap_or_default();
     let xobj_obj = match resources.get(b"XObject") {
         Ok(s) => s,
         Err(_) => return xobj_map,
     };
 
     // The XObject entry may be a dictionary or a reference.
-    let xobj_dict = match get_dict_or_resolve_ref(doc, xobj_obj, warnings, page) {
+    let xobj_dict = match get_dict_or_resolve_ref(
+        &format!("parse_xobjects_internal 1 page {page_num}"),
+        doc, xobj_obj, warnings, page
+    ) {
         Some(s) => s,
         None => return xobj_map,
     };
 
     // Iterate over each entry.
     for (key, value) in xobj_dict.iter() {
+
         // TODO: better parsing!
         let xobject_id = XObjectId(String::from_utf8_lossy(key).to_string());
 
-        let xobj_entry = match get_dict_or_resolve_ref(doc, value, warnings, page) {
+        let xobj_entry = match get_dict_or_resolve_ref(
+            &format!("parse_xobjects_internal 2 page {page_num}"),
+            doc, value, warnings, page
+        ) {
             Some(s) => s,
             None => continue,
         };
@@ -593,7 +656,10 @@ fn parse_fonts_from_entire_pdf(
             }?;
             let resources_obj = dict.get(b"Resources").ok()?;
             let resources_dict =
-                get_dict_or_resolve_ref(doc, resources_obj, warnings, Some(page_num))?;
+                get_dict_or_resolve_ref(
+                    &format!("parse_fonts_from_entire_pdf 1 page {page_num}"),
+                    doc, resources_obj, warnings, Some(page_num)
+                )?;
             Some(parse_fonts(doc, resources_dict, warnings, Some(page_num)))
         })
         .fold(BTreeMap::new(), |mut acc, fonts| {
@@ -620,7 +686,9 @@ fn parse_xobjects_from_entire_pdf(
             }?;
             let resources_obj = dict.get(b"Resources").ok()?;
             let resources_dict =
-                get_dict_or_resolve_ref(doc, resources_obj, warnings, Some(page_num))?;
+                get_dict_or_resolve_ref(
+                    &format!("parse_xobjects_from_entire_pdf 1 page {page_num}"),
+                    doc, resources_obj, warnings, Some(page_num))?;
             Some(parse_xobjects_internal(
                 doc,
                 resources_dict,

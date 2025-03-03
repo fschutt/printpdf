@@ -4,12 +4,7 @@ use base64::Engine;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    BlackGenerationExtraFunction, BlackGenerationFunction, BlendMode, Color, CurTransMat,
-    ExtendedGraphicsState, FontId, HalftoneType, LineCapStyle, LineDashPattern, LineJoinStyle,
-    OutputImageFormat, OverprintMode, PdfResources, Point, Pt, RenderingIntent, SoftMask, TextItem,
-    TextMatrix, TextRenderingMode, TransferExtraFunction, TransferFunction,
-    UnderColorRemovalExtraFunction, UnderColorRemovalFunction, XObject, XObjectId, ops::PdfPage,
-    serialize::prepare_fonts,
+    ops::PdfPage, serialize::prepare_fonts, BlackGenerationExtraFunction, BlackGenerationFunction, BlendMode, Color, CurTransMat, ExtendedGraphicsState, FontId, HalftoneType, LineCapStyle, LineDashPattern, LineJoinStyle, OutputImageFormat, OverprintMode, PdfResources, PdfWarnMsg, Point, Pt, RenderingIntent, SoftMask, TextItem, TextMatrix, TextRenderingMode, TransferExtraFunction, TransferFunction, UnderColorRemovalExtraFunction, UnderColorRemovalFunction, XObject, XObjectId
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -285,18 +280,24 @@ impl GraphicsStateVec {
     }
 }
 
-pub fn render_to_svg(page: &PdfPage, resources: &PdfResources, opts: &PdfToSvgOptions) -> String {
+pub fn render_to_svg(
+    page: &PdfPage, 
+    resources: &PdfResources, 
+    opts: &PdfToSvgOptions, 
+    warnings: &mut Vec<PdfWarnMsg>
+) -> String {
     let map = encoded_image_data_map(page, resources, opts);
-    render_to_svg_internal(page, resources, map)
+    render_to_svg_internal(page, resources, map, warnings)
 }
 
 pub async fn render_to_svg_async(
     page: &PdfPage,
     resources: &PdfResources,
     opts: &PdfToSvgOptions,
+    warnings: &mut Vec<PdfWarnMsg>
 ) -> String {
     let map = encoded_image_data_map_async(page, resources, opts).await;
-    render_to_svg_internal(page, resources, map)
+    render_to_svg_internal(page, resources, map, warnings)
 }
 
 async fn encoded_image_data_map_async(
@@ -347,6 +348,7 @@ fn render_to_svg_internal(
     page: &PdfPage,
     resources: &PdfResources,
     map: BTreeMap<XObjectId, (Vec<u8>, OutputImageFormat)>,
+    warnings: &mut Vec<PdfWarnMsg>,
 ) -> String {
     use crate::ops::Op;
 
@@ -362,7 +364,7 @@ fn render_to_svg_internal(
     ));
     svg.push('\n');
 
-    let fonts = prepare_fonts(resources, &[page.clone()]);
+    let fonts = prepare_fonts(resources, &[page.clone()], warnings);
     if !fonts.is_empty() {
         // Embed fonts via a <style> block.
         svg.push_str("<style>\n");

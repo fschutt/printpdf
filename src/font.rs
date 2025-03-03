@@ -21,7 +21,7 @@ use lopdf::Object::{Array, Integer};
 use serde_derive::{Deserialize, Serialize};
 use time::error::Parse;
 
-use crate::{FontId, Op, PdfPage, TextItem};
+use crate::{FontId, Op, PdfPage, PdfWarnMsg, TextItem};
 
 /// Builtin or external font
 #[derive(Debug, Clone, PartialEq)]
@@ -288,7 +288,7 @@ impl<'de> serde::Deserialize<'de> for ParsedFont {
         } else {
             None
         };
-        Ok(ParsedFont::from_bytes(&b64.unwrap_or_default(), 0).unwrap_or_default())
+        Ok(ParsedFont::from_bytes(&b64.unwrap_or_default(), 0, &mut Vec::new()).unwrap_or_default())
     }
 }
 
@@ -696,22 +696,57 @@ impl OwnedGlyph {
 }
 
 impl ParsedFont {
-    pub fn from_bytes(font_bytes: &[u8], font_index: usize) -> Option<Self> {
+    pub fn from_bytes(font_bytes: &[u8], font_index: usize, warnings: &mut Vec<PdfWarnMsg>) -> Option<Self> {
         use allsorts::tag;
-
+        
         let scope = ReadScope::new(font_bytes);
-        let font_file = scope.read::<FontData<'_>>().ok()?;
-        let provider = font_file.table_provider(font_index).ok()?;
+        let font_file = match scope.read::<FontData<'_>>() {
+            Ok(ff) => {
+                warnings.push(PdfWarnMsg::info(0, 0, "Successfully read font data".to_string()));
+                ff
+            },
+            Err(e) => {
+                warnings.push(PdfWarnMsg::warning(0, 0, format!("Failed to read font data: {}", e)));
+                return None;
+            }
+        };
+        
+        let provider = match font_file.table_provider(font_index) {
+            Ok(p) => {
+                warnings.push(PdfWarnMsg::info(0, 0, format!("Successfully loaded font at index {}", font_index)));
+                p
+            },
+            Err(e) => {
+                warnings.push(PdfWarnMsg::warning(0, 0, format!("Failed to get table provider for font index {}: {}", font_index, e)));
+                return None;
+            }
+        };
 
         let head_table = provider
             .table_data(tag::HEAD)
             .ok()
-            .and_then(|head_data| ReadScope::new(&head_data?).read::<HeadTable>().ok());
+            .and_then(|head_data| {
+                let result = ReadScope::new(&head_data?).read::<HeadTable>().ok();
+                if result.is_some() {
+                    warnings.push(PdfWarnMsg::info(0, 0, "Successfully read HEAD table".to_string()));
+                } else {
+                    warnings.push(PdfWarnMsg::warning(0, 0, "Failed to parse HEAD table".to_string()));
+                }
+                result
+            });
 
         let maxp_table = provider
             .table_data(tag::MAXP)
             .ok()
-            .and_then(|maxp_data| ReadScope::new(&maxp_data?).read::<MaxpTable>().ok())
+            .and_then(|maxp_data| {
+                let result = ReadScope::new(&maxp_data?).read::<MaxpTable>().ok();
+                if let Some(ref table) = result {
+                    warnings.push(PdfWarnMsg::info(0, 0, format!("MAXP table: {} glyphs", table.num_glyphs)));
+                } else {
+                    warnings.push(PdfWarnMsg::warning(0, 0, "Failed to parse MAXP table".to_string()));
+                }
+                result
+            })
             .unwrap_or(MaxpTable {
                 num_glyphs: 0,
                 version1_sub_table: None,
@@ -721,14 +756,21 @@ impl ParsedFont {
             .map(|s| s.index_to_loc_format)
             .unwrap_or(IndexToLocFormat::Long);
         let num_glyphs = maxp_table.num_glyphs as usize;
+        warnings.push(PdfWarnMsg::info(0, 0, format!("Font has {} glyphs", num_glyphs)));
 
         let loca_table = provider.table_data(tag::LOCA).ok();
         let loca_table = loca_table
             .as_ref()
             .and_then(|loca_data| {
-                ReadScope::new(loca_data.as_ref()?)
+                let result = ReadScope::new(loca_data.as_ref()?)
                     .read_dep::<LocaTable<'_>>((num_glyphs, index_to_loc))
-                    .ok()
+                    .ok();
+                if result.is_some() {
+                    warnings.push(PdfWarnMsg::info(0, 0, "Successfully read LOCA table".to_string()));
+                } else {
+                    warnings.push(PdfWarnMsg::warning(0, 0, "Failed to parse LOCA table".to_string()));
+                }
+                result
             })
             .unwrap_or(LocaTable {
                 offsets: LocaOffsets::Long(ReadArray::empty()),
@@ -738,50 +780,110 @@ impl ParsedFont {
         let mut glyf_table = glyf_table
             .as_ref()
             .and_then(|glyf_data| {
-                ReadScope::new(glyf_data.as_ref()?)
+                let result = ReadScope::new(glyf_data.as_ref()?)
                     .read_dep::<GlyfTable<'_>>(&loca_table)
-                    .ok()
+                    .ok();
+                if result.is_some() {
+                    warnings.push(PdfWarnMsg::info(0, 0, "Successfully read GLYF table".to_string()));
+                } else {
+                    warnings.push(PdfWarnMsg::warning(0, 0, "Failed to parse GLYF table".to_string()));
+                }
+                result
             })
             .unwrap_or(GlyfTable::new(Vec::new()).unwrap());
 
         let second_scope = ReadScope::new(font_bytes);
-        let second_font_file = second_scope.read::<FontData<'_>>().ok()?;
-        let second_provider = second_font_file.table_provider(font_index).ok()?;
+        let second_font_file = match second_scope.read::<FontData<'_>>() {
+            Ok(ff) => ff,
+            Err(e) => {
+                warnings.push(PdfWarnMsg::warning(0, 0, format!("Failed to read font data (second pass): {}", e)));
+                return None;
+            }
+        };
+        
+        let second_provider = match second_font_file.table_provider(font_index) {
+            Ok(p) => p,
+            Err(e) => {
+                warnings.push(PdfWarnMsg::warning(0, 0, format!("Failed to get table provider (second pass): {}", e)));
+                return None;
+            }
+        };
 
-        let font_data_impl = allsorts::font::Font::new(second_provider).ok()?;
+        let font_data_impl = match allsorts::font::Font::new(second_provider) {
+            Ok(fdi) => {
+                warnings.push(PdfWarnMsg::info(0, 0, "Successfully created allsorts Font".to_string()));
+                fdi
+            },
+            Err(e) => {
+                warnings.push(PdfWarnMsg::warning(0, 0, format!("Failed to create allsorts Font: {}", e)));
+                return None;
+            }
+        };
 
-        // required for font layout: gsub_cache, gpos_cache and gdef_table
-        let gsub_cache = None; // font_data_impl.gsub_cache().ok().and_then(|s| s);
-        let gpos_cache = None; // font_data_impl.gpos_cache().ok().and_then(|s| s);
-        let opt_gdef_table = None; // font_data_impl.gdef_table().ok().and_then(|o| o);
+        // Set placeholder values for GSUB/GPOS/GDEF which we're not using here
+        let gsub_cache = None;
+        let gpos_cache = None;
+        let opt_gdef_table = None;
         let num_glyphs = font_data_impl.num_glyphs();
 
         let cmap_subtable = ReadScope::new(font_data_impl.cmap_subtable_data());
         let cmap_subtable = cmap_subtable
             .read::<CmapSubtable<'_>>()
             .ok()
-            .and_then(|s| s.to_owned());
+            .and_then(|s| {
+                let result = s.to_owned();
+                if result.is_some() {
+                    warnings.push(PdfWarnMsg::info(0, 0, "Successfully parsed cmap subtable".to_string()));
+                } else {
+                    warnings.push(PdfWarnMsg::warning(0, 0, "Failed to convert cmap subtable to owned version".to_string()));
+                }
+                result
+            });
 
         if cmap_subtable.is_none() {
-            println!("warning: no cmap subtable");
+            warnings.push(PdfWarnMsg::warning(0, 0, "Warning: no cmap subtable found in font".to_string()));
         }
 
         let hmtx_data = provider
             .table_data(tag::HMTX)
             .ok()
-            .and_then(|s| Some(s?.into_owned()))
+            .and_then(|s| {
+                let result = Some(s?.into_owned());
+                if result.is_some() {
+                    warnings.push(PdfWarnMsg::info(0, 0, "Successfully read HMTX data".to_string()));
+                } else {
+                    warnings.push(PdfWarnMsg::warning(0, 0, "Failed to read HMTX data".to_string()));
+                }
+                result
+            })
             .unwrap_or_default();
 
         let vmtx_data = provider
             .table_data(tag::VMTX)
             .ok()
-            .and_then(|s| Some(s?.into_owned()))
+            .and_then(|s| {
+                let result = Some(s?.into_owned());
+                if result.is_some() {
+                    warnings.push(PdfWarnMsg::info(0, 0, "Successfully read VMTX data".to_string()));
+                } else {
+                    warnings.push(PdfWarnMsg::warning(0, 0, "VMTX data not found or error reading it".to_string()));
+                }
+                result
+            })
             .unwrap_or_default();
 
         let hhea_table = provider
             .table_data(tag::HHEA)
             .ok()
-            .and_then(|hhea_data| ReadScope::new(&hhea_data?).read::<HheaTable>().ok())
+            .and_then(|hhea_data| {
+                let result = ReadScope::new(&hhea_data?).read::<HheaTable>().ok();
+                if result.is_some() {
+                    warnings.push(PdfWarnMsg::info(0, 0, "Successfully read HHEA table".to_string()));
+                } else {
+                    warnings.push(PdfWarnMsg::warning(0, 0, "Failed to parse HHEA table".to_string()));
+                }
+                result
+            })
             .unwrap_or(HheaTable {
                 ascender: 0,
                 descender: 0,
@@ -797,35 +899,62 @@ impl ParsedFont {
             });
 
         let font_metrics = FontMetrics::from_bytes(font_bytes, font_index);
+        warnings.push(PdfWarnMsg::info(0, 0, format!("Font metrics: units_per_em={}", font_metrics.units_per_em)));
 
-        // not parsing glyph outlines can save lots of memory
+        // Process glyph records with detailed warnings
+        let mut glyph_count = 0;
         let glyph_records_decoded = glyf_table
             .records_mut()
             .iter_mut()
             .enumerate()
             .filter_map(|(glyph_index, glyph_record)| {
                 if glyph_index > (u16::MAX as usize) {
+                    warnings.push(PdfWarnMsg::warning(0, 0, 
+                        format!("Skipping glyph {} - exceeds u16::MAX", glyph_index)));
                     return None;
                 }
-                glyph_record.parse().ok()?;
+                
+                if let Err(e) = glyph_record.parse() {
+                    warnings.push(PdfWarnMsg::warning(0, 0, 
+                        format!("Failed to parse glyph {}: {}", glyph_index, e)));
+                    return None;
+                }
+                
                 let glyph_index = glyph_index as u16;
-                let horz_advance = allsorts::glyph_info::advance(
+                let horz_advance = match allsorts::glyph_info::advance(
                     &maxp_table,
                     &hhea_table,
                     &hmtx_data,
                     glyph_index,
-                )
-                .unwrap_or_default();
+                ) {
+                    Ok(adv) => adv,
+                    Err(e) => {
+                        warnings.push(PdfWarnMsg::warning(0, 0, 
+                            format!("Error getting advance for glyph {}: {}", glyph_index, e)));
+                        0
+                    }
+                };
 
                 match glyph_record {
                     GlyfRecord::Present { .. } => None,
                     GlyfRecord::Parsed(g) => {
-                        OwnedGlyph::from_glyph_data(g, horz_advance).map(|s| (glyph_index, s))
+                        match OwnedGlyph::from_glyph_data(g, horz_advance) {
+                            Some(owned) => {
+                                glyph_count += 1;
+                                Some((glyph_index, owned))
+                            },
+                            None => {
+                                warnings.push(PdfWarnMsg::warning(0, 0, 
+                                    format!("Failed to convert glyph {} to OwnedGlyph", glyph_index)));
+                                None
+                            }
+                        }
                     }
                 }
             })
             .collect::<Vec<_>>();
 
+        warnings.push(PdfWarnMsg::info(0, 0, format!("Successfully decoded {} glyphs", glyph_count)));
         let glyph_records_decoded = glyph_records_decoded.into_iter().collect();
 
         let mut font = ParsedFont {
@@ -846,8 +975,14 @@ impl ParsedFont {
         };
 
         let space_width = font.get_space_width_internal();
+        if space_width.is_some() {
+            warnings.push(PdfWarnMsg::info(0, 0, format!("Font space width: {}", space_width.unwrap())));
+        } else {
+            warnings.push(PdfWarnMsg::info(0, 0, "Font does not have a space character width".to_string()));
+        }
         font.space_width = space_width;
 
+        warnings.push(PdfWarnMsg::info(0, 0, "Font parsing completed successfully".to_string()));
         Some(font)
     }
 

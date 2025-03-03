@@ -90,6 +90,8 @@ pub struct HtmlToDocumentInput {
 pub struct HtmlToDocumentOutput {
     /// Generated PDF document
     pub doc: PdfDocument,
+    #[serde(default)]
+    pub warnings: Vec<PdfWarnMsg>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -127,28 +129,22 @@ impl GeneratePdfOptions {
 
 #[cfg(feature = "html")]
 pub fn html_to_document(input: HtmlToDocumentInput) -> Result<HtmlToDocumentOutput, String> {
+    let mut warnings = Vec::new();
     let (transformed_xml, mut pdf, opts) = html_to_document_inner(input)?;
-
-    // Generate pages from the transformed XML
-    let pages = pdf.html_to_pages(&transformed_xml, opts)?;
-
+    let pages = pdf.html_to_pages(&transformed_xml, opts, &mut warnings)?;
     pdf.with_pages(pages);
-
-    Ok(HtmlToDocumentOutput { doc: pdf })
+    Ok(HtmlToDocumentOutput { doc: pdf, warnings })
 }
 
 #[cfg(feature = "html")]
 pub async fn html_to_document_async(
     input: HtmlToDocumentInput,
 ) -> Result<HtmlToDocumentOutput, String> {
+    let mut warnings = Vec::new();
     let (transformed_xml, mut pdf, opts) = html_to_document_inner(input)?;
-
-    // Generate pages from the transformed XML
-    let pages = pdf.html_to_pages_async(&transformed_xml, opts).await?;
-
+    let pages = pdf.html_to_pages_async(&transformed_xml, opts, &mut warnings).await?;
     pdf.with_pages(pages);
-
-    Ok(HtmlToDocumentOutput { doc: pdf })
+    Ok(HtmlToDocumentOutput { doc: pdf, warnings })
 }
 
 #[cfg(feature = "html")]
@@ -278,11 +274,13 @@ pub struct DocumentToBytesInput {
 pub struct DocumentToBytesOutput {
     /// Either base64 bytes or raw [u8], depending on
     pub bytes: Base64OrRaw,
+    pub warnings: Vec<PdfWarnMsg>,
 }
 
 pub fn document_to_bytes(input: DocumentToBytesInput) -> Result<DocumentToBytesOutput, String> {
+    let mut warnings = Vec::new();
     let return_byte_array = input.return_byte_array;
-    let bytes = input.doc.save(&input.options);
+    let bytes = input.doc.save(&input.options, &mut warnings);
 
     Ok(DocumentToBytesOutput {
         bytes: if return_byte_array {
@@ -290,14 +288,16 @@ pub fn document_to_bytes(input: DocumentToBytesInput) -> Result<DocumentToBytesO
         } else {
             Base64OrRaw::B64(base64::prelude::BASE64_STANDARD.encode(&bytes))
         },
+        warnings,
     })
 }
 
 pub async fn document_to_bytes_async(
     input: DocumentToBytesInput,
 ) -> Result<DocumentToBytesOutput, String> {
+    let mut warnings = Vec::new();
     let return_byte_array = input.return_byte_array;
-    let bytes = input.doc.save_async(&input.options).await;
+    let bytes = input.doc.save_async(&input.options, &mut warnings).await;
 
     Ok(DocumentToBytesOutput {
         bytes: if return_byte_array {
@@ -305,6 +305,7 @@ pub async fn document_to_bytes_async(
         } else {
             Base64OrRaw::B64(base64::prelude::BASE64_STANDARD.encode(&bytes))
         },
+        warnings,
     })
 }
 
@@ -359,17 +360,18 @@ pub struct PageToSvgInput {
 pub struct PageToSvgOutput {
     /// The generated SVG string for the page.
     pub svg: String,
+    /// Warnings generated during rendering
+    pub warnings: Vec<PdfWarnMsg>,
 }
 
 pub fn page_to_svg(input: PageToSvgInput) -> Result<PageToSvgOutput, String> {
-    Ok(PageToSvgOutput {
-        svg: crate::render::render_to_svg(&input.page, &input.resources, &input.options),
-    })
+    let mut warnings = Vec::new();
+    let svg = crate::render::render_to_svg(&input.page, &input.resources, &input.options, &mut warnings);
+    Ok(PageToSvgOutput { svg, warnings })
 }
 
 pub async fn page_to_svg_async(input: PageToSvgInput) -> Result<PageToSvgOutput, String> {
-    Ok(PageToSvgOutput {
-        svg: crate::render::render_to_svg_async(&input.page, &input.resources, &input.options)
-            .await,
-    })
+    let mut warnings = Vec::new();
+    let svg = crate::render::render_to_svg_async(&input.page, &input.resources, &input.options, &mut warnings).await;
+    Ok(PageToSvgOutput { svg, warnings })
 }

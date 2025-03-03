@@ -8,7 +8,7 @@ fn main() {
 
     let mut ops = vec![];
 
-    let svg = Svg::parse(SVG).unwrap();
+    let svg = Svg::parse(SVG, &mut Vec::new()).unwrap();
     let rotation_center_x = Px((svg.width.unwrap_or_default().0 as f32 / 2.0) as usize);
     let rotation_center_y = Px((svg.height.unwrap_or_default().0 as f32 / 2.0) as usize);
     let xobject_id = doc.add_xobject(&svg);
@@ -22,6 +22,6 @@ fn main() {
         // PdfPage::new(Mm(400.0), Mm(400.0), ops)
     ];
 
-    let bytes = doc.with_pages(pages).save(&PdfSaveOptions::default());
+    let bytes = doc.with_pages(pages).save(&PdfSaveOptions::default(), &mut Vec::new());
     std::fs::write("./simple.pdf", bytes).unwrap();
 }

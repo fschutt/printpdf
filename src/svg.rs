@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use svg2pdf::{ConversionOptions, PageOptions, usvg};
 
-use crate::{ColorSpace, DictItem, ExternalStream, PdfResources, xobject::ExternalXObject};
+use crate::{xobject::ExternalXObject, ColorSpace, DictItem, ExternalStream, PdfResources, PdfWarnMsg};
 
 /// SVG - wrapper around an `XObject` to allow for more
 /// control within the library.
@@ -15,7 +15,7 @@ pub struct Svg {}
 
 impl Svg {
     /// Parses the SVG string, converts it to a PDF XObject
-    pub fn parse(svg_string: &str) -> Result<ExternalXObject, String> {
+    pub fn parse(svg_string: &str, warnings: &mut Vec<PdfWarnMsg>) -> Result<ExternalXObject, String> {
         // Parses the SVG, converts it to a PDF document using the svg2pdf crate,
         // parses the resulting PDF again, then extracts the first pages PDF content operations.
 
@@ -55,7 +55,7 @@ impl Svg {
         let height_pt = page.media_box.height;
         let stream = crate::serialize::translate_operations(
             &page.ops,
-            &crate::serialize::prepare_fonts(&PdfResources::default(), &[]),
+            &crate::serialize::prepare_fonts(&PdfResources::default(), &[], warnings),
             &BTreeMap::new(),
             true,
         );

@@ -16,8 +16,8 @@ fn main() -> Result<(), String> {
         };
 
         let mut doc = PdfDocument::new("HTML rendering demo");
-        let pages = doc.html_to_pages(h, config)?;
-        let doc = doc.with_pages(pages).save(&PdfSaveOptions::default());
+        let pages = doc.html_to_pages(h, config, &mut Vec::new())?;
+        let doc = doc.with_pages(pages).save(&PdfSaveOptions::default(), &mut Vec::new());
         std::fs::write(format!("html{i}.pdf"), doc).unwrap();
     }
 

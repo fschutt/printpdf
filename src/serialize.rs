@@ -10,10 +10,7 @@ use lopdf::{
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    Actions, BuiltinFont, Color, ColorArray, Destination, FontId, IccProfileType,
-    ImageOptimizationOptions, Line, LinkAnnotation, Op, PaintMode, ParsedFont, PdfDocument,
-    PdfDocumentInfo, PdfPage, PdfResources, Polygon, TextItem, XObject, XObjectId,
-    color::IccProfile, font::SubsetFont,
+    color::IccProfile, font::SubsetFont, Actions, BuiltinFont, Color, ColorArray, Destination, FontId, IccProfileType, ImageOptimizationOptions, Line, LinkAnnotation, Op, PaintMode, ParsedFont, PdfDocument, PdfDocumentInfo, PdfPage, PdfResources, PdfWarnMsg, Polygon, TextItem, XObject, XObjectId
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
@@ -78,7 +75,7 @@ pub fn init_doc_and_resources(
     (doc, global_xobject_dict)
 }
 
-pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec<u8> {
+pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions, warnings: &mut Vec<PdfWarnMsg>) -> Vec<u8> {
     let (mut doc, global_xobject_dict) = init_doc_and_resources(pdf, opts);
     let pages_id = doc.new_object_id();
     let mut catalog = LoDictionary::from_iter(vec![
@@ -183,7 +180,7 @@ pub fn serialize_pdf_into_bytes(pdf: &PdfDocument, opts: &PdfSaveOptions) -> Vec
 
     // Build fonts dictionary
     let mut global_font_dict = LoDictionary::new();
-    let prepared_fonts = prepare_fonts(&pdf.resources, &pdf.pages);
+    let prepared_fonts = prepare_fonts(&pdf.resources, &pdf.pages, warnings);
     for (font_id, prepared) in prepared_fonts.iter() {
         let font_dict = add_font_to_pdf(&mut doc, font_id, prepared);
         let font_dict_id = doc.add_object(font_dict);
@@ -1005,6 +1002,7 @@ fn polygon_to_stream_ops(poly: &Polygon) -> Vec<LoOp> {
 pub(crate) fn prepare_fonts(
     resources: &PdfResources,
     pages: &[PdfPage],
+    warnings: &mut Vec<PdfWarnMsg>,
 ) -> BTreeMap<FontId, PreparedFont> {
     let mut fonts_in_pdf = BTreeMap::new();
 
@@ -1021,7 +1019,7 @@ pub(crate) fn prepare_fonts(
                     continue;
                 }
             };
-        let font = match ParsedFont::from_bytes(&subset_font.bytes, 0) {
+        let font = match ParsedFont::from_bytes(&subset_font.bytes, 0, warnings) {
             Some(s) => s,
             None => continue,
         };

@@ -79,7 +79,7 @@ fn main() {
     let mut target_map = vec![];
 
     for (name, bytes) in FONTS {
-        let font = ParsedFont::from_bytes(bytes, 0).unwrap();
+        let font = ParsedFont::from_bytes(bytes, 0, &mut Vec::new()).unwrap();
         let subset = font.subset_simple(&charmap).unwrap();
         let _ = std::fs::write(
             format!(

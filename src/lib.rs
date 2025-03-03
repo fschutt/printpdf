@@ -232,8 +232,9 @@ impl PdfDocument {
         &mut self,
         html: &str,
         config: XmlRenderOptions,
+        warnings: &mut Vec<PdfWarnMsg>,
     ) -> Result<Vec<PdfPage>, String> {
-        crate::html::xml_to_pages(html, config, self)
+        crate::html::xml_to_pages(html, config, self, warnings)
     }
 
     #[cfg(feature = "html")]
@@ -241,25 +242,26 @@ impl PdfDocument {
         &mut self,
         html: &str,
         config: XmlRenderOptions,
+        warnings: &mut Vec<PdfWarnMsg>,
     ) -> Result<Vec<PdfPage>, String> {
-        crate::html::xml_to_pages_async(html, config, self).await
+        crate::html::xml_to_pages_async(html, config, self, warnings).await
     }
 
     /// Renders a PDF Page into an SVG String. Returns `None` on an invalid page number
     /// (note: 1-indexed, so the first PDF page is "page 1", not "page 0").
-    pub fn page_to_svg(&self, page: usize, opts: &PdfToSvgOptions) -> Option<String> {
+    pub fn page_to_svg(&self, page: usize, opts: &PdfToSvgOptions, warnings: &mut Vec<PdfWarnMsg>) -> Option<String> {
         Some(
             self.pages
                 .get(page.saturating_sub(1))?
-                .to_svg(&self.resources, opts),
+                .to_svg(&self.resources, opts, warnings),
         )
     }
 
-    pub async fn page_to_svg_async(&self, page: usize, opts: &PdfToSvgOptions) -> Option<String> {
+    pub async fn page_to_svg_async(&self, page: usize, opts: &PdfToSvgOptions, warnings: &mut Vec<PdfWarnMsg>) -> Option<String> {
         Some(
             self.pages
                 .get(page.saturating_sub(1))?
-                .to_svg_async(&self.resources, opts)
+                .to_svg_async(&self.resources, opts, warnings)
                 .await,
         )
     }
@@ -272,12 +274,12 @@ impl PdfDocument {
     }
 
     /// Serializes the PDF document to bytes
-    pub fn save(&self, opts: &PdfSaveOptions) -> Vec<u8> {
-        self::serialize::serialize_pdf_into_bytes(self, opts)
+    pub fn save(&self, opts: &PdfSaveOptions, warnings: &mut Vec<PdfWarnMsg>) -> Vec<u8> {
+        self::serialize::serialize_pdf_into_bytes(self, opts, warnings)
     }
 
-    pub async fn save_async(&self, opts: &PdfSaveOptions) -> Vec<u8> {
-        self::serialize::serialize_pdf_into_bytes(self, opts)
+    pub async fn save_async(&self, opts: &PdfSaveOptions, warnings: &mut Vec<PdfWarnMsg>) -> Vec<u8> {
+        self::serialize::serialize_pdf_into_bytes(self, opts, warnings)
     }
 }
 

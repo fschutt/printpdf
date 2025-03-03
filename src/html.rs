@@ -31,7 +31,7 @@ use rust_fontconfig::{FcFont, FcFontCache, FcPattern};
 use serde_derive::{Deserialize, Serialize};
 use svg2pdf::usvg::tiny_skia_path::Scalar;
 
-use crate::{BuiltinFont, Mm, Op, PdfDocument, PdfPage, PdfResources, Pt, components::ImageInfo};
+use crate::{components::ImageInfo, BuiltinFont, Mm, Op, PdfDocument, PdfPage, PdfResources, PdfWarnMsg, Pt};
 
 const DPI_SCALE: DpiScaleFactor = DpiScaleFactor {
     inner: FloatValue::const_new(1),
@@ -81,11 +81,12 @@ pub(crate) async fn xml_to_pages_async(
     file_contents: &str,
     config: XmlRenderOptions,
     document: &mut PdfDocument,
+    warnings: &mut Vec<PdfWarnMsg>
 ) -> Result<Vec<PdfPage>, String> {
     let mut image_id_map = BTreeMap::new();
 
     for (id, bytes) in config.images.iter() {
-        let decoded = match crate::image::RawImage::decode_from_bytes_async(&bytes)
+        let decoded = match crate::image::RawImage::decode_from_bytes_async(&bytes, warnings)
             .await
             .ok()
         {
@@ -100,13 +101,14 @@ pub(crate) async fn xml_to_pages_async(
         image_id_map.insert(id.clone().into(), ir);
     }
 
-    xml_to_pages_inner(file_contents, config, document, ImageCache { image_id_map })
+    xml_to_pages_inner(file_contents, config, document, ImageCache { image_id_map }, warnings)
 }
 
 pub(crate) fn xml_to_pages(
     file_contents: &str,
     config: XmlRenderOptions,
     document: &mut PdfDocument,
+    warnings: &mut Vec<PdfWarnMsg>
 ) -> Result<Vec<PdfPage>, String> {
     let image_cache = ImageCache {
         image_id_map: config
@@ -114,14 +116,14 @@ pub(crate) fn xml_to_pages(
             .iter()
             .filter_map(|(id, bytes)| {
                 // let bytes = base64::prelude::BASE64_STANDARD.decode(bytes).ok()?;
-                let decoded = crate::image::RawImage::decode_from_bytes(&bytes).ok()?;
+                let decoded = crate::image::RawImage::decode_from_bytes(&bytes, warnings).ok()?;
                 let raw_image = crate::image::translate_to_internal_rawimage(&decoded);
                 Some((id.clone().into(), ImageRef::new_rawimage(raw_image)?))
             })
             .collect(),
     };
 
-    xml_to_pages_inner(file_contents, config, document, image_cache)
+    xml_to_pages_inner(file_contents, config, document, image_cache, warnings)
 }
 
 fn xml_to_pages_inner(
@@ -129,6 +131,7 @@ fn xml_to_pages_inner(
     config: XmlRenderOptions,
     document: &mut PdfDocument,
     image_cache: ImageCache,
+    warnings: &mut Vec<PdfWarnMsg>,
 ) -> Result<Vec<PdfPage>, String> {
     let size = LogicalSize {
         width: config.page_width.into_pt().0,
@@ -136,7 +139,7 @@ fn xml_to_pages_inner(
     };
 
     // inserts images into the PDF resources and changes the src="..."
-    let xml = fixup_xml(file_contents, document, &config);
+    let xml = fixup_xml(file_contents, document, &config, warnings);
     let root_nodes =
         azulc_lib::xml::parse_xml_string(&xml).map_err(|e| format!("Error parsing XML: {}", e))?;
 
@@ -254,6 +257,7 @@ fn xml_to_pages_inner(
                 &pp,
                 &renderer_resources,
                 config.page_height.into_pt(),
+                warnings,
             );
 
             PdfPage::new(config.page_width, config.page_height, ops)
@@ -315,7 +319,7 @@ impl Default for ImageTypeInfo {
     }
 }
 
-fn fixup_xml(s: &str, doc: &mut PdfDocument, config: &XmlRenderOptions) -> String {
+fn fixup_xml(s: &str, doc: &mut PdfDocument, config: &XmlRenderOptions, warnings: &mut Vec<PdfWarnMsg>) -> String {
     let s = if !s.contains("<body>") {
         format!("<body>{s}</body>")
     } else {
@@ -332,7 +336,7 @@ fn fixup_xml(s: &str, doc: &mut PdfDocument, config: &XmlRenderOptions) -> Strin
     for (k, image_bytes) in config.images.iter() {
         let opt_svg = std::str::from_utf8(&image_bytes)
             .ok()
-            .and_then(|s| crate::Svg::parse(s).ok());
+            .and_then(|s| crate::Svg::parse(s, warnings).ok());
 
         let img_info = match opt_svg {
             Some(o) => {
@@ -348,7 +352,7 @@ fn fixup_xml(s: &str, doc: &mut PdfDocument, config: &XmlRenderOptions) -> Strin
                 }
             }
             None => {
-                let raw_image = match crate::image::RawImage::decode_from_bytes(&image_bytes) {
+                let raw_image = match crate::image::RawImage::decode_from_bytes(&image_bytes, warnings) {
                     Ok(o) => o,
                     Err(_) => {
                         continue;
@@ -390,6 +394,7 @@ fn layout_result_to_ops(
     pp: &PaginatedPage,
     renderer_resources: &RendererResources,
     page_height: Pt,
+    warnings: &mut Vec<PdfWarnMsg>
 ) {
     let rects_in_rendering_order = layout_result.styled_dom.get_rects_in_rendering_order();
 
@@ -407,6 +412,7 @@ fn layout_result_to_ops(
         renderer_resources,
         rects_in_rendering_order.root.into_crate_internal().unwrap(),
         page_height,
+        warnings,
     );
 
     for c in rects_in_rendering_order.children.as_slice() {
@@ -417,6 +423,7 @@ fn layout_result_to_ops(
             renderer_resources,
             c,
             page_height,
+            warnings,
         );
     }
 }
@@ -428,6 +435,7 @@ fn push_rectangles_into_displaylist(
     renderer_resources: &RendererResources,
     root_content_group: &ContentGroup,
     page_height: Pt,
+    warnings: &mut Vec<PdfWarnMsg>
 ) -> Option<()> {
     displaylist_handle_rect(
         doc,
@@ -436,6 +444,7 @@ fn push_rectangles_into_displaylist(
         renderer_resources,
         root_content_group.root.into_crate_internal().unwrap(),
         page_height,
+        warnings,
     )?;
 
     for c in root_content_group.children.iter() {
@@ -446,6 +455,7 @@ fn push_rectangles_into_displaylist(
             renderer_resources,
             c,
             page_height,
+            warnings,
         );
     }
 
@@ -459,6 +469,7 @@ fn displaylist_handle_rect(
     renderer_resources: &RendererResources,
     rect_idx: NodeId,
     page_height: Pt,
+    warnings: &mut Vec<PdfWarnMsg>
 ) -> Option<()> {
     use crate::units::Pt;
 
@@ -484,6 +495,7 @@ fn displaylist_handle_rect(
         styled_node,
         renderer_resources,
         &mut doc.resources,
+        warnings,
     );
 
     for b in background_content.iter() {
@@ -853,6 +865,7 @@ fn get_text_node(
     styled_node: &StyledNode,
     app_resources: &azul_core::app_resources::RendererResources,
     res: &mut PdfResources,
+    warnings: &mut Vec<PdfWarnMsg>,
 ) -> Option<(
     azul_core::callbacks::InlineText,
     crate::FontId,
@@ -900,7 +913,7 @@ fn get_text_node(
 
     if !res.fonts.map.contains_key(&id) {
         let font_bytes = font_ref.get_bytes();
-        let parsed_font = crate::ParsedFont::from_bytes(font_bytes.as_slice(), 0)?;
+        let parsed_font = crate::ParsedFont::from_bytes(font_bytes.as_slice(), 0, warnings)?;
         res.fonts.map.insert(id.clone(), parsed_font);
     }
 
