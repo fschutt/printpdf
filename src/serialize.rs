@@ -280,6 +280,7 @@ pub fn serialize_pdf_into_bytes(
                 &prepared_fonts,
                 &pdf.resources.xobjects.map,
                 opts.secure,
+                warnings,
             ); // Vec<u8>
             let merged_layer_stream =
                 LoStream::new(LoDictionary::new(), layer_stream).with_compression(false);
@@ -422,6 +423,7 @@ pub(crate) fn translate_operations(
     fonts: &BTreeMap<FontId, PreparedFont>,
     xobjects: &BTreeMap<XObjectId, XObject>,
     secure: bool,
+    warnings: &mut Vec<PdfWarnMsg>,
 ) -> Vec<u8> {
     let mut content = Vec::new();
 
@@ -611,6 +613,16 @@ pub(crate) fn translate_operations(
                 content.push(LoOp::new("Td", vec![pos.x.0.into(), pos.y.0.into()]));
             }
             Op::SetFillColor { col } => {
+                if col.is_out_of_range() {
+                    warnings.push(PdfWarnMsg::error(
+                        0,
+                        0,
+                        format!(
+                            "PDF color {col:?} is out of range, must be normalized to 0.0 - 1.0"
+                        ),
+                    ));
+                }
+
                 match col {
                     Color::Greyscale(crate::Greyscale { percent, .. }) => {
                         content.push(LoOp::new("sc", vec![Real(*percent)]));
@@ -635,6 +647,15 @@ pub(crate) fn translate_operations(
                     Color::Cmyk(_) | Color::SpotColor(_) => "K",
                     Color::Greyscale(_) => "G",
                 };
+                if col.is_out_of_range() {
+                    warnings.push(PdfWarnMsg::error(
+                        0,
+                        0,
+                        format!(
+                            "PDF color {col:?} is out of range, must be normalized to 0.0 - 1.0"
+                        ),
+                    ));
+                }
                 let cvec = col.into_vec().into_iter().map(Real).collect();
                 content.push(LoOp::new(ci, cvec));
             }

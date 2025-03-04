@@ -5,8 +5,8 @@ use printpdf::{
     PdfResources, PdfSaveOptions, PdfToSvgOptions, Point, Polygon, PolygonRing, Pt, Rgb, TextItem,
     WindingOrder, XObjectId, XObjectTransform,
     wasm::structs::{
-        DocumentToBytesInput, HtmlToDocumentInput, ResourcesForPageInput,
-        document_to_bytes, html_to_document, resources_for_page,
+        DocumentToBytesInput, HtmlToDocumentInput, ResourcesForPageInput, document_to_bytes,
+        html_to_document, resources_for_page,
     },
 };
 

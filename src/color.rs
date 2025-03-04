@@ -59,17 +59,32 @@ impl ColorBits {
     }
 }
 
-/// Wrapper for Rgb, Cmyk and other color types
+/// Wrapper for Rgb, Cmyk and other color types. Note: ALL color values are normalized from 0.0 to
+/// 1.0 NOT 0 - 255!
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", tag = "type", content = "data")]
 pub enum Color {
+    /// RGB color, normalized from 0.0 to 1.0
     Rgb(Rgb),
+    /// CMYK color, normalized from 0.0 to 1.0
     Cmyk(Cmyk),
+    /// Greyscale color, normalized from 0.0 to 1.0
     Greyscale(Greyscale),
+    /// (unimplemented) Spot color, currently encoded as CMYK, normalized from 0.0 to 1.0
     SpotColor(SpotColor),
 }
 
 impl Color {
+    /// Returns true if color is not in 0.0 - 1.0 range
+    pub fn is_out_of_range(&self) -> bool {
+        match self {
+            Color::Rgb(rgb) => rgb.is_out_of_range(),
+            Color::Cmyk(cmyk) => cmyk.is_out_of_range(),
+            Color::Greyscale(greyscale) => greyscale.is_out_of_range(),
+            Color::SpotColor(spot_color) => spot_color.is_out_of_range(),
+        }
+    }
+
     /// Consumes the color and converts into into a vector of numbers
     pub fn into_vec(&self) -> Vec<f32> {
         match self {
@@ -137,14 +152,18 @@ impl Color {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Rgb {
+    /// Note: This has to be 0.0 - 1.0, not 0 - 255!
     pub r: f32,
+    /// Note: This has to be 0.0 - 1.0, not 0 - 255!
     pub g: f32,
+    /// Note: This has to be 0.0 - 1.0, not 0 - 255!
     pub b: f32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icc_profile: Option<IccProfileId>,
 }
 
 impl Rgb {
+    /// Creates a new RGB color, NOTE: RGB has to be 0.0 - 1.0, not 0 - 255!
     pub fn new(r: f32, g: f32, b: f32, icc_profile: Option<IccProfileId>) -> Self {
         Self {
             r,
@@ -153,22 +172,32 @@ impl Rgb {
             icc_profile,
         }
     }
+
+    /// Checks whether the color will be out of range (0.0 - 1.0)
+    /// and lead to errors in the PDF encoding
+    pub fn is_out_of_range(&self) -> bool {
+        self.r < 0.0 || self.r > 1.0 || self.g < 0.0 || self.g > 1.0 || self.b < 0.0 || self.b > 1.0
+    }
 }
 
 /// CMYK color
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Cmyk {
+    /// Note: This has to be 0.0 - 1.0, not 0 - 255!
     pub c: f32,
+    /// Note: This has to be 0.0 - 1.0, not 0 - 255!
     pub m: f32,
+    /// Note: This has to be 0.0 - 1.0, not 0 - 255!
     pub y: f32,
+    /// Note: This has to be 0.0 - 1.0, not 0 - 255!
     pub k: f32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icc_profile: Option<IccProfileId>,
 }
 
 impl Cmyk {
-    /// Creates a new CMYK color
+    /// Creates a new CMYK color, NOTE: CMYK has to be 0.0 - 1.0, not 0 - 255!
     pub fn new(c: f32, m: f32, y: f32, k: f32, icc_profile: Option<IccProfileId>) -> Self {
         Self {
             c,
@@ -177,6 +206,19 @@ impl Cmyk {
             k,
             icc_profile,
         }
+    }
+
+    /// Checks whether the color will be out of range (0.0 - 1.0)
+    /// and lead to errors in the PDF encoding
+    pub fn is_out_of_range(&self) -> bool {
+        self.c < 0.0
+            || self.c > 1.0
+            || self.m < 0.0
+            || self.m > 1.0
+            || self.y < 0.0
+            || self.y > 1.0
+            || self.k < 0.0
+            || self.k > 1.0
     }
 }
 
@@ -190,11 +232,18 @@ pub struct Greyscale {
 }
 
 impl Greyscale {
+    /// Creates a new Greyscale color, NOTE: Greyscale has to be 0.0 - 1.0, not 0 - 255!
     pub fn new(percent: f32, icc_profile: Option<IccProfileId>) -> Self {
         Self {
             percent,
             icc_profile,
         }
+    }
+
+    /// Checks whether the color will be out of range (0.0 - 1.0)
+    /// and lead to errors in the PDF encoding
+    pub fn is_out_of_range(&self) -> bool {
+        self.percent < 0.0 || self.percent > 1.0
     }
 }
 
@@ -210,8 +259,22 @@ pub struct SpotColor {
 }
 
 impl SpotColor {
+    /// Creates a new SpotColor, NOTE: SpotColor has to be 0.0 - 1.0, not 0 - 255!
     pub fn new(c: f32, m: f32, y: f32, k: f32) -> Self {
         Self { c, m, y, k }
+    }
+
+    /// Checks whether the color will be out of range (0.0 - 1.0)
+    /// and lead to errors in the PDF encoding
+    pub fn is_out_of_range(&self) -> bool {
+        self.c < 0.0
+            || self.c > 1.0
+            || self.m < 0.0
+            || self.m > 1.0
+            || self.y < 0.0
+            || self.y > 1.0
+            || self.k < 0.0
+            || self.k > 1.0
     }
 }
 

@@ -64,6 +64,7 @@ impl Svg {
             &crate::serialize::prepare_fonts(&PdfResources::default(), &[], warnings),
             &BTreeMap::new(),
             true,
+            warnings,
         );
 
         let px_width = width_pt.into_px(dpi);
