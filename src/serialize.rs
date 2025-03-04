@@ -808,8 +808,8 @@ fn line_to_stream_ops(line: &Line) -> Vec<LoOp> {
     pub const OP_PATH_CONST_4BEZIER: &str = "c";
     /// Stroke path
     pub const OP_PATH_PAINT_STROKE: &str = "S";
-    /// Close and stroke path
-    pub const OP_PATH_PAINT_STROKE_CLOSE: &str = "s";
+    /// Close path
+    pub const OP_PATH_CLOSE: &str = "h";
 
     let mut operations = Vec::new();
     let points = &line.points;
@@ -875,10 +875,13 @@ fn line_to_stream_ops(line: &Line) -> Vec<LoOp> {
         }
     }
 
-    // Add final stroke operation
+    // Add final operations
     if line.is_closed {
-        operations.push(LoOp::new(OP_PATH_PAINT_STROKE_CLOSE, vec![]));
+        // Close the path before stroking
+        operations.push(LoOp::new(OP_PATH_CLOSE, vec![]));
+        operations.push(LoOp::new(OP_PATH_PAINT_STROKE, vec![]));
     } else {
+        // Just stroke without closing
         operations.push(LoOp::new(OP_PATH_PAINT_STROKE, vec![]));
     }
 
@@ -892,8 +895,6 @@ fn polygon_to_stream_ops(poly: &Polygon) -> Vec<LoOp> {
     pub const OP_PATH_CONST_LINE_TO: &str = "l";
     /// Cubic bezier with three control points
     pub const OP_PATH_CONST_4BEZIER: &str = "c";
-    /// Close and stroke path
-    pub const OP_PATH_PAINT_STROKE_CLOSE: &str = "s";
     /// End path without filling or stroking
     pub const OP_PATH_PAINT_END: &str = "n";
 
@@ -968,6 +969,9 @@ fn polygon_to_stream_ops(poly: &Polygon) -> Vec<LoOp> {
         }
     }
 
+    // Explicitly close the path with 'h' before applying painting operations
+    operations.push(LoOp::new("h", vec![]));
+    
     // Apply the painting operation based on the mode
     match poly.mode {
         PaintMode::Clip => {
@@ -979,7 +983,8 @@ fn polygon_to_stream_ops(poly: &Polygon) -> Vec<LoOp> {
             operations.push(LoOp::new(poly.winding_order.get_fill_op(), vec![]));
         }
         PaintMode::Stroke => {
-            operations.push(LoOp::new(OP_PATH_PAINT_STROKE_CLOSE, vec![]));
+            // Use 'S' (stroke) rather than 's' (close and stroke) since we already closed with 'h'
+            operations.push(LoOp::new("S", vec![]));
         }
         PaintMode::FillStroke => {
             operations.push(LoOp::new(
