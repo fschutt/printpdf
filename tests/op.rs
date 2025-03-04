@@ -65,7 +65,6 @@ fn test_op_write_text() {
     assert!(test_op(
         Op::WriteTextBuiltinFont {
             items: vec![TextItem::Text("Hello, World!".to_string())],
-            size: Pt(12.0),
             font: BuiltinFont::Helvetica,
         },
         "write_text"

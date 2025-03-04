@@ -665,9 +665,12 @@ fn displaylist_handle_rect_paginated(
                     Pt(page_height.0 - static_bounds.min_y() as f32 - gi.point.y),
                 ),
             });
+            ops.push(Op::SetFontSize {
+                size: Pt(text.font_size_px * 2.0),
+                font: id.clone(),
+            });
             ops.push(Op::WriteCodepoints {
                 font: id.clone(),
-                size: Pt(text.font_size_px * 2.0),
                 cp: vec![(gi.index as u16, ' ')],
             });
         }

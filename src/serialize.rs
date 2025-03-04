@@ -467,13 +467,8 @@ pub(crate) fn translate_operations(
             Op::EndTextSection => {
                 content.push(LoOp::new("ET", vec![]));
             }
-            Op::WriteText { items, font, size } => {
+            Op::WriteText { items, font } => {
                 if let Some(prepared_font) = fonts.get(font) {
-                    content.push(LoOp::new(
-                        "Tf",
-                        vec![font.0.clone().into(), (size.0).into()],
-                    ));
-
                     // Convert TextItems to PDF objects for the TJ operator
                     let mut tj_array = Vec::new();
 
@@ -511,12 +506,7 @@ pub(crate) fn translate_operations(
                 }
             }
 
-            Op::WriteTextBuiltinFont { items, font, size } => {
-                content.push(LoOp::new(
-                    "Tf",
-                    vec![font.get_pdf_id().into(), (size.0).into()],
-                ));
-
+            Op::WriteTextBuiltinFont { items, font } => {
                 // Convert TextItems to PDF objects for the TJ operator
                 let mut tj_array = Vec::new();
 
@@ -543,13 +533,8 @@ pub(crate) fn translate_operations(
                     content.push(LoOp::new("TJ", vec![Array(tj_array)]));
                 }
             }
-            Op::WriteCodepoints { font, cp, size } => {
+            Op::WriteCodepoints { font, cp } => {
                 if let Some(prepared_font) = fonts.get(font) {
-                    content.push(LoOp::new(
-                        "Tf",
-                        vec![font.0.clone().into(), (size.0).into()],
-                    ));
-
                     let subset_codepoints = cp
                         .iter()
                         .filter_map(|(gid, ch)| {
@@ -572,7 +557,7 @@ pub(crate) fn translate_operations(
                     content.push(LoOp::new("Tj", vec![LoString(bytes, Hexadecimal)]));
                 }
             }
-            Op::WriteCodepointsWithKerning { font, cpk, size } => {
+            Op::WriteCodepointsWithKerning { font, cpk } => {
                 if let Some(font) = fonts.get(font) {
                     let subset_codepoints = cpk
                         .iter()
@@ -608,6 +593,9 @@ pub(crate) fn translate_operations(
                     "Tf",
                     vec![font.0.clone().into(), (size.0).into()],
                 ));
+            }
+            Op::SetFontSizeBuiltinFont { size, font } => {
+                content.push(LoOp::new("Tf", vec![font.get_id().into(), (size.0).into()]));
             }
             Op::SetTextCursor { pos } => {
                 content.push(LoOp::new("Td", vec![pos.x.0.into(), pos.y.0.into()]));

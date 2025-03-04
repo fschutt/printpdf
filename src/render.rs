@@ -4,12 +4,12 @@ use base64::Engine;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    BlackGenerationExtraFunction, BlackGenerationFunction, BlendMode, Color, CurTransMat,
-    ExtendedGraphicsState, FontId, HalftoneType, LineCapStyle, LineDashPattern, LineJoinStyle,
-    OutputImageFormat, OverprintMode, PdfResources, PdfWarnMsg, Point, Pt, RenderingIntent,
-    SoftMask, TextItem, TextMatrix, TextRenderingMode, TransferExtraFunction, TransferFunction,
-    UnderColorRemovalExtraFunction, UnderColorRemovalFunction, XObject, XObjectId, ops::PdfPage,
-    serialize::prepare_fonts,
+    BlackGenerationExtraFunction, BlackGenerationFunction, BlendMode, BuiltinFont,
+    BuiltinOrExternalFontId, Color, CurTransMat, ExtendedGraphicsState, FontId, HalftoneType,
+    LineCapStyle, LineDashPattern, LineJoinStyle, OutputImageFormat, OverprintMode, PdfResources,
+    PdfWarnMsg, Point, Pt, RenderingIntent, SoftMask, TextItem, TextMatrix, TextRenderingMode,
+    TransferExtraFunction, TransferFunction, UnderColorRemovalExtraFunction,
+    UnderColorRemovalFunction, XObject, XObjectId, ops::PdfPage, serialize::prepare_fonts,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -66,8 +66,7 @@ impl PdfToSvgOptions {
 #[derive(Debug, Clone, Default)]
 struct GraphicsState {
     text_cursor: Point,
-    // TODO: handle BuiltinFont in ExtendedGraphicsState?
-    current_font: Option<FontId>,
+    current_font: Option<BuiltinOrExternalFontId>,
     transform_matrix: Option<CurTransMat>,
     text_matrix: Option<TextMatrix>,
     fill_color: Option<Color>,
@@ -89,7 +88,7 @@ struct GraphicsState {
     overprint_fill: bool,
     in_compatibility_section: bool,
     word_spacing: Option<Pt>,
-    font_sizes: BTreeMap<FontId, Pt>,
+    font_sizes: BTreeMap<BuiltinOrExternalFontId, Pt>,
 
     // Extra options
     black_generation: Option<BlackGenerationFunction>,
@@ -116,7 +115,7 @@ struct GraphicsStateVec {
 
 struct GsInfoCurrent {
     text_cursor: Point,
-    current_font: String,
+    current_font: BuiltinOrExternalFontId,
     transform_matrix: CurTransMat,
     text_matrix: TextMatrix,
     fill_color: Color,
@@ -138,7 +137,7 @@ struct GsInfoCurrent {
     overprint_fill: bool,
     in_compatibility_section: bool,
     word_spacing: Option<f32>,
-    font_sizes: BTreeMap<FontId, Pt>,
+    font_sizes: BTreeMap<BuiltinOrExternalFontId, Pt>,
 }
 
 impl GraphicsStateVec {
@@ -256,7 +255,14 @@ impl GraphicsStateVec {
         self._internal
             .last_mut()?
             .font_sizes
-            .insert(font.clone(), c);
+            .insert(BuiltinOrExternalFontId::External(font.clone()), c);
+        Some(())
+    }
+    pub fn set_font_size_builtin(&mut self, font: &BuiltinFont, c: Pt) -> Option<()> {
+        self._internal
+            .last_mut()?
+            .font_sizes
+            .insert(BuiltinOrExternalFontId::Builtin(*font), c);
         Some(())
     }
     pub fn set_miter_limit(&mut self, c: Pt) -> Option<()> {
@@ -483,7 +489,9 @@ fn render_to_svg_internal(
             Op::SetFontSize { size, font } => {
                 gst.set_font_size(font, *size);
             }
-
+            Op::SetFontSizeBuiltinFont { size, font } => {
+                gst.set_font_size_builtin(font, *size);
+            }
             Op::BeginInlineImage => { /* (For now, possibly note that an inline image is beginning.) */
             }
             Op::BeginInlineImageData => { /* … */ }
@@ -523,10 +531,10 @@ fn render_to_svg_internal(
             Op::EndTextSection => {
                 svg.push_str("</text>");
             }
-            Op::WriteText { items, size, font } => {}
-            Op::WriteTextBuiltinFont { items, size, font } => {}
-            Op::WriteCodepoints { font, size, cp } => {}
-            Op::WriteCodepointsWithKerning { font, size, cpk } => {}
+            Op::WriteText { items, font } => {}
+            Op::WriteTextBuiltinFont { items, font } => {}
+            Op::WriteCodepoints { font, cp } => {}
+            Op::WriteCodepointsWithKerning { font, cpk } => {}
             Op::DrawLine { line } => {}
             Op::DrawPolygon { polygon } => {}
             Op::UseXobject { id, transform } => {

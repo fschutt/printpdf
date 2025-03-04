@@ -88,7 +88,7 @@ impl XObjectId {
 }
 
 /// Internal ID for Fonts
-#[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Hash, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct FontId(pub String);
 

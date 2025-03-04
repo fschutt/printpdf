@@ -4,7 +4,7 @@ use lopdf::Dictionary as LoDictionary;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    FontId,
+    BuiltinFont, FontId,
     units::{Mm, Pt},
 };
 
@@ -577,6 +577,32 @@ pub enum ChangedField {
     TextKnockout,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(tag = "type", content = "data")]
+#[serde(rename_all = "kebab-case")]
+pub enum BuiltinOrExternalFontId {
+    // One of the 12 default PDF fonts
+    Builtin(BuiltinFont),
+    /// External, third-party font
+    External(FontId),
+}
+
+impl BuiltinOrExternalFontId {
+    pub fn get_id(&self) -> &str {
+        match self {
+            BuiltinOrExternalFontId::Builtin(builtin_font) => builtin_font.get_id(),
+            BuiltinOrExternalFontId::External(font_id) => &font_id.0,
+        }
+    }
+    pub fn from_str(s: &str) -> Self {
+        if let Some(bf) = BuiltinFont::from_id(s) {
+            Self::Builtin(bf)
+        } else {
+            Self::External(FontId(s.to_string()))
+        }
+    }
+}
+
 /// `ExtGState` dictionary
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -623,7 +649,7 @@ pub struct ExtendedGraphicsState {
 
     /* Font array */
     /// Font structure, expects a dictionary.
-    pub(crate) font: Option<FontId>,
+    pub(crate) font: Option<BuiltinOrExternalFontId>,
 
     /* BG function */
     /// __(Optional)__ The black-generation function.
@@ -773,7 +799,7 @@ pub fn extgstate_to_dict(val: &ExtendedGraphicsState) -> LoDictionary {
 
     if let Some(font) = val.font.as_ref() {
         if val.changed_fields.contains(&ChangedField::Font) {
-            gs_operations.push(("Font".to_string(), Name(font.0.clone().into_bytes())));
+            gs_operations.push(("Font".to_string(), Name(font.get_id().as_bytes().to_vec())));
         }
     }
 
@@ -927,11 +953,20 @@ impl ExtendedGraphicsStateBuilder {
         self
     }
 
-    /// Sets the font
+    /// Sets the font to an external Font ID
     /// __WARNING:__ Use `layer.add_font()` instead if you are not absolutely sure.
     #[inline]
     pub fn with_font(mut self, font: Option<FontId>) -> Self {
-        self.gs.font = font;
+        self.gs.font = font.map(|s| BuiltinOrExternalFontId::External(s));
+        self.gs.changed_fields.insert(ChangedField::Font);
+        self
+    }
+
+    /// Sets the font to a BuiltinFont
+    /// __WARNING:__ Use `layer.add_font()` instead if you are not absolutely sure.
+    #[inline]
+    pub fn with_builtin_font(mut self, font: Option<BuiltinFont>) -> Self {
+        self.gs.font = font.map(|s| BuiltinOrExternalFontId::Builtin(s));
         self.gs.changed_fields.insert(ChangedField::Font);
         self
     }

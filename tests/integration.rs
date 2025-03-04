@@ -117,16 +117,17 @@ fn test_page_to_svg() {
                 y: Pt(300.0),
             },
         },
+        Op::SetFontSizeBuiltinFont {
+            size: Pt(24.0),
+            font: BuiltinFont::Helvetica,
+        },
         Op::WriteTextBuiltinFont {
             items: vec![TextItem::Text("Hello, World!".to_string())],
-            size: Pt(24.0),
             font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
         Op::RestoreGraphicsState,
     ];
-
-    let ops_len = ops.len();
 
     // Create a page with various operations
     let page = PdfPage::new(Mm(210.0), Mm(297.0), ops.clone());

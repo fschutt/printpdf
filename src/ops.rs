@@ -167,15 +167,10 @@ pub enum Op {
     /// Ends a text section (inserted by default at the page end)
     EndTextSection,
     /// Writes text, only valid between `StartTextSection` and `EndTextSection`
-    WriteText {
-        items: Vec<TextItem>,
-        size: Pt,
-        font: FontId,
-    },
+    WriteText { items: Vec<TextItem>, font: FontId },
     /// Writes text using a builtin font.
     WriteTextBuiltinFont {
         items: Vec<TextItem>,
-        size: Pt,
         font: BuiltinFont,
     },
     /// Add text to the file at the current position by specifying font codepoints for an
@@ -183,11 +178,7 @@ pub enum Op {
     ///
     /// NOTE: the `char` defines which codepoint this value is being mapped to (otherwise the
     /// user would not be able to copy-paste text from the PDF)
-    WriteCodepoints {
-        font: FontId,
-        size: Pt,
-        cp: Vec<(u16, char)>,
-    },
+    WriteCodepoints { font: FontId, cp: Vec<(u16, char)> },
     /// Add text to the file at the current position by specifying font codepoints with additional
     /// kerning offset
     ///
@@ -195,7 +186,6 @@ pub enum Op {
     /// user would not be able to copy-paste text from the PDF)
     WriteCodepointsWithKerning {
         font: FontId,
-        size: Pt,
         cpk: Vec<(i64, u16, char)>,
     },
     /// `T*` Adds a line break to the text, depends on the line height
@@ -204,9 +194,12 @@ pub enum Op {
     SetLineHeight { lh: Pt },
     /// `Tw`: Sets the word spacing in point (default: 100.0)
     SetWordSpacing { pt: Pt },
-    /// Sets the font size for a given font, only valid between `StartTextSection` and
-    /// `EndTextSection`
+    /// Sets the font size for a given font, only valid between
+    /// `StartTextSection` and `EndTextSection`
     SetFontSize { size: Pt, font: FontId },
+    /// Sets the font size for a `BuiltinFont`, only valid between
+    /// `StartTextSection` and `EndTextSection`
+    SetFontSizeBuiltinFont { size: Pt, font: BuiltinFont },
     /// Positions the text cursor in the page from the bottom left corner (can be manipulated
     /// further with `SetTextMatrix`)
     SetTextCursor { pos: Point },

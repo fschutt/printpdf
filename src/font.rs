@@ -52,6 +52,12 @@ pub enum BuiltinFont {
     ZapfDingbats,
 }
 
+impl Default for BuiltinFont {
+    fn default() -> Self {
+        Self::Helvetica // actually not TimesRoman, unlike HTML!
+    }
+}
+
 include!("../defaultfonts/mapping.rs");
 
 impl BuiltinFont {
@@ -246,6 +252,26 @@ impl BuiltinFont {
             Symbol => "Symbol",
             ZapfDingbats => "ZapfDingbats",
         }
+    }
+
+    pub fn all_ids() -> [BuiltinFont; 14] {
+        use self::BuiltinFont::*;
+        [
+            TimesRoman,
+            TimesBold,
+            TimesItalic,
+            TimesBoldItalic,
+            Helvetica,
+            HelveticaBold,
+            HelveticaOblique,
+            HelveticaBoldOblique,
+            Courier,
+            CourierOblique,
+            CourierBold,
+            CourierBoldOblique,
+            Symbol,
+            ZapfDingbats,
+        ]
     }
 }
 

@@ -13,11 +13,11 @@ use lopdf::{
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    BuiltinFont, Color, DictItem, ExtendedGraphicsState, ExtendedGraphicsStateId,
-    ExtendedGraphicsStateMap, FontId, LayerInternalId, LineDashPattern, LinePoint, Op, PageAnnotId,
-    PageAnnotMap, ParsedFont, PdfDocument, PdfDocumentInfo, PdfFontMap, PdfLayerMap, PdfMetadata,
-    PdfPage, PdfResources, PolygonRing, RawImage, RenderingIntent, TextItem, TextMatrix,
-    TextRenderingMode, XObject, XObjectId, XObjectMap,
+    BuiltinFont, BuiltinOrExternalFontId, Color, DictItem, ExtendedGraphicsState,
+    ExtendedGraphicsStateId, ExtendedGraphicsStateMap, FontId, LayerInternalId, LineDashPattern,
+    LinePoint, Op, PageAnnotId, PageAnnotMap, ParsedFont, PdfDocument, PdfDocumentInfo, PdfFontMap,
+    PdfLayerMap, PdfMetadata, PdfPage, PdfResources, PolygonRing, Pt, RawImage, RenderingIntent,
+    TextItem, TextMatrix, TextRenderingMode, XObject, XObjectId, XObjectMap,
     cmap::ToUnicodeCMap,
     conformance::PdfConformance,
     date::{OffsetDateTime, UtcOffset},
@@ -210,7 +210,7 @@ pub async fn parse_pdf_from_bytes_async(
 fn parse_pdf_from_bytes_end(
     initial_pdf: InitialPdf,
     opts: &PdfParseOptions,
-    fonts: BTreeMap<FontId, ParsedOrBuiltinFont>,
+    fonts: BTreeMap<BuiltinOrExternalFontId, ParsedOrBuiltinFont>,
     xobjects: BTreeMap<XObjectId, XObject>,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> Result<PdfDocument, String> {
@@ -244,7 +244,7 @@ fn parse_pdf_from_bytes_end(
 
     let fonts = fonts
         .into_iter()
-        .filter_map(|(id, pf)| Some((id, pf.as_parsed_font()?)))
+        .filter_map(|(id, pf)| Some((FontId(id.get_id().to_string()), pf.as_parsed_font()?)))
         .collect();
 
     // Build the final PdfDocument.
@@ -278,7 +278,7 @@ fn parse_pdf_from_bytes_end(
     Ok(pdf_doc)
 }
 
-enum ParsedOrBuiltinFont {
+pub enum ParsedOrBuiltinFont {
     P(ParsedFont),
     B(BuiltinFont),
 }
@@ -674,8 +674,8 @@ fn parse_fonts_from_entire_pdf(
     doc: &LopdfDocument,
     objs_to_search_for_resources: &[(LopdfObject, Option<usize>)],
     warnings: &mut Vec<PdfWarnMsg>,
-) -> BTreeMap<FontId, ParsedOrBuiltinFont> {
-    objs_to_search_for_resources
+) -> BTreeMap<BuiltinOrExternalFontId, ParsedOrBuiltinFont> {
+    let obj = objs_to_search_for_resources
         .iter()
         .filter_map(|(obj, page_idx)| {
             let page_num = page_idx.unwrap_or(0);
@@ -699,7 +699,24 @@ fn parse_fonts_from_entire_pdf(
                 acc.entry(font_id).or_insert(parsed_font);
             });
             acc
+        });
+
+    let mut map = BuiltinFont::all_ids()
+        .iter()
+        .map(|b| {
+            (
+                BuiltinOrExternalFontId::Builtin(*b),
+                ParsedOrBuiltinFont::B(*b),
+            )
         })
+        .collect::<BTreeMap<_, _>>();
+
+    map.extend(
+        obj.into_iter()
+            .map(|(k, v)| (BuiltinOrExternalFontId::External(k), v)),
+    );
+
+    map
 }
 
 fn parse_xobjects_from_entire_pdf(
@@ -789,7 +806,7 @@ fn parse_page(
     num: usize,
     page: &LopdfDictionary,
     doc: &LopdfDocument,
-    fonts: &BTreeMap<FontId, ParsedOrBuiltinFont>,
+    fonts: &BTreeMap<BuiltinOrExternalFontId, ParsedOrBuiltinFont>,
     xobjects: &BTreeMap<XObjectId, XObject>,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> Result<PdfPage, String> {
@@ -886,7 +903,7 @@ pub struct PageState {
     pub in_text_mode: bool,
 
     /// Current font resource and size (only relevant if `in_text_mode` = true)
-    pub current_font: Option<crate::FontId>,
+    pub current_font: Option<crate::BuiltinOrExternalFontId>,
 
     pub current_font_size: Option<crate::units::Pt>,
 
@@ -907,6 +924,8 @@ pub struct PageState {
     /// True if we have a "closepath" (like the `h` operator) for the current subpath.
     /// Some PDF operators forcibly close subpaths, e.g. `b` / `s` vs. `B` / `S`.
     pub current_subpath_closed: bool,
+
+    pub last_emitted_font_size: Option<(FontId, Pt)>,
 }
 
 /// Convert a single lopdf Operation into zero, one, or many `printpdf::Op`.
@@ -917,7 +936,7 @@ pub fn parse_op(
     op_id: usize,
     op: &lopdf::content::Operation,
     state: &mut PageState,
-    fonts: &BTreeMap<FontId, ParsedOrBuiltinFont>,
+    fonts: &BTreeMap<BuiltinOrExternalFontId, ParsedOrBuiltinFont>,
     xobjects: &BTreeMap<XObjectId, XObject>,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> Result<Vec<Op>, String> {
@@ -1099,34 +1118,23 @@ pub fn parse_op(
                 // Decode the TJ array into TextItems
                 let text_items = crate::text::decode_tj_operands(arr, to_unicode_cmap.as_ref());
 
-                if let (Some(fid), Some(sz)) = (&state.current_font, state.current_font_size) {
-                    let f = match fonts.get(fid) {
-                        Some(s) => s,
-                        None => &ParsedOrBuiltinFont::B(BuiltinFont::TimesRoman),
-                    };
+                let default_font = BuiltinOrExternalFontId::Builtin(BuiltinFont::default());
+                let d_font = ParsedOrBuiltinFont::B(BuiltinFont::default());
+                let cur_font = state.current_font.as_ref().unwrap_or(&default_font);
 
-                    match f {
-                        ParsedOrBuiltinFont::B(b) => {
-                            out_ops.push(Op::WriteTextBuiltinFont {
-                                items: text_items,
-                                font: b.clone(),
-                                size: sz,
-                            });
-                        }
-                        ParsedOrBuiltinFont::P(_) => {
-                            out_ops.push(Op::WriteText {
-                                items: text_items,
-                                font: fid.clone(),
-                                size: sz,
-                            });
-                        }
+                match cur_font {
+                    BuiltinOrExternalFontId::Builtin(b) => {
+                        out_ops.push(Op::WriteTextBuiltinFont {
+                            items: text_items,
+                            font: b.clone(),
+                        });
                     }
-                } else {
-                    warnings.push(PdfWarnMsg::error(
-                        page,
-                        op_id,
-                        "Warning: 'TJ' encountered with no font set".to_string(),
-                    ));
+                    BuiltinOrExternalFontId::External(id) => {
+                        out_ops.push(Op::WriteText {
+                            items: text_items,
+                            font: id.clone(),
+                        });
+                    }
                 }
             } else {
                 warnings.push(PdfWarnMsg::error(
@@ -1177,27 +1185,22 @@ pub fn parse_op(
                 // Create a single TextItem with no kerning
                 let text_items = vec![TextItem::Text(text_str)];
 
-                if let (Some(fid), Some(sz)) = (&state.current_font, state.current_font_size) {
-                    let f = match fonts.get(fid) {
-                        Some(s) => s,
-                        None => &ParsedOrBuiltinFont::B(BuiltinFont::TimesRoman),
-                    };
+                let default_font = BuiltinOrExternalFontId::Builtin(BuiltinFont::default());
+                let d_font = ParsedOrBuiltinFont::B(BuiltinFont::default());
+                let cur_font = state.current_font.as_ref().unwrap_or(&default_font);
 
-                    match f {
-                        ParsedOrBuiltinFont::B(b) => {
-                            out_ops.push(Op::WriteTextBuiltinFont {
-                                items: text_items,
-                                font: b.clone(),
-                                size: sz,
-                            });
-                        }
-                        ParsedOrBuiltinFont::P(_) => {
-                            out_ops.push(Op::WriteText {
-                                items: text_items,
-                                font: fid.clone(),
-                                size: sz,
-                            });
-                        }
+                match cur_font {
+                    BuiltinOrExternalFontId::Builtin(b) => {
+                        out_ops.push(Op::WriteTextBuiltinFont {
+                            items: text_items,
+                            font: b.clone(),
+                        });
+                    }
+                    BuiltinOrExternalFontId::External(id) => {
+                        out_ops.push(Op::WriteText {
+                            items: text_items,
+                            font: id.clone(),
+                        });
                     }
                 }
             } else {
@@ -1378,17 +1381,27 @@ pub fn parse_op(
             // --- Font + size (Tf) ---
             if op.operands.len() == 2 {
                 if let Some(font_name) = as_name(&op.operands[0]) {
-                    state.current_font = Some(crate::FontId(font_name));
+                    state.current_font = Some(BuiltinOrExternalFontId::from_str(&font_name));
                 }
                 let size_val = to_f32(&op.operands[1]);
                 state.current_font_size = Some(crate::units::Pt(size_val));
 
                 // produce a corresponding printpdf op:
                 if let (Some(fid), Some(sz)) = (&state.current_font, &state.current_font_size) {
-                    out_ops.push(Op::SetFontSize {
-                        size: *sz,
-                        font: fid.clone(),
-                    });
+                    match fid {
+                        BuiltinOrExternalFontId::Builtin(builtin_font) => {
+                            out_ops.push(Op::SetFontSizeBuiltinFont {
+                                size: *sz,
+                                font: builtin_font.clone(),
+                            });
+                        }
+                        BuiltinOrExternalFontId::External(font_id) => {
+                            out_ops.push(Op::SetFontSize {
+                                size: *sz,
+                                font: font_id.clone(),
+                            });
+                        }
+                    }
                 }
             } else {
                 warnings.push(PdfWarnMsg::error(
@@ -2240,23 +2253,46 @@ fn finalize_current_path(
     }
     let rings = std::mem::take(&mut state.subpaths);
 
+    let rings = rings
+        .into_iter()
+        .map(|r| PolygonRing {
+            points: r
+                .into_iter()
+                .map(|lp| LinePoint {
+                    p: lp.0,
+                    bezier: lp.1,
+                })
+                .collect::<Vec<_>>(),
+        })
+        .collect::<Vec<_>>();
+
+    if rings.is_empty() {
+        return None;
+    }
+
+    // Check if this should be a Line instead of a Polygon:
+    // 1. Path is not closed
+    // 2. Using Stroke mode
+    // 3. Single subpath
+    if !state.current_subpath_closed
+        && paint_mode == crate::graphics::PaintMode::Stroke
+        && rings.len() == 1
+    {
+        let line = crate::graphics::Line {
+            points: rings[0].points.clone(),
+            is_closed: false,
+        };
+
+        return Some(Op::DrawLine { line });
+    }
+
     let polygon = crate::graphics::Polygon {
-        rings: rings
-            .into_iter()
-            .map(|r| PolygonRing {
-                points: r
-                    .into_iter()
-                    .map(|lp| LinePoint {
-                        p: lp.0,
-                        bezier: lp.1,
-                    })
-                    .collect(),
-            })
-            .collect(),
+        rings,
         mode: paint_mode,
         // For simplicity, we do not handle even-odd fill vs nonzero, etc.
         winding_order: crate::graphics::WindingOrder::NonZero,
     };
+
     state.current_subpath_closed = false;
 
     Some(Op::DrawPolygon { polygon })
@@ -2787,7 +2823,7 @@ mod extgstate {
     use lopdf::{Dictionary as LoDictionary, Object};
 
     use crate::{
-        FontId,
+        BuiltinFont, BuiltinOrExternalFontId, FontId,
         graphics::{
             BlendMode, ChangedField, ExtendedGraphicsState, LineCapStyle, LineDashPattern,
             LineJoinStyle, OverprintMode, RenderingIntent,
@@ -2936,7 +2972,10 @@ mod extgstate {
         if let Some(obj) = dict.get(b"Font").ok() {
             if let Some(name) = parse_name(obj) {
                 // Here we assume FontId is a newtype wrapping a String.
-                gs.font = Some(FontId(name));
+                gs.font = Some(match BuiltinFont::from_id(&name) {
+                    Some(s) => BuiltinOrExternalFontId::Builtin(s),
+                    None => BuiltinOrExternalFontId::External(FontId(name)),
+                });
                 changed.insert(ChangedField::Font);
             }
         }
