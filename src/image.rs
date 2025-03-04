@@ -732,7 +732,6 @@ impl RawImage {
         &self,
         target_fmt: &[OutputImageFormat],
     ) -> Result<(Vec<u8>, OutputImageFormat), String> {
-
         // For this example we only support the U8 variant.
         let dyn_image = match (&self.pixels, self.data_format) {
             (RawImageData::U8(ref vec), RawImageFormat::R8) => {

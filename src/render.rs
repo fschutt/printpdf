@@ -4,7 +4,13 @@ use base64::Engine;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    ops::PdfPage, serialize::prepare_fonts, Actions, BlackGenerationExtraFunction, BlackGenerationFunction, BlendMode, BuiltinFont, BuiltinOrExternalFontId, Color, CurTransMat, Destination, ExtendedGraphicsState, FontId, HalftoneType, Line, LineCapStyle, LineDashPattern, LineJoinStyle, OutputImageFormat, OverprintMode, PaintMode, PdfResources, PdfWarnMsg, Point, Polygon, Pt, RenderingIntent, SoftMask, TextItem, TextMatrix, TextRenderingMode, TransferExtraFunction, TransferFunction, UnderColorRemovalExtraFunction, UnderColorRemovalFunction, WindingOrder, XObject, XObjectId, XObjectTransform
+    Actions, BlackGenerationExtraFunction, BlackGenerationFunction, BlendMode, BuiltinFont,
+    BuiltinOrExternalFontId, Color, CurTransMat, Destination, ExtendedGraphicsState, FontId,
+    HalftoneType, Line, LineCapStyle, LineDashPattern, LineJoinStyle, OutputImageFormat,
+    OverprintMode, PaintMode, PdfResources, PdfWarnMsg, Point, Polygon, Pt, RenderingIntent,
+    SoftMask, TextItem, TextMatrix, TextRenderingMode, TransferExtraFunction, TransferFunction,
+    UnderColorRemovalExtraFunction, UnderColorRemovalFunction, WindingOrder, XObject, XObjectId,
+    XObjectTransform, ops::PdfPage, serialize::prepare_fonts,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -258,7 +264,6 @@ impl GraphicsStateVec {
         Some(())
     }
 
-
     pub fn get_current(&self) -> Option<&GraphicsState> {
         self._internal.last()
     }
@@ -292,7 +297,10 @@ impl GraphicsStateVec {
         self.get_current()
             .and_then(|gs| gs.fill_color.clone())
             .unwrap_or(Color::Rgb(crate::Rgb {
-                r: 0.0, g: 0.0, b: 0.0, icc_profile: None
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                icc_profile: None,
             }))
     }
 
@@ -300,7 +308,10 @@ impl GraphicsStateVec {
         self.get_current()
             .and_then(|gs| gs.stroke_color.clone())
             .unwrap_or(Color::Rgb(crate::Rgb {
-                r: 0.0, g: 0.0, b: 0.0, icc_profile: None
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                icc_profile: None,
             }))
     }
 
@@ -341,7 +352,8 @@ impl GraphicsStateVec {
     pub fn get_word_spacing(&self) -> f32 {
         self.get_current()
             .and_then(|gs| gs.word_spacing)
-            .unwrap_or(Pt(0.0)).0
+            .unwrap_or(Pt(0.0))
+            .0
     }
 
     pub fn get_text_leading(&self) -> Pt {
@@ -536,16 +548,25 @@ fn render_to_svg_internal(
             // Content structure
             Op::BeginMarkedContent { tag } => {
                 gst.begin_marked_content(tag.clone());
-                svg.push_str(&format!("<g class=\"marked-content\" data-tag=\"{}\">", tag));
+                svg.push_str(&format!(
+                    "<g class=\"marked-content\" data-tag=\"{}\">",
+                    tag
+                ));
                 current_svg_group.push(String::from("marked"));
             }
             Op::BeginMarkedContentWithProperties { tag, properties: _ } => {
                 gst.begin_marked_content(tag.clone());
-                svg.push_str(&format!("<g class=\"marked-content\" data-tag=\"{}\">", tag));
+                svg.push_str(&format!(
+                    "<g class=\"marked-content\" data-tag=\"{}\">",
+                    tag
+                ));
                 current_svg_group.push(String::from("marked"));
             }
             Op::DefineMarkedContentPoint { tag, properties: _ } => {
-                svg.push_str(&format!("<g class=\"marked-content-point\" data-tag=\"{}\"></g>", tag));
+                svg.push_str(&format!(
+                    "<g class=\"marked-content-point\" data-tag=\"{}\"></g>",
+                    tag
+                ));
             }
             Op::EndMarkedContent => {
                 gst.end_marked_content();
@@ -622,7 +643,7 @@ fn render_to_svg_internal(
                         items,
                         &BuiltinOrExternalFontId::External(font.clone()),
                         &gst,
-                        height
+                        height,
                     );
                     svg.push_str(&text_svg);
                 }
@@ -633,7 +654,7 @@ fn render_to_svg_internal(
                         items,
                         &BuiltinOrExternalFontId::Builtin(*font),
                         &gst,
-                        height
+                        height,
                     );
                     svg.push_str(&text_svg);
                 }
@@ -641,15 +662,16 @@ fn render_to_svg_internal(
             Op::WriteCodepoints { font, cp } => {
                 if in_text_section {
                     // Convert codepoints to TextItems
-                    let items: Vec<TextItem> = cp.iter()
+                    let items: Vec<TextItem> = cp
+                        .iter()
                         .map(|(_, ch)| TextItem::Text(ch.to_string()))
                         .collect();
-                    
+
                     let text_svg = render_text_items_to_svg(
                         &items,
                         &BuiltinOrExternalFontId::External(font.clone()),
                         &gst,
-                        height
+                        height,
                     );
                     svg.push_str(&text_svg);
                 }
@@ -664,12 +686,12 @@ fn render_to_svg_internal(
                         }
                         items.push(TextItem::Text(ch.to_string()));
                     }
-                    
+
                     let text_svg = render_text_items_to_svg(
                         &items,
                         &BuiltinOrExternalFontId::External(font.clone()),
                         &gst,
-                        height
+                        height,
                     );
                     svg.push_str(&text_svg);
                 }
@@ -679,7 +701,7 @@ fn render_to_svg_internal(
                 let leading = gst.get_text_leading();
                 let current_cursor = gst.get_text_cursor();
                 gst.set_text_cursor(Point {
-                    x: Pt(0.0), // Reset X to start of line
+                    x: Pt(0.0),                            // Reset X to start of line
                     y: Pt(current_cursor.y.0 - leading.0), // Move down by leading amount
                 });
             }
@@ -698,36 +720,40 @@ fn render_to_svg_internal(
                     let leading = gst.get_text_leading();
                     let current_cursor = gst.get_text_cursor();
                     gst.set_text_cursor(Point {
-                        x: Pt(0.0), // Reset X to start of line
+                        x: Pt(0.0),                            // Reset X to start of line
                         y: Pt(current_cursor.y.0 - leading.0), // Move down by leading
                     });
-                    
+
                     // Then show text
                     let items = vec![TextItem::Text(text.clone())];
-                    
+
                     if let Some(font) = gst.get_current_font() {
                         let text_svg = render_text_items_to_svg(&items, &font, &gst, height);
                         svg.push_str(&text_svg);
                     }
                 }
             }
-            Op::SetSpacingMoveAndShowText { word_spacing, char_spacing, text } => {
+            Op::SetSpacingMoveAndShowText {
+                word_spacing,
+                char_spacing,
+                text,
+            } => {
                 if in_text_section {
                     // Set spacing
                     gst.set_word_spacing(Pt(*word_spacing));
                     gst.set_character_spacing(*char_spacing);
-                    
+
                     // Move to next line
                     let leading = gst.get_text_leading();
                     let current_cursor = gst.get_text_cursor();
                     gst.set_text_cursor(Point {
-                        x: Pt(0.0), // Reset X to start of line
+                        x: Pt(0.0),                            // Reset X to start of line
                         y: Pt(current_cursor.y.0 - leading.0), // Move down by leading
                     });
-                    
+
                     // Show text
                     let items = vec![TextItem::Text(text.clone())];
-                    
+
                     if let Some(font) = gst.get_current_font() {
                         let text_svg = render_text_items_to_svg(&items, &font, &gst, height);
                         svg.push_str(&text_svg);
@@ -757,48 +783,51 @@ fn render_to_svg_internal(
                             Destination::Xyz { page, .. } => page,
                             // Handle other destination types if needed
                         };
-                        
+
                         // Create SVG link
                         svg.push_str(&format!("<a href=\"#page{}\">", page_num));
-                        
+
                         // Add rectangle for the link area
                         svg.push_str(&format!(
-                            "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"none\" stroke=\"none\" pointer-events=\"all\"/>",
-                            link.rect.x.0, 
+                            "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"none\" \
+                             stroke=\"none\" pointer-events=\"all\"/>",
+                            link.rect.x.0,
                             height - link.rect.y.0 - link.rect.height.0, // Convert Y coordinate
-                            link.rect.width.0, 
+                            link.rect.width.0,
                             link.rect.height.0
                         ));
-                        
+
                         svg.push_str("</a>");
-                    },
+                    }
                     Actions::Uri(uri) => {
                         // External link
                         svg.push_str(&format!("<a href=\"{}\" target=\"_blank\">", uri));
-                        
+
                         // Add rectangle for the link area
                         svg.push_str(&format!(
-                            "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"none\" stroke=\"none\" pointer-events=\"all\"/>",
-                            link.rect.x.0, 
+                            "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"none\" \
+                             stroke=\"none\" pointer-events=\"all\"/>",
+                            link.rect.x.0,
                             height - link.rect.y.0 - link.rect.height.0, // Convert Y coordinate
-                            link.rect.width.0, 
+                            link.rect.width.0,
                             link.rect.height.0
                         ));
-                        
+
                         svg.push_str("</a>");
                     }
                 }
             }
 
-            // Inline image operations - simplified implementation 
+            // Inline image operations - simplified implementation
             Op::BeginInlineImage | Op::BeginInlineImageData | Op::EndInlineImage => {
                 // These operations would need more complex handling
                 warnings.push(PdfWarnMsg::info(
-                    0, 0, 
-                    "Inline image rendering not fully implemented in SVG output".to_string()
+                    0,
+                    0,
+                    "Inline image rendering not fully implemented in SVG output".to_string(),
                 ));
             }
-            
+
             // Unknown operations
             Op::Unknown { key, value: _ } => {
                 // Add comment for debugging
@@ -863,14 +892,14 @@ fn escape_xml_text(text: &str) -> String {
 
 // Helper to transform a point from PDF to SVG coordinates
 fn transform_point(
-    point: &Point, 
-    ctm: &CurTransMat, 
+    point: &Point,
+    ctm: &CurTransMat,
     text_matrix: &Option<TextMatrix>,
-    page_height: f32
+    page_height: f32,
 ) -> (f32, f32) {
     // First apply text matrix if present
     let (mut tx, mut ty) = (point.x.0, point.y.0);
-    
+
     if let Some(tm) = text_matrix {
         let tm_array = tm.as_array();
         let new_x = tm_array[0] * tx + tm_array[2] * ty + tm_array[4];
@@ -878,31 +907,39 @@ fn transform_point(
         tx = new_x;
         ty = new_y;
     }
-    
+
     // Then apply CTM
     let ctm_array = ctm.as_array();
     let final_x = ctm_array[0] * tx + ctm_array[2] * ty + ctm_array[4];
     let final_y = ctm_array[1] * tx + ctm_array[3] * ty + ctm_array[5];
-    
+
     // Convert to SVG coordinates (flip Y)
     (final_x, page_height - final_y)
 }
 
 // Gets combined transform string for SVG elements
-fn get_svg_transform(ctm: &CurTransMat, text_matrix: &Option<TextMatrix>, page_height: f32) -> String {
+fn get_svg_transform(
+    ctm: &CurTransMat,
+    text_matrix: &Option<TextMatrix>,
+    page_height: f32,
+) -> String {
     let mut transform = String::new();
-    
+
     // Apply CTM first
     let ctm_array = ctm.as_array();
     if *ctm != CurTransMat::Identity {
         // SVG coordinate system flips Y compared to PDF
         transform.push_str(&format!(
             "matrix({} {} {} {} {} {})",
-            ctm_array[0], -ctm_array[1], -ctm_array[2], ctm_array[3], 
-            ctm_array[4], page_height - ctm_array[5]
+            ctm_array[0],
+            -ctm_array[1],
+            -ctm_array[2],
+            ctm_array[3],
+            ctm_array[4],
+            page_height - ctm_array[5]
         ));
     }
-    
+
     // Then apply text matrix if present
     if let Some(tm) = text_matrix {
         let tm_array = tm.as_array();
@@ -911,11 +948,15 @@ fn get_svg_transform(ctm: &CurTransMat, text_matrix: &Option<TextMatrix>, page_h
         }
         transform.push_str(&format!(
             "matrix({} {} {} {} {} {})",
-            tm_array[0], -tm_array[1], -tm_array[2], tm_array[3],
-            tm_array[4], -tm_array[5]  // No page_height adjustment needed here
+            tm_array[0],
+            -tm_array[1],
+            -tm_array[2],
+            tm_array[3],
+            tm_array[4],
+            -tm_array[5] // No page_height adjustment needed here
         ));
     }
-    
+
     transform
 }
 
@@ -924,30 +965,31 @@ fn render_text_items_to_svg(
     items: &[TextItem],
     font_id: &BuiltinOrExternalFontId,
     gst: &GraphicsStateVec,
-    page_height: f32
+    page_height: f32,
 ) -> String {
     let mut result = String::new();
-    
+
     // Get font size
     let font_size = gst.get_font_size(font_id);
-    
+
     // Get font family name
     let font_family = match font_id {
         BuiltinOrExternalFontId::Builtin(builtin_font) => builtin_font.get_svg_font_family(),
-        BuiltinOrExternalFontId::External(font_id) => &font_id.0, // Use external font ID as family name
+        BuiltinOrExternalFontId::External(font_id) => &font_id.0, /* Use external font ID as
+                                                                   * family name */
     };
-    
+
     // Get current text cursor position
     let cursor = gst.get_text_cursor();
-    
+
     // Apply transformations: convert from PDF to SVG coordinates
     let (x, y) = transform_point(
         &cursor,
         &gst.get_transform_matrix(),
         &gst.get_current().and_then(|gs| gs.text_matrix.clone()),
-        page_height
+        page_height,
     );
-    
+
     // Get text rendering mode styling
     let text_mode = gst.get_text_rendering_mode();
     let (fill, stroke) = match text_mode {
@@ -959,14 +1001,16 @@ fn render_text_items_to_svg(
         ),
         TextRenderingMode::Invisible => ("none".to_string(), "none".to_string()),
         TextRenderingMode::FillClip => (color_to_svg(&gst.get_fill_color()), "none".to_string()),
-        TextRenderingMode::StrokeClip => ("none".to_string(), color_to_svg(&gst.get_stroke_color())),
+        TextRenderingMode::StrokeClip => {
+            ("none".to_string(), color_to_svg(&gst.get_stroke_color()))
+        }
         TextRenderingMode::FillStrokeClip => (
             color_to_svg(&gst.get_fill_color()),
             color_to_svg(&gst.get_stroke_color()),
         ),
         TextRenderingMode::Clip => ("none".to_string(), "none".to_string()),
     };
-    
+
     // Get other text style properties
     let stroke_width = gst.get_stroke_width().0;
     let font_weight = match font_id {
@@ -977,20 +1021,21 @@ fn render_text_items_to_svg(
         BuiltinOrExternalFontId::Builtin(bf) => bf.get_font_style(),
         _ => "normal",
     };
-    
+
     // Process text content with any offsets
     let mut processed_text = String::new();
     let mut x_offset = 0.0;
-    
+
     for item in items {
         match item {
             TextItem::Text(text) => {
                 // Escape text for XML
                 let escaped = escape_xml_text(text);
-                
+
                 if x_offset != 0.0 {
                     // Use tspan with dx for positioning if we have an offset
-                    processed_text.push_str(&format!("<tspan dx=\"{}\">{}</tspan>", x_offset, escaped));
+                    processed_text
+                        .push_str(&format!("<tspan dx=\"{}\">{}</tspan>", x_offset, escaped));
                     x_offset = 0.0;
                 } else {
                     processed_text.push_str(&escaped);
@@ -1003,48 +1048,49 @@ fn render_text_items_to_svg(
             }
         }
     }
-    
+
     // Get character spacing and word spacing
     let char_spacing = gst.get_character_spacing();
     let word_spacing = gst.get_word_spacing();
-    
+
     // Get scaling factor if set
     let h_scale = gst.get_horizontal_scaling() / 100.0; // Convert percentage to multiplier
-    
+
     // Get transform combining CTM and text matrix
     let transform = get_svg_transform(
         &gst.get_transform_matrix(),
         &gst.get_current().and_then(|gs| gs.text_matrix.clone()),
-        page_height
+        page_height,
     );
-    
+
     // Create the SVG text element
     result.push_str(&format!(
-        "<text x=\"{}\" y=\"{}\" font-family=\"{}\" font-size=\"{}\" font-weight=\"{}\" font-style=\"{}\" fill=\"{}\" stroke=\"{}\" stroke-width=\"{}\"",
+        "<text x=\"{}\" y=\"{}\" font-family=\"{}\" font-size=\"{}\" font-weight=\"{}\" \
+         font-style=\"{}\" fill=\"{}\" stroke=\"{}\" stroke-width=\"{}\"",
         x, y, font_family, font_size.0, font_weight, font_style, fill, stroke, stroke_width
     ));
-    
+
     // Add optional attributes
     if !transform.is_empty() {
         result.push_str(&format!(" transform=\"{}\"", transform));
     }
-    
+
     if char_spacing != 0.0 {
         result.push_str(&format!(" letter-spacing=\"{}\"", char_spacing));
     }
-    
+
     if word_spacing != 0.0 {
         result.push_str(&format!(" word-spacing=\"{}\"", word_spacing));
     }
-    
+
     if h_scale != 1.0 {
         // Apply horizontal scaling via transform
         result.push_str(&format!(" transform=\"scale({}, 1)\"", h_scale));
     }
-    
+
     // Close tag opening and add content
     result.push_str(&format!(">{}</text>", processed_text));
-    
+
     result
 }
 
@@ -1053,49 +1099,51 @@ fn render_line_to_svg(line: &Line, gst: &GraphicsStateVec, page_height: f32) -> 
     if line.points.is_empty() {
         return String::new();
     }
-    
+
     // Generate SVG path data
     let mut path_data = String::new();
-    
+
     // Start with the first point
     let first_point = &line.points[0];
-    path_data.push_str(&format!("M{},{}",
+    path_data.push_str(&format!(
+        "M{},{}",
         first_point.p.x.0,
         page_height - first_point.p.y.0
     ));
-    
+
     // Process remaining points, handling bezier control points
     let mut i = 1;
     while i < line.points.len() {
         let point = &line.points[i];
-        
+
         if point.bezier && i + 2 <= line.points.len() {
             // This is a bezier control point
             let next_point = &line.points[i + 1];
-            path_data.push_str(&format!(" Q{},{} {},{}",
-                point.p.x.0, page_height - point.p.y.0,
-                next_point.p.x.0, page_height - next_point.p.y.0
+            path_data.push_str(&format!(
+                " Q{},{} {},{}",
+                point.p.x.0,
+                page_height - point.p.y.0,
+                next_point.p.x.0,
+                page_height - next_point.p.y.0
             ));
             i += 2; // Skip the next point as it's the end of the bezier
         } else {
             // Regular line segment
-            path_data.push_str(&format!(" L{},{}",
-                point.p.x.0, page_height - point.p.y.0
-            ));
+            path_data.push_str(&format!(" L{},{}", point.p.x.0, page_height - point.p.y.0));
             i += 1;
         }
     }
-    
+
     if line.is_closed {
         path_data.push_str(" Z"); // Close the path
     }
-    
+
     // Get styling from graphics state
     let stroke = color_to_svg(&gst.get_stroke_color());
     let stroke_width = gst.get_stroke_width().0;
     let line_join = gst.get_line_join().to_svg_string();
     let line_cap = gst.get_line_cap().get_svg_id();
-    
+
     // Handle dash pattern if present
     let dash_array = match gst.get_dash_array() {
         Some(dash) => {
@@ -1103,107 +1151,112 @@ fn render_line_to_svg(line: &Line, gst: &GraphicsStateVec, page_height: f32) -> 
             if dash_array.is_empty() {
                 String::new()
             } else {
-                format!(" stroke-dasharray=\"{}\" stroke-dashoffset=\"{}\"",
-                    dash_array.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(","),
+                format!(
+                    " stroke-dasharray=\"{}\" stroke-dashoffset=\"{}\"",
+                    dash_array
+                        .iter()
+                        .map(|n| n.to_string())
+                        .collect::<Vec<_>>()
+                        .join(","),
                     dash.offset
                 )
             }
-        },
-        None => String::new()
+        }
+        None => String::new(),
     };
-    
+
     // Get transformation if present
     let transform = get_svg_transform(
         &gst.get_transform_matrix(),
         &None, // Line doesn't use text matrix
-        page_height
+        page_height,
     );
-    
+
     let transform_attr = if !transform.is_empty() {
         format!(" transform=\"{}\"", transform)
     } else {
         String::new()
     };
-    
+
     // Create the SVG path element
     format!(
-        "<path d=\"{}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{}\" stroke-linejoin=\"{}\" stroke-linecap=\"{}\"{}{} />",
+        "<path d=\"{}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{}\" stroke-linejoin=\"{}\" \
+         stroke-linecap=\"{}\"{}{} />",
         path_data, stroke, stroke_width, line_join, line_cap, dash_array, transform_attr
     )
 }
 
 // Renders a polygon to SVG
-fn render_polygon_to_svg(
-    polygon: &Polygon,
-    gst: &GraphicsStateVec,
-    page_height: f32
-) -> String {
+fn render_polygon_to_svg(polygon: &Polygon, gst: &GraphicsStateVec, page_height: f32) -> String {
     if polygon.rings.is_empty() {
         return String::new();
     }
-    
+
     // Generate SVG path data
     let mut path_data = String::new();
-    
+
     for ring in &polygon.rings {
         if ring.points.is_empty() {
             continue;
         }
-        
+
         // Start with the first point of this ring
         let first_point = &ring.points[0];
-        path_data.push_str(&format!("M{},{}",
+        path_data.push_str(&format!(
+            "M{},{}",
             first_point.p.x.0,
             page_height - first_point.p.y.0
         ));
-        
+
         // Process remaining points, handling bezier curves
         let mut i = 1;
         while i < ring.points.len() {
             let point = &ring.points[i];
-            
+
             if point.bezier && i + 2 <= ring.points.len() {
                 // This is a bezier control point
                 let next_point = &ring.points[i + 1];
-                path_data.push_str(&format!(" Q{},{} {},{}",
-                    point.p.x.0, page_height - point.p.y.0,
-                    next_point.p.x.0, page_height - next_point.p.y.0
+                path_data.push_str(&format!(
+                    " Q{},{} {},{}",
+                    point.p.x.0,
+                    page_height - point.p.y.0,
+                    next_point.p.x.0,
+                    page_height - next_point.p.y.0
                 ));
                 i += 2; // Skip the next point as it's the end of the bezier
             } else {
                 // Regular line segment
-                path_data.push_str(&format!(" L{},{}",
-                    point.p.x.0, page_height - point.p.y.0
-                ));
+                path_data.push_str(&format!(" L{},{}", point.p.x.0, page_height - point.p.y.0));
                 i += 1;
             }
         }
-        
+
         // Close the path for this ring
         path_data.push_str(" Z");
     }
-    
+
     // Get styling based on PaintMode
     let (fill, stroke) = match polygon.mode {
         PaintMode::Fill => (color_to_svg(&gst.get_fill_color()), "none".to_string()),
         PaintMode::Stroke => ("none".to_string(), color_to_svg(&gst.get_stroke_color())),
         PaintMode::FillStroke => (
             color_to_svg(&gst.get_fill_color()),
-            color_to_svg(&gst.get_stroke_color())
+            color_to_svg(&gst.get_stroke_color()),
         ),
-        PaintMode::Clip => ("none".to_string(), "none".to_string()), // Clip is handled differently in SVG
+        PaintMode::Clip => ("none".to_string(), "none".to_string()), /* Clip is handled
+                                                                      * differently in SVG */
     };
-    
+
     let stroke_width = gst.get_stroke_width().0;
     let line_join = gst.get_line_join().to_svg_string();
     let line_cap = gst.get_line_cap().get_svg_id();
-    
+
     // Convert PDF winding order to SVG fill-rule
     let fill_rule = match polygon.winding_order {
         WindingOrder::NonZero => "nonzero",
         WindingOrder::EvenOdd => "evenodd",
     };
-    
+
     // Handle dash pattern if present
     let dash_array = match gst.get_dash_array() {
         Some(dash) => {
@@ -1211,32 +1264,46 @@ fn render_polygon_to_svg(
             if dash_array.is_empty() {
                 String::new()
             } else {
-                format!(" stroke-dasharray=\"{}\" stroke-dashoffset=\"{}\"",
-                    dash_array.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(","),
+                format!(
+                    " stroke-dasharray=\"{}\" stroke-dashoffset=\"{}\"",
+                    dash_array
+                        .iter()
+                        .map(|n| n.to_string())
+                        .collect::<Vec<_>>()
+                        .join(","),
                     dash.offset
                 )
             }
-        },
-        None => String::new()
+        }
+        None => String::new(),
     };
-    
+
     // Get transformation if present
     let transform = get_svg_transform(
         &gst.get_transform_matrix(),
         &None, // Polygon doesn't use text matrix
-        page_height
+        page_height,
     );
-    
+
     let transform_attr = if !transform.is_empty() {
         format!(" transform=\"{}\"", transform)
     } else {
         String::new()
     };
-    
+
     // Create the SVG path element
     format!(
-        "<path d=\"{}\" fill=\"{}\" fill-rule=\"{}\" stroke=\"{}\" stroke-width=\"{}\" stroke-linejoin=\"{}\" stroke-linecap=\"{}\"{}{} />",
-        path_data, fill, fill_rule, stroke, stroke_width, line_join, line_cap, dash_array, transform_attr
+        "<path d=\"{}\" fill=\"{}\" fill-rule=\"{}\" stroke=\"{}\" stroke-width=\"{}\" \
+         stroke-linejoin=\"{}\" stroke-linecap=\"{}\"{}{} />",
+        path_data,
+        fill,
+        fill_rule,
+        stroke,
+        stroke_width,
+        line_join,
+        line_cap,
+        dash_array,
+        transform_attr
     )
 }
 
@@ -1247,59 +1314,60 @@ fn render_image_to_svg(
     resources: &PdfResources,
     image_map: &BTreeMap<XObjectId, (Vec<u8>, OutputImageFormat)>,
     page_height: f32,
-    gst: &GraphicsStateVec
+    gst: &GraphicsStateVec,
 ) -> String {
     // Get the XObject and its binary data if available
     let xobject_opt = resources.xobjects.map.get(id);
     let image_data_opt = image_map.get(id);
-    
+
     if let (Some(xobject), Some((bytes, fmt))) = (xobject_opt, image_data_opt) {
         if let Some((width, height)) = xobject.get_width_height() {
             // Convert dimensions to points
             let dpi = transform.dpi.unwrap_or(300.0);
             let w_pt = width.into_pt(dpi).0;
             let h_pt = height.into_pt(dpi).0;
-            
+
             // Base64 encode the image data
             let base64_str = base64::prelude::BASE64_STANDARD.encode(bytes);
             let data_url = format!("data:{};base64,{}", fmt.mime_type(), base64_str);
-            
+
             // Calculate transformations
             // Start with the XObject transform
             let mut transforms = Vec::new();
-            
+
             // Apply scaling if specified
             if let Some(scale_x) = transform.scale_x {
                 let scale_y = transform.scale_y.unwrap_or(scale_x);
                 transforms.push(format!("scale({}, {})", scale_x, scale_y));
             }
-            
+
             // Apply rotation if specified
             if let Some(rotate) = &transform.rotate {
-                transforms.push(format!("rotate({}, {}, {})",
+                transforms.push(format!(
+                    "rotate({}, {}, {})",
                     rotate.angle_ccw_degrees,
                     rotate.rotation_center_x.into_pt(dpi).0,
                     page_height - rotate.rotation_center_y.into_pt(dpi).0
                 ));
             }
-            
+
             // Apply translation if specified
             let tx = transform.translate_x.unwrap_or(Pt(0.0));
             let ty = transform.translate_y.unwrap_or(Pt(0.0));
             transforms.push(format!("translate({}, {})", tx.0, page_height - ty.0));
-            
+
             // Apply current transformation matrix from graphics state
             let ctm = gst.get_transform_matrix();
             if ctm != CurTransMat::Identity {
                 transforms.push(ctm.as_css_val());
             }
-            
+
             let transform_attr = if !transforms.is_empty() {
                 format!(" transform=\"{}\"", transforms.join(" "))
             } else {
                 String::new()
             };
-            
+
             // Create the SVG image element
             return format!(
                 "<image width=\"{}\" height=\"{}\" href=\"{}\"{} />",
@@ -1307,6 +1375,6 @@ fn render_image_to_svg(
             );
         }
     }
-    
+
     String::new() // Return empty string if something failed
 }

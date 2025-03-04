@@ -13,14 +13,7 @@ use lopdf::{
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    BuiltinFont, BuiltinOrExternalFontId, Color, DictItem, ExtendedGraphicsState,
-    ExtendedGraphicsStateId, ExtendedGraphicsStateMap, FontId, LayerInternalId, LineDashPattern,
-    LinePoint, Op, PageAnnotId, PageAnnotMap, ParsedFont, PdfDocument, PdfDocumentInfo, PdfFontMap,
-    PdfLayerMap, PdfMetadata, PdfPage, PdfResources, PolygonRing, Pt, RawImage, RenderingIntent,
-    TextItem, TextMatrix, TextRenderingMode, XObject, XObjectId, XObjectMap,
-    cmap::ToUnicodeCMap,
-    conformance::PdfConformance,
-    date::{OffsetDateTime, UtcOffset},
+    cmap::ToUnicodeCMap, conformance::PdfConformance, date::{OffsetDateTime, UtcOffset}, BuiltinFont, BuiltinOrExternalFontId, Color, DictItem, ExtendedGraphicsState, ExtendedGraphicsStateId, ExtendedGraphicsStateMap, ExternalStream, FontId, LayerInternalId, Line, LineDashPattern, LinePoint, Op, PageAnnotId, PageAnnotMap, PaintMode, ParsedFont, PdfDocument, PdfDocumentInfo, PdfFontMap, PdfLayerMap, PdfMetadata, PdfPage, PdfResources, Point, Polygon, PolygonRing, Pt, RawImage, RenderingIntent, TextItem, TextMatrix, TextRenderingMode, WindingOrder, XObject, XObjectId, XObjectMap
 };
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -913,19 +906,425 @@ pub struct PageState {
     /// Name of the current layer, if any (set by BDC with /OC).
     pub current_layer: Option<String>,
 
-    /// Accumulated subpaths. Each subpath is a list of `(Point, is_bezier_control_point)`.
-    /// We store multiple subpaths so that if the path has `m`, `l`, `c`, `m` again, etc.,
-    /// they become separate “rings” or subpaths. We only produce a final shape on stroke/fill.
-    pub subpaths: Vec<Vec<(crate::graphics::Point, bool)>>,
-
-    /// The subpath currently being constructed (i.e. after the last `m`).
-    pub current_subpath: Vec<(crate::graphics::Point, bool)>,
-
-    /// True if we have a "closepath" (like the `h` operator) for the current subpath.
-    /// Some PDF operators forcibly close subpaths, e.g. `b` / `s` vs. `B` / `S`.
-    pub current_subpath_closed: bool,
+    pub path_builder: PathBuilder,
 
     pub last_emitted_font_size: Option<(FontId, Pt)>,
+}
+
+/// Represents PDF path operations
+#[derive(Debug, Clone, PartialEq)]
+pub enum PathOperation {
+    MoveTo(Point),
+    LineTo(Point),
+    CurveTo {
+        control1: Point,
+        control2: Point,
+        endpoint: Point,
+    },
+    ClosePath,
+}
+
+/// PDF subpath representation
+#[derive(Debug, Clone, PartialEq)]
+pub struct PdfSubPath {
+    operations: Vec<PathOperation>,
+    is_closed: bool,
+}
+
+/// Complete path with painting information
+#[derive(Debug, Clone, PartialEq)]
+pub struct PdfPath {
+    subpaths: Vec<PdfSubPath>,
+    paint_mode: PaintMode,
+    winding_order: WindingOrder,
+}
+
+/// Builder for constructing PDF paths
+#[derive(Debug, Clone, Default)]
+pub struct PathBuilder {
+    current_subpath: Vec<PathOperation>,
+    subpaths: Vec<Vec<PathOperation>>,
+    current_point: Option<Point>,
+    start_point: Option<Point>,
+}
+
+impl PathBuilder {
+    pub fn move_to(&mut self, point: Point) {
+        if !self.current_subpath.is_empty() {
+            self.subpaths
+                .push(std::mem::take(&mut self.current_subpath));
+        }
+
+        self.current_subpath.push(PathOperation::MoveTo(point));
+        self.current_point = Some(point);
+        self.start_point = Some(point);
+    }
+
+    pub fn line_to(&mut self, point: Point) {
+        if self.current_point.is_none() {
+            self.move_to(point);
+            return;
+        }
+
+        self.current_subpath.push(PathOperation::LineTo(point));
+        self.current_point = Some(point);
+    }
+
+    pub fn curve_to(&mut self, control1: Point, control2: Point, endpoint: Point) {
+        if self.current_point.is_none() {
+            self.move_to(control1);
+            self.curve_to(control1, control2, endpoint);
+            return;
+        }
+
+        self.current_subpath.push(PathOperation::CurveTo {
+            control1,
+            control2,
+            endpoint,
+        });
+        self.current_point = Some(endpoint);
+    }
+
+    /// v-curve: current point is first control point
+    pub fn v_curve_to(&mut self, control2: Point, endpoint: Point) {
+        if let Some(current) = self.current_point {
+            self.curve_to(current, control2, endpoint);
+        } else {
+            // If no current point, treat as regular curve_to
+            self.move_to(control2);
+            self.curve_to(control2, control2, endpoint);
+        }
+    }
+
+    /// y-curve: endpoint is second control point
+    pub fn y_curve_to(&mut self, control1: Point, endpoint: Point) {
+        if self.current_point.is_none() {
+            self.move_to(control1);
+        }
+
+        self.curve_to(control1, endpoint, endpoint);
+    }
+
+    pub fn close_path(&mut self) {
+        if self.current_subpath.is_empty() {
+            return;
+        }
+
+        self.current_subpath.push(PathOperation::ClosePath);
+
+        // Connect back to start point
+        if let (Some(start), Some(current)) = (self.start_point, self.current_point) {
+            if current != start {
+                self.current_point = Some(start);
+            }
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.current_subpath.clear();
+        self.subpaths.clear();
+        self.current_point = None;
+        self.start_point = None;
+    }
+
+    pub fn finalize_subpath(&mut self) {
+        if !self.current_subpath.is_empty() {
+            self.subpaths
+                .push(std::mem::take(&mut self.current_subpath));
+            self.current_point = None;
+            self.start_point = None;
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.current_subpath.is_empty() && self.subpaths.is_empty()
+    }
+
+    pub fn build(&self, paint_mode: PaintMode, winding_order: WindingOrder) -> PdfPath {
+        let mut all_subpaths = self.subpaths.clone();
+        if !self.current_subpath.is_empty() {
+            all_subpaths.push(self.current_subpath.clone());
+        }
+
+        let subpaths = all_subpaths
+            .into_iter()
+            .map(|ops| {
+                let is_closed = ops.iter().any(|op| matches!(op, PathOperation::ClosePath));
+                PdfSubPath {
+                    operations: ops,
+                    is_closed,
+                }
+            })
+            .collect();
+
+        PdfPath {
+            subpaths,
+            paint_mode,
+            winding_order,
+        }
+    }
+}
+
+/// Convert a PdfPath to a DrawPolygon or DrawLine operation
+pub fn path_to_op(path: &PdfPath) -> Op {
+    let mut all_rings = Vec::new();
+
+    for subpath in &path.subpaths {
+        let points = subpath_to_line_points(subpath);
+        if !points.is_empty() {
+            all_rings.push(PolygonRing { points });
+        }
+    }
+
+    if path.subpaths.len() == 1
+        && path.paint_mode == PaintMode::Stroke
+        && !path.subpaths[0].is_closed
+    {
+        if let Some(ring) = all_rings.first() {
+            return Op::DrawLine {
+                line: Line {
+                    points: ring.points.clone(),
+                    is_closed: false,
+                },
+            };
+        }
+    }
+
+    Op::DrawPolygon {
+        polygon: Polygon {
+            rings: all_rings,
+            mode: path.paint_mode,
+            winding_order: path.winding_order,
+        },
+    }
+}
+
+/// Parse a PDF content stream into path operations
+fn parse_pdf_stream(stream: &str) -> Vec<(String, Vec<f32>)> {
+    let mut operations = Vec::new();
+    let mut current_operands = Vec::new();
+
+    // Simple tokenizer for PDF path operations
+    let mut tokens = stream.split_whitespace().peekable();
+
+    while let Some(token) = tokens.next() {
+        // Check if token is a number
+        if let Ok(num) = token.parse::<f32>() {
+            current_operands.push(num);
+            continue;
+        }
+
+        // If not a number, it's an operator
+        if token == "m"
+            || token == "l"
+            || token == "c"
+            || token == "v"
+            || token == "y"
+            || token == "h"
+            || token == "f"
+            || token == "S"
+            || token == "s"
+            || token == "f*"
+            || token == "B"
+            || token == "B*"
+            || token == "b"
+            || token == "b*"
+        {
+            // Store the operation
+            operations.push((token.to_string(), current_operands.clone()));
+            current_operands = Vec::new();
+        }
+    }
+
+    operations
+}
+
+/// Apply a parsed operation to the PathBuilder
+fn apply_path_operation(builder: &mut PathBuilder, op: &(String, Vec<f32>)) {
+    match op.0.as_str() {
+        "m" => {
+            if op.1.len() >= 2 {
+                builder.move_to(Point {
+                    x: Pt(op.1[0]),
+                    y: Pt(op.1[1]),
+                });
+            }
+        }
+        "l" => {
+            if op.1.len() >= 2 {
+                builder.line_to(Point {
+                    x: Pt(op.1[0]),
+                    y: Pt(op.1[1]),
+                });
+            }
+        }
+        "c" => {
+            if op.1.len() >= 6 {
+                builder.curve_to(
+                    Point {
+                        x: Pt(op.1[0]),
+                        y: Pt(op.1[1]),
+                    },
+                    Point {
+                        x: Pt(op.1[2]),
+                        y: Pt(op.1[3]),
+                    },
+                    Point {
+                        x: Pt(op.1[4]),
+                        y: Pt(op.1[5]),
+                    },
+                );
+            }
+        }
+        "v" => {
+            if op.1.len() >= 4 {
+                builder.v_curve_to(
+                    Point {
+                        x: Pt(op.1[0]),
+                        y: Pt(op.1[1]),
+                    },
+                    Point {
+                        x: Pt(op.1[2]),
+                        y: Pt(op.1[3]),
+                    },
+                );
+            }
+        }
+        "y" => {
+            if op.1.len() >= 4 {
+                builder.y_curve_to(
+                    Point {
+                        x: Pt(op.1[0]),
+                        y: Pt(op.1[1]),
+                    },
+                    Point {
+                        x: Pt(op.1[2]),
+                        y: Pt(op.1[3]),
+                    },
+                );
+            }
+        }
+        "h" => {
+            builder.close_path();
+        }
+        "f" | "S" | "s" | "f*" | "B" | "B*" | "b" | "b*" => {
+            // These are painting operators, not path construction
+            // For the test, we handle them by finalizing the current subpath
+            builder.finalize_subpath();
+        }
+        _ => {}
+    }
+}
+
+/// Convert a PdfSubPath to a sequence of LinePoints with proper bezier flags
+fn subpath_to_line_points(subpath: &PdfSubPath) -> Vec<LinePoint> {
+    let mut points = Vec::new();
+
+    for operation in &subpath.operations {
+        match operation {
+            PathOperation::MoveTo(point) => {
+                points.push(LinePoint {
+                    p: *point,
+                    bezier: false,
+                });
+            }
+            PathOperation::LineTo(point) => {
+                points.push(LinePoint {
+                    p: *point,
+                    bezier: false,
+                });
+            }
+            PathOperation::CurveTo {
+                control1,
+                control2,
+                endpoint,
+            } => {
+                // First control point - always bezier=true
+                points.push(LinePoint {
+                    p: *control1,
+                    bezier: true,
+                });
+                // Second control point - always bezier=true
+                points.push(LinePoint {
+                    p: *control2,
+                    bezier: true,
+                });
+                // Endpoint - always bezier=false
+                points.push(LinePoint {
+                    p: *endpoint,
+                    bezier: false,
+                });
+            }
+            PathOperation::ClosePath => {
+                // Nothing to add for close path
+            }
+        }
+    }
+
+    points
+}
+
+#[test]
+fn test_2() {
+
+    let pdf_stream = "
+    20.5 344.5 m
+    20.5 344.5 22 333.5 10.5 346.5 c
+    S"
+    .trim();
+
+    let expected_output = Op::DrawLine { line: Line { points: vec![LinePoint { p: Point { x: Pt(20.5), y: Pt(344.5) }, bezier: false }, LinePoint { p: Point { x: Pt(20.5), y: Pt(344.5) }, bezier: true }, LinePoint { p: Point { x: Pt(22.0), y: Pt(333.5) }, bezier: true }, LinePoint { p: Point { x: Pt(10.5), y: Pt(346.5) }, bezier: false }], is_closed: false } };
+
+    
+    // Parse using the PathBuilder
+    let mut builder = PathBuilder::default();
+    let ops = parse_pdf_stream(pdf_stream);
+    for op in ops {
+        apply_path_operation(&mut builder, &op);
+    }
+
+    // Build path and generate commands
+    let path = builder.build(PaintMode::Stroke, WindingOrder::NonZero);
+    let draw_op = path_to_op(&path);
+
+    // Verify bezier flags are correctly set
+    assert_eq!(draw_op, expected_output);
+}
+
+#[test]
+fn test_bezier_path_parsing() {
+    // Test case from tiger.svg
+    let pdf_stream = "-122.3 84.285 m -122.3 84.285 -122.2 86.179 -123.03 86.16 c -123.85 86.141 \
+                      -140.3 38.066 -160.83 40.309 c -160.83 40.309 -143.05 32.956 -122.3 84.285 \
+                      c h f";
+
+    // Parse using the PathBuilder
+    let mut builder = PathBuilder::default();
+    let ops = parse_pdf_stream(pdf_stream);
+    for op in ops {
+        apply_path_operation(&mut builder, &op);
+    }
+
+    // Build path and generate commands
+    let path = builder.build(PaintMode::Fill, WindingOrder::NonZero);
+    let draw_op = path_to_op(&path);
+
+    // Verify bezier flags are correctly set
+    if let Op::DrawPolygon { polygon } = draw_op {
+        assert_eq!(polygon.rings.len(), 1);
+        assert_eq!(polygon.rings[0].points.len(), 10);
+
+        // Check flags for points
+        let points = &polygon.rings[0].points;
+        assert!(!points[0].bezier); // Start point
+        assert!(points[1].bezier); // Control point 1
+        assert!(points[2].bezier); // Control point 2
+        assert!(!points[3].bezier); // End point
+        assert!(points[4].bezier); // Next control point 1
+    // And so on...
+    } else {
+        panic!("Expected DrawPolygon");
+    }
 }
 
 /// Convert a single lopdf Operation into zero, one, or many `printpdf::Op`.
@@ -973,7 +1372,7 @@ pub fn parse_op(
                 ));
                 return Ok(Vec::new());
             }
-            
+
             let id = match as_name(&op.operands[0]) {
                 Some(name) => name,
                 None => {
@@ -985,7 +1384,7 @@ pub fn parse_op(
                     return Ok(Vec::new());
                 }
             };
-            
+
             out_ops.push(Op::Marker { id });
         }
         "CS" => {
@@ -997,7 +1396,7 @@ pub fn parse_op(
                 ));
                 return Ok(Vec::new());
             }
-            
+
             let id = match as_name(&op.operands[0]) {
                 Some(name) => name,
                 None => {
@@ -1009,7 +1408,7 @@ pub fn parse_op(
                     return Ok(Vec::new());
                 }
             };
-            
+
             out_ops.push(Op::SetColorSpaceStroke { id });
         }
         "cs" => {
@@ -1021,7 +1420,7 @@ pub fn parse_op(
                 ));
                 return Ok(Vec::new());
             }
-            
+
             let id = match as_name(&op.operands[0]) {
                 Some(name) => name,
                 None => {
@@ -1033,7 +1432,7 @@ pub fn parse_op(
                     return Ok(Vec::new());
                 }
             };
-            
+
             out_ops.push(Op::SetColorSpaceFill { id });
         }
         "ri" => {
@@ -1585,57 +1984,22 @@ pub fn parse_op(
         }
 
         // --- Path building: moveTo (m), lineTo (l), closepath (h), curveTo (c), etc. ---
+        // --- Path building: moveTo (m), lineTo (l), closepath (h), curveTo (c), etc. ---
         "m" => {
             // Start a new subpath
-            if !state.current_subpath.is_empty() {
-                // push the old subpath into subpaths
-                state
-                    .subpaths
-                    .push(std::mem::take(&mut state.current_subpath));
-            }
             let x = to_f32(&op.operands.get(0).unwrap_or(&lopdf::Object::Null));
             let y = to_f32(&op.operands.get(1).unwrap_or(&lopdf::Object::Null));
-            state.current_subpath.push((
-                crate::graphics::Point {
-                    x: crate::units::Pt(x),
-                    y: crate::units::Pt(y),
-                },
-                false,
-            ));
-            state.current_subpath_closed = false;
+            state.path_builder.move_to(Point { x: Pt(x), y: Pt(y) });
         }
         "l" => {
             // lineTo
             let x = to_f32(&op.operands.get(0).unwrap_or(&lopdf::Object::Null));
             let y = to_f32(&op.operands.get(1).unwrap_or(&lopdf::Object::Null));
-            state.current_subpath.push((
-                crate::graphics::Point {
-                    x: crate::units::Pt(x),
-                    y: crate::units::Pt(y),
-                },
-                false,
-            ));
+            state.path_builder.line_to(Point { x: Pt(x), y: Pt(y) });
         }
         "c" => {
             // c x1 y1 x2 y2 x3 y3
-            // We should already have a current_subpath with at least 1 point.
             if op.operands.len() == 6 {
-
-                // Fix: Ensure we have a starting point before processing a curve
-                if state.current_subpath.is_empty() {
-                    // PDF spec requires a moveTo before a curveTo, but some generators don't comply
-                    // Insert an implicit moveTo at the same position as the first control point
-                    let x = to_f32(&op.operands[0]);
-                    let y = to_f32(&op.operands[1]);
-                    state.current_subpath.push((
-                        crate::graphics::Point {
-                            x: crate::units::Pt(x),
-                            y: crate::units::Pt(y),
-                        },
-                        false, // Not a control point - it's our implicit starting point
-                    ));
-                }
-
                 let x1 = to_f32(&op.operands[0]);
                 let y1 = to_f32(&op.operands[1]);
                 let x2 = to_f32(&op.operands[2]);
@@ -1643,261 +2007,230 @@ pub fn parse_op(
                 let x3 = to_f32(&op.operands[4]);
                 let y3 = to_f32(&op.operands[5]);
 
-                // Append these points to your “current_subpath” in a way that
-                // your final geometry code knows it’s a Bézier curve. That might
-                // mean storing them in some specialized “CurveTo” variant or
-                // tagging them as control points.
-
-                // For example:
-                state.current_subpath.push((
-                    crate::graphics::Point {
+                state.path_builder.curve_to(
+                    Point {
                         x: Pt(x1),
                         y: Pt(y1),
                     },
-                    true, // could mark as "control point"
-                ));
-                state.current_subpath.push((
-                    crate::graphics::Point {
+                    Point {
                         x: Pt(x2),
                         y: Pt(y2),
                     },
-                    true,
-                ));
-                state.current_subpath.push((
-                    crate::graphics::Point {
+                    Point {
                         x: Pt(x3),
                         y: Pt(y3),
                     },
-                    false, // endpoint
-                ));
+                );
             } else {
-                // handle error / warning
+                warnings.push(PdfWarnMsg::error(
+                    page,
+                    op_id,
+                    format!("'c' expects 6 operands, got {}", op.operands.len()),
+                ));
             }
         }
         "v" => {
             // v x2 y2 x3 y3
-            // The first control point is implied to be the current point.
-            // So in standard PDF usage:
-            //   c (x0,y0) [current point], (x1,y1) [= current point], (x2,y2), (x3,y3)
+            // The first control point is implied to be the current point
             if op.operands.len() == 4 {
-
-                // Fix: Ensure we have a starting point before processing a curve
-                if state.current_subpath.is_empty() {
-                    // PDF spec requires a moveTo before a curveTo, but some generators don't comply
-                    // Insert an implicit moveTo at the same position as the first control point
-                    let x = to_f32(&op.operands[0]);
-                    let y = to_f32(&op.operands[1]);
-                    state.current_subpath.push((
-                        crate::graphics::Point {
-                            x: crate::units::Pt(x),
-                            y: crate::units::Pt(y),
-                        },
-                        false, // Not a control point - it's our implicit starting point
-                    ));
-                }
-
-                // The "x1,y1" is the current subpath's last point,
-                // so we treat that as control-pt #1 implicitly.
                 let x2 = to_f32(&op.operands[0]);
                 let y2 = to_f32(&op.operands[1]);
                 let x3 = to_f32(&op.operands[2]);
                 let y3 = to_f32(&op.operands[3]);
 
-                // The first control point is the same as the last subpath point:
-                // but we still need to mark the next one as a control point:
-                state.current_subpath.push((
-                    crate::graphics::Point {
+                state.path_builder.v_curve_to(
+                    Point {
                         x: Pt(x2),
                         y: Pt(y2),
                     },
-                    true, // second control
-                ));
-                // And the final endpoint:
-                state.current_subpath.push((
-                    crate::graphics::Point {
+                    Point {
                         x: Pt(x3),
                         y: Pt(y3),
                     },
-                    false,
-                ));
+                );
             } else {
-                // handle error
+                warnings.push(PdfWarnMsg::error(
+                    page,
+                    op_id,
+                    format!("'v' expects 4 operands, got {}", op.operands.len()),
+                ));
             }
         }
         "y" => {
-            // Cubic Bezier: "y" => first control point + final endpoint
             // y x1 y1 x3 y3
-            // The second control point is implied to be x3,y3.
+            // The second control point is implied to be the final point
             if op.operands.len() == 4 {
-
-                // Fix: Ensure we have a starting point before processing a curve
-                if state.current_subpath.is_empty() {
-                    // PDF spec requires a moveTo before a curveTo, but some generators don't comply
-                    // Insert an implicit moveTo at the same position as the first control point
-                    let x = to_f32(&op.operands[0]);
-                    let y = to_f32(&op.operands[1]);
-                    state.current_subpath.push((
-                        crate::graphics::Point {
-                            x: crate::units::Pt(x),
-                            y: crate::units::Pt(y),
-                        },
-                        false, // Not a control point - it's our implicit starting point
-                    ));
-                }
-
                 let x1 = to_f32(&op.operands[0]);
                 let y1 = to_f32(&op.operands[1]);
                 let x3 = to_f32(&op.operands[2]);
                 let y3 = to_f32(&op.operands[3]);
 
-                // The second control point is the same as final endpoint,
-                // so we store the first control point explicitly:
-                state.current_subpath.push((
-                    crate::graphics::Point {
+                state.path_builder.y_curve_to(
+                    Point {
                         x: Pt(x1),
                         y: Pt(y1),
                     },
-                    true, // first control
-                ));
-                // Then the final endpoint (which is also the second control)
-                state.current_subpath.push((
-                    crate::graphics::Point {
+                    Point {
                         x: Pt(x3),
                         y: Pt(y3),
                     },
-                    false,
-                ));
+                );
             } else {
-                // handle error
+                warnings.push(PdfWarnMsg::error(
+                    page,
+                    op_id,
+                    format!("'y' expects 4 operands, got {}", op.operands.len()),
+                ));
             }
         }
         "h" => {
             // closepath, i.e. connect last point to first point
-            // We'll just mark a flag that we want to close it in fill/stroke
-            state.current_subpath_closed = true;
+            state.path_builder.close_path();
         }
         "re" => {
-            if op.operands.len() != 4 {
+            if op.operands.len() == 4 {
+                let x = to_f32(&op.operands[0]);
+                let y = to_f32(&op.operands[1]);
+                let w = to_f32(&op.operands[2]);
+                let h = to_f32(&op.operands[3]);
+
+                // Rectangle is a special path: move to (x,y), line to corners, close
+                state.path_builder.move_to(Point { x: Pt(x), y: Pt(y) });
+                state.path_builder.line_to(Point {
+                    x: Pt(x + w),
+                    y: Pt(y),
+                });
+                state.path_builder.line_to(Point {
+                    x: Pt(x + w),
+                    y: Pt(y + h),
+                });
+                state.path_builder.line_to(Point {
+                    x: Pt(x),
+                    y: Pt(y + h),
+                });
+                state.path_builder.close_path();
+
+                // In PDF 're' implicitly fills and strokes
+                let path = state
+                    .path_builder
+                    .build(PaintMode::FillStroke, WindingOrder::NonZero);
+                out_ops.push(path_to_op(&path));
+                state.path_builder.clear();
+            } else {
                 warnings.push(PdfWarnMsg::error(
                     page,
                     op_id,
                     "re expects 4 operands".to_string(),
                 ));
-                return Ok(Vec::new());
-            }
-            let x = to_f32(&op.operands[0]);
-            let y = to_f32(&op.operands[1]);
-            let w = to_f32(&op.operands[2]);
-            let h = to_f32(&op.operands[3]);
-            state.current_subpath.push((
-                crate::graphics::Point {
-                    x: crate::units::Pt(x),
-                    y: crate::units::Pt(y),
-                },
-                false,
-            ));
-            state.current_subpath.push((
-                crate::graphics::Point {
-                    x: crate::units::Pt(x + w),
-                    y: crate::units::Pt(y),
-                },
-                false,
-            ));
-            state.current_subpath.push((
-                crate::graphics::Point {
-                    x: crate::units::Pt(x + w),
-                    y: crate::units::Pt(y + h),
-                },
-                false,
-            ));
-            state.current_subpath.push((
-                crate::graphics::Point {
-                    x: crate::units::Pt(x),
-                    y: crate::units::Pt(y + h),
-                },
-                false,
-            ));
-            state.current_subpath_closed = true;
-            if let Some(op) = finalize_current_path(state, crate::graphics::PaintMode::FillStroke) {
-                out_ops.push(op);
             }
         }
         // --- Path painting
         "S" => {
-            // Stroke
-            if let Some(op) = finalize_current_path(state, crate::graphics::PaintMode::Stroke) {
-                out_ops.push(op);
+            // Stroke - doesn't close the path
+            let path = state
+                .path_builder
+                .build(PaintMode::Stroke, WindingOrder::NonZero);
+            if !path.subpaths.is_empty() {
+                out_ops.push(path_to_op(&path));
             }
+            state.path_builder.clear();
         }
         "f" => {
-            // Fill
-            if let Some(op) = finalize_current_path(state, crate::graphics::PaintMode::Fill) {
-                out_ops.push(op);
+            // Fill with non-zero winding rule
+            let path = state
+                .path_builder
+                .build(PaintMode::Fill, WindingOrder::NonZero);
+            if !path.subpaths.is_empty() {
+                out_ops.push(path_to_op(&path));
             }
+            state.path_builder.clear();
         }
         "f*" => {
-            // Fill with the even-odd winding rule, no subpath closing
-            if let Some(op) = finalize_current_path_special(
-                state,
-                crate::graphics::PaintMode::Fill,
-                crate::graphics::WindingOrder::EvenOdd,
-            ) {
-                out_ops.push(op);
+            // Fill with even-odd winding rule
+            let path = state
+                .path_builder
+                .build(PaintMode::Fill, WindingOrder::EvenOdd);
+            if !path.subpaths.is_empty() {
+                out_ops.push(path_to_op(&path));
             }
-        }
-        "b" => {
-            // Fill + stroke + close the subpath
-            state.current_subpath_closed = true;
-            if let Some(op) = finalize_current_path_special(
-                state,
-                crate::graphics::PaintMode::FillStroke,
-                crate::graphics::WindingOrder::NonZero,
-            ) {
-                out_ops.push(op);
-            }
+            state.path_builder.clear();
         }
         "B" => {
-            // fill+stroke
-            if let Some(op) = finalize_current_path(state, crate::graphics::PaintMode::FillStroke) {
-                out_ops.push(op);
+            // Fill and stroke with non-zero winding
+            let path = state
+                .path_builder
+                .build(PaintMode::FillStroke, WindingOrder::NonZero);
+            if !path.subpaths.is_empty() {
+                out_ops.push(path_to_op(&path));
             }
-        }
-        "b*" => {
-            // Fill + stroke using even-odd, plus close subpath
-            state.current_subpath_closed = true;
-            if let Some(op) = finalize_current_path_special(
-                state,
-                crate::graphics::PaintMode::FillStroke,
-                crate::graphics::WindingOrder::EvenOdd,
-            ) {
-                out_ops.push(op);
-            }
+            state.path_builder.clear();
         }
         "B*" => {
-            // Fill + stroke with even-odd, but subpath is not forcibly closed
-            if let Some(op) = finalize_current_path_special(
-                state,
-                crate::graphics::PaintMode::FillStroke,
-                crate::graphics::WindingOrder::EvenOdd,
-            ) {
-                out_ops.push(op);
+            // Fill and stroke with even-odd winding
+            let path = state
+                .path_builder
+                .build(PaintMode::FillStroke, WindingOrder::EvenOdd);
+            if !path.subpaths.is_empty() {
+                out_ops.push(path_to_op(&path));
             }
+            state.path_builder.clear();
+        }
+        "b" => {
+            // Close, fill, and stroke with non-zero winding
+            state.path_builder.close_path();
+            let path = state
+                .path_builder
+                .build(PaintMode::FillStroke, WindingOrder::NonZero);
+            if !path.subpaths.is_empty() {
+                out_ops.push(path_to_op(&path));
+            }
+            state.path_builder.clear();
+        }
+        "b*" => {
+            // Close, fill, and stroke with even-odd winding
+            state.path_builder.close_path();
+            let path = state
+                .path_builder
+                .build(PaintMode::FillStroke, WindingOrder::EvenOdd);
+            if !path.subpaths.is_empty() {
+                out_ops.push(path_to_op(&path));
+            }
+            state.path_builder.clear();
         }
         "s" => {
-            // Stroke path and close it
-            state.current_subpath_closed = true;
-            if let Some(op) = finalize_current_path_special(
-                state,
-                crate::graphics::PaintMode::Stroke,
-                crate::graphics::WindingOrder::NonZero,
-            ) {
-                out_ops.push(op);
+            // Close and stroke
+            state.path_builder.close_path();
+            let path = state
+                .path_builder
+                .build(PaintMode::Stroke, WindingOrder::NonZero);
+            if !path.subpaths.is_empty() {
+                out_ops.push(path_to_op(&path));
             }
+            state.path_builder.clear();
         }
         "n" => {
-            state.current_subpath.clear();
-            state.subpaths.clear();
-            state.current_subpath_closed = false;
+            // End path without filling or stroking
+            state.path_builder.clear();
+        }
+        "W" => {
+            // Set clip path using non-zero winding rule
+            let path = state
+                .path_builder
+                .build(PaintMode::Clip, WindingOrder::NonZero);
+            if !path.subpaths.is_empty() {
+                out_ops.push(path_to_op(&path));
+            }
+            // Note: We don't clear the path here since clipping doesn't consume the path
+        }
+        "W*" => {
+            // Set clip path using even-odd winding rule
+            let path = state
+                .path_builder
+                .build(PaintMode::Clip, WindingOrder::EvenOdd);
+            if !path.subpaths.is_empty() {
+                out_ops.push(path_to_op(&path));
+            }
+            // Note: We don't clear the path here since clipping doesn't consume the path
         }
 
         // --- Painting state operators
@@ -2072,30 +2405,6 @@ pub fn parse_op(
                 }
             }
         }
-
-        "W" => {
-            // Clip with non-zero
-            state.current_subpath_closed = true;
-            if let Some(op) = finalize_current_path_special(
-                state,
-                crate::graphics::PaintMode::Clip,
-                crate::graphics::WindingOrder::NonZero,
-            ) {
-                out_ops.push(op);
-            }
-        }
-        "W*" => {
-            // Clip with even-odd
-            state.current_subpath_closed = true;
-            if let Some(op) = finalize_current_path_special(
-                state,
-                crate::graphics::PaintMode::Clip,
-                crate::graphics::WindingOrder::EvenOdd,
-            ) {
-                out_ops.push(op);
-            }
-        }
-
         // For completeness, you might also parse "cs", "CS" to track the chosen color space
         // or treat them as Unknown if you don't need them:
         "cs" | "CS" => {
@@ -2317,105 +2626,6 @@ pub fn parse_document_info(dict: &LopdfDictionary) -> PdfDocumentInfo {
         subject,
         identifier,
     }
-}
-
-// Helper that finalizes subpaths and sets the specified winding order
-fn finalize_current_path_special(
-    state: &mut PageState,
-    paint_mode: crate::graphics::PaintMode,
-    winding: crate::graphics::WindingOrder,
-) -> Option<Op> {
-    // If there's a partially built subpath, move it into `subpaths`
-    if !state.current_subpath.is_empty() {
-        let sub = std::mem::take(&mut state.current_subpath);
-        state.subpaths.push(sub);
-    }
-    if state.subpaths.is_empty() {
-        state.current_subpath_closed = false;
-        return None;
-    }
-
-    let rings = std::mem::take(&mut state.subpaths);
-    let polygon = crate::graphics::Polygon {
-        rings: rings
-            .into_iter()
-            .map(|r| PolygonRing {
-                points: r
-                    .into_iter()
-                    .map(|lp| LinePoint {
-                        p: lp.0,
-                        bezier: lp.1,
-                    })
-                    .collect(),
-            })
-            .collect(),
-        mode: paint_mode,
-        winding_order: winding,
-    };
-    // reset
-    state.current_subpath_closed = false;
-
-    Some(Op::DrawPolygon { polygon })
-}
-
-// A small helper to produce a final shape if subpaths exist, e.g. on stroke or fill
-fn finalize_current_path(
-    state: &mut PageState,
-    paint_mode: crate::graphics::PaintMode,
-) -> Option<Op> {
-    if state.subpaths.is_empty() && state.current_subpath.is_empty() {
-        return None;
-    }
-    // If there's a current_subpath not yet appended, push it in
-    if !state.current_subpath.is_empty() {
-        let sub = std::mem::take(&mut state.current_subpath);
-        state.subpaths.push(sub);
-    }
-    let rings = std::mem::take(&mut state.subpaths);
-
-    let rings = rings
-        .into_iter()
-        .map(|r| PolygonRing {
-            points: r
-                .into_iter()
-                .map(|lp| LinePoint {
-                    p: lp.0,
-                    bezier: lp.1,
-                })
-                .collect::<Vec<_>>(),
-        })
-        .collect::<Vec<_>>();
-
-    if rings.is_empty() {
-        return None;
-    }
-
-    // Check if this should be a Line instead of a Polygon:
-    // 1. Path is not closed
-    // 2. Using Stroke mode
-    // 3. Single subpath
-    if !state.current_subpath_closed
-        && paint_mode == crate::graphics::PaintMode::Stroke
-        && rings.len() == 1
-    {
-        let line = crate::graphics::Line {
-            points: rings[0].points.clone(),
-            is_closed: false,
-        };
-
-        return Some(Op::DrawLine { line });
-    }
-
-    let polygon = crate::graphics::Polygon {
-        rings,
-        mode: paint_mode,
-        // For simplicity, we do not handle even-odd fill vs nonzero, etc.
-        winding_order: crate::graphics::WindingOrder::NonZero,
-    };
-
-    state.current_subpath_closed = false;
-
-    Some(Op::DrawPolygon { polygon })
 }
 
 /// Parses a PDF rectangle from an Object (an array of four numbers).

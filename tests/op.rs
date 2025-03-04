@@ -25,7 +25,7 @@ fn test_op(op: Op, op_name: &str) -> bool {
         }
         Err(e) => {
             panic!("{}", e);
-        },
+        }
     }
 }
 

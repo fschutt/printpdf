@@ -4,7 +4,12 @@ use lopdf::StringFormat;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    date::OffsetDateTime, deserialize::PageState, image::RawImage, matrix::CurTransMat, units::{Pt, Px}, ImageOptimizationOptions, Op
+    ImageOptimizationOptions, Op,
+    date::OffsetDateTime,
+    deserialize::PageState,
+    image::RawImage,
+    matrix::CurTransMat,
+    units::{Pt, Px},
 };
 
 /* Parent: Resources dictionary of the page */
@@ -112,8 +117,9 @@ impl ExternalStream {
             .with_compression(self.compress)
     }
     pub fn decompressed_content(&self) -> Vec<u8> {
-        self.into_lopdf().decompressed_content()
-        .unwrap_or(self.content.clone())
+        self.into_lopdf()
+            .decompressed_content()
+            .unwrap_or(self.content.clone())
     }
 
     /// Decode a stream of `Op` from a string (usually to debug PDF issues)
@@ -127,22 +133,23 @@ impl ExternalStream {
     }
 
     fn get_ops_internal(s: &[u8]) -> Result<Vec<Op>, String> {
-
         // Decode the content stream into a vector of lopdf operations.
         let content = lopdf::content::Content::decode(&s)
             .map_err(|e| format!("Failed to decode content stream: {}", e))?;
-        
+
         // Convert lopdf operations to printpdf Ops.
         let mut page_state = PageState::default();
         let mut printpdf_ops = Vec::new();
 
         for (op_id, op) in content.operations.iter().enumerate() {
             let parsed_op = crate::deserialize::parse_op(
-                0, op_id, &op, 
-                &mut page_state, 
-                &mut BTreeMap::new(), 
-                &mut BTreeMap::new(),  
-                &mut Vec::new()
+                0,
+                op_id,
+                &op,
+                &mut page_state,
+                &mut BTreeMap::new(),
+                &mut BTreeMap::new(),
+                &mut Vec::new(),
             )?;
             printpdf_ops.extend(parsed_op.into_iter());
         }

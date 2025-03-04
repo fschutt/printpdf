@@ -605,6 +605,13 @@ pub(crate) fn translate_operations(
                 content.push(LoOp::new("Td", vec![pos.x.0.into(), pos.y.0.into()]));
             }
             Op::SetFillColor { col } => {
+
+                let ci = match &col {
+                    Color::Rgb(_) => "rg",
+                    Color::Cmyk(_) | Color::SpotColor(_) => "k",
+                    Color::Greyscale(_) => "g",
+                };
+
                 if col.is_out_of_range() {
                     warnings.push(PdfWarnMsg::error(
                         0,
@@ -614,24 +621,8 @@ pub(crate) fn translate_operations(
                         ),
                     ));
                 }
-
-                match col {
-                    Color::Greyscale(crate::Greyscale { percent, .. }) => {
-                        content.push(LoOp::new("sc", vec![Real(*percent)]));
-                    }
-                    Color::Rgb(crate::Rgb { r, g, b, .. }) => {
-                        content.push(LoOp::new("sc", vec![Real(*r), Real(*g), Real(*b)]));
-                    }
-                    Color::Cmyk(crate::Cmyk { c, m, y, k, .. }) => {
-                        content.push(LoOp::new(
-                            "sc",
-                            vec![Real(*c), Real(*m), Real(*y), Real(*k)],
-                        ));
-                    }
-                    Color::SpotColor(_) => {
-                        // handle or unknown
-                    }
-                }
+                let cvec = col.into_vec().into_iter().map(Real).collect();
+                content.push(LoOp::new(ci, cvec));
             }
             Op::SetOutlineColor { col } => {
                 let ci = match &col {
@@ -809,91 +800,82 @@ pub(crate) struct PreparedFont {
 const DEFAULT_CHARACTER_WIDTH: i64 = 1000;
 
 fn line_to_stream_ops(line: &Line) -> Vec<LoOp> {
-    /// Cubic bezier over four following points
-    pub const OP_PATH_CONST_4BEZIER: &str = "c";
-    /// Cubic bezier with two points in v1
-    pub const OP_PATH_CONST_3BEZIER_V1: &str = "v";
-    /// Cubic bezier with two points in v2
-    pub const OP_PATH_CONST_3BEZIER_V2: &str = "y";
     /// Move to point
     pub const OP_PATH_CONST_MOVE_TO: &str = "m";
-    /// Straight line to the two following points
+    /// Straight line to point
     pub const OP_PATH_CONST_LINE_TO: &str = "l";
+    /// Cubic bezier with three control points
+    pub const OP_PATH_CONST_4BEZIER: &str = "c";
     /// Stroke path
     pub const OP_PATH_PAINT_STROKE: &str = "S";
     /// Close and stroke path
     pub const OP_PATH_PAINT_STROKE_CLOSE: &str = "s";
 
     let mut operations = Vec::new();
-
-    if line.points.is_empty() {
+    let points = &line.points;
+    
+    if points.is_empty() {
         return operations;
-    };
-
-    operations.push(LoOp::new(
-        OP_PATH_CONST_MOVE_TO,
-        vec![line.points[0].p.x.into(), line.points[0].p.y.into()],
-    ));
-
-    // Skip first element
-    let mut current = 1;
-    let max_len = line.points.len();
-
-    // Loop over every points, determine if v, y, c or l operation should be used and build
-    // curve / line accordingly
-    while current < max_len {
-        let p1 = &line.points[current - 1]; // prev pt
-        let p2 = &line.points[current]; // current pt
-
-        if p1.bezier && p2.bezier {
-            // current point is a bezier handle
-            // valid bezier curve must have two sequential bezier handles
-            // we also can"t build a valid cubic bezier curve if the cuve contains less than
-            // four points. If p3 or p4 is marked as "next point is bezier handle" or not, doesn"t
-            // matter
-            if let Some(p3) = line.points.get(current + 1) {
-                if let Some(p4) = line.points.get(current + 2) {
-                    if p1.p == p2.p {
-                        // first control point coincides with initial point of curve
-                        operations.push(LoOp::new(
-                            OP_PATH_CONST_3BEZIER_V1,
-                            vec![p3.p.x.into(), p3.p.y.into(), p4.p.x.into(), p4.p.y.into()],
-                        ));
-                    } else if p2.p == p3.p {
-                        // first control point coincides with final point of curve
-                        operations.push(LoOp::new(
-                            OP_PATH_CONST_3BEZIER_V2,
-                            vec![p2.p.x.into(), p2.p.y.into(), p4.p.x.into(), p4.p.y.into()],
-                        ));
-                    } else {
-                        // regular bezier curve with four points
-                        operations.push(LoOp::new(
-                            OP_PATH_CONST_4BEZIER,
-                            vec![
-                                p2.p.x.into(),
-                                p2.p.y.into(),
-                                p3.p.x.into(),
-                                p3.p.y.into(),
-                                p4.p.x.into(),
-                                p4.p.y.into(),
-                            ],
-                        ));
-                    }
-                    current += 3;
-                    continue;
-                }
-            }
-        }
-
-        // normal straight line
-        operations.push(LoOp::new(
-            OP_PATH_CONST_LINE_TO,
-            vec![p2.p.x.into(), p2.p.y.into()],
-        ));
-        current += 1;
     }
 
-    // not filled, not closed but only stroked (regular path)
+    // Start with a move to the first point
+    operations.push(LoOp::new(
+        OP_PATH_CONST_MOVE_TO,
+        vec![points[0].p.x.into(), points[0].p.y.into()],
+    ));
+
+    // Process remaining points
+    let mut i = 1;
+    while i < points.len() {
+        let current = &points[i];
+        
+        if current.bezier {
+            // Current point is a bezier handle
+            // For a cubic bezier, we need two control points and an end point
+            if i + 2 < points.len() {
+                let control1 = current;
+                let control2 = &points[i + 1];
+                let end_point = &points[i + 2];
+                
+                // Check if second control point is also a bezier handle
+                if control2.bezier {
+                    // Two bezier handles followed by an end point
+                    operations.push(LoOp::new(
+                        OP_PATH_CONST_4BEZIER,
+                        vec![
+                            control1.p.x.into(), control1.p.y.into(),
+                            control2.p.x.into(), control2.p.y.into(),
+                            end_point.p.x.into(), end_point.p.y.into(),
+                        ],
+                    ));
+                    i += 3; // Skip past the control points and end point
+                } else {
+                    // Only one bezier handle - treat as a line to be safe
+                    operations.push(LoOp::new(
+                        OP_PATH_CONST_LINE_TO,
+                        vec![current.p.x.into(), current.p.y.into()],
+                    ));
+                    i += 1;
+                }
+            } else {
+                // Not enough points left for a bezier curve
+                operations.push(LoOp::new(
+                    OP_PATH_CONST_LINE_TO,
+                    vec![current.p.x.into(), current.p.y.into()],
+                ));
+                i += 1;
+            }
+        } else {
+            // Regular point - draw a straight line
+            operations.push(LoOp::new(
+                OP_PATH_CONST_LINE_TO,
+                vec![current.p.x.into(), current.p.y.into()],
+            ));
+            i += 1;
+        }
+    }
+
+    // Add final stroke operation
     if line.is_closed {
         operations.push(LoOp::new(OP_PATH_PAINT_STROKE_CLOSE, vec![]));
     } else {
@@ -904,16 +886,12 @@ fn line_to_stream_ops(line: &Line) -> Vec<LoOp> {
 }
 
 fn polygon_to_stream_ops(poly: &Polygon) -> Vec<LoOp> {
-    /// Cubic bezier over four following points
-    pub const OP_PATH_CONST_4BEZIER: &str = "c";
-    /// Cubic bezier with two points in v1
-    pub const OP_PATH_CONST_3BEZIER_V1: &str = "v";
-    /// Cubic bezier with two points in v2
-    pub const OP_PATH_CONST_3BEZIER_V2: &str = "y";
     /// Move to point
     pub const OP_PATH_CONST_MOVE_TO: &str = "m";
-    /// Straight line to the two following points
+    /// Straight line to point
     pub const OP_PATH_CONST_LINE_TO: &str = "l";
+    /// Cubic bezier with three control points
+    pub const OP_PATH_CONST_4BEZIER: &str = "c";
     /// Close and stroke path
     pub const OP_PATH_PAINT_STROKE_CLOSE: &str = "s";
     /// End path without filling or stroking
@@ -923,85 +901,84 @@ fn polygon_to_stream_ops(poly: &Polygon) -> Vec<LoOp> {
 
     if poly.rings.is_empty() {
         return operations;
-    };
+    }
 
-    for ring in poly.rings.iter() {
+    for ring in &poly.rings {
+        let points = &ring.points;
+        
+        if points.is_empty() {
+            continue;
+        }
+
+        // Start with a move to the first point
         operations.push(LoOp::new(
             OP_PATH_CONST_MOVE_TO,
-            vec![ring.points[0].p.x.into(), ring.points[0].p.y.into()],
+            vec![points[0].p.x.into(), points[0].p.y.into()],
         ));
 
-        // Skip first element
-        let mut current = 1;
-        let max_len = ring.points.len();
-
-        // Loop over every points, determine if v, y, c or l operation should be used and build
-        // curve / line accordingly
-        while current < max_len {
-            let p1 = &ring.points[current - 1]; // prev pt
-            let p2 = &ring.points[current]; // current pt
-
-            if p1.bezier && p2.bezier {
-                // current point is a bezier handle
-                // valid bezier curve must have two sequential bezier handles
-                // we also can"t build a valid cubic bezier curve if the cuve contains less than
-                // four points. If p3 or p4 is marked as "next point is bezier handle" or not,
-                // doesn"t matter
-                if let Some(p3) = ring.points.get(current + 1) {
-                    if let Some(p4) = ring.points.get(current + 2) {
-                        if p1.p == p2.p {
-                            // first control point coincides with initial point of curve
-                            operations.push(LoOp::new(
-                                OP_PATH_CONST_3BEZIER_V1,
-                                vec![p3.p.x.into(), p3.p.y.into(), p4.p.x.into(), p4.p.y.into()],
-                            ));
-                        } else if p2.p == p3.p {
-                            // first control point coincides with final point of curve
-                            operations.push(LoOp::new(
-                                OP_PATH_CONST_3BEZIER_V2,
-                                vec![p2.p.x.into(), p2.p.y.into(), p4.p.x.into(), p4.p.y.into()],
-                            ));
-                        } else {
-                            // regular bezier curve with four points
-                            operations.push(LoOp::new(
-                                OP_PATH_CONST_4BEZIER,
-                                vec![
-                                    p2.p.x.into(),
-                                    p2.p.y.into(),
-                                    p3.p.x.into(),
-                                    p3.p.y.into(),
-                                    p4.p.x.into(),
-                                    p4.p.y.into(),
-                                ],
-                            ));
-                        }
-                        current += 3;
-                        continue;
+        // Process remaining points
+        let mut i = 1;
+        while i < points.len() {
+            let current = &points[i];
+            
+            if current.bezier {
+                // Current point is a bezier handle
+                // For a cubic bezier, we need two control points and an end point
+                if i + 2 < points.len() {
+                    let control1 = current;
+                    let control2 = &points[i + 1];
+                    let end_point = &points[i + 2];
+                    
+                    // Check if second control point is also a bezier handle
+                    if control2.bezier {
+                        // Two bezier handles followed by an end point
+                        operations.push(LoOp::new(
+                            OP_PATH_CONST_4BEZIER,
+                            vec![
+                                control1.p.x.into(), control1.p.y.into(),
+                                control2.p.x.into(), control2.p.y.into(),
+                                end_point.p.x.into(), end_point.p.y.into(),
+                            ],
+                        ));
+                        i += 3; // Skip past the control points and end point
+                    } else {
+                        // Only one bezier handle - treat as a line to be safe
+                        operations.push(LoOp::new(
+                            OP_PATH_CONST_LINE_TO,
+                            vec![current.p.x.into(), current.p.y.into()],
+                        ));
+                        i += 1;
                     }
+                } else {
+                    // Not enough points left for a bezier curve
+                    operations.push(LoOp::new(
+                        OP_PATH_CONST_LINE_TO,
+                        vec![current.p.x.into(), current.p.y.into()],
+                    ));
+                    i += 1;
                 }
+            } else {
+                // Regular point - draw a straight line
+                operations.push(LoOp::new(
+                    OP_PATH_CONST_LINE_TO,
+                    vec![current.p.x.into(), current.p.y.into()],
+                ));
+                i += 1;
             }
-
-            // normal straight line
-            operations.push(LoOp::new(
-                OP_PATH_CONST_LINE_TO,
-                vec![p2.p.x.into(), p2.p.y.into()],
-            ));
-            current += 1;
         }
     }
 
+    // Apply the painting operation based on the mode
     match poly.mode {
         PaintMode::Clip => {
-            // set the path as a clipping path
             operations.push(LoOp::new(poly.winding_order.get_clip_op(), vec![]));
+            // End the path with 'n' only after clipping
+            operations.push(LoOp::new(OP_PATH_PAINT_END, vec![]));
         }
         PaintMode::Fill => {
-            // is not stroked, only filled
-            // closed-ness doesn't matter in this case, an area is always closed
             operations.push(LoOp::new(poly.winding_order.get_fill_op(), vec![]));
         }
         PaintMode::Stroke => {
-            // same as line with is_closed = true
             operations.push(LoOp::new(OP_PATH_PAINT_STROKE_CLOSE, vec![]));
         }
         PaintMode::FillStroke => {
@@ -1010,10 +987,6 @@ fn polygon_to_stream_ops(poly: &Polygon) -> Vec<LoOp> {
                 vec![],
             ));
         }
-    }
-
-    if !operations.is_empty() {
-        operations.push(LoOp::new(OP_PATH_PAINT_END, vec![]));
     }
 
     operations
