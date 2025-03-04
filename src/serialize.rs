@@ -442,7 +442,6 @@ pub(crate) fn translate_operations(
                 content.push(LoOp::new("MP", vec![Name(id.clone().into())]));
             }
             Op::BeginLayer { layer_id } => {
-                content.push(LoOp::new("q", vec![]));
                 content.push(LoOp::new(
                     "BDC",
                     vec![Name("OC".into()), Name(layer_id.0.clone().into())],
@@ -450,7 +449,6 @@ pub(crate) fn translate_operations(
             }
             Op::EndLayer { layer_id } => {
                 content.push(LoOp::new("EMC", vec![]));
-                content.push(LoOp::new("Q", vec![]));
             }
             Op::SaveGraphicsState => {
                 content.push(LoOp::new("q", vec![]));

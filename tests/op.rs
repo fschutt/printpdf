@@ -18,11 +18,14 @@ fn test_op(op: Op, op_name: &str) -> bool {
     match PdfDocument::parse(&bytes, &PdfParseOptions::default(), &mut Vec::new()) {
         Ok(dd) => {
             if dd.pages.is_empty() || dd.pages[0].ops.is_empty() {
-                return false;
+                panic!("empty pages for encoded {:?}", [op.clone()]);
             }
-            dd.pages[0].ops[0] == op
+            pretty_assertions::assert_eq!(dd.pages[0].ops, vec![op.clone()]);
+            true
         }
-        Err(_) => false,
+        Err(e) => {
+            panic!("{}", e);
+        },
     }
 }
 
