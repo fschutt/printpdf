@@ -964,6 +964,78 @@ pub fn parse_op(
             }
             out_ops.push(Op::RestoreGraphicsState);
         }
+        "MP" => {
+            if op.operands.len() != 1 {
+                warnings.push(PdfWarnMsg::error(
+                    page,
+                    op_id,
+                    "MP expects 1 operand".to_string(),
+                ));
+                return Ok(Vec::new());
+            }
+            
+            let id = match as_name(&op.operands[0]) {
+                Some(name) => name,
+                None => {
+                    warnings.push(PdfWarnMsg::error(
+                        page,
+                        op_id,
+                        "MP operand is not a name".to_string(),
+                    ));
+                    return Ok(Vec::new());
+                }
+            };
+            
+            out_ops.push(Op::Marker { id });
+        }
+        "CS" => {
+            if op.operands.len() != 1 {
+                warnings.push(PdfWarnMsg::error(
+                    page,
+                    op_id,
+                    "CS expects 1 operand".to_string(),
+                ));
+                return Ok(Vec::new());
+            }
+            
+            let id = match as_name(&op.operands[0]) {
+                Some(name) => name,
+                None => {
+                    warnings.push(PdfWarnMsg::error(
+                        page,
+                        op_id,
+                        "CS operand is not a name".to_string(),
+                    ));
+                    return Ok(Vec::new());
+                }
+            };
+            
+            out_ops.push(Op::SetColorSpaceStroke { id });
+        }
+        "cs" => {
+            if op.operands.len() != 1 {
+                warnings.push(PdfWarnMsg::error(
+                    page,
+                    op_id,
+                    "cs expects 1 operand".to_string(),
+                ));
+                return Ok(Vec::new());
+            }
+            
+            let id = match as_name(&op.operands[0]) {
+                Some(name) => name,
+                None => {
+                    warnings.push(PdfWarnMsg::error(
+                        page,
+                        op_id,
+                        "cs operand is not a name".to_string(),
+                    ));
+                    return Ok(Vec::new());
+                }
+            };
+            
+            out_ops.push(Op::SetColorSpaceFill { id });
+        }
         "ri" => {
             if op.operands.len() != 1 {
                 warnings.push(PdfWarnMsg::error(
@@ -1548,6 +1620,22 @@ pub fn parse_op(
             // c x1 y1 x2 y2 x3 y3
             // We should already have a current_subpath with at least 1 point.
             if op.operands.len() == 6 {
+
+                // Fix: Ensure we have a starting point before processing a curve
+                if state.current_subpath.is_empty() {
+                    // PDF spec requires a moveTo before a curveTo, but some generators don't comply
+                    // Insert an implicit moveTo at the same position as the first control point
+                    let x = to_f32(&op.operands[0]);
+                    let y = to_f32(&op.operands[1]);
+                    state.current_subpath.push((
+                        crate::graphics::Point {
+                            x: crate::units::Pt(x),
+                            y: crate::units::Pt(y),
+                        },
+                        false, // Not a control point - it's our implicit starting point
+                    ));
+                }
+
                 let x1 = to_f32(&op.operands[0]);
                 let y1 = to_f32(&op.operands[1]);
                 let x2 = to_f32(&op.operands[2]);
@@ -1592,6 +1680,22 @@ pub fn parse_op(
             // So in standard PDF usage:
             //   c (x0,y0) [current point], (x1,y1) [= current point], (x2,y2), (x3,y3)
             if op.operands.len() == 4 {
+
+                // Fix: Ensure we have a starting point before processing a curve
+                if state.current_subpath.is_empty() {
+                    // PDF spec requires a moveTo before a curveTo, but some generators don't comply
+                    // Insert an implicit moveTo at the same position as the first control point
+                    let x = to_f32(&op.operands[0]);
+                    let y = to_f32(&op.operands[1]);
+                    state.current_subpath.push((
+                        crate::graphics::Point {
+                            x: crate::units::Pt(x),
+                            y: crate::units::Pt(y),
+                        },
+                        false, // Not a control point - it's our implicit starting point
+                    ));
+                }
+
                 // The "x1,y1" is the current subpath's last point,
                 // so we treat that as control-pt #1 implicitly.
                 let x2 = to_f32(&op.operands[0]);
@@ -1625,6 +1729,22 @@ pub fn parse_op(
             // y x1 y1 x3 y3
             // The second control point is implied to be x3,y3.
             if op.operands.len() == 4 {
+
+                // Fix: Ensure we have a starting point before processing a curve
+                if state.current_subpath.is_empty() {
+                    // PDF spec requires a moveTo before a curveTo, but some generators don't comply
+                    // Insert an implicit moveTo at the same position as the first control point
+                    let x = to_f32(&op.operands[0]);
+                    let y = to_f32(&op.operands[1]);
+                    state.current_subpath.push((
+                        crate::graphics::Point {
+                            x: crate::units::Pt(x),
+                            y: crate::units::Pt(y),
+                        },
+                        false, // Not a control point - it's our implicit starting point
+                    ));
+                }
+
                 let x1 = to_f32(&op.operands[0]);
                 let y1 = to_f32(&op.operands[1]);
                 let x3 = to_f32(&op.operands[2]);

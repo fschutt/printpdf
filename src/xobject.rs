@@ -115,18 +115,28 @@ impl ExternalStream {
         self.into_lopdf().decompressed_content()
         .unwrap_or(self.content.clone())
     }
-    // If the stream is decodable, return the operations of the stream
+
+    /// Decode a stream of `Op` from a string (usually to debug PDF issues)
+    pub fn decode_ops(s: &str) -> Result<Vec<Op>, String> {
+        Self::get_ops_internal(s.as_bytes())
+    }
+
+    /// If the stream is decodable as PDF operations, return the operations of the stream
     pub fn get_ops(&self) -> Result<Vec<Op>, String> {
+        Self::get_ops_internal(&self.decompressed_content())
+    }
+
+    fn get_ops_internal(s: &[u8]) -> Result<Vec<Op>, String> {
 
         // Decode the content stream into a vector of lopdf operations.
-        let content = lopdf::content::Content::decode(&self.decompressed_content())
+        let content = lopdf::content::Content::decode(&s)
             .map_err(|e| format!("Failed to decode content stream: {}", e))?;
-        let ops = content.operations;
         
         // Convert lopdf operations to printpdf Ops.
         let mut page_state = PageState::default();
         let mut printpdf_ops = Vec::new();
-        for (op_id, op) in ops.iter().enumerate() {
+
+        for (op_id, op) in content.operations.iter().enumerate() {
             let parsed_op = crate::deserialize::parse_op(
                 0, op_id, &op, 
                 &mut page_state, 

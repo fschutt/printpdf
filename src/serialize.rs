@@ -432,6 +432,12 @@ pub(crate) fn translate_operations(
             Op::SetRenderingIntent { intent } => {
                 content.push(LoOp::new("ri", vec![Name(intent.get_id().into())]));
             }
+            Op::SetColorSpaceFill { id } => {
+                content.push(LoOp::new("cs", vec![Name(id.clone().into())]));
+            }
+            Op::SetColorSpaceStroke { id } => {
+                content.push(LoOp::new("CS", vec![Name(id.clone().into())]));
+            }
             Op::SetHorizontalScaling { percent } => {
                 content.push(LoOp::new("Tz", vec![Real(*percent)]));
             }
@@ -447,7 +453,7 @@ pub(crate) fn translate_operations(
                     vec![Name("OC".into()), Name(layer_id.0.clone().into())],
                 ));
             }
-            Op::EndLayer { layer_id } => {
+            Op::EndLayer { .. } => {
                 content.push(LoOp::new("EMC", vec![]));
             }
             Op::SaveGraphicsState => {

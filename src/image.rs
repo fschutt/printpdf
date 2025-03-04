@@ -732,17 +732,6 @@ impl RawImage {
         &self,
         target_fmt: &[OutputImageFormat],
     ) -> Result<(Vec<u8>, OutputImageFormat), String> {
-        /*
-        // For browser, try formats in order with browser encoder
-        #[cfg(all(feature = "js-sys", target_family = "wasm"))]
-        for f in target_fmt {
-            if let Ok(bytes) = wasm_bindgen_futures::spawn_local(async {
-                self.encode_to_bytes_browser(*f).await
-            }) {
-                return Ok((bytes, *f));
-            }
-        }
-        */
 
         // For this example we only support the U8 variant.
         let dyn_image = match (&self.pixels, self.data_format) {

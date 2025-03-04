@@ -152,6 +152,10 @@ pub enum Op {
     /// Debugging or section marker (arbitrary id can mark a certain point in a stream of
     /// operations)
     Marker { id: String },
+    /// "CS" operator, sets the color space for stroking operations
+    SetColorSpaceStroke { id: String },
+    /// "cs" operator, sets the color space for fill operations
+    SetColorSpaceFill { id: String },
     /// Starts a layer
     BeginLayer { layer_id: LayerInternalId },
     /// Ends a layer (is inserted if missing at the page end)

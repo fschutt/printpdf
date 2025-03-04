@@ -108,33 +108,6 @@ struct GraphicsStateVec {
     _internal: Vec<GraphicsState>,
 }
 
-struct GsInfoCurrent {
-    text_cursor: Point,
-    current_font: BuiltinOrExternalFontId,
-    transform_matrix: CurTransMat,
-    text_matrix: TextMatrix,
-    fill_color: Color,
-    stroke_color: Color,
-    stroke_width: Pt,
-    dash_array: Option<LineDashPattern>,
-    line_join: Option<LineJoinStyle>,
-    line_cap: Option<LineCapStyle>,
-    character_spacing: Option<f32>,
-    line_offset: Option<f32>,
-    miter_limit: Option<Pt>,
-    horizontal_scaling: Option<f32>,
-    text_leading: Option<Pt>,
-    rendering_intent: Option<RenderingIntent>,
-    text_rendering_mode: Option<TextRenderingMode>,
-    marked_content_stack: Vec<String>,
-    overprint_mode: Option<OverprintMode>,
-    overprint_stroke: bool,
-    overprint_fill: bool,
-    in_compatibility_section: bool,
-    word_spacing: Option<f32>,
-    font_sizes: BTreeMap<BuiltinOrExternalFontId, Pt>,
-}
-
 impl GraphicsStateVec {
     pub fn new() -> Self {
         Self {
@@ -495,6 +468,12 @@ fn render_to_svg_internal(
     // Process all PDF operations
     for op in &page.ops {
         match op {
+            Op::SetColorSpaceFill { .. } => {
+                // TODO
+            }
+            Op::SetColorSpaceStroke { .. } => {
+                // TODO
+            }
             // Graphics state modifications
             Op::SetRenderingIntent { intent } => {
                 gst.set_rendering_intent(*intent);

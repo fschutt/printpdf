@@ -1,13 +1,14 @@
 //! Current transformation matrix, for transforming shapes (rotate, translate, scale)
 
 use serde_derive::{Deserialize, Serialize};
+use svg2pdf::usvg::Text;
 
 use crate::units::Pt;
 
 /// PDF "current transformation matrix". Once set, will operate on all following shapes,
 /// until the `layer.restore_graphics_state()` is called. It is important to
 /// call `layer.save_graphics_state()` earlier.
-#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", tag = "type", content = "data")]
 pub enum CurTransMat {
     /// Translation matrix (in points from bottom left corner)
@@ -24,6 +25,12 @@ pub enum CurTransMat {
     Raw([f32; 6]),
     /// Identity matrix
     Identity,
+}
+
+impl PartialEq for CurTransMat {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_array() == other.as_array()
+    }
 }
 
 impl CurTransMat {
@@ -242,7 +249,7 @@ fn mul_add(a: f32, b: f32, c: f32) -> f32 {
 /// Note: `TextScale` does not exist. Use `layer.set_word_spacing()`
 /// and `layer.set_character_spacing()` to specify the scaling between words
 /// and characters.
-#[derive(Debug, Copy, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum TextMatrix {
     /// Text rotation matrix, used for rotating text
@@ -254,6 +261,12 @@ pub enum TextMatrix {
     TranslateRotate(Pt, Pt, f32),
     /// Raw matrix (/tm operator)
     Raw([f32; 6]),
+}
+
+impl PartialEq for TextMatrix {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_array() == other.as_array()
+    }
 }
 
 impl TextMatrix {

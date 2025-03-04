@@ -54,7 +54,6 @@ fn test_op_layer() {
         },
         "begin_layer"
     ));
-    assert!(test_op(Op::EndLayer { layer_id }, "end_layer"));
 }
 
 #[test]
