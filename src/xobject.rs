@@ -66,18 +66,7 @@ pub(crate) fn add_xobject_to_document(
             doc.add_object(stream)
         }
         XObject::External(external_xobject) => {
-            use lopdf::Object::Integer;
-            let mut stream = external_xobject.stream.into_lopdf();
-            if let Some(w) = external_xobject.width {
-                stream
-                    .dict
-                    .set("Width", Integer(w.into_pt(300.0).0.round() as i64));
-            }
-            if let Some(h) = external_xobject.height {
-                stream
-                    .dict
-                    .set("Width", Integer(h.into_pt(300.0).0.round() as i64));
-            }
+            let stream = external_xobject.stream.into_lopdf();
             doc.add_object(stream)
         }
     }

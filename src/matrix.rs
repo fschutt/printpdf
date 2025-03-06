@@ -1,7 +1,6 @@
 //! Current transformation matrix, for transforming shapes (rotate, translate, scale)
 
 use serde_derive::{Deserialize, Serialize};
-use svg2pdf::usvg::Text;
 
 use crate::units::Pt;
 

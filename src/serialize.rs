@@ -605,7 +605,6 @@ pub(crate) fn translate_operations(
                 content.push(LoOp::new("Td", vec![pos.x.0.into(), pos.y.0.into()]));
             }
             Op::SetFillColor { col } => {
-
                 let ci = match &col {
                     Color::Rgb(_) => "rg",
                     Color::Cmyk(_) | Color::SpotColor(_) => "k",
@@ -813,7 +812,7 @@ fn line_to_stream_ops(line: &Line) -> Vec<LoOp> {
 
     let mut operations = Vec::new();
     let points = &line.points;
-    
+
     if points.is_empty() {
         return operations;
     }
@@ -828,7 +827,7 @@ fn line_to_stream_ops(line: &Line) -> Vec<LoOp> {
     let mut i = 1;
     while i < points.len() {
         let current = &points[i];
-        
+
         if current.bezier {
             // Current point is a bezier handle
             // For a cubic bezier, we need two control points and an end point
@@ -836,16 +835,19 @@ fn line_to_stream_ops(line: &Line) -> Vec<LoOp> {
                 let control1 = current;
                 let control2 = &points[i + 1];
                 let end_point = &points[i + 2];
-                
+
                 // Check if second control point is also a bezier handle
                 if control2.bezier {
                     // Two bezier handles followed by an end point
                     operations.push(LoOp::new(
                         OP_PATH_CONST_4BEZIER,
                         vec![
-                            control1.p.x.into(), control1.p.y.into(),
-                            control2.p.x.into(), control2.p.y.into(),
-                            end_point.p.x.into(), end_point.p.y.into(),
+                            control1.p.x.into(),
+                            control1.p.y.into(),
+                            control2.p.x.into(),
+                            control2.p.y.into(),
+                            end_point.p.x.into(),
+                            end_point.p.y.into(),
                         ],
                     ));
                     i += 3; // Skip past the control points and end point
@@ -906,7 +908,7 @@ fn polygon_to_stream_ops(poly: &Polygon) -> Vec<LoOp> {
 
     for ring in &poly.rings {
         let points = &ring.points;
-        
+
         if points.is_empty() {
             continue;
         }
@@ -921,7 +923,7 @@ fn polygon_to_stream_ops(poly: &Polygon) -> Vec<LoOp> {
         let mut i = 1;
         while i < points.len() {
             let current = &points[i];
-            
+
             if current.bezier {
                 // Current point is a bezier handle
                 // For a cubic bezier, we need two control points and an end point
@@ -929,16 +931,19 @@ fn polygon_to_stream_ops(poly: &Polygon) -> Vec<LoOp> {
                     let control1 = current;
                     let control2 = &points[i + 1];
                     let end_point = &points[i + 2];
-                    
+
                     // Check if second control point is also a bezier handle
                     if control2.bezier {
                         // Two bezier handles followed by an end point
                         operations.push(LoOp::new(
                             OP_PATH_CONST_4BEZIER,
                             vec![
-                                control1.p.x.into(), control1.p.y.into(),
-                                control2.p.x.into(), control2.p.y.into(),
-                                end_point.p.x.into(), end_point.p.y.into(),
+                                control1.p.x.into(),
+                                control1.p.y.into(),
+                                control2.p.x.into(),
+                                control2.p.y.into(),
+                                end_point.p.x.into(),
+                                end_point.p.y.into(),
                             ],
                         ));
                         i += 3; // Skip past the control points and end point
@@ -971,7 +976,7 @@ fn polygon_to_stream_ops(poly: &Polygon) -> Vec<LoOp> {
 
     // Explicitly close the path with 'h' before applying painting operations
     operations.push(LoOp::new("h", vec![]));
-    
+
     // Apply the painting operation based on the mode
     match poly.mode {
         PaintMode::Clip => {

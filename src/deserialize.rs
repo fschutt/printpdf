@@ -13,7 +13,15 @@ use lopdf::{
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    cmap::ToUnicodeCMap, conformance::PdfConformance, date::{OffsetDateTime, UtcOffset}, BuiltinFont, BuiltinOrExternalFontId, Color, DictItem, ExtendedGraphicsState, ExtendedGraphicsStateId, ExtendedGraphicsStateMap, ExternalStream, FontId, LayerInternalId, Line, LineDashPattern, LinePoint, Op, PageAnnotId, PageAnnotMap, PaintMode, ParsedFont, PdfDocument, PdfDocumentInfo, PdfFontMap, PdfLayerMap, PdfMetadata, PdfPage, PdfResources, Point, Polygon, PolygonRing, Pt, RawImage, RenderingIntent, TextItem, TextMatrix, TextRenderingMode, WindingOrder, XObject, XObjectId, XObjectMap
+    BuiltinFont, BuiltinOrExternalFontId, Color, DictItem, ExtendedGraphicsState,
+    ExtendedGraphicsStateId, ExtendedGraphicsStateMap, FontId, LayerInternalId,
+    Line, LineDashPattern, LinePoint, Op, PageAnnotId, PageAnnotMap, PaintMode, ParsedFont,
+    PdfDocument, PdfDocumentInfo, PdfFontMap, PdfLayerMap, PdfMetadata, PdfPage, PdfResources,
+    Point, Polygon, PolygonRing, Pt, RawImage, RenderingIntent, TextItem, TextMatrix,
+    TextRenderingMode, WindingOrder, XObject, XObjectId, XObjectMap,
+    cmap::ToUnicodeCMap,
+    conformance::PdfConformance,
+    date::{OffsetDateTime, UtcOffset},
 };
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -1266,16 +1274,48 @@ fn subpath_to_line_points(subpath: &PdfSubPath) -> Vec<LinePoint> {
 
 #[test]
 fn test_2() {
-
     let pdf_stream = "
     20.5 344.5 m
     20.5 344.5 22 333.5 10.5 346.5 c
     S"
     .trim();
 
-    let expected_output = Op::DrawLine { line: Line { points: vec![LinePoint { p: Point { x: Pt(20.5), y: Pt(344.5) }, bezier: false }, LinePoint { p: Point { x: Pt(20.5), y: Pt(344.5) }, bezier: true }, LinePoint { p: Point { x: Pt(22.0), y: Pt(333.5) }, bezier: true }, LinePoint { p: Point { x: Pt(10.5), y: Pt(346.5) }, bezier: false }], is_closed: false } };
+    let expected_output = Op::DrawLine {
+        line: Line {
+            points: vec![
+                LinePoint {
+                    p: Point {
+                        x: Pt(20.5),
+                        y: Pt(344.5),
+                    },
+                    bezier: false,
+                },
+                LinePoint {
+                    p: Point {
+                        x: Pt(20.5),
+                        y: Pt(344.5),
+                    },
+                    bezier: true,
+                },
+                LinePoint {
+                    p: Point {
+                        x: Pt(22.0),
+                        y: Pt(333.5),
+                    },
+                    bezier: true,
+                },
+                LinePoint {
+                    p: Point {
+                        x: Pt(10.5),
+                        y: Pt(346.5),
+                    },
+                    bezier: false,
+                },
+            ],
+            is_closed: false,
+        },
+    };
 
-    
     // Parse using the PathBuilder
     let mut builder = PathBuilder::default();
     let ops = parse_pdf_stream(pdf_stream);

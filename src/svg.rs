@@ -3,7 +3,8 @@ use std::collections::BTreeMap;
 use svg2pdf::{ConversionOptions, PageOptions, usvg};
 
 use crate::{
-    ColorSpace, DictItem, ExternalStream, PdfResources, PdfWarnMsg, xobject::ExternalXObject,
+    ColorSpace, DictItem, ExternalStream, PdfResources, PdfWarnMsg,
+    xobject::ExternalXObject,
 };
 
 /// SVG - wrapper around an `XObject` to allow for more
@@ -57,8 +58,6 @@ impl Svg {
             .get(0)
             .ok_or_else(|| format!("convert svg tree to pdf: no page rendered"))?;
 
-        let width_pt = page.media_box.width;
-        let height_pt = page.media_box.height;
         let stream = crate::serialize::translate_operations(
             &page.ops,
             &crate::serialize::prepare_fonts(&PdfResources::default(), &[], warnings),
@@ -67,22 +66,52 @@ impl Svg {
             warnings,
         );
 
-        let px_width = width_pt.into_px(dpi);
-        let px_height = height_pt.into_px(dpi);
+        // Scale the PDF content down to a 1:1 unit square,
+        // so that it behaves like an image
+        let sx = 1.0 / page.media_box.width.0;
+        let sy = 1.0 / page.media_box.height.0;
 
-        let rgb = ColorSpace::Rgb.as_string();
         let dict = [
             ("Type", DictItem::Name("XObject".into())),
             ("Subtype", DictItem::Name("Form".into())),
-            ("Width", DictItem::Int(px_width.0 as i64)),
-            ("ColorSpace", DictItem::Name(rgb.into())),
+            (
+                "ProcSet",
+                DictItem::Array(vec![
+                    DictItem::Name("PDF".into()),
+                    DictItem::Name("Text".into()),
+                    DictItem::Name("ImageC".into()),
+                    DictItem::Name("ImageB".into()),
+                ]),
+            ),
+            (
+                "Resources",
+                DictItem::Dict {
+                    map: [(
+                        "ColorSpace".to_string(),
+                        DictItem::Name(ColorSpace::Rgb.as_string().into()),
+                    )]
+                    .into_iter()
+                    .collect(),
+                },
+            ),
             (
                 "BBox",
                 DictItem::Array(vec![
-                    DictItem::Int(0),
-                    DictItem::Int(0),
-                    DictItem::Int(px_width.0 as i64),
-                    DictItem::Int(px_height.0 as i64),
+                    DictItem::Real(0.0),
+                    DictItem::Real(0.0),
+                    DictItem::Real(page.media_box.width.0),
+                    DictItem::Real(page.media_box.height.0),
+                ]),
+            ),
+            (
+                "Matrix",
+                DictItem::Array(vec![
+                    DictItem::Real(sx),
+                    DictItem::Real(0.0),
+                    DictItem::Real(0.0),
+                    DictItem::Real(sy),
+                    DictItem::Real(0.0),
+                    DictItem::Real(0.0),
                 ]),
             ),
         ];
@@ -93,8 +122,8 @@ impl Svg {
                 content: stream,
                 compress: false,
             },
-            width: Some(px_width),
-            height: Some(px_height),
+            width: Some(page.media_box.width.into_px(dpi)),
+            height: Some(page.media_box.height.into_px(dpi)),
             dpi: Some(dpi),
         })
     }
