@@ -189,15 +189,15 @@ fn test_bookmark_parsing() {
     let mut doc = PdfDocument::new("Bookmark Parsing Test");
     
     // Create multiple pages to bookmark
-    for i in 0..3 {
+    for _ in 0..3 {
         let page = PdfPage::new(Mm(210.0), Mm(297.0), vec![]);
         doc.pages.push(page);
     }
     
     // Add bookmarks with specific names and targets
-    let bookmark1 = doc.add_bookmark("Chapter 1", 1);
-    let bookmark2 = doc.add_bookmark("Chapter 2", 2);
-    let bookmark3 = doc.add_bookmark("Chapter 3", 3);
+    let _ = doc.add_bookmark("Chapter 1", 1);
+    let _ = doc.add_bookmark("Chapter 2", 2);
+    let _ = doc.add_bookmark("Chapter 3", 3);
     
     // Serialize the document
     let mut warnings = Vec::new();
@@ -205,8 +205,6 @@ fn test_bookmark_parsing() {
     
     // Parse the document back
     let parsed_doc = PdfDocument::parse(&bytes, &PdfParseOptions::default(), &mut Vec::new()).unwrap();
-    
-    println!("{:#?}", parsed_doc.bookmarks.map);
     
     // Verify bookmarks were preserved
     assert_eq!(parsed_doc.bookmarks.map.len(), 3, "Expected 3 bookmarks, found {}", parsed_doc.bookmarks.map.len());

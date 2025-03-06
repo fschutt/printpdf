@@ -309,7 +309,7 @@ pub fn serialize_pdf_into_bytes(
         let bookmarks_sorted = bookmarks_sorted
             .into_iter()
             .filter_map(|(k, v)| {
-                let page_obj_id = page_ids.get(v.page).cloned()?;
+                let page_obj_id = page_ids.get(v.page.saturating_sub(1)).cloned()?;
                 Some((k, &v.name, page_obj_id))
             })
             .collect::<Vec<_>>();
