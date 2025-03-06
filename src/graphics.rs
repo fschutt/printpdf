@@ -603,117 +603,501 @@ impl BuiltinOrExternalFontId {
     }
 }
 
-/// `ExtGState` dictionary
+/// PDF ExtGState dictionary
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtendedGraphicsState {
-    /// A set to track which fields have changed in relation to the default() method.
-    /// Now using a strongly typed enum instead of string constants.
+    /// Tracks changed fields using strongly typed enum
     pub(crate) changed_fields: HashSet<ChangedField>,
-
-    /* LW float */
-    /// __(Optional; PDF 1.3)__ The current line width
+    /// LW - Line width (PDF 1.3)
     pub(crate) line_width: f32,
-
-    /* LC integer */
-    /// __(Optional; PDF 1.3)__ The current line cap style
+    /// LC - Line cap style (PDF 1.3)
     pub(crate) line_cap: LineCapStyle,
-
-    /* LJ integer */
-    /// __(Optional; PDF 1.3)__ The current line join style
+    /// LJ - Line join style (PDF 1.3)
     pub(crate) line_join: LineJoinStyle,
-
-    /* ML float */
-    /// __(Optional; PDF 1.3)__ The miter limit (see “Miter Limit” on page 217).
+    /// ML - Miter limit (PDF 1.3)
     pub(crate) miter_limit: f32,
-
-    /* D array */
-    /// __(Optional; PDF 1.3)__ The line dash pattern.
+    /// D - Line dash pattern (PDF 1.3)
     pub(crate) line_dash_pattern: Option<LineDashPattern>,
-
-    /* RI name (or ri inside a stream) */
-    /// __(Optional; PDF 1.3)__ The name of the rendering intent.
+    /// RI - Rendering intent name (PDF 1.3)
     pub(crate) rendering_intent: RenderingIntent,
-
-    /* OP boolean */
-    /// __(Optional)__ Overprint flag for stroking.
+    /// OP - Overprint for stroking
     pub(crate) overprint_stroke: bool,
-
-    /* op boolean */
-    /// __(Optional; PDF 1.3)__ Overprint flag for nonstroking.
+    /// op - Overprint for nonstroking (PDF 1.3)
     pub(crate) overprint_fill: bool,
-
-    /* OPM integer */
-    /// __(Optional; PDF 1.3)__ The overprint mode.
+    /// OPM - Overprint mode (PDF 1.3)
     pub(crate) overprint_mode: OverprintMode,
-
-    /* Font array */
-    /// Font structure, expects a dictionary.
+    /// Font array
     pub(crate) font: Option<BuiltinOrExternalFontId>,
-
-    /* BG function */
-    /// __(Optional)__ The black-generation function.
+    /// BG - Black-generation function
     pub(crate) black_generation: Option<BlackGenerationFunction>,
-
-    /* BG2 function or name */
-    /// __(Optional; PDF 1.3)__ The extra black-generation function.
+    /// BG2 - Black-generation extra function (PDF 1.3)
     pub(crate) black_generation_extra: Option<BlackGenerationExtraFunction>,
-
-    /* UCR function */
-    /// __(Optional)__ The undercolor-removal function.
+    /// UCR - Undercolor-removal function
     pub(crate) under_color_removal: Option<UnderColorRemovalFunction>,
-
-    /* UCR2 function */
-    /// __(Optional; PDF 1.3)__ The extra undercolor-removal function.
+    /// UCR2 - Undercolor-removal extra function (PDF 1.3)
     pub(crate) under_color_removal_extra: Option<UnderColorRemovalExtraFunction>,
-
-    /* TR function */
-    /// __(Optional)__ The transfer function.
+    /// TR - Transfer function
     pub(crate) transfer_function: Option<TransferFunction>,
-
-    /* TR2 function */
-    /// __(Optional; PDF 1.3)__ The extra transfer function.
+    /// TR2 - Transfer extra function (PDF 1.3)
     pub(crate) transfer_extra_function: Option<TransferExtraFunction>,
-
-    /* HT [dictionary, stream or name] */
-    /// __(Optional)__ The halftone dictionary or stream.
+    /// HT - Halftone dictionary/stream/name
     pub(crate) halftone_dictionary: Option<HalftoneType>,
-
-    /* FL integer */
-    /// __(Optional; PDF 1.3)__ The flatness tolerance.
+    /// FL - Flatness tolerance (PDF 1.3)
     pub(crate) flatness_tolerance: f32,
-
-    /* SM integer */
-    /// __(Optional; PDF 1.3)__ The smoothness tolerance.
+    /// SM - Smoothness tolerance (PDF 1.3)
     pub(crate) smoothness_tolerance: f32,
-
-    /* SA integer */
-    /// (Optional) Automatic stroke adjustment flag.
+    /// SA - Automatic stroke adjustment
     pub(crate) stroke_adjustment: bool,
-
-    /* BM name or array */
-    /// __(Optional; PDF 1.4)__ The blend mode.
+    /// BM - Blend mode (PDF 1.4)
     pub(crate) blend_mode: BlendMode,
-
-    /* SM dictionary or name */
-    /// __(Optional; PDF 1.4)__ The soft mask.
+    /// SM - Soft mask (PDF 1.4)
     pub(crate) soft_mask: Option<SoftMask>,
-
-    /* CA integer */
-    /// __(Optional; PDF 1.4)__ The current stroking alpha constant.
+    /// CA - Stroking alpha constant (PDF 1.4)
     pub(crate) current_stroke_alpha: f32,
-
-    /* ca integer */
-    /// __(Optional; PDF 1.4)__ The current nonstroking alpha constant.
+    /// ca - Nonstroking alpha constant (PDF 1.4)
     pub(crate) current_fill_alpha: f32,
-
-    /* AIS boolean */
-    /// __(Optional; PDF 1.4)__ The alpha source flag.
+    /// AIS - Alpha source flag (PDF 1.4)
     pub(crate) alpha_is_shape: bool,
-
-    /* TK boolean */
-    /// __(Optional; PDF 1.4)__ The text knockout flag.
+    /// TK - Text knockout flag (PDF 1.4)
     pub(crate) text_knockout: bool,
+}
+
+// Implement getter methods for all fields
+impl ExtendedGraphicsState {
+
+    // Getter methods for all fields
+    pub fn line_width(&self) -> f32 {
+        self.line_width
+    }
+
+    pub fn line_cap(&self) -> LineCapStyle {
+        self.line_cap
+    }
+
+    pub fn line_join(&self) -> LineJoinStyle {
+        self.line_join
+    }
+
+    pub fn miter_limit(&self) -> f32 {
+        self.miter_limit
+    }
+
+    pub fn line_dash_pattern(&self) -> &Option<LineDashPattern> {
+        &self.line_dash_pattern
+    }
+
+    pub fn rendering_intent(&self) -> RenderingIntent {
+        self.rendering_intent
+    }
+
+    pub fn overprint_stroke(&self) -> bool {
+        self.overprint_stroke
+    }
+
+    pub fn overprint_fill(&self) -> bool {
+        self.overprint_fill
+    }
+
+    pub fn overprint_mode(&self) -> OverprintMode {
+        self.overprint_mode
+    }
+
+    pub fn font(&self) -> &Option<BuiltinOrExternalFontId> {
+        &self.font
+    }
+
+    pub fn black_generation(&self) -> &Option<BlackGenerationFunction> {
+        &self.black_generation
+    }
+
+    pub fn black_generation_extra(&self) -> &Option<BlackGenerationExtraFunction> {
+        &self.black_generation_extra
+    }
+
+    pub fn under_color_removal(&self) -> &Option<UnderColorRemovalFunction> {
+        &self.under_color_removal
+    }
+
+    pub fn under_color_removal_extra(&self) -> &Option<UnderColorRemovalExtraFunction> {
+        &self.under_color_removal_extra
+    }
+
+    pub fn transfer_function(&self) -> &Option<TransferFunction> {
+        &self.transfer_function
+    }
+
+    pub fn transfer_extra_function(&self) -> &Option<TransferExtraFunction> {
+        &self.transfer_extra_function
+    }
+
+    pub fn halftone_dictionary(&self) -> &Option<HalftoneType> {
+        &self.halftone_dictionary
+    }
+
+    pub fn flatness_tolerance(&self) -> f32 {
+        self.flatness_tolerance
+    }
+
+    pub fn smoothness_tolerance(&self) -> f32 {
+        self.smoothness_tolerance
+    }
+
+    pub fn stroke_adjustment(&self) -> bool {
+        self.stroke_adjustment
+    }
+
+    pub fn blend_mode(&self) -> &BlendMode {
+        &self.blend_mode
+    }
+
+    pub fn soft_mask(&self) -> &Option<SoftMask> {
+        &self.soft_mask
+    }
+
+    pub fn current_stroke_alpha(&self) -> f32 {
+        self.current_stroke_alpha
+    }
+
+    pub fn current_fill_alpha(&self) -> f32 {
+        self.current_fill_alpha
+    }
+
+    pub fn alpha_is_shape(&self) -> bool {
+        self.alpha_is_shape
+    }
+
+    pub fn text_knockout(&self) -> bool {
+        self.text_knockout
+    }
+
+    // Setter methods (mainly for internal use and deserialization)
+    // Each setter should also update the changed_fields set
+    pub fn set_line_width(&mut self, value: f32) {
+        self.line_width = value;
+        self.changed_fields.insert(ChangedField::LineWidth);
+    }
+
+    pub fn set_line_cap(&mut self, value: LineCapStyle) {
+        self.line_cap = value;
+        self.changed_fields.insert(ChangedField::LineCap);
+    }
+
+    pub fn set_line_join(&mut self, value: LineJoinStyle) {
+        self.line_join = value;
+        self.changed_fields.insert(ChangedField::LineJoin);
+    }
+
+    pub fn set_miter_limit(&mut self, value: f32) {
+        self.miter_limit = value;
+        self.changed_fields.insert(ChangedField::MiterLimit);
+    }
+
+    pub fn set_line_dash_pattern(&mut self, value: Option<LineDashPattern>) {
+        self.line_dash_pattern = value;
+        self.changed_fields.insert(ChangedField::LineDashPattern);
+    }
+
+    pub fn set_rendering_intent(&mut self, value: RenderingIntent) {
+        self.rendering_intent = value;
+        self.changed_fields.insert(ChangedField::RenderingIntent);
+    }
+
+    pub fn set_overprint_stroke(&mut self, value: bool) {
+        self.overprint_stroke = value;
+        self.changed_fields.insert(ChangedField::OverprintStroke);
+    }
+
+    pub fn set_overprint_fill(&mut self, value: bool) {
+        self.overprint_fill = value;
+        self.changed_fields.insert(ChangedField::OverprintFill);
+    }
+
+    pub fn set_overprint_mode(&mut self, value: OverprintMode) {
+        self.overprint_mode = value;
+        self.changed_fields.insert(ChangedField::OverprintMode);
+    }
+
+    pub fn set_font(&mut self, value: Option<BuiltinOrExternalFontId>) {
+        self.font = value;
+        self.changed_fields.insert(ChangedField::Font);
+    }
+
+    pub fn set_black_generation(&mut self, value: Option<BlackGenerationFunction>) {
+        self.black_generation = value;
+        self.changed_fields.insert(ChangedField::BlackGeneration);
+    }
+
+    pub fn set_black_generation_extra(&mut self, value: Option<BlackGenerationExtraFunction>) {
+        self.black_generation_extra = value;
+        self.changed_fields.insert(ChangedField::BlackGenerationExtra);
+    }
+
+    pub fn set_under_color_removal(&mut self, value: Option<UnderColorRemovalFunction>) {
+        self.under_color_removal = value;
+        self.changed_fields.insert(ChangedField::UnderColorRemoval);
+    }
+
+    pub fn set_under_color_removal_extra(&mut self, value: Option<UnderColorRemovalExtraFunction>) {
+        self.under_color_removal_extra = value;
+        self.changed_fields.insert(ChangedField::UnderColorRemovalExtra);
+    }
+
+    pub fn set_transfer_function(&mut self, value: Option<TransferFunction>) {
+        self.transfer_function = value;
+        self.changed_fields.insert(ChangedField::TransferFunction);
+    }
+
+    pub fn set_transfer_extra_function(&mut self, value: Option<TransferExtraFunction>) {
+        self.transfer_extra_function = value;
+        self.changed_fields.insert(ChangedField::TransferFunctionExtra);
+    }
+
+    pub fn set_halftone_dictionary(&mut self, value: Option<HalftoneType>) {
+        self.halftone_dictionary = value;
+        self.changed_fields.insert(ChangedField::HalftoneDictionary);
+    }
+
+    pub fn set_flatness_tolerance(&mut self, value: f32) {
+        self.flatness_tolerance = value;
+        self.changed_fields.insert(ChangedField::FlatnessTolerance);
+    }
+
+    pub fn set_smoothness_tolerance(&mut self, value: f32) {
+        self.smoothness_tolerance = value;
+        self.changed_fields.insert(ChangedField::SmoothnessTolerance);
+    }
+
+    pub fn set_stroke_adjustment(&mut self, value: bool) {
+        self.stroke_adjustment = value;
+        self.changed_fields.insert(ChangedField::StrokeAdjustment);
+    }
+
+    pub fn set_blend_mode(&mut self, value: BlendMode) {
+        self.blend_mode = value;
+        self.changed_fields.insert(ChangedField::BlendMode);
+    }
+
+    pub fn set_soft_mask(&mut self, value: Option<SoftMask>) {
+        self.soft_mask = value;
+        self.changed_fields.insert(ChangedField::SoftMask);
+    }
+
+    pub fn set_current_stroke_alpha(&mut self, value: f32) {
+        self.current_stroke_alpha = value;
+        self.changed_fields.insert(ChangedField::CurrentStrokeAlpha);
+    }
+
+    pub fn set_current_fill_alpha(&mut self, value: f32) {
+        self.current_fill_alpha = value;
+        self.changed_fields.insert(ChangedField::CurrentFillAlpha);
+    }
+
+    pub fn set_alpha_is_shape(&mut self, value: bool) {
+        self.alpha_is_shape = value;
+        self.changed_fields.insert(ChangedField::AlphaIsShape);
+    }
+
+    pub fn set_text_knockout(&mut self, value: bool) {
+        self.text_knockout = value;
+        self.changed_fields.insert(ChangedField::TextKnockout);
+    }
+
+    // A method to check if a field has been changed
+    pub fn has_changed(&self, field: ChangedField) -> bool {
+        self.changed_fields.contains(&field)
+    }
+
+    /// Set line width and return self
+    pub fn with_line_width(mut self, width: f32) -> Self {
+        self.set_line_width(width);
+        self
+    }
+
+    /// Set line cap style and return self
+    pub fn with_line_cap(mut self, cap: LineCapStyle) -> Self {
+        self.set_line_cap(cap);
+        self
+    }
+
+    /// Set line join style and return self
+    pub fn with_line_join(mut self, join: LineJoinStyle) -> Self {
+        self.set_line_join(join);
+        self
+    }
+
+    /// Set miter limit and return self
+    pub fn with_miter_limit(mut self, limit: f32) -> Self {
+        self.set_miter_limit(limit);
+        self
+    }
+
+    /// Set line dash pattern and return self
+    pub fn with_line_dash_pattern(mut self, pattern: Option<LineDashPattern>) -> Self {
+        self.set_line_dash_pattern(pattern);
+        self
+    }
+
+    /// Set rendering intent and return self
+    pub fn with_rendering_intent(mut self, intent: RenderingIntent) -> Self {
+        self.set_rendering_intent(intent);
+        self
+    }
+
+    /// Set overprint stroke and return self
+    pub fn with_overprint_stroke(mut self, overprint: bool) -> Self {
+        self.set_overprint_stroke(overprint);
+        self
+    }
+
+    /// Set overprint fill and return self
+    pub fn with_overprint_fill(mut self, overprint: bool) -> Self {
+        self.set_overprint_fill(overprint);
+        self
+    }
+
+    /// Set overprint mode and return self
+    pub fn with_overprint_mode(mut self, mode: OverprintMode) -> Self {
+        self.set_overprint_mode(mode);
+        self
+    }
+
+    /// Set font and return self
+    pub fn with_font(mut self, font: Option<BuiltinOrExternalFontId>) -> Self {
+        self.set_font(font);
+        self
+    }
+
+    /// Set black generation function and return self
+    pub fn with_black_generation(mut self, func: Option<BlackGenerationFunction>) -> Self {
+        self.set_black_generation(func);
+        self
+    }
+
+    /// Set black generation extra function and return self
+    pub fn with_black_generation_extra(mut self, func: Option<BlackGenerationExtraFunction>) -> Self {
+        self.set_black_generation_extra(func);
+        self
+    }
+
+    /// Set under color removal function and return self
+    pub fn with_under_color_removal(mut self, func: Option<UnderColorRemovalFunction>) -> Self {
+        self.set_under_color_removal(func);
+        self
+    }
+
+    /// Set under color removal extra function and return self
+    pub fn with_under_color_removal_extra(mut self, func: Option<UnderColorRemovalExtraFunction>) -> Self {
+        self.set_under_color_removal_extra(func);
+        self
+    }
+
+    /// Set transfer function and return self
+    pub fn with_transfer_function(mut self, func: Option<TransferFunction>) -> Self {
+        self.set_transfer_function(func);
+        self
+    }
+
+    /// Set transfer extra function and return self
+    pub fn with_transfer_extra_function(mut self, func: Option<TransferExtraFunction>) -> Self {
+        self.set_transfer_extra_function(func);
+        self
+    }
+
+    /// Set halftone dictionary and return self
+    pub fn with_halftone_dictionary(mut self, dict: Option<HalftoneType>) -> Self {
+        self.set_halftone_dictionary(dict);
+        self
+    }
+
+    /// Set flatness tolerance and return self
+    pub fn with_flatness_tolerance(mut self, tolerance: f32) -> Self {
+        self.set_flatness_tolerance(tolerance);
+        self
+    }
+
+    /// Set smoothness tolerance and return self
+    pub fn with_smoothness_tolerance(mut self, tolerance: f32) -> Self {
+        self.set_smoothness_tolerance(tolerance);
+        self
+    }
+
+    /// Set stroke adjustment and return self
+    pub fn with_stroke_adjustment(mut self, adjustment: bool) -> Self {
+        self.set_stroke_adjustment(adjustment);
+        self
+    }
+
+    /// Set blend mode and return self
+    pub fn with_blend_mode(mut self, mode: BlendMode) -> Self {
+        self.set_blend_mode(mode);
+        self
+    }
+
+    /// Set soft mask and return self
+    pub fn with_soft_mask(mut self, mask: Option<SoftMask>) -> Self {
+        self.set_soft_mask(mask);
+        self
+    }
+
+    /// Set current stroke alpha and return self
+    pub fn with_current_stroke_alpha(mut self, alpha: f32) -> Self {
+        self.set_current_stroke_alpha(alpha);
+        self
+    }
+
+    /// Set current fill alpha and return self
+    pub fn with_current_fill_alpha(mut self, alpha: f32) -> Self {
+        self.set_current_fill_alpha(alpha);
+        self
+    }
+
+    /// Set alpha is shape and return self
+    pub fn with_alpha_is_shape(mut self, is_shape: bool) -> Self {
+        self.set_alpha_is_shape(is_shape);
+        self
+    }
+
+    /// Set text knockout and return self
+    pub fn with_text_knockout(mut self, knockout: bool) -> Self {
+        self.set_text_knockout(knockout);
+        self
+    }
+}
+
+impl Default for ExtendedGraphicsState {
+    /// Creates a default ExtGState dictionary. Useful for resetting
+    fn default() -> Self {
+        Self {
+            changed_fields: HashSet::new(),
+            line_width: 1.0,
+            line_cap: LineCapStyle::Butt,
+            line_join: LineJoinStyle::Miter,
+            miter_limit: 0.0,
+            line_dash_pattern: None,
+            rendering_intent: RenderingIntent::RelativeColorimetric,
+            overprint_stroke: false,
+            overprint_fill: false,
+            overprint_mode: OverprintMode::EraseUnderlying,
+            font: None,
+            black_generation: None,
+            black_generation_extra: None,
+            under_color_removal: None,
+            under_color_removal_extra: None,
+            transfer_function: None,
+            transfer_extra_function: None,
+            halftone_dictionary: None,
+            flatness_tolerance: 0.0,
+            smoothness_tolerance: 0.0,
+            stroke_adjustment: true,
+            blend_mode: BlendMode::Seperable(SeperableBlendMode::Normal),
+            soft_mask: None,
+            current_stroke_alpha: 1.0, /* 1.0 = opaque, not transparent */
+            current_fill_alpha: 1.0,
+            alpha_is_shape: false,
+            text_knockout: false,
+        }
+    }
 }
 
 pub fn extgstate_to_dict(val: &ExtendedGraphicsState) -> LoDictionary {
@@ -875,307 +1259,6 @@ pub fn extgstate_to_dict(val: &ExtendedGraphicsState) -> LoDictionary {
     }
 
     LoDictionary::from_iter(gs_operations)
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct ExtendedGraphicsStateBuilder {
-    /// Private field so we can control the `changed_fields` parameter
-    gs: ExtendedGraphicsState,
-}
-
-impl ExtendedGraphicsStateBuilder {
-    /// Creates a new graphics state builder
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Sets the line width
-    #[inline]
-    pub fn with_line_width(mut self, line_width: f32) -> Self {
-        self.gs.line_width = line_width;
-        self.gs.changed_fields.insert(ChangedField::LineWidth);
-        self
-    }
-
-    /// Sets the line cap
-    #[inline]
-    pub fn with_line_cap(mut self, line_cap: LineCapStyle) -> Self {
-        self.gs.line_cap = line_cap;
-        self.gs.changed_fields.insert(ChangedField::LineCap);
-        self
-    }
-
-    /// Sets the line join
-    #[inline]
-    pub fn with_line_join(mut self, line_join: LineJoinStyle) -> Self {
-        self.gs.line_join = line_join;
-        self.gs.changed_fields.insert(ChangedField::LineJoin);
-        self
-    }
-
-    /// Sets the miter limit
-    #[inline]
-    pub fn with_miter_limit(mut self, miter_limit: f32) -> Self {
-        self.gs.miter_limit = miter_limit;
-        self.gs.changed_fields.insert(ChangedField::MiterLimit);
-        self
-    }
-
-    /// Sets the rendering intent
-    #[inline]
-    pub fn with_rendering_intent(mut self, rendering_intent: RenderingIntent) -> Self {
-        self.gs.rendering_intent = rendering_intent;
-        self.gs.changed_fields.insert(ChangedField::RenderingIntent);
-        self
-    }
-
-    /// Sets the stroke overprint
-    #[inline]
-    pub fn with_overprint_stroke(mut self, overprint_stroke: bool) -> Self {
-        self.gs.overprint_stroke = overprint_stroke;
-        self.gs.changed_fields.insert(ChangedField::OverprintStroke);
-        self
-    }
-
-    /// Sets the fill overprint
-    #[inline]
-    pub fn with_overprint_fill(mut self, overprint_fill: bool) -> Self {
-        self.gs.overprint_fill = overprint_fill;
-        self.gs.changed_fields.insert(ChangedField::OverprintFill);
-        self
-    }
-
-    /// Sets the overprint mode
-    #[inline]
-    pub fn with_overprint_mode(mut self, overprint_mode: OverprintMode) -> Self {
-        self.gs.overprint_mode = overprint_mode;
-        self.gs.changed_fields.insert(ChangedField::OverprintMode);
-        self
-    }
-
-    /// Sets the font to an external Font ID
-    /// __WARNING:__ Use `layer.add_font()` instead if you are not absolutely sure.
-    #[inline]
-    pub fn with_font(mut self, font: Option<FontId>) -> Self {
-        self.gs.font = font.map(|s| BuiltinOrExternalFontId::External(s));
-        self.gs.changed_fields.insert(ChangedField::Font);
-        self
-    }
-
-    /// Sets the font to a BuiltinFont
-    /// __WARNING:__ Use `layer.add_font()` instead if you are not absolutely sure.
-    #[inline]
-    pub fn with_builtin_font(mut self, font: Option<BuiltinFont>) -> Self {
-        self.gs.font = font.map(|s| BuiltinOrExternalFontId::Builtin(s));
-        self.gs.changed_fields.insert(ChangedField::Font);
-        self
-    }
-
-    /// Sets the black generation
-    #[inline]
-    pub fn with_black_generation(
-        mut self,
-        black_generation: Option<BlackGenerationFunction>,
-    ) -> Self {
-        self.gs.black_generation = black_generation;
-        self.gs.changed_fields.insert(ChangedField::BlackGeneration);
-        self
-    }
-
-    /// Sets the black generation extra function
-    #[inline]
-    pub fn with_black_generation_extra(
-        mut self,
-        black_generation_extra: Option<BlackGenerationExtraFunction>,
-    ) -> Self {
-        self.gs.black_generation_extra = black_generation_extra;
-        self.gs
-            .changed_fields
-            .insert(ChangedField::BlackGenerationExtra);
-        self
-    }
-
-    /// Sets the undercolor removal function
-    #[inline]
-    pub fn with_undercolor_removal(
-        mut self,
-        under_color_removal: Option<UnderColorRemovalFunction>,
-    ) -> Self {
-        self.gs.under_color_removal = under_color_removal;
-        self.gs
-            .changed_fields
-            .insert(ChangedField::UnderColorRemoval);
-        self
-    }
-
-    /// Sets the undercolor removal extra function
-    #[inline]
-    pub fn with_undercolor_removal_extra(
-        mut self,
-        under_color_removal_extra: Option<UnderColorRemovalExtraFunction>,
-    ) -> Self {
-        self.gs.under_color_removal_extra = under_color_removal_extra;
-        self.gs
-            .changed_fields
-            .insert(ChangedField::UnderColorRemovalExtra);
-        self
-    }
-
-    /// Sets the transfer function
-    #[inline]
-    pub fn with_transfer(mut self, transfer_function: Option<TransferFunction>) -> Self {
-        self.gs.transfer_function = transfer_function;
-        self.gs
-            .changed_fields
-            .insert(ChangedField::TransferFunction);
-        self
-    }
-
-    /// Sets the transfer extra function
-    #[inline]
-    pub fn with_transfer_extra(
-        mut self,
-        transfer_extra_function: Option<TransferExtraFunction>,
-    ) -> Self {
-        self.gs.transfer_extra_function = transfer_extra_function;
-        self.gs
-            .changed_fields
-            .insert(ChangedField::TransferFunctionExtra);
-        self
-    }
-
-    /// Sets the halftone dictionary
-    #[inline]
-    pub fn with_halftone(mut self, halftone_type: Option<HalftoneType>) -> Self {
-        self.gs.halftone_dictionary = halftone_type;
-        self.gs
-            .changed_fields
-            .insert(ChangedField::HalftoneDictionary);
-        self
-    }
-
-    /// Sets the flatness tolerance
-    #[inline]
-    pub fn with_flatness_tolerance(mut self, flatness_tolerance: f32) -> Self {
-        self.gs.flatness_tolerance = flatness_tolerance;
-        self.gs
-            .changed_fields
-            .insert(ChangedField::FlatnessTolerance);
-        self
-    }
-
-    /// Sets the smoothness tolerance
-    #[inline]
-    pub fn with_smoothness_tolerance(mut self, smoothness_tolerance: f32) -> Self {
-        self.gs.smoothness_tolerance = smoothness_tolerance;
-        self.gs
-            .changed_fields
-            .insert(ChangedField::SmoothnessTolerance);
-        self
-    }
-
-    /// Sets the stroke adjustment
-    #[inline]
-    pub fn with_stroke_adjustment(mut self, stroke_adjustment: bool) -> Self {
-        self.gs.stroke_adjustment = stroke_adjustment;
-        self.gs
-            .changed_fields
-            .insert(ChangedField::StrokeAdjustment);
-        self
-    }
-
-    /// Sets the blend mode
-    #[inline]
-    pub fn with_blend_mode(mut self, blend_mode: BlendMode) -> Self {
-        self.gs.blend_mode = blend_mode;
-        self.gs.changed_fields.insert(ChangedField::BlendMode);
-        self
-    }
-
-    /// Sets the soft mask
-    #[inline]
-    pub fn with_soft_mask(mut self, soft_mask: Option<SoftMask>) -> Self {
-        self.gs.soft_mask = soft_mask;
-        self.gs.changed_fields.insert(ChangedField::SoftMask);
-        self
-    }
-
-    /// Sets the current alpha for strokes
-    #[inline]
-    pub fn with_current_stroke_alpha(mut self, current_stroke_alpha: f32) -> Self {
-        self.gs.current_stroke_alpha = current_stroke_alpha;
-        self.gs
-            .changed_fields
-            .insert(ChangedField::CurrentStrokeAlpha);
-        self
-    }
-
-    /// Sets the current alpha for fills
-    #[inline]
-    pub fn with_current_fill_alpha(mut self, current_fill_alpha: f32) -> Self {
-        self.gs.current_fill_alpha = current_fill_alpha;
-        self.gs
-            .changed_fields
-            .insert(ChangedField::CurrentFillAlpha);
-        self
-    }
-
-    /// Sets the current "alpha is shape"
-    #[inline]
-    pub fn with_alpha_is_shape(mut self, alpha_is_shape: bool) -> Self {
-        self.gs.alpha_is_shape = alpha_is_shape;
-        self.gs.changed_fields.insert(ChangedField::AlphaIsShape);
-        self
-    }
-
-    /// Sets the current text knockout
-    #[inline]
-    pub fn with_text_knockout(mut self, text_knockout: bool) -> Self {
-        self.gs.text_knockout = text_knockout;
-        self.gs.changed_fields.insert(ChangedField::TextKnockout);
-        self
-    }
-
-    /// Consumes the builder and returns an actual ExtendedGraphicsState
-    #[inline]
-    pub fn build(self) -> ExtendedGraphicsState {
-        self.gs
-    }
-}
-
-impl Default for ExtendedGraphicsState {
-    /// Creates a default ExtGState dictionary. Useful for resetting
-    fn default() -> Self {
-        Self {
-            changed_fields: HashSet::new(),
-            line_width: 1.0,
-            line_cap: LineCapStyle::Butt,
-            line_join: LineJoinStyle::Miter,
-            miter_limit: 0.0,
-            line_dash_pattern: None,
-            rendering_intent: RenderingIntent::RelativeColorimetric,
-            overprint_stroke: false,
-            overprint_fill: false,
-            overprint_mode: OverprintMode::EraseUnderlying,
-            font: None,
-            black_generation: None,
-            black_generation_extra: None,
-            under_color_removal: None,
-            under_color_removal_extra: None,
-            transfer_function: None,
-            transfer_extra_function: None,
-            halftone_dictionary: None,
-            flatness_tolerance: 0.0,
-            smoothness_tolerance: 0.0,
-            stroke_adjustment: true,
-            blend_mode: BlendMode::Seperable(SeperableBlendMode::Normal),
-            soft_mask: None,
-            current_stroke_alpha: 1.0, /* 1.0 = opaque, not transparent */
-            current_fill_alpha: 1.0,
-            alpha_is_shape: false,
-            text_knockout: false,
-        }
-    }
 }
 
 /// __(PDF 1.3)__ A code specifying whether a color component value of 0
