@@ -54,6 +54,49 @@ impl XmlComponentTrait for DivRenderer {
     }
 }
 
+/// Render for a `span` component
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SpanRenderer {
+    node: XmlNode,
+}
+
+impl SpanRenderer {
+    pub fn new() -> Self {
+        Self {
+            node: XmlNode::new("div"),
+        }
+    }
+}
+
+impl XmlComponentTrait for SpanRenderer {
+    fn get_available_arguments(&self) -> ComponentArguments {
+        ComponentArguments::default()
+    }
+
+    fn render_dom(
+        &self,
+        _: &XmlComponentMap,
+        _: &FilteredComponentArguments,
+        _: &XmlTextContent,
+    ) -> Result<StyledDom, RenderDomError> {
+        Ok(Dom::div().style(CssApiWrapper::empty()))
+    }
+
+    fn compile_to_rust_code(
+        &self,
+        _: &XmlComponentMap,
+        _: &ComponentArguments,
+        _: &XmlTextContent,
+    ) -> Result<String, CompileError> {
+        Ok("Dom::div()".into())
+    }
+
+    fn get_xml_node(&self) -> XmlNode {
+        self.node.clone()
+    }
+}
+
+
 /// Render for a `body` component
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BodyRenderer {
@@ -748,6 +791,11 @@ pub fn printpdf_default_components() -> XmlComponentMap {
     map.register_component(XmlComponent {
         id: normalize_casing("div"),
         renderer: Box::new(DivRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("span"),
+        renderer: Box::new(SpanRenderer::new()),
         inherit_vars: true,
     });
     map.register_component(XmlComponent {

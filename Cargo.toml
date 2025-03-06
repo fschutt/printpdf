@@ -78,22 +78,41 @@ js-sys = { version = "0.3.40", optional = true }
 wasm-bindgen-futures = { version = "0.4.50", default-features = false }
 
 [[example]]
-name = "simple"
+name = "advanced"
+required-features = []
+
+[[example]]
+name = "bookmarks"
+required-features = []
+
+[[example]]
+name = "graphics"
 required-features = []
 
 [[example]]
 name = "html"
 required-features = ["html"]
 
-# re-generates the /defaultfonts/*.ttf fonts
-[[example]]
-name = "subset"
-required-features = []
-
 [[example]]
 name = "image"
 required-features = ["png"]
 
 [[example]]
-name = "render"
+name = "layers"
+required-features = []
+
+[[example]]
+name = "multipage"
+required-features = []
+
+[[example]]
+name = "subset"
+required-features = []
+
+[[example]]
+name = "svg"
+required-features = []
+
+[[example]]
+name = "text"
 required-features = []

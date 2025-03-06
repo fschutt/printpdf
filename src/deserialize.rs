@@ -1035,6 +1035,7 @@ impl PathBuilder {
         self.start_point = None;
     }
 
+    #[cfg(test)]
     pub fn finalize_subpath(&mut self) {
         if !self.current_subpath.is_empty() {
             self.subpaths
@@ -1044,6 +1045,7 @@ impl PathBuilder {
         }
     }
 
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.current_subpath.is_empty() && self.subpaths.is_empty()
     }
@@ -1108,6 +1110,7 @@ pub fn path_to_op(path: &PdfPath) -> Op {
 }
 
 /// Parse a PDF content stream into path operations
+#[cfg(test)]
 fn parse_pdf_stream(stream: &str) -> Vec<(String, Vec<f32>)> {
     let mut operations = Vec::new();
     let mut current_operands = Vec::new();
@@ -1148,6 +1151,7 @@ fn parse_pdf_stream(stream: &str) -> Vec<(String, Vec<f32>)> {
 }
 
 /// Apply a parsed operation to the PathBuilder
+#[cfg(test)]
 fn apply_path_operation(builder: &mut PathBuilder, op: &(String, Vec<f32>)) {
     match op.0.as_str() {
         "m" => {
@@ -2445,20 +2449,7 @@ pub fn parse_op(
                 }
             }
         }
-        // For completeness, you might also parse "cs", "CS" to track the chosen color space
-        // or treat them as Unknown if you don't need them:
-        "cs" | "CS" => {
-            // sets the fill or stroke color space. Usually you'd store in state, or ignore:
-            out_ops.push(Op::Unknown {
-                key: op.operator.clone(),
-                value: op
-                    .operands
-                    .iter()
-                    .map(|s| DictItem::from_lopdf(s))
-                    .collect(),
-            });
-        }
-
+        
         // --- XObjects: /Do ---
         "Do" => {
             if let Some(name_str) = as_name(&op.operands.get(0).unwrap_or(&lopdf::Object::Null)) {

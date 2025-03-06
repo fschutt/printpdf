@@ -1,27 +1,149 @@
 use printpdf::*;
 
-const HTML_STRINGS: &[&str; 1] = &["<img src='test.bmp' />"];
-
 fn main() -> Result<(), String> {
-    for (i, h) in HTML_STRINGS.iter().enumerate() {
-        let config = XmlRenderOptions {
-            components: Vec::new(),
-            images: vec![(
-                "test.bmp".to_string(),
-                include_bytes!("./assets/img/BMP_test.bmp").to_vec(),
-            )]
-            .into_iter()
-            .collect(),
-            ..Default::default()
-        };
-
-        let mut doc = PdfDocument::new("HTML rendering demo");
-        let pages = doc.html_to_pages(h, config, &mut Vec::new())?;
-        let doc = doc
-            .with_pages(pages)
-            .save(&PdfSaveOptions::default(), &mut Vec::new());
-        std::fs::write(format!("html{i}.pdf"), doc).unwrap();
-    }
-
+    // Create a new PDF document
+    let mut doc = PdfDocument::new("HTML to PDF Example");
+    
+    // Basic HTML content with styles
+    let html = r#"
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>HTML to PDF Conversion</title>
+        <style>
+            body {
+                font-family: 'Helvetica', sans-serif;
+                margin: 20px;
+                color: #333;
+            }
+            h1 {
+                color: #004080;
+                border-bottom: 1px solid #ccc;
+                padding-bottom: 5px;
+            }
+            p {
+                margin: 10px 0;
+                line-height: 1.5;
+            }
+            .highlight {
+                background-color: #ffffcc;
+                padding: 5px;
+                border-radius: 3px;
+            }
+            ul {
+                margin: 15px 0;
+            }
+            li {
+                margin: 5px 0;
+            }
+            table {
+                border-collapse: collapse;
+                width: 100%;
+                margin: 20px 0;
+            }
+            th, td {
+                border: 1px solid #ddd;
+                padding: 8px;
+                text-align: left;
+            }
+            th {
+                background-color: #f2f2f2;
+            }
+            .footer {
+                margin-top: 30px;
+                font-size: 0.8em;
+                text-align: center;
+                color: #666;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>HTML to PDF Conversion Example</h1>
+        
+        <p>This document demonstrates converting HTML to PDF using the <span class="highlight">printpdf</span> library. 
+        HTML conversion allows you to leverage familiar web styling techniques for PDF generation.</p>
+        
+        <h2>Features Demonstrated</h2>
+        
+        <ul>
+            <li>Basic text formatting with paragraphs and headings</li>
+            <li>Custom styling with CSS</li>
+            <li>Lists (ordered and unordered)</li>
+            <li>Tables with borders and styling</li>
+            <li>Image embedding</li>
+        </ul>
+        
+        <h2>Sample Table</h2>
+        
+        <table>
+            <tr>
+                <th>Feature</th>
+                <th>Description</th>
+                <th>Supported</th>
+            </tr>
+            <tr>
+                <td>Text Styling</td>
+                <td>Basic text formatting with fonts, sizes, and styles</td>
+                <td>Yes</td>
+            </tr>
+            <tr>
+                <td>Tables</td>
+                <td>Data presentation with rows and columns</td>
+                <td>Yes</td>
+            </tr>
+            <tr>
+                <td>Lists</td>
+                <td>Ordered and unordered lists</td>
+                <td>Yes</td>
+            </tr>
+            <tr>
+                <td>Images</td>
+                <td>Embedding images in documents</td>
+                <td>Yes</td>
+            </tr>
+            <tr>
+                <td>Advanced Layouts</td>
+                <td>Complex multi-column layouts and positioning</td>
+                <td>Partial</td>
+            </tr>
+        </table>
+        
+        <h2>Ordered List Example</h2>
+        
+        <ol>
+            <li>First, create your HTML content</li>
+            <li>Configure the HTML conversion options</li>
+            <li>Call the converter function</li>
+            <li>Save the resulting PDF document</li>
+        </ol>
+        
+        <div class="footer">
+            Generated with printpdf HTML conversion - Page 1
+        </div>
+    </body>
+    </html>
+    "#;
+    
+    // Set up HTML rendering options
+    let config = XmlRenderOptions {
+        // Default page size (A4)
+        page_width: Mm(210.0),
+        page_height: Mm(297.0),
+        ..Default::default()
+    };
+    
+    // Convert the HTML to PDF pages
+    let mut warnings = Vec::new();
+    let pages = doc.html_to_pages(html, config, &mut warnings)?;
+    
+    // Add the pages to the document
+    doc.with_pages(pages);
+    
+    // Save the PDF to a file
+    let bytes = doc.save(&PdfSaveOptions::default(), &mut warnings);
+    
+    std::fs::write("./html_example.pdf", bytes).unwrap();
+    println!("Created html_example.pdf");
+    
     Ok(())
 }
