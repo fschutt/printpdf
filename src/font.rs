@@ -61,6 +61,17 @@ impl Default for BuiltinFont {
 include!("../defaultfonts/mapping.rs");
 
 impl BuiltinFont {
+
+    pub fn check_if_matches(bytes: &[u8]) -> Option<Self> {
+        let matching_based_on_len = match_len(bytes)?;
+        // if the length is equal, check for equality
+        if bytes == matching_based_on_len.get_subset_font().bytes.as_slice() {
+            Some(matching_based_on_len)
+        } else {
+            None
+        }
+    }
+
     /// Returns a CSS font-family string appropriate for the built-in PDF font.
     /// For example, TimesRoman maps to "Times New Roman, Times, serif".
     pub fn get_svg_font_family(&self) -> &'static str {
@@ -293,6 +304,16 @@ pub struct ParsedFont {
     pub original_index: usize,
 }
 
+pub trait PrepFont {
+    fn lgi(&self, codepoint: u32) -> Option<u32>;
+}
+
+impl PrepFont for ParsedFont {
+    fn lgi(&self, codepoint: u32) -> Option<u32> {
+        self.lookup_glyph_index(codepoint).map(Into::into)
+    }
+}
+
 const FONT_B64_START: &str = "data:font/ttf;base64,";
 
 impl serde::Serialize for ParsedFont {
@@ -352,6 +373,7 @@ impl fmt::Debug for ParsedFont {
 #[derive(Debug, Clone)]
 pub struct SubsetFont {
     pub bytes: Vec<u8>,
+    /// mapping (old glyph ID -> subset glyph ID + original char value)
     pub glyph_mapping: BTreeMap<u16, (u16, char)>,
 }
 
@@ -438,12 +460,6 @@ impl ParsedFont {
             })
             .collect::<BTreeSet<_>>();
 
-        /*
-        chars_to_resolve.extend(DEFAULT_ALPHABET.iter().flat_map(|line| {
-            line.chars().skip_while(|c| char::is_whitespace(*c))
-        }));
-        */
-
         let mut map = chars_to_resolve
             .iter()
             .filter_map(|c| self.lookup_glyph_index(*c as u32).map(|f| (f, *c)))
@@ -495,6 +511,7 @@ impl ParsedFont {
 
     /// Generates a new font file from the used glyph IDs
     pub fn subset(&self, glyph_ids: &[(u16, char)]) -> Result<SubsetFont, String> {
+        
         let glyph_mapping = glyph_ids
             .iter()
             .enumerate()

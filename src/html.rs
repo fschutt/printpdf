@@ -4,7 +4,7 @@ use azul_core::{
     app_resources::{
         DecodedImage, DpiScaleFactor, Epoch, IdNamespace, ImageCache, ImageRef, RendererResources,
     },
-    callbacks::DocumentId,
+    callbacks::{DocumentId, InlineText, InlineWord},
     display_list::{
         RectBackground, RenderCallbacks, SolvedLayout, StyleBorderColors, StyleBorderRadius,
         StyleBorderStyles, StyleBorderWidths,
@@ -28,13 +28,12 @@ pub use azul_core::{
 use azul_css::{CssPropertyValue, FloatValue, LayoutDisplay, StyleTextColor};
 pub use azul_css_parser::CssApiWrapper;
 use kuchiki::{NodeRef, traits::*};
-use rust_fontconfig::{FcFont, FcFontCache, FcPattern};
+use rust_fontconfig::{FcFont, FcFontCache, FcPattern, PatternMatch};
 use serde_derive::{Deserialize, Serialize};
 use svg2pdf::usvg::tiny_skia_path::Scalar;
 
 use crate::{
-    Base64OrRaw, BuiltinFont, GeneratePdfOptions, Mm, Op, PdfDocument, PdfPage, PdfResources,
-    PdfWarnMsg, Pt, components::ImageInfo,
+    components::ImageInfo, Base64OrRaw, BuiltinFont, Color, FontId, GeneratePdfOptions, Mm, Op, PdfDocument, PdfPage, PdfResources, PdfWarnMsg, Pt, TextItem, TextMatrix
 };
 
 const DPI_SCALE: DpiScaleFactor = DpiScaleFactor {
@@ -247,8 +246,6 @@ fn xml_to_pages_inner(
     )
     .map_err(|e| format!("Error constructing DOM: {}", e.to_string()))?;
 
-    println!("styled dom: {}", styled_dom.get_html_string("", "", true));
-
     let mut fake_window_state = FullWindowState::default();
     fake_window_state.size.dimensions = size;
     let mut renderer_resources = RendererResources::default();
@@ -329,8 +326,6 @@ fn xml_to_pages_inner(
         &mut renderer_resources,
     );
 
-    println!("layout: {:#?}", layout.rects);
-
     // Break layout into pages using the pagination module
     let paginated_pages = azul_core::pagination::paginate_layout_result(
         &layout.styled_dom.node_hierarchy.as_container(),
@@ -355,8 +350,6 @@ fn xml_to_pages_inner(
             PdfPage::new(config.page_width, config.page_height, ops)
         })
         .collect();
-
-    println!("pages: {:#?}", pages);
 
     Ok(pages)
 }
@@ -391,6 +384,9 @@ fn get_fcpat(b: BuiltinFont) -> (FcPattern, FcFont) {
     (
         FcPattern {
             name: Some(b.get_id().to_string()),
+            family: Some(b.get_id().to_string()),
+            italic: if b.get_font_style() == "italic" { PatternMatch::True } else { PatternMatch::DontCare },
+            bold: if b.get_font_weight() == "bold" { PatternMatch::True } else { PatternMatch::DontCare },
             ..Default::default()
         },
         FcFont {
@@ -718,51 +714,9 @@ fn displaylist_handle_rect_paginated(
         }
     }
 
-    if let Some((text, id, color, space_index)) = opt_text {
-        ops.push(Op::StartTextSection);
-        ops.push(Op::SetFillColor {
-            col: crate::Color::Rgb(crate::Rgb {
-                r: color.inner.r as f32 / 255.0,
-                g: color.inner.g as f32 / 255.0,
-                b: color.inner.b as f32 / 255.0,
-                icc_profile: None,
-            }),
-        });
-        ops.push(Op::SetTextRenderingMode {
-            mode: crate::TextRenderingMode::Fill,
-        });
-        ops.push(Op::SetLineHeight {
-            lh: Pt(text.font_size_px),
-        });
-
-        let glyphs = text.get_layouted_glyphs();
-
-        let static_bounds = positioned_rect.get_approximate_static_bounds();
-
-        for gi in glyphs.glyphs {
-            ops.push(Op::SetTextCursor {
-                pos: crate::Point {
-                    x: Pt(0.0),
-                    y: Pt(0.0),
-                },
-            });
-            ops.push(Op::SetTextMatrix {
-                matrix: crate::TextMatrix::Translate(
-                    Pt(static_bounds.min_x() as f32 + (gi.point.x * 2.0)),
-                    Pt(page_height.0 - static_bounds.min_y() as f32 - gi.point.y),
-                ),
-            });
-            ops.push(Op::SetFontSize {
-                size: Pt(text.font_size_px * 2.0),
-                font: id.clone(),
-            });
-            ops.push(Op::WriteCodepoints {
-                font: id.clone(),
-                cp: vec![(gi.index as u16, ' ')],
-            });
-        }
-
-        ops.push(Op::EndTextSection);
+    if let Some((text, id, color, space_advance_scaled)) = opt_text {
+        let mut newops = to_pdf_ops(&text, page_height, id, color, space_advance_scaled);
+        ops.append(&mut newops);
     }
 
     if !newops.is_empty() {
@@ -773,6 +727,181 @@ fn displaylist_handle_rect_paginated(
 
     Some(())
 }
+
+/// Converts the InlineText to a sequence of PDF operations for direct rendering
+/// 
+/// * `page_height` - The total height of the PDF page (needed for Y coordinate conversion)
+/// * `font_id` - The PDF font identifier to use for rendering
+/// * `text_color` - The text color to use
+pub fn to_pdf_ops(
+    it: &InlineText, 
+    page_height: Pt, 
+    font_id: FontId, 
+    text_color: StyleTextColor, 
+    space_advance_scaled: usize
+) -> Vec<Op> {
+
+    let mut ops = Vec::new();
+    
+    // Start text section
+    ops.push(Op::StartTextSection);
+    
+    // Set text color
+    ops.push(Op::SetFillColor {
+        col: Color::Rgb(crate::Rgb {
+            r: text_color.inner.r as f32 / 255.0,
+            g: text_color.inner.g as f32 / 255.0,
+            b: text_color.inner.b as f32 / 255.0,
+            icc_profile: None,
+        }),
+    });
+    
+    let is_builtin_font = BuiltinFont::from_id(&font_id.0);
+
+    // Set font and size
+    if let Some(bf) = is_builtin_font {
+        ops.push(Op::SetFontSizeBuiltinFont {
+            size: Pt(it.font_size_px),
+            font: bf,
+        });
+    } else {
+        ops.push(Op::SetFontSize {
+            size: Pt(it.font_size_px),
+            font: font_id.clone(),
+        });
+    }
+    
+    // Set line height
+    ops.push(Op::SetLineHeight {
+        lh: Pt(it.font_size_px),
+    });
+    
+    // Process each line
+    for (line_idx, line) in it.lines.iter().enumerate() {
+        let line_origin = line.bounds.origin;
+        
+        // If not the first line, add a line break
+        if line_idx > 0 {
+            ops.push(Op::AddLineBreak);
+        }
+        
+        // PDF coordinates: Y is from bottom, so we need to flip
+        // Position at the baseline of this line
+        let pdf_y = page_height.0 - (line_origin.y - it.baseline_descender_px);
+        
+        // Set text position for this line
+        ops.push(Op::SetTextMatrix {
+            matrix: TextMatrix::Translate(
+                Pt(line_origin.x),
+                Pt(pdf_y),
+            ),
+        });
+        
+        // Process words in this line
+        let mut text_items = Vec::new();
+        let mut last_x_position = 0.0;
+        
+        for word in line.words.iter() {
+            match word {
+                InlineWord::Tab => {
+
+                    let tab_width_in_spaces = 4.0;
+                    let tab_x_advance = space_advance_scaled as f32 * tab_width_in_spaces;
+
+                    if !text_items.is_empty() {
+                        if let Some(bf) = is_builtin_font {
+                            ops.push(Op::WriteTextBuiltinFont {
+                                items: std::mem::take(&mut text_items),
+                                font: bf,
+                            });
+                        } else {
+                            ops.push(Op::WriteText {
+                                items: std::mem::take(&mut text_items),
+                                font: font_id.clone(),
+                            });
+                        }
+                    }
+
+                    ops.push(Op::SetTextMatrix {
+                        matrix: TextMatrix::Translate(
+                            Pt(last_x_position + tab_x_advance),
+                            Pt(pdf_y),
+                        ),
+                    });
+                    last_x_position += tab_x_advance;
+                },
+                InlineWord::Return => {
+                    // Return is handled by line breaks, which we already process by iterating through lines
+                    if !text_items.is_empty() {
+                        if let Some(bf) = is_builtin_font {
+                            ops.push(Op::WriteTextBuiltinFont {
+                                items: std::mem::take(&mut text_items),
+                                font: bf,
+                            });
+                        } else {
+                            ops.push(Op::WriteText {
+                                items: std::mem::take(&mut text_items),
+                                font: font_id.clone(),
+                            });
+                        }
+                    }
+                },
+                InlineWord::Space => {
+                    // text_items.push(TextItem::Text(" ".to_string()));
+                    last_x_position += space_advance_scaled as f32;
+                },
+                InlineWord::Word(text_contents) => {
+                    let word_origin = text_contents.bounds.origin;
+                    
+                    // If position changes significantly from expected, add positioning kerning
+                    if !text_items.is_empty() && (word_origin.x - last_x_position).abs() > 0.1 {
+                        // Add kerning offset
+                        text_items.push(TextItem::Offset(
+                            ((last_x_position - word_origin.x) * -1.0) as i32
+                        ));
+                    }
+                    
+                    // Process each glyph in the word
+                    let mut word_text = String::new();
+                    
+                    for glyph in text_contents.glyphs.iter() {
+                        if let Some(ch) = glyph.unicode_codepoint.into_option().and_then(char::from_u32) {
+                            word_text.push(ch);
+                        }
+                    }
+                    
+                    if !word_text.is_empty() {
+                        text_items.push(TextItem::Text(word_text));
+                    }
+                    
+                    // Update last position
+                    last_x_position = word_origin.x + text_contents.bounds.size.width;
+                }
+            }
+        }
+        
+        // Write any remaining text for this line
+        if !text_items.is_empty() {
+            if let Some(bf) = is_builtin_font {
+                ops.push(Op::WriteTextBuiltinFont {
+                    items: text_items,
+                    font: bf,
+                });
+            } else {
+                ops.push(Op::WriteText {
+                    items: text_items,
+                    font: font_id.clone(),
+                });
+            }
+        }
+    }
+    
+    // End text section
+    ops.push(Op::EndTextSection);
+    
+    ops
+}
+
 
 fn process_children_paginated(
     doc: &mut PdfDocument,
@@ -1030,7 +1159,7 @@ fn get_text_node(
     azul_core::callbacks::InlineText,
     crate::FontId,
     StyleTextColor,
-    u16,
+    usize,
 )> {
     use azul_core::styled_dom::StyleFontFamiliesHash;
 
@@ -1043,11 +1172,9 @@ fn get_text_node(
         .get_css_property_cache()
         .get_font_id_or_default(html_node, &rect_idx, &styled_node.state);
 
-    let sffh =
-        app_resources.get_font_family(&StyleFontFamiliesHash::new(font_families.as_slice()))?;
-
+    let sffh_1 = StyleFontFamiliesHash::new(font_families.as_slice());
+    let sffh = app_resources.get_font_family(&sffh_1)?;
     let font_key = app_resources.get_font_key(sffh)?;
-
     let fd = app_resources.get_registered_font(font_key)?;
     let font_ref = &fd.0;
 
@@ -1069,15 +1196,20 @@ fn get_text_node(
         .get_text_color_or_default(html_node, &rect_idx, &styled_node.state);
 
     // add font to resources if not existent
-    let id = crate::FontId(format!("azul_font_family_{:032}", sffh.0));
+    let mut id = crate::FontId(format!("azul_font_family_{:032}", sffh.0));
 
     if !res.fonts.map.contains_key(&id) {
-        let font_bytes = font_ref.get_bytes();
-        let parsed_font = crate::ParsedFont::from_bytes(font_bytes.as_slice(), 0, warnings)?;
-        res.fonts.map.insert(id.clone(), parsed_font);
+        // Check if builtin font
+        if let Some(bf) = BuiltinFont::check_if_matches(&font_ref.get_data().bytes.as_slice()) {
+            id = FontId(bf.get_id().to_string());
+        } else {
+            let font_bytes = font_ref.get_bytes();
+            let parsed_font = crate::ParsedFont::from_bytes(font_bytes.as_slice(), 0, warnings)?;
+            res.fonts.map.insert(id.clone(), parsed_font);
+        }
     }
 
-    Some((inline_text, id, text_color, 0))
+    Some((inline_text, id, text_color, shaped_words.space_advance))
 }
 
 #[derive(Debug)]

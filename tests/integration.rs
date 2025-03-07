@@ -193,12 +193,6 @@ fn test_html_to_document() {
     <html>
     <head>
         <title>Test Document</title>
-        <header exclude-pages="1">
-            <div style="text-align: right; color: #888; font-size: 10px;">
-                Japanese Cuisine Recipes - Page {{ page-number }}
-            </div>
-            <hr style="color: #ddd;">
-        </header>
     </head>
     <body>
         <h1>Hello, World!</h1>

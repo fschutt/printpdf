@@ -894,24 +894,23 @@ fn escape_xml_text(text: &str) -> String {
 fn transform_point(
     point: &Point,
     ctm: &CurTransMat,
-    text_matrix: &Option<TextMatrix>,
+    text_matrix: &TextMatrix,
     page_height: f32,
 ) -> (f32, f32) {
     // First apply text matrix if present
     let (mut tx, mut ty) = (point.x.0, point.y.0);
 
-    if let Some(tm) = text_matrix {
-        let tm_array = tm.as_array();
-        let new_x = tm_array[0] * tx + tm_array[2] * ty + tm_array[4];
-        let new_y = tm_array[1] * tx + tm_array[3] * ty + tm_array[5];
-        tx = new_x;
-        ty = new_y;
-    }
-
-    // Then apply CTM
+    // Apply CTM first
     let ctm_array = ctm.as_array();
     let final_x = ctm_array[0] * tx + ctm_array[2] * ty + ctm_array[4];
     let final_y = ctm_array[1] * tx + ctm_array[3] * ty + ctm_array[5];
+
+    // Apply text matrix
+    let tm_array = text_matrix.as_array();
+    let new_x = tm_array[0] * tx + tm_array[2] * ty + tm_array[4];
+    let new_y = tm_array[1] * tx + tm_array[3] * ty + tm_array[5];
+    tx = new_x;
+    ty = new_y;
 
     // Convert to SVG coordinates (flip Y)
     (final_x, page_height - final_y)
@@ -986,7 +985,7 @@ fn render_text_items_to_svg(
     let (x, y) = transform_point(
         &cursor,
         &gst.get_transform_matrix(),
-        &gst.get_current().and_then(|gs| gs.text_matrix.clone()),
+        &gst.get_text_matrix(),
         page_height,
     );
 

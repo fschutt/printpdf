@@ -86,6 +86,10 @@ name = "bookmarks"
 required-features = []
 
 [[example]]
+name = "customfont"
+required-features = []
+
+[[example]]
 name = "graphics"
 required-features = []
 

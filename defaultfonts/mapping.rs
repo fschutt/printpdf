@@ -2613,3 +2613,22 @@ const FONTS: &[(usize, u16, u16, char);2613] = &[
     (13, 110, 4, '{'),
     (13, 111, 5, '}'),
 ];
+fn match_len(bytes: &[u8]) -> Option<BuiltinFont> {
+match bytes.len() {
+79140 => Some(BuiltinFont::TimesRoman),
+78276 => Some(BuiltinFont::TimesBold),
+64624 => Some(BuiltinFont::TimesItalic),
+70956 => Some(BuiltinFont::TimesBoldItalic),
+43952 => Some(BuiltinFont::Helvetica),
+44572 => Some(BuiltinFont::HelveticaBold),
+59200 => Some(BuiltinFont::HelveticaOblique),
+34060 => Some(BuiltinFont::HelveticaBoldOblique),
+71620 => Some(BuiltinFont::Courier),
+79348 => Some(BuiltinFont::CourierOblique),
+83560 => Some(BuiltinFont::CourierBold),
+32964 => Some(BuiltinFont::CourierBoldOblique),
+9576 => Some(BuiltinFont::Symbol),
+5160 => Some(BuiltinFont::ZapfDingbats),
+_ => None,
+}
+}

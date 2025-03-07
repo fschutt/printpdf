@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use printpdf::*;
 
 const WIN_1252: &[char; 214] = &[
@@ -78,9 +80,11 @@ fn main() {
     let charmap = WIN_1252.iter().copied().collect();
     let mut target_map = vec![];
 
+    let mut tm2 = BTreeMap::new();
     for (name, bytes) in FONTS {
         let font = ParsedFont::from_bytes(bytes, 0, &mut Vec::new()).unwrap();
         let subset = font.subset_simple(&charmap).unwrap();
+        tm2.insert(name.clone(), subset.bytes.len());
         let _ = std::fs::write(
             format!(
                 "{}/defaultfonts/{}.subset.ttf",
@@ -110,6 +114,16 @@ fn main() {
     )];
     tm.append(&mut target_map);
     tm.push("];".to_string());
+
+    tm.push("fn match_len(bytes: &[u8]) -> Option<BuiltinFont> {".to_string());
+    tm.push("match bytes.len() {".to_string());
+    for (f, b) in tm2.iter() {
+        tm.push(format!("{b} => Some(BuiltinFont::{f:?}),"));
+    }
+    tm.push("_ => None,".to_string());
+    tm.push("}".to_string());
+    tm.push("}".to_string());
+
 
     let _ = std::fs::write(
         format!("{}/defaultfonts/mapping.rs", env!("CARGO_MANIFEST_DIR")),
