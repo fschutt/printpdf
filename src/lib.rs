@@ -329,9 +329,9 @@ impl PdfDocument {
         options: &GeneratePdfOptions,
         warnings: &mut Vec<PdfWarnMsg>,
     ) -> Result<Self, String> {
-        let (_xml, mut pdf, opts) = html_to_document_inner(html, images, fonts, options, warnings)?;
-        println!("generated xml: {_xml}");
-        let pages = crate::html::xml_to_pages(html, opts, &mut pdf, warnings)?;
+        let (xml, mut pdf, opts) = html_to_document_inner(html, images, fonts, options, warnings)?;
+        println!("generated xml: {xml}");
+        let pages = crate::html::xml_to_pages(&xml, opts, &mut pdf, warnings)?;
         pdf.with_pages(pages);
         Ok(pdf)
     }

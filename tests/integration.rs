@@ -1,13 +1,11 @@
 // tests/wasm_api_tests.rs
 
+use std::collections::BTreeMap;
+
 use printpdf::{
-    BuiltinFont, Color, Line, LinePoint, Mm, Op, PaintMode, PdfDocument, PdfPage, PdfParseOptions,
-    PdfResources, PdfSaveOptions, PdfToSvgOptions, Point, Polygon, PolygonRing, Pt, Rgb, TextItem,
-    WindingOrder, XObjectId, XObjectTransform,
     wasm::structs::{
-        DocumentToBytesInput, HtmlToDocumentInput, ResourcesForPageInput, document_to_bytes,
-        html_to_document, resources_for_page,
-    },
+        document_to_bytes, html_to_document, resources_for_page, DocumentToBytesInput, HtmlToDocumentInput, ResourcesForPageInput
+    }, BuiltinFont, Color, GeneratePdfOptions, Line, LinePoint, Mm, Op, PaintMode, PdfDocument, PdfPage, PdfParseOptions, PdfResources, PdfSaveOptions, PdfToSvgOptions, Point, Polygon, PolygonRing, Pt, Rgb, TextItem, WindingOrder, XObjectId, XObjectTransform
 };
 
 #[test]
@@ -195,6 +193,12 @@ fn test_html_to_document() {
     <html>
     <head>
         <title>Test Document</title>
+        <header exclude-pages="1">
+            <div style="text-align: right; color: #888; font-size: 10px;">
+                Japanese Cuisine Recipes - Page {{ page-number }}
+            </div>
+            <hr style="color: #ddd;">
+        </header>
     </head>
     <body>
         <h1>Hello, World!</h1>
@@ -203,17 +207,25 @@ fn test_html_to_document() {
     </html>
     "#;
 
-    // Prepare input for API
-    let input = HtmlToDocumentInput {
-        html: html.to_string(),
-        ..Default::default()
+    let images = BTreeMap::default();
+    let fonts = BTreeMap::default();
+    let options = GeneratePdfOptions {
+        page_height: Some(210.0),
+        page_width: Some(297.0),
+        font_embedding: Some(true),
+        image_optimization: Some(printpdf::ImageOptimizationOptions::default()),
     };
-
-    let output = html_to_document(input)
+    let mut warnings = Vec::new();
+    let output = PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnings)
         .map_err(|e| {
             println!("HTML to PDF conversion failed or not supported: {e:?}");
+            for w in warnings {
+                println!("WARN: {:?}", w);
+            }
         })
         .unwrap();
 
-    assert!(!output.doc.pages.is_empty());
+    std::fs::write("./htmltest.pdf", output.save(&PdfSaveOptions::default(), &mut Vec::new()));
+    
+    assert!(!output.pages.is_empty());
 }

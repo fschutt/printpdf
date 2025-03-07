@@ -155,6 +155,7 @@ pub(crate) fn html_to_document_inner(
     options: &GeneratePdfOptions,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> Result<(String, PdfDocument, crate::XmlRenderOptions), String> {
+
     // Transform HTML to XML with extracted configuration
     let (transformed_xml, config) = crate::html::process_html_for_rendering(html);
 
@@ -229,9 +230,6 @@ fn xml_to_pages_inner(
 
     // inserts images into the PDF resources and changes the src="..."
     let xml = fixup_xml(file_contents, document, &config, warnings);
-    println!("---");
-    println!("{xml}");
-    println!("---");
     let root_nodes =
         azulc_lib::xml::parse_xml_string(&xml).map_err(|e| format!("Error parsing XML: {}", e))?;
 
@@ -331,6 +329,8 @@ fn xml_to_pages_inner(
         &mut renderer_resources,
     );
 
+    println!("layout: {:#?}", layout.rects);
+
     // Break layout into pages using the pagination module
     let paginated_pages = azul_core::pagination::paginate_layout_result(
         &layout.styled_dom.node_hierarchy.as_container(),
@@ -355,6 +355,8 @@ fn xml_to_pages_inner(
             PdfPage::new(config.page_width, config.page_height, ops)
         })
         .collect();
+
+    println!("pages: {:#?}", pages);
 
     Ok(pages)
 }
@@ -1272,7 +1274,7 @@ fn serialize_to_xml(document: &NodeRef) -> String {
                     xml.push_str("<style>");
                     xml.push_str(&child.text_contents());
                     xml.push_str("</style>");
-                }
+                },
                 Some("component") => {
                     // Serialize component with all attributes
                     xml.push_str(&serialize_element(&child));
@@ -1672,6 +1674,7 @@ pub fn inline_all_css(document: &NodeRef) {
 
 /// Clean up HTML by removing elements that can't be rendered
 pub fn clean_html_for_rendering(document: &NodeRef) {
+
     let non_renderable_elements = [
         "script", "noscript", "iframe", "canvas", "audio", "video", "source", "track", "embed",
         "object", "param", "picture",
@@ -1686,9 +1689,14 @@ pub fn clean_html_for_rendering(document: &NodeRef) {
 
 /// Main function to process HTML for rendering
 pub fn process_html_for_rendering(html: &str) -> (String, HtmlExtractedConfig) {
+    
     // First, inline all CSS
     let document = kuchiki::parse_html().one(html);
+
+    let config = extract_config(&document);
+
     clean_html_for_rendering(&document);
+    
     inline_all_css(&document);
 
     let mut bytes = Vec::new();
@@ -1697,7 +1705,7 @@ pub fn process_html_for_rendering(html: &str) -> (String, HtmlExtractedConfig) {
 
     // Extract configuration
     let document = kuchiki::parse_html().one(html);
-    let config = extract_config(&document);
+
 
     (serialize_to_xml(&document), config)
 }
