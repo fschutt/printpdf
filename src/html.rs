@@ -33,7 +33,8 @@ use serde_derive::{Deserialize, Serialize};
 use svg2pdf::usvg::tiny_skia_path::Scalar;
 
 use crate::{
-    BuiltinFont, Mm, Op, PdfDocument, PdfPage, PdfResources, PdfWarnMsg, Pt, components::ImageInfo,
+    Base64OrRaw, BuiltinFont, GeneratePdfOptions, Mm, Op, PdfDocument, PdfPage, PdfResources,
+    PdfWarnMsg, Pt, components::ImageInfo,
 };
 
 const DPI_SCALE: DpiScaleFactor = DpiScaleFactor {
@@ -59,6 +60,40 @@ pub struct XmlRenderOptions {
     pub page_height: Mm,
     #[serde(default, skip)]
     pub components: Vec<XmlComponent>,
+}
+
+// PartialEq implementation
+impl PartialEq for XmlRenderOptions {
+    fn eq(&self, other: &Self) -> bool {
+        self.images == other.images
+            && self.fonts == other.fonts
+            && self.page_width == other.page_width
+            && self.page_height == other.page_height
+            && self.components.len() == other.components.len()
+    }
+}
+
+// PartialOrd implementation
+impl PartialOrd for XmlRenderOptions {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match self.images.partial_cmp(&other.images) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+        match self.fonts.partial_cmp(&other.fonts) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+        match self.page_width.partial_cmp(&other.page_width) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+        match self.page_height.partial_cmp(&other.page_height) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+        Some(std::cmp::Ordering::Equal)
+    }
 }
 
 fn default_page_width() -> Mm {
@@ -113,6 +148,51 @@ pub(crate) async fn xml_to_pages_async(
     )
 }
 
+pub(crate) fn html_to_document_inner(
+    html: &str,
+    images: &BTreeMap<String, Base64OrRaw>,
+    fonts: &BTreeMap<String, Base64OrRaw>,
+    options: &GeneratePdfOptions,
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> Result<(String, PdfDocument, crate::XmlRenderOptions), String> {
+    // Transform HTML to XML with extracted configuration
+    let (transformed_xml, config) = crate::html::process_html_for_rendering(html);
+
+    // Create document with title from input or extracted from HTML
+    let title = config.title.clone().unwrap_or_default();
+
+    let mut pdf = crate::PdfDocument::new(&title);
+
+    // Prepare rendering options
+    let mut opts = crate::html::XmlRenderOptions {
+        page_width: Mm(options.page_width.unwrap_or(210.0)),
+        page_height: Mm(options.page_height.unwrap_or(297.0)),
+        images: images
+            .iter()
+            .filter_map(|(k, v)| Some((k.clone(), v.decode_bytes().ok()?)))
+            .collect(),
+        fonts: fonts
+            .iter()
+            .filter_map(|(k, v)| Some((k.clone(), v.decode_bytes().ok()?)))
+            .collect(),
+        components: Vec::new(),
+    };
+
+    // Apply configuration from HTML to document and options
+    crate::html::apply_html_config(&mut pdf, &config, &mut opts);
+
+    // Register component nodes extracted from HTML
+    for component_node in config.components {
+        opts.components.push(azul_core::xml::XmlComponent {
+            id: component_node.name.clone(),
+            renderer: Box::new(component_node),
+            inherit_vars: false,
+        });
+    }
+
+    Ok((transformed_xml, pdf, opts))
+}
+
 pub(crate) fn xml_to_pages(
     file_contents: &str,
     config: XmlRenderOptions,
@@ -149,6 +229,9 @@ fn xml_to_pages_inner(
 
     // inserts images into the PDF resources and changes the src="..."
     let xml = fixup_xml(file_contents, document, &config, warnings);
+    println!("---");
+    println!("{xml}");
+    println!("---");
     let root_nodes =
         azulc_lib::xml::parse_xml_string(&xml).map_err(|e| format!("Error parsing XML: {}", e))?;
 
@@ -165,6 +248,8 @@ fn xml_to_pages_inner(
         Some(config.page_width.into_pt().0),
     )
     .map_err(|e| format!("Error constructing DOM: {}", e.to_string()))?;
+
+    println!("styled dom: {}", styled_dom.get_html_string("", "", true));
 
     let mut fake_window_state = FullWindowState::default();
     fake_window_state.size.dimensions = size;
@@ -332,12 +417,12 @@ fn fixup_xml(
     config: &XmlRenderOptions,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> String {
-    let s = if !s.contains("<body>") {
+    let s = if !s.contains("<body") {
         format!("<body>{s}</body>")
     } else {
         s.trim().to_string()
     };
-    let s = if !s.contains("<html>") {
+    let s = if !s.contains("<html") {
         format!("<html>{s}</html>")
     } else {
         s.trim().to_string()

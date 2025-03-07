@@ -65,6 +65,96 @@ pub use deserialize::{PdfParseOptions, PdfWarnMsg};
 pub(crate) mod render;
 pub use render::PdfToSvgOptions;
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct GeneratePdfOptions {
+    /// Whether to embed fonts in the PDF (default: true)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_embedding: Option<bool>,
+    /// Page width in mm, default 210.0
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_width: Option<f32>,
+    /// Page height in mm, default 297.0
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_height: Option<f32>,
+    /// Settings for automatic image optimization when saving PDF files
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_optimization: Option<ImageOptimizationOptions>,
+}
+
+impl Default for GeneratePdfOptions {
+    fn default() -> Self {
+        Self {
+            font_embedding: Some(true),
+            page_width: Some(210.0),
+            page_height: Some(297.0),
+            image_optimization: None,
+        }
+    }
+}
+
+impl GeneratePdfOptions {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// Base64 is necessary because there are a lot of JS issues surrounding
+/// `ArrayBuffer` / `Uint8Buffer` / `ByteArray` type mismatches, so a simple
+/// `atob` / `btoa` fixes that at the cost of slight performance decrease.
+///
+/// Note: this enum is untagged, so from JS you can pass in either the base64 bytes
+/// or the bytearray and it'll work.
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[serde(untagged)]
+pub enum Base64OrRaw {
+    /// Base64 string, usually tagged with
+    B64(String),
+    /// Raw bytes
+    Raw(Vec<u8>),
+}
+
+impl Default for Base64OrRaw {
+    fn default() -> Self {
+        Base64OrRaw::Raw(Vec::new())
+    }
+}
+
+impl Base64OrRaw {
+    // Decodes the bytes if base64 and also gets rid of the "data:...;base64," prefix
+    pub fn decode_bytes(&self) -> Result<Vec<u8>, String> {
+        use base64::Engine;
+        match self {
+            Base64OrRaw::B64(r) => base64::prelude::BASE64_STANDARD
+                .decode(get_base64_substr(r))
+                .map_err(|e| e.to_string()),
+            Base64OrRaw::Raw(r) => Ok(r.clone()),
+        }
+    }
+}
+
+fn get_base64_substr(input: &str) -> &str {
+    // Check if the input starts with "data:" and contains a comma.
+    if input.starts_with("data:") {
+        if let Some(comma_index) = input.find(',') {
+            // Optionally, verify that the metadata contains "base64"
+            let metadata = &input[..comma_index];
+            if metadata.contains("base64") {
+                // Return the portion after the comma
+                &input[comma_index + 1..]
+            } else {
+                // If not marked as base64, assume the whole string is encoded
+                input
+            }
+        } else {
+            // No comma found; fall back to using the entire string
+            input
+        }
+    } else {
+        // Not a data URL, so use the string as-is
+        input
+    }
+}
+
 /// Internal ID for page annotations
 #[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -132,7 +222,7 @@ impl IccProfileId {
 }
 
 /// Parsed PDF document
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PdfDocument {
     /// Metadata about the document (author, info, XMP metadata, etc.)
@@ -232,23 +322,32 @@ impl PdfDocument {
 
     /// Renders HTML to pages
     #[cfg(feature = "html")]
-    pub fn html_to_pages(
-        &mut self,
+    pub fn from_html(
         html: &str,
-        config: XmlRenderOptions,
+        images: &BTreeMap<String, Base64OrRaw>,
+        fonts: &BTreeMap<String, Base64OrRaw>,
+        options: &GeneratePdfOptions,
         warnings: &mut Vec<PdfWarnMsg>,
-    ) -> Result<Vec<PdfPage>, String> {
-        crate::html::xml_to_pages(html, config, self, warnings)
+    ) -> Result<Self, String> {
+        let (_xml, mut pdf, opts) = html_to_document_inner(html, images, fonts, options, warnings)?;
+        println!("generated xml: {_xml}");
+        let pages = crate::html::xml_to_pages(html, opts, &mut pdf, warnings)?;
+        pdf.with_pages(pages);
+        Ok(pdf)
     }
 
     #[cfg(feature = "html")]
-    pub async fn html_to_pages_async(
-        &mut self,
+    pub async fn from_html_async(
         html: &str,
-        config: XmlRenderOptions,
+        images: &BTreeMap<String, Base64OrRaw>,
+        fonts: &BTreeMap<String, Base64OrRaw>,
+        options: &GeneratePdfOptions,
         warnings: &mut Vec<PdfWarnMsg>,
-    ) -> Result<Vec<PdfPage>, String> {
-        crate::html::xml_to_pages_async(html, config, self, warnings).await
+    ) -> Result<Self, String> {
+        let (_xml, mut pdf, opts) = html_to_document_inner(html, images, fonts, options, warnings)?;
+        let pages = crate::html::xml_to_pages_async(html, opts, &mut pdf, warnings).await?;
+        pdf.with_pages(pages);
+        Ok(pdf)
     }
 
     /// Renders a PDF Page into an SVG String. Returns `None` on an invalid page number
@@ -353,7 +452,7 @@ pub struct ExtendedGraphicsStateMap {
 
 /// This is a wrapper in order to keep shared data between the documents XMP metadata and
 /// the "Info" dictionary in sync
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PdfMetadata {
     /// Document information

@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html title="Q1 2025 Financial Performance Report">
+    <head>
+        <style>
+            body {
+                font-family: 'Arial', sans-serif;
+                color: #333;
+                line-height: 1.5;
+                padding: 15mm;
+            }
+            h1 {
+                color: #1a5276;
+                border-bottom: 2px solid #1a5276;
+                padding-bottom: 5px;
+            }
+            h2 {
+                color: #2874a6;
+                margin-top: 15mm;
+            }
+            h3 {
+                color: #3498db;
+            }
+            .executive-summary {
+                background-color: #f8f9fa;
+                border-left: 5px solid #2874a6;
+                padding: 10px;
+                margin: 15px 0;
+            }
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                margin: 15px 0;
+            }
+            th {
+                background-color: #1a5276;
+                color: white;
+                font-weight: bold;
+                text-align: left;
+                padding: 8px;
+                border: 1px solid #ddd;
+            }
+            td {
+                padding: 8px;
+                border: 1px solid #ddd;
+            }
+            tr:nth-child(even) {
+                background-color: #f2f2f2;
+            }
+            .highlight {
+                background-color: #e8f4f8;
+                padding: 5px;
+                border-radius: 3px;
+            }
+            .chart-container {
+                text-align: center;
+                margin: 20px 0;
+            }
+            .footer-note {
+                font-size: 10px;
+                color: #777;
+                font-style: italic;
+                text-align: center;
+                margin-top: 10mm;
+            }
+            .kpi-cards {
+                display: flex;
+                justify-content: space-between;
+                margin: 20px 0;
+            }
+            .kpi-card {
+                width: 30%;
+                padding: 15px;
+                border-radius: 5px;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+                text-align: center;
+            }
+            .positive {
+                color: #27ae60;
+                font-weight: bold;
+            }
+            .negative {
+                color: #c0392b;
+                font-weight: bold;
+            }
+            .neutral {
+                color: #f39c12;
+                font-weight: bold;
+            }
+        </style>
+        
+        <header exclude-pages="1">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>ACME Corporation</div>
+                <div>Q1 2025 Financial Report - Page <page-number/></div>
+            </div>
+            <hr>
+        </header>
+        
+        <footer>
+            <hr>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>Confidential & Proprietary</div>
+                <div>© 2025 ACME Corporation</div>
+            </div>
+        </footer>
+    </head>
+    <body>
+        <div style="text-align: center; margin-bottom: 20mm;">
+            <h1 style="font-size: 24px; border: none;">ACME CORPORATION</h1>
+            <h2 style="font-size: 20px; margin-top: 5px;">Q1 2025 Financial Performance Report</h2>
+            <p style="font-style: italic;">Prepared for: Board of Directors and Shareholders</p>
+            <p>March 31, 2025</p>
+        </div>
+        
+        <div class="executive-summary">
+            <h3>Executive Summary</h3>
+            <p>ACME Corporation delivered strong financial performance in Q1 2025, with revenue growth of 12.3% year-over-year, exceeding our forecast of 10%. Operating margins improved by 2.1 percentage points to 18.5%, driven by operational efficiencies and strategic pricing initiatives. Our Technology segment continues to be the primary growth driver, while the Consumer Products division showed signs of recovery after two challenging quarters.</p>
+        </div>
+        
+        <h2>Key Performance Indicators</h2>
+        
+        <div class="kpi-cards">
+            <div class="kpi-card" style="background-color: #e8f8f5;">
+                <h3>Revenue</h3>
+                <p style="font-size: 24px;">$287.5M</p>
+                <p class="positive">+12.3% YoY</p>
+            </div>
+            
+            <div class="kpi-card" style="background-color: #fef9e7;">
+                <h3>Operating Margin</h3>
+                <p style="font-size: 24px;">18.5%</p>
+                <p class="positive">+2.1pts YoY</p>
+            </div>
+            
+            <div class="kpi-card" style="background-color: #ebf5fb;">
+                <h3>Net Income</h3>
+                <p style="font-size: 24px;">$42.3M</p>
+                <p class="positive">+15.7% YoY</p>
+            </div>
+        </div>
+        
+        <h2>Financial Performance by Segment</h2>
+        
+        <table>
+            <tr>
+                <th>Business Unit</th>
+                <th>Revenue ($M)</th>
+                <th>YoY Growth</th>
+                <th>Operating Margin</th>
+                <th>YoY Change</th>
+            </tr>
+            <tr>
+                <td>Technology</td>
+                <td>143.2</td>
+                <td class="positive">+18.7%</td>
+                <td>24.3%</td>
+                <td class="positive">+3.2pts</td>
+            </tr>
+            <tr>
+                <td>Manufacturing</td>
+                <td>82.5</td>
+                <td class="positive">+8.4%</td>
+                <td>15.8%</td>
+                <td class="positive">+1.5pts</td>
+            </tr>
+            <tr>
+                <td>Consumer Products</td>
+                <td>45.3</td>
+                <td class="positive">+5.2%</td>
+                <td>12.1%</td>
+                <td class="positive">+0.8pts</td>
+            </tr>
+            <tr>
+                <td>Services</td>
+                <td>16.5</td>
+                <td class="neutral">+2.1%</td>
+                <td>14.5%</td>
+                <td class="negative">-0.5pts</td>
+            </tr>
+        </table>
+        
+        <div class="chart-container">
+            <img src="revenue_chart.png" alt="Revenue by Segment" style="width: 80%; max-width: 600px;"></img>
+            <p style="font-size: 12px; color: #777;">Revenue distribution by business segment, Q1 2025</p>
+        </div>
+        
+        <h2>Financial Statement Highlights</h2>
+        
+        <h3>Income Statement</h3>
+        <table>
+            <tr>
+                <th>Metric ($M)</th>
+                <th>Q1 2025</th>
+                <th>Q1 2024</th>
+                <th>YoY Change</th>
+            </tr>
+            <tr>
+                <td>Revenue</td>
+                <td>287.5</td>
+                <td>256.0</td>
+                <td class="positive">+12.3%</td>
+            </tr>
+            <tr>
+                <td>Gross Profit</td>
+                <td>143.8</td>
+                <td>122.9</td>
+                <td class="positive">+17.0%</td>
+            </tr>
+            <tr>
+                <td>Operating Income</td>
+                <td>53.2</td>
+                <td>42.0</td>
+                <td class="positive">+26.7%</td>
+            </tr>
+            <tr>
+                <td>Net Income</td>
+                <td>42.3</td>
+                <td>36.6</td>
+                <td class="positive">+15.7%</td>
+            </tr>
+            <tr>
+                <td>EPS (Diluted)</td>
+                <td>$2.15</td>
+                <td>$1.87</td>
+                <td class="positive">+15.0%</td>
+            </tr>
+        </table>
+        
+        <h3>Balance Sheet Highlights</h3>
+        <table>
+            <tr>
+                <th>Metric ($M)</th>
+                <th>Mar 31, 2025</th>
+                <th>Dec 31, 2024</th>
+                <th>Change</th>
+            </tr>
+            <tr>
+                <td>Cash & Equivalents</td>
+                <td>175.3</td>
+                <td>156.8</td>
+                <td class="positive">+11.8%</td>
+            </tr>
+            <tr>
+                <td>Total Assets</td>
+                <td>842.7</td>
+                <td>825.4</td>
+                <td class="positive">+2.1%</td>
+            </tr>
+            <tr>
+                <td>Total Debt</td>
+                <td>215.0</td>
+                <td>230.0</td>
+                <td class="positive">-6.5%</td>
+            </tr>
+            <tr>
+                <td>Shareholders' Equity</td>
+                <td>498.4</td>
+                <td>462.1</td>
+                <td class="positive">+7.9%</td>
+            </tr>
+        </table>
+        
+        <div style="page-break-before: always;">
+            <h2>Market Analysis & Outlook</h2>
+            
+            <p>The global market environment remains favorable for our core business segments, despite ongoing geopolitical uncertainties and supply chain challenges. Technology spending continues to show resilience, particularly in digital transformation initiatives and cloud migration projects, which aligns with our strategic focus areas.</p>
+            
+            <div class="highlight">
+                <h3>Key Market Trends</h3>
+                <ul>
+                    <li><strong>AI Integration:</strong> Increasing demand for AI-powered solutions across industries, particularly in process automation and analytics.</li>
+                    <li><strong>Sustainability:</strong> Growing customer preference for eco-friendly products and services, creating new opportunities in our Manufacturing and Consumer Products segments.</li>
+                    <li><strong>Digital Experience:</strong> Continued investment in enhanced digital experiences, benefiting our Technology and Services divisions.</li>
+                </ul>
+            </div>
+            
+            <h3>FY 2025 Guidance</h3>
+            
+            <table>
+                <tr>
+                    <th>Metric</th>
+                    <th>Previous Guidance</th>
+                    <th>Updated Guidance</th>
+                </tr>
+                <tr>
+                    <td>Revenue Growth</td>
+                    <td>9-11%</td>
+                    <td class="positive">10-12%</td>
+                </tr>
+                <tr>
+                    <td>Operating Margin</td>
+                    <td>17.5-18.5%</td>
+                    <td class="positive">18.0-19.0%</td>
+                </tr>
+                <tr>
+                    <td>EPS (Diluted)</td>
+                    <td>$8.50-$8.75</td>
+                    <td class="positive">$8.75-$9.00</td>
+                </tr>
+                <tr>
+                    <td>Free Cash Flow ($M)</td>
+                    <td>$130-$140</td>
+                    <td class="positive">$140-$150</td>
+                </tr>
+            </table>
+            
+            <h2>Strategic Initiatives Update</h2>
+            
+            <h3>Digital Transformation Program</h3>
+            <p>Our enterprise-wide digital transformation initiative is progressing on schedule and within budget. Key achievements in Q1 include:</p>
+            <ul>
+                <li>Deployment of advanced analytics platform across 75% of business units, exceeding our target of 65%</li>
+                <li>Successful migration of core ERP modules to cloud infrastructure, reducing operational costs by approximately $3.2M annually</li>
+                <li>Launch of AI-powered customer service platform, improving response times by 35%</li>
+            </ul>
+            
+            <h3>Product Innovation</h3>
+            <p>R&D investments continue to yield positive results, with several new product launches planned for Q2 and Q3. Our innovation pipeline remains strong, with 28 active development projects across all business segments.</p>
+            
+            <div class="chart-container">
+                <img src="pipeline_chart.png" alt="Innovation Pipeline" style="width: 80%; max-width: 600px;"></img>
+                <p style="font-size: 12px; color: #777;">Innovation pipeline by development stage and business segment</p>
+            </div>
+            
+            <div class="footer-note">
+                <p>This report contains forward-looking statements based on current expectations and projections about future events. These statements are subject to risks and uncertainties that could cause actual results to differ materially from those projected.</p>
+            </div>
+        </div>
+    </body>
+</html>

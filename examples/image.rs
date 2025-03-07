@@ -44,7 +44,7 @@ fn main() {
     let bytes = doc
         .with_pages(vec![page])
         .save(&PdfSaveOptions::default(), &mut Vec::new());
-    
+
     std::fs::write("./image_example.pdf", bytes).unwrap();
     println!("Created image_example.pdf");
 }

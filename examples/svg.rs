@@ -11,7 +11,7 @@ fn main() {
     // Parse and add the tiger SVG
     let tiger_svg = Svg::parse(SVG, &mut Vec::new()).unwrap();
     let tiger_id = doc.add_xobject(&tiger_svg);
-    
+
     // Add the tiger SVG to the page
     ops.push(Op::UseXobject {
         id: tiger_id.clone(),
@@ -27,7 +27,7 @@ fn main() {
     // Parse and add the camera SVG
     let camera_svg = Svg::parse(CAMERA_SVG, &mut Vec::new()).unwrap();
     let camera_id = doc.add_xobject(&camera_svg);
-    
+
     // Add the camera SVG to the page
     ops.push(Op::UseXobject {
         id: camera_id.clone(),
@@ -46,13 +46,15 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(40.0)),
         },
-        Op::SetFontSizeBuiltinFont { 
-            size: Pt(12.0), 
-            font: BuiltinFont::Helvetica 
+        Op::SetFontSizeBuiltinFont {
+            size: Pt(12.0),
+            font: BuiltinFont::Helvetica,
         },
-        Op::WriteTextBuiltinFont { 
-            items: vec![TextItem::Text("This PDF demonstrates embedding SVGs as vector graphics".to_string())], 
-            font: BuiltinFont::Helvetica 
+        Op::WriteTextBuiltinFont {
+            items: vec![TextItem::Text(
+                "This PDF demonstrates embedding SVGs as vector graphics".to_string(),
+            )],
+            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
     ]);
@@ -64,7 +66,7 @@ fn main() {
     let bytes = doc
         .with_pages(vec![page])
         .save(&PdfSaveOptions::default(), &mut Vec::new());
-    
+
     std::fs::write("./svg_example.pdf", bytes).unwrap();
     println!("Created svg_example.pdf");
 }

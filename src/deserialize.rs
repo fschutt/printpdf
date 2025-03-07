@@ -14,11 +14,11 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::{
     BuiltinFont, BuiltinOrExternalFontId, Color, DictItem, ExtendedGraphicsState,
-    ExtendedGraphicsStateId, ExtendedGraphicsStateMap, FontId, LayerInternalId,
-    Line, LineDashPattern, LinePoint, Op, PageAnnotId, PageAnnotMap, PaintMode, ParsedFont,
-    PdfDocument, PdfDocumentInfo, PdfFontMap, PdfLayerMap, PdfMetadata, PdfPage, PdfResources,
-    Point, Polygon, PolygonRing, Pt, RawImage, RenderingIntent, TextItem, TextMatrix,
-    TextRenderingMode, WindingOrder, XObject, XObjectId, XObjectMap,
+    ExtendedGraphicsStateId, ExtendedGraphicsStateMap, FontId, LayerInternalId, Line,
+    LineDashPattern, LinePoint, Op, PageAnnotId, PageAnnotMap, PaintMode, ParsedFont, PdfDocument,
+    PdfDocumentInfo, PdfFontMap, PdfLayerMap, PdfMetadata, PdfPage, PdfResources, Point, Polygon,
+    PolygonRing, Pt, RawImage, RenderingIntent, TextItem, TextMatrix, TextRenderingMode,
+    WindingOrder, XObject, XObjectId, XObjectMap,
     cmap::ToUnicodeCMap,
     conformance::PdfConformance,
     date::{OffsetDateTime, UtcOffset},
@@ -2449,7 +2449,7 @@ pub fn parse_op(
                 }
             }
         }
-        
+
         // --- XObjects: /Do ---
         "Do" => {
             if let Some(name_str) = as_name(&op.operands.get(0).unwrap_or(&lopdf::Object::Null)) {

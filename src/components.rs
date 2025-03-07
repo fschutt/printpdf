@@ -96,7 +96,6 @@ impl XmlComponentTrait for SpanRenderer {
     }
 }
 
-
 /// Render for a `body` component
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BodyRenderer {
