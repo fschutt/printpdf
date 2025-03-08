@@ -1249,7 +1249,6 @@ pub(crate) fn image_to_stream(
 
     let (rgb8, alpha) = split_rawimage_into_rgb_plus_alpha(im);
     let (bpc, cs) = rgb8.data_format.get_color_bits_and_space();
-    let bbox = crate::CurTransMat::Identity;
     let interpolate = false;
 
     let mut dict = lopdf::Dictionary::from_iter(vec![
@@ -1260,10 +1259,6 @@ pub(crate) fn image_to_stream(
         ("BitsPerComponent", Integer(bpc.as_integer())),
         ("ColorSpace", Name(cs.as_string().into())),
         ("Interpolate", interpolate.into()),
-        (
-            "BBox",
-            Array(bbox.as_array().iter().copied().map(Real).collect()),
-        ),
     ]);
 
     // Apply compression filter based on options
