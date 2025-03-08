@@ -42,6 +42,7 @@ azul-core = {  git = "https://github.com/fschutt/azul", rev = "84ed85b4276614809
 azul-layout = {  git = "https://github.com/fschutt/azul", rev = "84ed85b427661480994337506608e79690d187f8", default-features = false, features = ["std", "text_layout"], optional = true }
 azul-text-layout = {  git = "https://github.com/fschutt/azul", rev = "84ed85b427661480994337506608e79690d187f8", default-features = false, optional = true }
 azulc = {  git = "https://github.com/fschutt/azul", rev = "84ed85b427661480994337506608e79690d187f8", default-features = false, features = ["std", "xml", "text_layout", "font_loading"], optional = true }
+weezl = "0.1.8"
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 wasm-bindgen = { version = "0.2" }
