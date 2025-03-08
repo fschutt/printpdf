@@ -25,5 +25,5 @@ fn main() {
             ],
         )])
         .save(&PdfSaveOptions::default(), &mut Vec::new());
-    std::fs::write("./mini.pdf", bytes);
+    let _ = std::fs::write("./mini.pdf", bytes);
 }

@@ -837,7 +837,7 @@ fn render_to_svg_internal(
     }
 
     // Close any remaining open groups
-    for group_type in current_svg_group.iter().rev() {
+    for _group_type in current_svg_group.iter().rev() {
         svg.push_str("</g>");
     }
 

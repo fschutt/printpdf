@@ -855,7 +855,7 @@ impl PreparedFont {
 
         let new_glyph_ids = glyph_ids
             .iter()
-            .filter_map(|(ogid, ch)| subset_font.glyph_mapping.get(ogid).cloned())
+            .filter_map(|(ogid, _ch)| subset_font.glyph_mapping.get(ogid).cloned())
             .collect();
 
         let font = ParsedFont::from_bytes(&subset_font.bytes, 0, warnings)?;
@@ -1377,6 +1377,7 @@ mod tests {
         }
     }
 
+    #[test]
     fn test_encode_text_with_subset_font() {
         // Create mapping: 'A' -> original GID 65 -> subset GID 1
         //                 'B' -> original GID 66 -> subset GID 2

@@ -15,11 +15,11 @@ use serde_derive::{Deserialize, Serialize};
 use crate::{
     BuiltinFont, BuiltinOrExternalFontId, Color, DictItem, ExtendedGraphicsState,
     ExtendedGraphicsStateId, ExtendedGraphicsStateMap, FontId, LayerInternalId, Line,
-    LineDashPattern, LinePoint, Op, PageAnnotId, PageAnnotMap, PaintMode, ParsedFont, PdfDocument,
-    PdfDocumentInfo, PdfFontMap, PdfLayerMap, PdfMetadata, PdfPage, PdfResources, Point, Polygon,
-    PolygonRing, Pt, RawImage, RenderingIntent, TextItem, TextMatrix, TextRenderingMode,
-    WindingOrder, XObject, XObjectId, XObjectMap,
-    cmap::{ToUnicodeCMap},
+    LineDashPattern, LinePoint, LinkAnnotation, Op, PageAnnotId, PageAnnotMap, PaintMode,
+    ParsedFont, PdfDocument, PdfDocumentInfo, PdfFontMap, PdfLayerMap, PdfMetadata, PdfPage,
+    PdfResources, Point, Polygon, PolygonRing, Pt, RawImage, RenderingIntent, TextItem, TextMatrix,
+    TextRenderingMode, WindingOrder, XObject, XObjectId, XObjectMap,
+    cmap::ToUnicodeCMap,
     conformance::PdfConformance,
     date::{OffsetDateTime, UtcOffset},
 };
@@ -82,11 +82,12 @@ struct InitialPdf {
     objs_to_search_for_resources: Vec<(Object, Option<usize>)>,
     page_refs: Vec<(u32, u16)>,
     document_info: PdfDocumentInfo,
+    link_annots: Vec<LinkAnnotation>,
 }
 
 fn parse_pdf_from_bytes_start(
     bytes: &[u8],
-    opts: &PdfParseOptions,
+    _opts: &PdfParseOptions,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> Result<InitialPdf, String> {
     // Load the PDF document using lopdf.
@@ -169,11 +170,14 @@ fn parse_pdf_from_bytes_start(
         .map(|s| parse_document_info(s))
         .unwrap_or_default();
 
+    let link_annots = links_and_bookmarks::extract_link_annotations(&doc);
+
     Ok(InitialPdf {
         doc,
         objs_to_search_for_resources,
         page_refs,
         document_info,
+        link_annots,
     })
 }
 
@@ -210,7 +214,7 @@ pub async fn parse_pdf_from_bytes_async(
 
 fn parse_pdf_from_bytes_end(
     initial_pdf: InitialPdf,
-    opts: &PdfParseOptions,
+    _opts: &PdfParseOptions,
     fonts: BTreeMap<BuiltinOrExternalFontId, ParsedOrBuiltinFont>,
     xobjects: BTreeMap<XObjectId, XObject>,
     warnings: &mut Vec<PdfWarnMsg>,
@@ -222,6 +226,7 @@ fn parse_pdf_from_bytes_end(
         objs_to_search_for_resources,
         page_refs,
         document_info,
+        link_annots,
     } = initial_pdf;
 
     for (i, page_ref) in page_refs.into_iter().enumerate() {
@@ -2369,50 +2374,6 @@ pub fn parse_op(
     Ok(out_ops)
 }
 
-/// Try to find or create a ToUnicodeCMap from a ParsedFont
-fn find_to_unicode_cmap_from_font(font: &ParsedFont) -> Option<ToUnicodeCMap> {
-    // First check if the font has a direct reference to a CMap
-    if let Some(cmap_subtable) = &font.cmap_subtable {
-        // Convert from OwnedCmapSubtable to ToUnicodeCMap
-        let mut mappings = BTreeMap::new();
-
-        // Construct a manual mapping from the CMap subtable data
-        for c in 0..65535u32 {
-            if let Ok(Some(gid)) = cmap_subtable.map_glyph(c) {
-                mappings.insert(gid as u32, vec![c]);
-            }
-        }
-
-        return Some(ToUnicodeCMap { mappings });
-    }
-
-    // If no CMap found in the font, return None
-    None
-}
-
-/// Helper to decode TJ array contents using CMap if available
-fn find_to_unicode_cmap(font: &ParsedFont) -> Option<ToUnicodeCMap> {
-    // Fallback: Try to create a ToUnicode CMap from the font's cmap subtable
-    if let Some(cmap_subtable) = &font.cmap_subtable {
-        let mut mappings = BTreeMap::new();
-
-        // Construct a mapping from the CMap subtable data
-        for unicode in 0..65535u32 {
-            if let Ok(Some(gid)) = cmap_subtable.map_glyph(unicode) {
-                mappings.insert(gid as u32, vec![unicode]);
-            }
-        }
-
-        // Ensure we have a mapping for glyph ID 0 to space (Unicode 32)
-        // This is necessary because the PDF's ToUnicode CMap has this mapping
-        mappings.insert(0, vec![32]);
-
-        return Some(ToUnicodeCMap { mappings });
-    }
-
-    None
-}
-
 /// Returns a default date (Unix epoch)
 fn default_date() -> OffsetDateTime {
     OffsetDateTime::from_unix_timestamp(0).unwrap()
@@ -3313,7 +3274,7 @@ mod extgstate {
 mod parsefont {
     use std::collections::BTreeMap;
 
-    use lopdf::{Dictionary, Document, Object, Stream};
+    use lopdf::{Dictionary, Document, Object};
 
     use super::ParsedOrBuiltinFont;
     use crate::{
@@ -3632,76 +3593,6 @@ mod parsefont {
         }
     }
 
-    /// Handle ToUnicode CMap from a font dictionary
-    fn handle_to_unicode_cmap(
-        doc: &Document,
-        font_dict: &Dictionary,
-        font_id: &FontId,
-        warnings: &mut Vec<PdfWarnMsg>,
-        page_num: usize,
-    ) -> Option<ToUnicodeCMap> {
-        // Get ToUnicode reference
-        if let Ok(to_unicode_ref) = font_dict.get(b"ToUnicode") {
-            // Get ToUnicode stream
-            let to_unicode_stream = get_to_unicode_stream(doc, to_unicode_ref, warnings)?;
-
-            // Parse ToUnicode CMap
-            if let Some(cmap) = parse_to_unicode_cmap(to_unicode_stream, warnings, page_num) {
-                warnings.push(PdfWarnMsg::info(
-                    page_num,
-                    0,
-                    format!("Parsed ToUnicode CMap for {}", font_id.0),
-                ));
-                return Some(cmap);
-            }
-        }
-        None
-    }
-
-    /// Get ToUnicode stream from reference
-    fn get_to_unicode_stream<'a>(
-        doc: &'a Document,
-        to_unicode_ref: &'a Object,
-        warnings: &mut Vec<PdfWarnMsg>,
-    ) -> Option<&'a Stream> {
-        match to_unicode_ref {
-            Object::Stream(s) => Some(s),
-            Object::Reference(r) => match doc.get_object(*r) {
-                Ok(Object::Stream(s)) => Some(s),
-                _ => None,
-            },
-            _ => None,
-        }
-    }
-
-    /// Parse ToUnicode CMap from stream
-    fn parse_to_unicode_cmap(
-        stream: &Stream,
-        warnings: &mut Vec<PdfWarnMsg>,
-        page_num: usize,
-    ) -> Option<ToUnicodeCMap> {
-        // Decompress CMap data
-        let cmap_data = stream
-            .decompressed_content()
-            .unwrap_or_else(|_| stream.content.clone());
-
-        // Convert to string
-        let cmap_str = match String::from_utf8(cmap_data) {
-            Ok(s) => s,
-            Err(_) => return None,
-        };
-
-        println!("parsing {cmap_str}");
-        // Parse CMap
-        match ToUnicodeCMap::parse(&cmap_str) {
-            Ok(cmap) => {
-                println!("parsed: {cmap:#?}");
-                Some(cmap)
-            }
-            Err(_) => None,
-        }
-    }
-
     /// Process a standard font (Type1, TrueType, etc.)
     fn process_standard_font(
         font_dict: &Dictionary,
@@ -3727,164 +3618,5 @@ mod parsefont {
                 None
             }
         }
-    }
-
-    /// Find ToUnicode CMap from a font dictionary
-    fn find_to_unicode_cmap_for_font(
-        doc: &Document,
-        font_dict: &Dictionary,
-        warnings: &mut Vec<PdfWarnMsg>,
-        page: Option<usize>,
-    ) -> Option<ToUnicodeCMap> {
-        let page_num = page.unwrap_or_default();
-
-        // Get ToUnicode reference
-        let to_unicode_ref = match get_to_unicode_reference(font_dict) {
-            Some(ref_obj) => ref_obj,
-            None => return None,
-        };
-
-        // Get and validate ToUnicode stream
-        let to_unicode_stream =
-            match get_and_validate_to_unicode_stream(doc, to_unicode_ref, warnings, page_num) {
-                Some(stream) => stream,
-                None => return None,
-            };
-
-        // Parse ToUnicode CMap
-        parse_and_log_to_unicode_cmap(to_unicode_stream, warnings, page_num)
-    }
-
-    /// Get ToUnicode reference from font dictionary
-    fn get_to_unicode_reference<'a>(font_dict: &'a Dictionary) -> Option<&'a Object> {
-        match font_dict.get(b"ToUnicode") {
-            Ok(to_unicode) => Some(to_unicode),
-            Err(_) => None,
-        }
-    }
-
-    /// Get and validate ToUnicode stream
-    fn get_and_validate_to_unicode_stream<'a>(
-        doc: &'a Document,
-        to_unicode_ref: &'a Object,
-        warnings: &mut Vec<PdfWarnMsg>,
-        page_num: usize,
-    ) -> Option<&'a Stream> {
-        match to_unicode_ref {
-            Object::Stream(s) => Some(s),
-            Object::Reference(r) => match doc.get_object(*r) {
-                Ok(Object::Stream(s)) => Some(s),
-                _ => {
-                    warnings.push(PdfWarnMsg::warning(
-                        page_num,
-                        0,
-                        format!("Could not resolve ToUnicode reference"),
-                    ));
-                    None
-                }
-            },
-            _ => {
-                warnings.push(PdfWarnMsg::warning(
-                    page_num,
-                    0,
-                    format!("ToUnicode is not a stream or reference"),
-                ));
-                None
-            }
-        }
-    }
-
-    /// Parse and log ToUnicode CMap
-    fn parse_and_log_to_unicode_cmap(
-        stream: &Stream,
-        warnings: &mut Vec<PdfWarnMsg>,
-        page_num: usize,
-    ) -> Option<ToUnicodeCMap> {
-        // Decompress CMap data
-        let cmap_data = match stream.decompressed_content() {
-            Ok(data) => data,
-            Err(e) => stream.content.clone(),
-        };
-
-        // Parse CMap string
-        let cmap_str = match String::from_utf8(cmap_data) {
-            Ok(s) => s,
-            Err(_) => {
-                warnings.push(PdfWarnMsg::warning(
-                    page_num,
-                    0,
-                    format!("ToUnicode CMap data is not valid UTF-8"),
-                ));
-                return None;
-            }
-        };
-
-        // Parse CMap
-        match ToUnicodeCMap::parse(&cmap_str) {
-            Ok(cmap) => {
-                warnings.push(PdfWarnMsg::info(
-                    page_num,
-                    0,
-                    format!(
-                        "Successfully parsed ToUnicode CMap with {} mappings",
-                        cmap.mappings.len()
-                    ),
-                ));
-                Some(cmap)
-            }
-            Err(e) => {
-                warnings.push(PdfWarnMsg::warning(
-                    page_num,
-                    0,
-                    format!("Failed to parse ToUnicode CMap: {}", e),
-                ));
-                None
-            }
-        }
-    }
-
-    /// Map bytes to Unicode text using a ToUnicode CMap
-    fn map_text_with_cmap(text_bytes: &[u8], cmap: &ToUnicodeCMap) -> String {
-        let mut result = String::new();
-
-        // Process bytes in pairs (CIDs are 2 bytes each)
-        let byte_pairs = get_byte_pairs(text_bytes);
-
-        // Map each CID to Unicode characters
-        for cid in byte_pairs {
-            if let Some(char) = map_cid_to_unicode(cid, cmap) {
-                result.push_str(&char);
-            }
-        }
-
-        result
-    }
-
-    /// Convert byte array to CIDs (u32 values from byte pairs)
-    fn get_byte_pairs(bytes: &[u8]) -> Vec<u32> {
-        let mut cids = Vec::new();
-        let mut i = 0;
-
-        while i + 1 < bytes.len() {
-            cids.push(u16::from_be_bytes([bytes[i], bytes[i + 1]]) as u32);
-            i += 2;
-        }
-
-        cids
-    }
-
-    /// Map CID to Unicode string using CMap
-    fn map_cid_to_unicode(cid: u32, cmap: &ToUnicodeCMap) -> Option<String> {
-        if let Some(unis) = cmap.mappings.get(&cid) {
-            let chars = unis
-                .iter()
-                .filter_map(|&u| std::char::from_u32(u))
-                .collect::<String>();
-
-            if !chars.is_empty() {
-                return Some(chars);
-            }
-        }
-        None
     }
 }

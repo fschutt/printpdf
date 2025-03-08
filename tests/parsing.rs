@@ -129,7 +129,7 @@ fn test_extgstate_parsing() {
         .with_current_fill_alpha(0.7);
 
     // Add the extended graphics state to the document
-    let gs_id = doc.add_graphics_state(gs);
+    let gs_id = doc.add_graphics_state(gs.clone());
 
     // Create a page with operations that use the graphics state
     let ops = vec![
@@ -173,6 +173,8 @@ fn test_extgstate_parsing() {
 
     // Get the parsed graphics state (there should be only one)
     let parsed_gs = parsed_doc.resources.extgstates.map.values().next().unwrap();
+
+    pretty_assertions::assert_eq!(parsed_gs.clone(), gs);
 
     // Check operations were preserved
     let parsed_page = &parsed_doc.pages[0];

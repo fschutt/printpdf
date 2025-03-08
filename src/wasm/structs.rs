@@ -47,6 +47,7 @@ pub fn html_to_document(input: HtmlToDocumentInput) -> Result<HtmlToDocumentOutp
     Ok(HtmlToDocumentOutput { doc: pdf, warnings })
 }
 
+#[cfg(not(feature = "html"))]
 const ERR: &str = "Pdf_HtmlToDocument failed: feature --html not enabled for printpdf crate";
 
 #[cfg(not(feature = "html"))]
