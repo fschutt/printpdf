@@ -36,6 +36,16 @@ jobs:
           platform: "x64"
           version: 13.2.0
         continue-on-error: true
+      - name: Set up MinGW
+        uses: egor-tensin/setup-mingw@v2
+        with:
+          platform: "i686"
+          version: 13.2.0
+        continue-on-error: true
+      - name: Check if i686-w64-mingw32-gcc is installed
+        shell: cmd
+        run: |
+          where i686-w64-mingw32-gcc && echo "Found MinGW toolchain" || echo "MinGW toolchain not found"
       - name: Install toolchain for ${{ matrix.target-sys }}-${{ matrix.target-abi }}
         uses: dtolnay/rust-toolchain@stable
         with:
