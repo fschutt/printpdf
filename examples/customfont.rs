@@ -17,6 +17,7 @@ fn main() {
                     font: font_id.clone(),
                     size: Pt(20.0),
                 },
+                Op::SetLineHeight { lh: Pt(20.0) },
                 Op::WriteText {
                     font: font_id,
                     items: vec![TextItem::Text("Привет, как дела?".to_string())],

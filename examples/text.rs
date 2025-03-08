@@ -25,6 +25,7 @@ fn main() {
             size: Pt(24.0),
             font: BuiltinFont::Helvetica,
         },
+        Op::SetLineHeight { lh: Pt(24.0) },
         // Set text color to blue
         Op::SetFillColor {
             col: Color::Rgb(Rgb {
@@ -46,6 +47,7 @@ fn main() {
             size: Pt(18.0),
             font: BuiltinFont::TimesRoman,
         },
+        Op::SetLineHeight { lh: Pt(18.0) },
         // Change color to dark red
         Op::SetFillColor {
             col: Color::Rgb(Rgb {
@@ -67,6 +69,7 @@ fn main() {
             size: Pt(14.0),
             font: roboto_id.clone(),
         },
+        Op::SetLineHeight { lh: Pt(14.0) },
         // Change color to dark green
         Op::SetFillColor {
             col: Color::Rgb(Rgb {

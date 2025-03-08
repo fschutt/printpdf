@@ -21,6 +21,7 @@ fn main() {
             size: Pt(30.0),
             font: BuiltinFont::TimesBold,
         },
+        Op::SetLineHeight { lh: Pt(30.0) },
         Op::SetFillColor {
             col: Color::Rgb(Rgb {
                 r: 0.2,
@@ -38,6 +39,7 @@ fn main() {
             size: Pt(16.0),
             font: BuiltinFont::TimesRoman,
         },
+        Op::SetLineHeight { lh: Pt(16.0) },
         Op::SetFillColor {
             col: Color::Rgb(Rgb {
                 r: 0.3,
@@ -63,6 +65,7 @@ fn main() {
             size: Pt(24.0),
             font: BuiltinFont::Helvetica,
         },
+        Op::SetLineHeight { lh: Pt(24.0) },
         Op::SetFillColor {
             col: Color::Rgb(Rgb {
                 r: 0.0,
@@ -80,6 +83,7 @@ fn main() {
             size: Pt(12.0),
             font: BuiltinFont::Helvetica,
         },
+        Op::SetLineHeight { lh: Pt(12.0) },
         Op::SetFillColor {
             col: Color::Rgb(Rgb {
                 r: 0.0,
@@ -114,6 +118,7 @@ fn main() {
             size: Pt(24.0),
             font: BuiltinFont::Helvetica,
         },
+        Op::SetLineHeight { lh: Pt(24.0) },
         Op::SetFillColor {
             col: Color::Rgb(Rgb {
                 r: 0.7,

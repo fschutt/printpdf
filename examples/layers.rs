@@ -103,6 +103,7 @@ fn main() {
             size: Pt(24.0),
             font: BuiltinFont::Helvetica,
         },
+        Op::SetLineHeight { lh: Pt(24.0) },
         Op::SetFillColor {
             col: Color::Rgb(Rgb {
                 r: 0.0,
@@ -120,6 +121,7 @@ fn main() {
             size: Pt(12.0),
             font: BuiltinFont::Helvetica,
         },
+        Op::SetLineHeight { lh: Pt(12.0) },
         Op::SetFillColor {
             col: Color::Rgb(Rgb {
                 r: 0.0,

@@ -17,6 +17,7 @@ fn main() {
             size: Pt(24.0),
             font: BuiltinFont::Helvetica,
         },
+        Op::SetLineHeight { lh: Pt(24.0) },
         Op::SetFillColor {
             col: Color::Rgb(Rgb {
                 r: 0.0,
@@ -43,6 +44,7 @@ fn main() {
             size: Pt(12.0),
             font: BuiltinFont::Helvetica,
         },
+        Op::SetLineHeight { lh: Pt(12.0) },
         Op::WriteTextBuiltinFont {
             items: vec![TextItem::Text("1. Filled Rectangle".to_string())],
             font: BuiltinFont::Helvetica,
@@ -108,6 +110,7 @@ fn main() {
             size: Pt(12.0),
             font: BuiltinFont::Helvetica,
         },
+        Op::SetLineHeight { lh: Pt(12.0) },
         Op::WriteTextBuiltinFont {
             items: vec![TextItem::Text("2. Outlined Rectangle".to_string())],
             font: BuiltinFont::Helvetica,
@@ -175,6 +178,7 @@ fn main() {
             size: Pt(12.0),
             font: BuiltinFont::Helvetica,
         },
+        Op::SetLineHeight { lh: Pt(12.0) },
         Op::WriteTextBuiltinFont {
             items: vec![TextItem::Text(
                 "3. Filled and Outlined Rectangle".to_string(),
@@ -252,6 +256,7 @@ fn main() {
             size: Pt(12.0),
             font: BuiltinFont::Helvetica,
         },
+        Op::SetLineHeight { lh: Pt(12.0) },
         Op::WriteTextBuiltinFont {
             items: vec![TextItem::Text("4. Triangle".to_string())],
             font: BuiltinFont::Helvetica,
@@ -320,6 +325,7 @@ fn main() {
             size: Pt(12.0),
             font: BuiltinFont::Helvetica,
         },
+        Op::SetLineHeight { lh: Pt(12.0) },
         Op::WriteTextBuiltinFont {
             items: vec![TextItem::Text("5. Complex Shape".to_string())],
             font: BuiltinFont::Helvetica,
@@ -437,6 +443,7 @@ fn main() {
             size: Pt(12.0),
             font: BuiltinFont::Helvetica,
         },
+        Op::SetLineHeight { lh: Pt(12.0) },
         Op::WriteTextBuiltinFont {
             items: vec![TextItem::Text(
                 "6. Lines with Different Dash Patterns".to_string(),
@@ -587,6 +594,7 @@ fn main() {
             size: Pt(12.0),
             font: BuiltinFont::Helvetica,
         },
+        Op::SetLineHeight { lh: Pt(12.0) },
         Op::WriteTextBuiltinFont {
             items: vec![TextItem::Text(
                 "7. Polygon with Even-Odd Winding Rule".to_string(),
@@ -726,6 +734,7 @@ fn main() {
             size: Pt(12.0),
             font: BuiltinFont::Helvetica,
         },
+        Op::SetLineHeight { lh: Pt(12.0) },
         Op::WriteTextBuiltinFont {
             items: vec![TextItem::Text(
                 "8. Lines with Different Caps and Joins".to_string(),

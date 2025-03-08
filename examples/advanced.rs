@@ -17,6 +17,7 @@ fn main() {
             size: Pt(24.0),
             font: BuiltinFont::Helvetica,
         },
+        Op::SetLineHeight { lh: Pt(24.0) },
         Op::SetFillColor {
             col: Color::Rgb(Rgb {
                 r: 0.0,
@@ -36,6 +37,7 @@ fn main() {
 
     // 1. Text with character spacing
     ops.extend_from_slice(&[
+        Op::SaveGraphicsState,
         Op::StartTextSection,
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(260.0)),
@@ -44,6 +46,7 @@ fn main() {
             size: Pt(12.0),
             font: BuiltinFont::Helvetica,
         },
+        Op::SetLineHeight { lh: Pt(12.0) },
         Op::WriteTextBuiltinFont {
             items: vec![TextItem::Text(
                 "1. Normal text without spacing:".to_string(),
@@ -73,10 +76,12 @@ fn main() {
         // Reset character spacing
         Op::SetCharacterSpacing { multiplier: 0.0 },
         Op::EndTextSection,
+        Op::RestoreGraphicsState,
     ]);
 
     // 2. Rotated text using TextMatrix
     ops.extend_from_slice(&[
+        Op::SaveGraphicsState,
         Op::StartTextSection,
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(230.0)),
@@ -85,11 +90,13 @@ fn main() {
             size: Pt(12.0),
             font: BuiltinFont::Helvetica,
         },
+        Op::SetLineHeight { lh: Pt(12.0) },
         Op::WriteTextBuiltinFont {
             items: vec![TextItem::Text("2. Rotated text:".to_string())],
             font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
+        Op::RestoreGraphicsState,
     ]);
 
     // Draw rotated text at different angles
@@ -112,8 +119,9 @@ fn main() {
                     },
                     Op::SetFontSizeBuiltinFont {
                         size: Pt(10.0),
-                        font: BuiltinFont::Helvetica,
+                        font: BuiltinFont::TimesRoman,
                     },
+                    Op::SetLineHeight { lh: Pt(10.0) },
                     Op::SetFillColor {
                         col: Color::Rgb(Rgb {
                             r: 0.0,
@@ -123,8 +131,8 @@ fn main() {
                         }),
                     },
                     Op::WriteTextBuiltinFont {
-                        items: vec![TextItem::Text(format!("{}°", angle))],
-                        font: BuiltinFont::Helvetica,
+                        items: vec![TextItem::Text(format!("{}deg", angle))],
+                        font: BuiltinFont::TimesRoman,
                     },
                     Op::EndTextSection,
                     Op::RestoreGraphicsState,
@@ -138,6 +146,7 @@ fn main() {
 
     // 3. Text on a curved path (simulated with multiple rotations)
     ops.extend_from_slice(&[
+        Op::SaveGraphicsState,
         Op::StartTextSection,
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(190.0)),
@@ -146,20 +155,22 @@ fn main() {
             size: Pt(12.0),
             font: BuiltinFont::Helvetica,
         },
+        Op::SetLineHeight { lh: Pt(12.0) },
         Op::WriteTextBuiltinFont {
             items: vec![TextItem::Text("3. Text on a curved path:".to_string())],
             font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
+        Op::RestoreGraphicsState,
     ]);
 
     // Create a curve and place text along it (arc)
     let center_x = 300.0;
-    let center_y = 500.0;
+    let center_y = 460.0;
     let radius = 100.0;
-    let text = "Curved Text Around A Circle Path ";
+    let text = "Curved Text Around A Circle Path";
 
-    for (i, c) in text.chars().enumerate() {
+    for (i, c) in text.chars().rev().enumerate() {
         let angle = 180.0 - (i as f32 * 8.0);
         let radians = angle.to_radians();
         let x = center_x + radius * radians.cos();
@@ -181,6 +192,7 @@ fn main() {
                 size: Pt(12.0),
                 font: BuiltinFont::Helvetica,
             },
+            Op::SetLineHeight { lh: Pt(12.0) },
             Op::SetFillColor {
                 col: Color::Rgb(Rgb {
                     r: i as f32 / text.len() as f32,
@@ -200,6 +212,7 @@ fn main() {
 
     // 4. Kerned text with manual spacing adjustments
     ops.extend_from_slice(&[
+        Op::SaveGraphicsState,
         Op::StartTextSection,
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(150.0)),
@@ -208,6 +221,7 @@ fn main() {
             size: Pt(12.0),
             font: BuiltinFont::Helvetica,
         },
+        Op::SetLineHeight { lh: Pt(12.0) },
         Op::WriteTextBuiltinFont {
             items: vec![TextItem::Text(
                 "4. Kerned text with manual adjustments:".to_string(),
@@ -255,10 +269,12 @@ fn main() {
             font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
+        Op::RestoreGraphicsState,
     ]);
 
     // 5. Text with different rendering modes
     ops.extend_from_slice(&[
+        Op::SaveGraphicsState,
         Op::StartTextSection,
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(130.0)),
@@ -267,6 +283,7 @@ fn main() {
             size: Pt(12.0),
             font: BuiltinFont::Helvetica,
         },
+        Op::SetLineHeight { lh: Pt(12.0) },
         Op::SetFillColor {
             col: Color::Rgb(Rgb {
                 r: 0.0,
@@ -342,10 +359,12 @@ fn main() {
             font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
+        Op::RestoreGraphicsState,
     ]);
 
     // 6. Text with horizontal scaling
     ops.extend_from_slice(&[
+        Op::SaveGraphicsState,
         Op::StartTextSection,
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(100.0)),
@@ -354,6 +373,7 @@ fn main() {
             size: Pt(12.0),
             font: BuiltinFont::Helvetica,
         },
+        Op::SetLineHeight { lh: Pt(12.0) },
         Op::SetFillColor {
             col: Color::Rgb(Rgb {
                 r: 0.0,
@@ -393,10 +413,12 @@ fn main() {
             font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
+        Op::RestoreGraphicsState,
     ]);
 
     // 7. Text with word spacing
     ops.extend_from_slice(&[
+        Op::SaveGraphicsState,
         Op::StartTextSection,
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(80.0)),
@@ -405,6 +427,7 @@ fn main() {
             size: Pt(12.0),
             font: BuiltinFont::Helvetica,
         },
+        Op::SetLineHeight { lh: Pt(12.0) },
         Op::SetHorizontalScaling { percent: 100.0 }, // Reset scaling
         Op::WriteTextBuiltinFont {
             items: vec![TextItem::Text("7. Text with word spacing:".to_string())],
@@ -438,10 +461,12 @@ fn main() {
             font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
+        Op::RestoreGraphicsState,
     ]);
 
     // 8. Text with different fonts in the same line
     ops.extend_from_slice(&[
+        Op::SaveGraphicsState,
         Op::StartTextSection,
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(60.0)),
@@ -450,6 +475,7 @@ fn main() {
             size: Pt(12.0),
             font: BuiltinFont::Helvetica,
         },
+        Op::SetLineHeight { lh: Pt(12.0) },
         Op::SetWordSpacing { pt: Pt(0.0) }, // Reset word spacing
         Op::WriteTextBuiltinFont {
             items: vec![TextItem::Text(
@@ -458,44 +484,39 @@ fn main() {
             font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
-        Op::SetTextCursor {
-            pos: Point::new(Mm(20.0), Mm(50.0)),
-        },
         // Create a mixed-font text line by manually positioning each segment
         // Normal text in Helvetica
         Op::SetFontSizeBuiltinFont {
             size: Pt(12.0),
             font: BuiltinFont::Helvetica,
         },
+        Op::SetLineHeight { lh: Pt(12.0) },
         Op::WriteTextBuiltinFont {
             items: vec![TextItem::Text("This is in ".to_string())],
             font: BuiltinFont::Helvetica,
         },
         // Position for Times Roman segment
-        Op::SetTextMatrix {
-            matrix: TextMatrix::Translate(Pt(70.0), Pt(400.0)),
-        },
         Op::SetFontSizeBuiltinFont {
             size: Pt(12.0),
             font: BuiltinFont::TimesRoman,
         },
+        Op::SetLineHeight { lh: Pt(12.0) },
         Op::WriteTextBuiltinFont {
             items: vec![TextItem::Text("Times Roman".to_string())],
             font: BuiltinFont::TimesRoman,
         },
         // Position for Courier segment
-        Op::SetTextMatrix {
-            matrix: TextMatrix::Translate(Pt(145.0), Pt(400.0)),
-        },
         Op::SetFontSizeBuiltinFont {
             size: Pt(12.0),
             font: BuiltinFont::Courier,
         },
+        Op::SetLineHeight { lh: Pt(12.0) },
         Op::WriteTextBuiltinFont {
             items: vec![TextItem::Text(" and this is in Courier".to_string())],
             font: BuiltinFont::Courier,
         },
         Op::EndTextSection,
+        Op::RestoreGraphicsState,
     ]);
 
     // Create a page with our operations

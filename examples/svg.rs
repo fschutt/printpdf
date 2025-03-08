@@ -50,6 +50,7 @@ fn main() {
             size: Pt(12.0),
             font: BuiltinFont::Helvetica,
         },
+        Op::SetLineHeight { lh: Pt(12.0) },
         Op::WriteTextBuiltinFont {
             items: vec![TextItem::Text(
                 "This PDF demonstrates embedding SVGs as vector graphics".to_string(),
