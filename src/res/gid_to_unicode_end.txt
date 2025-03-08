@@ -1,4 +1,0 @@
-endcmap
-CMapName currentdict /CMap defineresource pop
-end
-end

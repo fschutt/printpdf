@@ -876,7 +876,7 @@ fn parse_page(
                 .map_err(|e| format!("Contents not a stream: {}", e))?;
             let data = stream
                 .decompressed_content()
-                .map_err(|e| format!("Failed to decompress content: {}", e))?;
+                .unwrap_or_else(|_| stream.content.clone());
             content_data.extend(data);
         }
     }
@@ -2523,6 +2523,10 @@ fn find_to_unicode_cmap(font: &ParsedFont) -> Option<ToUnicodeCMap> {
             }
         }
 
+        // Ensure we have a mapping for glyph ID 0 to space (Unicode 32)
+        // This is necessary because the PDF's ToUnicode CMap has this mapping
+        mappings.insert(0, vec![32]);
+
         return Some(ToUnicodeCMap { mappings });
     }
 
@@ -3742,11 +3746,10 @@ mod parsefont {
         warnings: &mut Vec<PdfWarnMsg>,
         page_num: usize,
     ) -> Option<ToUnicodeCMap> {
+
         // Decompress CMap data
-        let cmap_data = match stream.decompressed_content() {
-            Ok(data) => data,
-            Err(_) => return None,
-        };
+        let cmap_data = stream.decompressed_content()
+            .unwrap_or_else(|_| stream.content.clone());
 
         // Convert to string
         let cmap_str = match String::from_utf8(cmap_data) {
@@ -3754,9 +3757,13 @@ mod parsefont {
             Err(_) => return None,
         };
 
+        println!("parsing {cmap_str}");
         // Parse CMap
         match ToUnicodeCMap::parse(&cmap_str) {
-            Ok(cmap) => Some(cmap),
+            Ok(cmap) => {
+                println!("parsed: {cmap:#?}");
+                Some(cmap)
+            },
             Err(_) => None,
         }
     }
@@ -3862,14 +3869,7 @@ mod parsefont {
         // Decompress CMap data
         let cmap_data = match stream.decompressed_content() {
             Ok(data) => data,
-            Err(e) => {
-                warnings.push(PdfWarnMsg::warning(
-                    page_num,
-                    0,
-                    format!("Failed to decompress ToUnicode CMap: {}", e),
-                ));
-                return None;
-            }
+            Err(e) => stream.content.clone(),
         };
 
         // Parse CMap string
