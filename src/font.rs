@@ -132,42 +132,42 @@ impl BuiltinFont {
         SubsetFont {
             bytes: match self {
                 TimesRoman => {
-                    crate::uncompress(include_bytes!("../defaultfonts/Times-Roman.subset.ttf"))
+                    crate::utils::uncompress(include_bytes!("../defaultfonts/Times-Roman.subset.ttf"))
                 }
                 TimesBold => {
-                    crate::uncompress(include_bytes!("../defaultfonts/Times-Bold.subset.ttf"))
+                    crate::utils::uncompress(include_bytes!("../defaultfonts/Times-Bold.subset.ttf"))
                 }
                 TimesItalic => {
-                    crate::uncompress(include_bytes!("../defaultfonts/Times-Italic.subset.ttf"))
+                    crate::utils::uncompress(include_bytes!("../defaultfonts/Times-Italic.subset.ttf"))
                 }
-                TimesBoldItalic => crate::uncompress(include_bytes!(
+                TimesBoldItalic => crate::utils::uncompress(include_bytes!(
                     "../defaultfonts/Times-BoldItalic.subset.ttf"
                 )),
                 Helvetica => {
-                    crate::uncompress(include_bytes!("../defaultfonts/Helvetica.subset.ttf"))
+                    crate::utils::uncompress(include_bytes!("../defaultfonts/Helvetica.subset.ttf"))
                 }
                 HelveticaBold => {
-                    crate::uncompress(include_bytes!("../defaultfonts/Helvetica-Bold.subset.ttf"))
+                    crate::utils::uncompress(include_bytes!("../defaultfonts/Helvetica-Bold.subset.ttf"))
                 }
-                HelveticaOblique => crate::uncompress(include_bytes!(
+                HelveticaOblique => crate::utils::uncompress(include_bytes!(
                     "../defaultfonts/Helvetica-Oblique.subset.ttf"
                 )),
-                HelveticaBoldOblique => crate::uncompress(include_bytes!(
+                HelveticaBoldOblique => crate::utils::uncompress(include_bytes!(
                     "../defaultfonts/Helvetica-BoldOblique.subset.ttf"
                 )),
-                Courier => crate::uncompress(include_bytes!("../defaultfonts/Courier.subset.ttf")),
+                Courier => crate::utils::uncompress(include_bytes!("../defaultfonts/Courier.subset.ttf")),
                 CourierOblique => {
-                    crate::uncompress(include_bytes!("../defaultfonts/Courier-Oblique.subset.ttf"))
+                    crate::utils::uncompress(include_bytes!("../defaultfonts/Courier-Oblique.subset.ttf"))
                 }
                 CourierBold => {
-                    crate::uncompress(include_bytes!("../defaultfonts/Courier-Bold.subset.ttf"))
+                    crate::utils::uncompress(include_bytes!("../defaultfonts/Courier-Bold.subset.ttf"))
                 }
-                CourierBoldOblique => crate::uncompress(include_bytes!(
+                CourierBoldOblique => crate::utils::uncompress(include_bytes!(
                     "../defaultfonts/Courier-BoldOblique.subset.ttf"
                 )),
-                Symbol => crate::uncompress(include_bytes!("../defaultfonts/Symbol.subset.ttf")),
+                Symbol => crate::utils::uncompress(include_bytes!("../defaultfonts/Symbol.subset.ttf")),
                 ZapfDingbats => {
-                    crate::uncompress(include_bytes!("../defaultfonts/ZapfDingbats.subset.ttf"))
+                    crate::utils::uncompress(include_bytes!("../defaultfonts/ZapfDingbats.subset.ttf"))
                 }
             },
             glyph_mapping: FONTS
@@ -1665,4 +1665,141 @@ impl FontMetrics {
         self.s_cap_height
             .map(|s| s as f32 / self.units_per_em as f32 * target_font_size)
     }
+}
+
+#[cfg(test)]
+mod test {
+    use std::collections::BTreeMap;
+
+    use crate::*;
+
+    const WIN_1252: &[char; 214] = &[
+        '!', '"', '#', '$', '%', '&', '\'', '(', ')', '*', '+', ',', '-', '.', '/', '0', '1', '2', '3',
+        '4', '5', '6', '7', '8', '9', ':', ';', '<', '=', '>', '?', '@', 'A', 'B', 'C', 'D', 'E', 'F',
+        'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y',
+        'Z', '[', '\\', ']', '^', '_', '`', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l',
+        'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '{', '|', '}', '~', '€',
+        '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', 'Ž', '‘', '’', '“', '•', '–', '—', '˜',
+        '™', 'š', '›', 'œ', 'ž', 'Ÿ', '¡', '¢', '£', '¤', '¥', '¦', '§', '¨', '©', 'ª', '«', '¬', '®',
+        '¯', '°', '±', '²', '³', '´', 'µ', '¶', '·', '¸', '¹', 'º', '»', '¼', '½', '¾', '¿', 'À', 'Á',
+        'Â', 'Ã', 'Ä', 'Å', 'Æ', 'Ç', 'È', 'É', 'Ê', 'Ë', 'Ì', 'Í', 'Î', 'Ï', 'Ð', 'Ñ', 'Ò', 'Ó', 'Ô',
+        'Õ', 'Ö', '×', 'Ø', 'Ù', 'Ú', 'Û', 'Ü', 'Ý', 'Þ', 'ß', 'à', 'á', 'â', 'ã', 'ä', 'å', 'æ', 'ç',
+        'è', 'é', 'ê', 'ë', 'ì', 'í', 'î', 'ï', 'ð', 'ñ', 'ò', 'ó', 'ô', 'õ', 'ö', '÷', 'ø', 'ù', 'ú',
+        'û', 'ü', 'ý', 'þ', 'ÿ',
+    ];
+
+    const FONTS: &[(BuiltinFont, &[u8])] = &[
+        (
+            BuiltinFont::Courier,
+            include_bytes!("../examples/assets/fonts/Courier.ttf"),
+        ),
+        (
+            BuiltinFont::CourierOblique,
+            include_bytes!("../examples/assets/fonts/Courier-Oblique.ttf"),
+        ),
+        (
+            BuiltinFont::CourierBold,
+            include_bytes!("../examples/assets/fonts/Courier-Bold.ttf"),
+        ),
+        (
+            BuiltinFont::CourierBoldOblique,
+            include_bytes!("../examples/assets/fonts/Courier-BoldOblique.ttf"),
+        ),
+        (
+            BuiltinFont::Helvetica,
+            include_bytes!("../examples/assets/fonts/Helvetica.ttf"),
+        ),
+        (
+            BuiltinFont::HelveticaBold,
+            include_bytes!("../examples/assets/fonts/Helvetica-Bold.ttf"),
+        ),
+        (
+            BuiltinFont::HelveticaOblique,
+            include_bytes!("../examples/assets/fonts/Helvetica-Oblique.ttf"),
+        ),
+        (
+            BuiltinFont::HelveticaBoldOblique,
+            include_bytes!("../examples/assets/fonts/Helvetica-BoldOblique.ttf"),
+        ),
+        (
+            BuiltinFont::Symbol,
+            include_bytes!("../examples/assets/fonts/PDFASymbol.woff2"),
+        ),
+        (
+            BuiltinFont::TimesRoman,
+            include_bytes!("../examples/assets/fonts/Times.ttf"),
+        ),
+        (
+            BuiltinFont::TimesBold,
+            include_bytes!("../examples/assets/fonts/Times-Bold.ttf"),
+        ),
+        (
+            BuiltinFont::TimesItalic,
+            include_bytes!("../examples/assets/fonts/Times-Oblique.ttf"),
+        ),
+        (
+            BuiltinFont::TimesBoldItalic,
+            include_bytes!("../examples/assets/fonts/Times-BoldOblique.ttf"),
+        ),
+        (
+            BuiltinFont::ZapfDingbats,
+            include_bytes!("../examples/assets/fonts/ZapfDingbats.ttf"),
+        ),
+    ];
+
+    #[test]
+    fn subset_test() {
+        let charmap = WIN_1252.iter().copied().collect();
+        let mut target_map = vec![];
+
+        let mut tm2 = BTreeMap::new();
+        for (name, bytes) in FONTS {
+            let font = ParsedFont::from_bytes(bytes, 0, &mut Vec::new()).unwrap();
+            let subset = font.subset_simple(&charmap).unwrap();
+            tm2.insert(name.clone(), subset.bytes.len());
+            let _ = std::fs::write(
+                format!(
+                    "{}/defaultfonts/{}.subset.ttf",
+                    env!("CARGO_MANIFEST_DIR"),
+                    name.get_id()
+                ),
+                crate::utils::compress(&subset.bytes),
+            );
+            for (old_gid, (new_gid, char)) in subset.glyph_mapping.iter() {
+                target_map.push(format!(
+                    "    ({}, {old_gid}, {new_gid}, '{c}'),",
+                    name.get_num(),
+                    c = if *char == '\'' {
+                        "\\'".to_string()
+                    } else if *char == '\\' {
+                        "\\\\".to_string()
+                    } else {
+                        char.to_string()
+                    }
+                ));
+            }
+        }
+
+        let mut tm = vec![format!(
+            "const FONTS: &[(usize, u16, u16, char);{}] = &[",
+            target_map.len()
+        )];
+        tm.append(&mut target_map);
+        tm.push("];".to_string());
+
+        tm.push("fn match_len(bytes: &[u8]) -> Option<BuiltinFont> {".to_string());
+        tm.push("match bytes.len() {".to_string());
+        for (f, b) in tm2.iter() {
+            tm.push(format!("{b} => Some(BuiltinFont::{f:?}),"));
+        }
+        tm.push("_ => None,".to_string());
+        tm.push("}".to_string());
+        tm.push("}".to_string());
+
+        let _ = std::fs::write(
+            format!("{}/defaultfonts/mapping.rs", env!("CARGO_MANIFEST_DIR")),
+            tm.join("\r\n"),
+        );
+    }
+
 }

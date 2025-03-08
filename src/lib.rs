@@ -54,7 +54,6 @@ pub(crate) mod components;
 /// Utility functions (random strings, numbers, timestamp formatting)
 pub(crate) mod utils;
 use utils::*;
-pub use utils::{compress, uncompress};
 /// Writing PDF
 pub(crate) mod serialize;
 pub use serialize::PdfSaveOptions;

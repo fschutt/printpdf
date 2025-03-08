@@ -97,7 +97,7 @@ fn u8_to_char(input: u8) -> char {
     (b'A' + input) as char
 }
 
-pub fn compress(bytes: &[u8]) -> Vec<u8> {
+pub(crate) fn compress(bytes: &[u8]) -> Vec<u8> {
     use std::io::prelude::*;
 
     use flate2::{Compression, write::GzEncoder};
@@ -106,7 +106,7 @@ pub fn compress(bytes: &[u8]) -> Vec<u8> {
     encoder.finish().unwrap_or_default()
 }
 
-pub fn uncompress(bytes: &[u8]) -> Vec<u8> {
+pub(crate) fn uncompress(bytes: &[u8]) -> Vec<u8> {
     use flate2::read::GzDecoder;
     let mut gz = GzDecoder::new(bytes);
     let mut s = Vec::<u8>::new();
