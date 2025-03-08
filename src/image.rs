@@ -1589,7 +1589,7 @@ mod browser_image {
             .map_err(|_| format!("Failed to encode to {}", mime_type))?;
 
         // Extract binary data from data URL
-        let bytes = crate::wasm::structs::Base64OrRaw::B64(data_url).decode_bytes()?;
+        let bytes = crate::Base64OrRaw::B64(data_url).decode_bytes()?;
 
         Ok(bytes)
     }

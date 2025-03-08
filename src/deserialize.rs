@@ -693,7 +693,13 @@ fn parse_fonts_from_entire_pdf(
                 warnings,
                 Some(page_num),
             )?;
-            Some(parse_fonts(doc, resources_dict, warnings, Some(page_num)))
+            // Use the enhanced font parsing function
+            Some(parsefont::parse_fonts_enhanced(
+                doc,
+                resources_dict,
+                warnings,
+                Some(page_num),
+            ))
         })
         .fold(BTreeMap::new(), |mut acc, fonts| {
             fonts.into_iter().for_each(|(font_id, parsed_font)| {
@@ -3417,5 +3423,534 @@ mod extgstate {
             "Luminosity" => BlendMode::NonSeperable(NonSeperableBlendMode::Luminosity),
             _ => BlendMode::Seperable(SeperableBlendMode::Normal),
         }
+    }
+}
+
+mod parsefont {
+    use std::collections::BTreeMap;
+
+    use lopdf::{Dictionary, Document, Object, Stream};
+
+    use super::ParsedOrBuiltinFont;
+    use crate::{
+        BuiltinFont, FontId, ParsedFont,
+        cmap::ToUnicodeCMap,
+        deserialize::{PdfWarnMsg, get_dict_or_resolve_ref},
+    };
+
+    /// Main function to parse fonts from PDF resources
+    pub(crate) fn parse_fonts_enhanced(
+        doc: &Document,
+        resources: &Dictionary,
+        warnings: &mut Vec<PdfWarnMsg>,
+        page: Option<usize>,
+    ) -> BTreeMap<FontId, ParsedOrBuiltinFont> {
+        let mut fonts_map = BTreeMap::new();
+        let page_num = page.unwrap_or_default();
+
+        // Get the fonts dictionary from resources
+        let fonts_dict = match get_fonts_dict_from_resources(doc, resources, warnings, page_num) {
+            Some(dict) => dict,
+            None => return fonts_map,
+        };
+
+        // Process each font in the dictionary
+        for (key, value) in fonts_dict.iter() {
+            let font_id = FontId(String::from_utf8_lossy(key).to_string());
+
+            // Resolve font dictionary reference
+            let font_dict = match get_dict_or_resolve_ref(
+                &format!("parse_fonts font_dict page {page_num}"),
+                doc,
+                value,
+                warnings,
+                page,
+            ) {
+                Some(s) => s,
+                None => continue,
+            };
+
+            // Check font type
+            let font_type = match get_font_subtype(font_dict, &font_id, warnings, page_num) {
+                Some(t) => t,
+                None => continue,
+            };
+
+            // Handle different font types
+            if &font_type == b"Type0" {
+                if let Some(font) = process_type0_font(doc, font_dict, &font_id, warnings, page_num)
+                {
+                    fonts_map.insert(font_id, font);
+                }
+            } else {
+                if let Some(font) = process_standard_font(font_dict, &font_id, warnings, page_num) {
+                    fonts_map.insert(font_id, font);
+                }
+            }
+        }
+
+        fonts_map
+    }
+
+    /// Get fonts dictionary from PDF resources
+    fn get_fonts_dict_from_resources<'a>(
+        doc: &'a Document,
+        resources: &'a Dictionary,
+        warnings: &mut Vec<PdfWarnMsg>,
+        page_num: usize,
+    ) -> Option<&'a Dictionary> {
+        // Get Font dictionary from Resources
+        let font_map = match resources.get(b"Font") {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+
+        // Resolve Font dictionary reference
+        get_dict_or_resolve_ref(
+            &format!("parse_fonts Font page {page_num}"),
+            doc,
+            font_map,
+            warnings,
+            Some(page_num),
+        )
+    }
+
+    /// Get font subtype from font dictionary
+    fn get_font_subtype(
+        font_dict: &Dictionary,
+        font_id: &FontId,
+        warnings: &mut Vec<PdfWarnMsg>,
+        page_num: usize,
+    ) -> Option<Vec<u8>> {
+        match font_dict.get(b"Subtype") {
+            Ok(Object::Name(n)) => Some(n.clone()),
+            _ => {
+                warnings.push(PdfWarnMsg::warning(
+                    page_num,
+                    0,
+                    format!("Font {} missing Subtype", font_id.0),
+                ));
+                None
+            }
+        }
+    }
+
+    /// Process a Type0 (composite) font
+    fn process_type0_font(
+        doc: &Document,
+        font_dict: &Dictionary,
+        font_id: &FontId,
+        warnings: &mut Vec<PdfWarnMsg>,
+        page_num: usize,
+    ) -> Option<ParsedOrBuiltinFont> {
+        // Get the descendant font dictionary
+        let descendant_font_dict =
+            get_descendant_font_dict(doc, font_dict, font_id, warnings, page_num)?;
+
+        // Get the font descriptor
+        let font_descriptor =
+            get_font_descriptor(doc, descendant_font_dict, font_id, warnings, page_num)?;
+
+        // Process font data and ToUnicode CMap
+        process_font_data(doc, font_dict, font_descriptor, font_id, warnings, page_num)
+    }
+
+    /// Get the descendant font dictionary for a Type0 font
+    fn get_descendant_font_dict<'a>(
+        doc: &'a Document,
+        font_dict: &'a Dictionary,
+        font_id: &FontId,
+        warnings: &mut Vec<PdfWarnMsg>,
+        page_num: usize,
+    ) -> Option<&'a Dictionary> {
+        // Get DescendantFonts array
+        let descendant_fonts = match font_dict.get(b"DescendantFonts") {
+            Ok(Object::Array(arr)) if !arr.is_empty() => arr,
+            _ => {
+                warnings.push(PdfWarnMsg::warning(
+                    page_num,
+                    0,
+                    format!("Type0 font {} missing DescendantFonts", font_id.0),
+                ));
+                return None;
+            }
+        };
+
+        // Get first descendant font
+        match descendant_fonts[0].as_dict().ok().or_else(|| {
+            if let Ok(id) = descendant_fonts[0].as_reference() {
+                doc.get_dictionary(id).ok()
+            } else {
+                None
+            }
+        }) {
+            Some(d) => Some(d),
+            None => {
+                warnings.push(PdfWarnMsg::warning(
+                    page_num,
+                    0,
+                    format!("Cannot resolve descendant font for {}", font_id.0),
+                ));
+                None
+            }
+        }
+    }
+
+    /// Get the font descriptor dictionary
+    fn get_font_descriptor<'a>(
+        doc: &'a Document,
+        font_dict: &'a Dictionary,
+        font_id: &FontId,
+        warnings: &mut Vec<PdfWarnMsg>,
+        page_num: usize,
+    ) -> Option<&'a Dictionary> {
+        match font_dict.get(b"FontDescriptor") {
+            Ok(Object::Dictionary(fd)) => Some(fd),
+            Ok(Object::Reference(r)) => match doc.get_dictionary(*r) {
+                Ok(fd) => Some(fd),
+                Err(_) => {
+                    warnings.push(PdfWarnMsg::warning(
+                        page_num,
+                        0,
+                        format!("Cannot resolve FontDescriptor for {}", font_id.0),
+                    ));
+                    None
+                }
+            },
+            _ => {
+                warnings.push(PdfWarnMsg::warning(
+                    page_num,
+                    0,
+                    format!("Font {} missing FontDescriptor", font_id.0),
+                ));
+                None
+            }
+        }
+    }
+
+    /// Process font data (extract, decompress, parse) and handle ToUnicode CMap
+    fn process_font_data(
+        doc: &Document,
+        font_dict: &Dictionary,
+        font_descriptor: &Dictionary,
+        font_id: &FontId,
+        warnings: &mut Vec<PdfWarnMsg>,
+        page_num: usize,
+    ) -> Option<ParsedOrBuiltinFont> {
+        // Try each font file type
+        for font_file_key in &[b"FontFile", b"FontFile2" as &[u8], b"FontFile3"] {
+            if let Ok(font_file_ref) = font_descriptor.get(font_file_key) {
+                // Get and decompress font data
+                let font_data = get_font_data(doc, font_file_ref, warnings)?;
+
+                warnings.push(PdfWarnMsg::info(
+                    page_num,
+                    0,
+                    format!(
+                        "Found font data for {} ({} bytes)",
+                        font_id.0,
+                        font_data.len()
+                    ),
+                ));
+
+                // Parse the font
+                if let Some(parsed_font) = ParsedFont::from_bytes(&font_data, 0, warnings) {
+                    // Handle ToUnicode CMap if present
+                    handle_to_unicode_cmap(doc, font_dict, font_id, warnings, page_num);
+
+                    return Some(ParsedOrBuiltinFont::P(parsed_font));
+                } else {
+                    warnings.push(PdfWarnMsg::error(
+                        page_num,
+                        0,
+                        format!("Failed to parse font data for {}", font_id.0),
+                    ));
+                }
+            }
+        }
+        None
+    }
+
+    /// Get and decompress font data from a font file reference
+    fn get_font_data(
+        doc: &Document,
+        font_file_ref: &Object,
+        warnings: &mut Vec<PdfWarnMsg>,
+    ) -> Option<Vec<u8>> {
+        // Get font stream
+        let font_stream = match font_file_ref {
+            Object::Stream(s) => s,
+            Object::Reference(r) => match doc.get_object(*r) {
+                Ok(Object::Stream(s)) => s,
+                _ => return None,
+            },
+            _ => return None,
+        };
+
+        // Decompress font data
+        match font_stream.decompressed_content() {
+            Ok(data) => Some(data),
+            Err(_) => Some(font_stream.content.clone()),
+        }
+    }
+
+    /// Handle ToUnicode CMap from a font dictionary
+    fn handle_to_unicode_cmap(
+        doc: &Document,
+        font_dict: &Dictionary,
+        font_id: &FontId,
+        warnings: &mut Vec<PdfWarnMsg>,
+        page_num: usize,
+    ) -> Option<ToUnicodeCMap> {
+        // Get ToUnicode reference
+        if let Ok(to_unicode_ref) = font_dict.get(b"ToUnicode") {
+            // Get ToUnicode stream
+            let to_unicode_stream = get_to_unicode_stream(doc, to_unicode_ref, warnings)?;
+
+            // Parse ToUnicode CMap
+            if let Some(cmap) = parse_to_unicode_cmap(to_unicode_stream, warnings, page_num) {
+                warnings.push(PdfWarnMsg::info(
+                    page_num,
+                    0,
+                    format!("Parsed ToUnicode CMap for {}", font_id.0),
+                ));
+                return Some(cmap);
+            }
+        }
+        None
+    }
+
+    /// Get ToUnicode stream from reference
+    fn get_to_unicode_stream<'a>(
+        doc: &'a Document,
+        to_unicode_ref: &'a Object,
+        warnings: &mut Vec<PdfWarnMsg>,
+    ) -> Option<&'a Stream> {
+        match to_unicode_ref {
+            Object::Stream(s) => Some(s),
+            Object::Reference(r) => match doc.get_object(*r) {
+                Ok(Object::Stream(s)) => Some(s),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// Parse ToUnicode CMap from stream
+    fn parse_to_unicode_cmap(
+        stream: &Stream,
+        warnings: &mut Vec<PdfWarnMsg>,
+        page_num: usize,
+    ) -> Option<ToUnicodeCMap> {
+        // Decompress CMap data
+        let cmap_data = match stream.decompressed_content() {
+            Ok(data) => data,
+            Err(_) => return None,
+        };
+
+        // Convert to string
+        let cmap_str = match String::from_utf8(cmap_data) {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+
+        // Parse CMap
+        match ToUnicodeCMap::parse(&cmap_str) {
+            Ok(cmap) => Some(cmap),
+            Err(_) => None,
+        }
+    }
+
+    /// Process a standard font (Type1, TrueType, etc.)
+    fn process_standard_font(
+        font_dict: &Dictionary,
+        font_id: &FontId,
+        warnings: &mut Vec<PdfWarnMsg>,
+        page_num: usize,
+    ) -> Option<ParsedOrBuiltinFont> {
+        // Get BaseFont name
+        let basefont = match font_dict.get(b"BaseFont") {
+            Ok(Object::Name(basefont_bytes)) => String::from_utf8_lossy(basefont_bytes).to_string(),
+            _ => return None,
+        };
+
+        // Look up built-in font
+        match BuiltinFont::from_id(&basefont) {
+            Some(builtin) => Some(ParsedOrBuiltinFont::B(builtin)),
+            None => {
+                warnings.push(PdfWarnMsg::warning(
+                    page_num,
+                    0,
+                    format!("Unknown base font: {}", basefont),
+                ));
+                None
+            }
+        }
+    }
+
+    /// Find ToUnicode CMap from a font dictionary
+    fn find_to_unicode_cmap_for_font(
+        doc: &Document,
+        font_dict: &Dictionary,
+        warnings: &mut Vec<PdfWarnMsg>,
+        page: Option<usize>,
+    ) -> Option<ToUnicodeCMap> {
+        let page_num = page.unwrap_or_default();
+
+        // Get ToUnicode reference
+        let to_unicode_ref = match get_to_unicode_reference(font_dict) {
+            Some(ref_obj) => ref_obj,
+            None => return None,
+        };
+
+        // Get and validate ToUnicode stream
+        let to_unicode_stream =
+            match get_and_validate_to_unicode_stream(doc, to_unicode_ref, warnings, page_num) {
+                Some(stream) => stream,
+                None => return None,
+            };
+
+        // Parse ToUnicode CMap
+        parse_and_log_to_unicode_cmap(to_unicode_stream, warnings, page_num)
+    }
+
+    /// Get ToUnicode reference from font dictionary
+    fn get_to_unicode_reference<'a>(font_dict: &'a Dictionary) -> Option<&'a Object> {
+        match font_dict.get(b"ToUnicode") {
+            Ok(to_unicode) => Some(to_unicode),
+            Err(_) => None,
+        }
+    }
+
+    /// Get and validate ToUnicode stream
+    fn get_and_validate_to_unicode_stream<'a>(
+        doc: &'a Document,
+        to_unicode_ref: &'a Object,
+        warnings: &mut Vec<PdfWarnMsg>,
+        page_num: usize,
+    ) -> Option<&'a Stream> {
+        match to_unicode_ref {
+            Object::Stream(s) => Some(s),
+            Object::Reference(r) => match doc.get_object(*r) {
+                Ok(Object::Stream(s)) => Some(s),
+                _ => {
+                    warnings.push(PdfWarnMsg::warning(
+                        page_num,
+                        0,
+                        format!("Could not resolve ToUnicode reference"),
+                    ));
+                    None
+                }
+            },
+            _ => {
+                warnings.push(PdfWarnMsg::warning(
+                    page_num,
+                    0,
+                    format!("ToUnicode is not a stream or reference"),
+                ));
+                None
+            }
+        }
+    }
+
+    /// Parse and log ToUnicode CMap
+    fn parse_and_log_to_unicode_cmap(
+        stream: &Stream,
+        warnings: &mut Vec<PdfWarnMsg>,
+        page_num: usize,
+    ) -> Option<ToUnicodeCMap> {
+        // Decompress CMap data
+        let cmap_data = match stream.decompressed_content() {
+            Ok(data) => data,
+            Err(e) => {
+                warnings.push(PdfWarnMsg::warning(
+                    page_num,
+                    0,
+                    format!("Failed to decompress ToUnicode CMap: {}", e),
+                ));
+                return None;
+            }
+        };
+
+        // Parse CMap string
+        let cmap_str = match String::from_utf8(cmap_data) {
+            Ok(s) => s,
+            Err(_) => {
+                warnings.push(PdfWarnMsg::warning(
+                    page_num,
+                    0,
+                    format!("ToUnicode CMap data is not valid UTF-8"),
+                ));
+                return None;
+            }
+        };
+
+        // Parse CMap
+        match ToUnicodeCMap::parse(&cmap_str) {
+            Ok(cmap) => {
+                warnings.push(PdfWarnMsg::info(
+                    page_num,
+                    0,
+                    format!(
+                        "Successfully parsed ToUnicode CMap with {} mappings",
+                        cmap.mappings.len()
+                    ),
+                ));
+                Some(cmap)
+            }
+            Err(e) => {
+                warnings.push(PdfWarnMsg::warning(
+                    page_num,
+                    0,
+                    format!("Failed to parse ToUnicode CMap: {}", e),
+                ));
+                None
+            }
+        }
+    }
+
+    /// Map bytes to Unicode text using a ToUnicode CMap
+    fn map_text_with_cmap(text_bytes: &[u8], cmap: &ToUnicodeCMap) -> String {
+        let mut result = String::new();
+
+        // Process bytes in pairs (CIDs are 2 bytes each)
+        let byte_pairs = get_byte_pairs(text_bytes);
+
+        // Map each CID to Unicode characters
+        for cid in byte_pairs {
+            if let Some(char) = map_cid_to_unicode(cid, cmap) {
+                result.push_str(&char);
+            }
+        }
+
+        result
+    }
+
+    /// Convert byte array to CIDs (u32 values from byte pairs)
+    fn get_byte_pairs(bytes: &[u8]) -> Vec<u32> {
+        let mut cids = Vec::new();
+        let mut i = 0;
+
+        while i + 1 < bytes.len() {
+            cids.push(u16::from_be_bytes([bytes[i], bytes[i + 1]]) as u32);
+            i += 2;
+        }
+
+        cids
+    }
+
+    /// Map CID to Unicode string using CMap
+    fn map_cid_to_unicode(cid: u32, cmap: &ToUnicodeCMap) -> Option<String> {
+        if let Some(unis) = cmap.mappings.get(&cid) {
+            let chars = unis
+                .iter()
+                .filter_map(|&u| std::char::from_u32(u))
+                .collect::<String>();
+
+            if !chars.is_empty() {
+                return Some(chars);
+            }
+        }
+        None
     }
 }

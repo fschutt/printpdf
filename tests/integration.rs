@@ -3,9 +3,12 @@
 use std::collections::BTreeMap;
 
 use printpdf::{
+    BuiltinFont, Color, GeneratePdfOptions, Line, LinePoint, Mm, Op, PaintMode, PdfDocument,
+    PdfPage, PdfParseOptions, PdfResources, PdfSaveOptions, PdfToSvgOptions, Point, Polygon,
+    PolygonRing, Pt, Rgb, TextItem, WindingOrder, XObjectId, XObjectTransform,
     wasm::structs::{
-        document_to_bytes, html_to_document, resources_for_page, DocumentToBytesInput, HtmlToDocumentInput, ResourcesForPageInput
-    }, BuiltinFont, Color, GeneratePdfOptions, Line, LinePoint, Mm, Op, PaintMode, PdfDocument, PdfPage, PdfParseOptions, PdfResources, PdfSaveOptions, PdfToSvgOptions, Point, Polygon, PolygonRing, Pt, Rgb, TextItem, WindingOrder, XObjectId, XObjectTransform
+        DocumentToBytesInput, ResourcesForPageInput, document_to_bytes, resources_for_page,
+    },
 };
 
 #[test]
@@ -219,7 +222,10 @@ fn test_html_to_document() {
         })
         .unwrap();
 
-    std::fs::write("./htmltest.pdf", output.save(&PdfSaveOptions::default(), &mut Vec::new()));
-    
+    std::fs::write(
+        "./htmltest.pdf",
+        output.save(&PdfSaveOptions::default(), &mut Vec::new()),
+    );
+
     assert!(!output.pages.is_empty());
 }

@@ -2,9 +2,9 @@
 
 use printpdf::{
     BlendMode, BuiltinFont, BuiltinOrExternalFontId, Color, ExtendedGraphicsState, Layer,
-    LayerIntent, LayerSubtype, LineCapStyle, LineDashPattern, LineJoinStyle, Mm,
-    Op, OverprintMode, PageAnnotId, PdfDocument, PdfPage, PdfParseOptions, PdfSaveOptions,
-    Polygon, PolygonRing, Pt, RenderingIntent, Rgb, SeperableBlendMode, TextItem,
+    LayerIntent, LayerSubtype, LineCapStyle, LineDashPattern, LineJoinStyle, Mm, Op, OverprintMode,
+    PageAnnotId, PdfDocument, PdfPage, PdfParseOptions, PdfSaveOptions, Polygon, PolygonRing, Pt,
+    RenderingIntent, Rgb, SeperableBlendMode, TextItem,
 };
 
 /// Test that layer creation, serialization, and parsing works correctly

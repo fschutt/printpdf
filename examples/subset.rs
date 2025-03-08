@@ -124,7 +124,6 @@ fn main() {
     tm.push("}".to_string());
     tm.push("}".to_string());
 
-
     let _ = std::fs::write(
         format!("{}/defaultfonts/mapping.rs", env!("CARGO_MANIFEST_DIR")),
         tm.join("\r\n"),

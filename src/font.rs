@@ -21,7 +21,7 @@ use lopdf::Object::{Array, Integer};
 use serde_derive::{Deserialize, Serialize};
 use time::error::Parse;
 
-use crate::{FontId, Op, PdfPage, PdfWarnMsg, TextItem};
+use crate::{FontId, Op, PdfPage, PdfWarnMsg, TextItem, cmap::ToUnicodeCMap};
 
 /// Builtin or external font
 #[derive(Debug, Clone, PartialEq)]
@@ -61,7 +61,6 @@ impl Default for BuiltinFont {
 include!("../defaultfonts/mapping.rs");
 
 impl BuiltinFont {
-
     pub fn check_if_matches(bytes: &[u8]) -> Option<Self> {
         let matching_based_on_len = match_len(bytes)?;
         // if the length is equal, check for equality
@@ -511,7 +510,6 @@ impl ParsedFont {
 
     /// Generates a new font file from the used glyph IDs
     pub fn subset(&self, glyph_ids: &[(u16, char)]) -> Result<SubsetFont, String> {
-        
         let glyph_mapping = glyph_ids
             .iter()
             .enumerate()
@@ -540,30 +538,21 @@ impl ParsedFont {
         })
     }
 
+    /// Replace this function in the ParsedFont implementation
     pub(crate) fn generate_cid_to_unicode_map(
         &self,
         font_id: &FontId,
         glyph_ids: &BTreeMap<u16, char>,
     ) -> String {
-        // current first bit of the glyph id (0x10 or 0x12) for example
-        let mut cur_first_bit: u16 = 0_u16;
-        let mut all_cmap_blocks = Vec::new();
-        let mut current_cmap_block = Vec::new();
-
-        for (glyph_id, unicode) in glyph_ids.iter() {
-            // end the current (beginbfchar endbfchar) block if necessary
-            if (*glyph_id >> 8) != cur_first_bit || current_cmap_block.len() >= 100 {
-                all_cmap_blocks.push(current_cmap_block.clone());
-                current_cmap_block = Vec::new();
-                cur_first_bit = *glyph_id >> 8;
-            }
-
-            current_cmap_block.push((*glyph_id, *unicode as u32));
+        // Convert the glyph_ids map to a ToUnicodeCMap structure
+        let mut mappings = BTreeMap::new();
+        for (&glyph_id, &unicode) in glyph_ids {
+            mappings.insert(glyph_id as u32, vec![unicode as u32]);
         }
 
-        all_cmap_blocks.push(current_cmap_block);
-
-        generate_cid_to_unicode_map(font_id.0.clone(), all_cmap_blocks)
+        // Create the CMap and generate its string representation
+        let cmap = ToUnicodeCMap { mappings };
+        cmap.to_cmap_string(&font_id.0)
     }
 
     pub(crate) fn get_normalized_widths(

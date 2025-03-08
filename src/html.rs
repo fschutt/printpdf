@@ -33,7 +33,8 @@ use serde_derive::{Deserialize, Serialize};
 use svg2pdf::usvg::tiny_skia_path::Scalar;
 
 use crate::{
-    components::ImageInfo, Base64OrRaw, BuiltinFont, Color, FontId, GeneratePdfOptions, Mm, Op, PdfDocument, PdfPage, PdfResources, PdfWarnMsg, Pt, TextItem, TextMatrix
+    Base64OrRaw, BuiltinFont, Color, FontId, GeneratePdfOptions, Mm, Op, PdfDocument, PdfPage,
+    PdfResources, PdfWarnMsg, Pt, TextItem, TextMatrix, components::ImageInfo,
 };
 
 const DPI_SCALE: DpiScaleFactor = DpiScaleFactor {
@@ -154,7 +155,6 @@ pub(crate) fn html_to_document_inner(
     options: &GeneratePdfOptions,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> Result<(String, PdfDocument, crate::XmlRenderOptions), String> {
-
     // Transform HTML to XML with extracted configuration
     let (transformed_xml, config) = crate::html::process_html_for_rendering(html);
 
@@ -385,8 +385,16 @@ fn get_fcpat(b: BuiltinFont) -> (FcPattern, FcFont) {
         FcPattern {
             name: Some(b.get_id().to_string()),
             family: Some(b.get_id().to_string()),
-            italic: if b.get_font_style() == "italic" { PatternMatch::True } else { PatternMatch::DontCare },
-            bold: if b.get_font_weight() == "bold" { PatternMatch::True } else { PatternMatch::DontCare },
+            italic: if b.get_font_style() == "italic" {
+                PatternMatch::True
+            } else {
+                PatternMatch::DontCare
+            },
+            bold: if b.get_font_weight() == "bold" {
+                PatternMatch::True
+            } else {
+                PatternMatch::DontCare
+            },
             ..Default::default()
         },
         FcFont {
@@ -729,23 +737,22 @@ fn displaylist_handle_rect_paginated(
 }
 
 /// Converts the InlineText to a sequence of PDF operations for direct rendering
-/// 
+///
 /// * `page_height` - The total height of the PDF page (needed for Y coordinate conversion)
 /// * `font_id` - The PDF font identifier to use for rendering
 /// * `text_color` - The text color to use
 pub fn to_pdf_ops(
-    it: &InlineText, 
-    page_height: Pt, 
-    font_id: FontId, 
-    text_color: StyleTextColor, 
-    space_advance_scaled: usize
+    it: &InlineText,
+    page_height: Pt,
+    font_id: FontId,
+    text_color: StyleTextColor,
+    space_advance_scaled: usize,
 ) -> Vec<Op> {
-
     let mut ops = Vec::new();
-    
+
     // Start text section
     ops.push(Op::StartTextSection);
-    
+
     // Set text color
     ops.push(Op::SetFillColor {
         col: Color::Rgb(crate::Rgb {
@@ -755,7 +762,7 @@ pub fn to_pdf_ops(
             icc_profile: None,
         }),
     });
-    
+
     let is_builtin_font = BuiltinFont::from_id(&font_id.0);
 
     // Set font and size
@@ -770,41 +777,37 @@ pub fn to_pdf_ops(
             font: font_id.clone(),
         });
     }
-    
+
     // Set line height
     ops.push(Op::SetLineHeight {
         lh: Pt(it.font_size_px),
     });
-    
+
     // Process each line
     for (line_idx, line) in it.lines.iter().enumerate() {
         let line_origin = line.bounds.origin;
-        
+
         // If not the first line, add a line break
         if line_idx > 0 {
             ops.push(Op::AddLineBreak);
         }
-        
+
         // PDF coordinates: Y is from bottom, so we need to flip
         // Position at the baseline of this line
         let pdf_y = page_height.0 - (line_origin.y - it.baseline_descender_px);
-        
+
         // Set text position for this line
         ops.push(Op::SetTextMatrix {
-            matrix: TextMatrix::Translate(
-                Pt(line_origin.x),
-                Pt(pdf_y),
-            ),
+            matrix: TextMatrix::Translate(Pt(line_origin.x), Pt(pdf_y)),
         });
-        
+
         // Process words in this line
         let mut text_items = Vec::new();
         let mut last_x_position = 0.0;
-        
+
         for word in line.words.iter() {
             match word {
                 InlineWord::Tab => {
-
                     let tab_width_in_spaces = 4.0;
                     let tab_x_advance = space_advance_scaled as f32 * tab_width_in_spaces;
 
@@ -829,9 +832,10 @@ pub fn to_pdf_ops(
                         ),
                     });
                     last_x_position += tab_x_advance;
-                },
+                }
                 InlineWord::Return => {
-                    // Return is handled by line breaks, which we already process by iterating through lines
+                    // Return is handled by line breaks, which we already process by iterating
+                    // through lines
                     if !text_items.is_empty() {
                         if let Some(bf) = is_builtin_font {
                             ops.push(Op::WriteTextBuiltinFont {
@@ -845,41 +849,45 @@ pub fn to_pdf_ops(
                             });
                         }
                     }
-                },
+                }
                 InlineWord::Space => {
                     // text_items.push(TextItem::Text(" ".to_string()));
                     last_x_position += space_advance_scaled as f32;
-                },
+                }
                 InlineWord::Word(text_contents) => {
                     let word_origin = text_contents.bounds.origin;
-                    
+
                     // If position changes significantly from expected, add positioning kerning
                     if !text_items.is_empty() && (word_origin.x - last_x_position).abs() > 0.1 {
                         // Add kerning offset
                         text_items.push(TextItem::Offset(
-                            ((last_x_position - word_origin.x) * -1.0) as i32
+                            ((last_x_position - word_origin.x) * -1.0) as i32,
                         ));
                     }
-                    
+
                     // Process each glyph in the word
                     let mut word_text = String::new();
-                    
+
                     for glyph in text_contents.glyphs.iter() {
-                        if let Some(ch) = glyph.unicode_codepoint.into_option().and_then(char::from_u32) {
+                        if let Some(ch) = glyph
+                            .unicode_codepoint
+                            .into_option()
+                            .and_then(char::from_u32)
+                        {
                             word_text.push(ch);
                         }
                     }
-                    
+
                     if !word_text.is_empty() {
                         text_items.push(TextItem::Text(word_text));
                     }
-                    
+
                     // Update last position
                     last_x_position = word_origin.x + text_contents.bounds.size.width;
                 }
             }
         }
-        
+
         // Write any remaining text for this line
         if !text_items.is_empty() {
             if let Some(bf) = is_builtin_font {
@@ -895,13 +903,12 @@ pub fn to_pdf_ops(
             }
         }
     }
-    
+
     // End text section
     ops.push(Op::EndTextSection);
-    
+
     ops
 }
-
 
 fn process_children_paginated(
     doc: &mut PdfDocument,
@@ -1406,7 +1413,7 @@ fn serialize_to_xml(document: &NodeRef) -> String {
                     xml.push_str("<style>");
                     xml.push_str(&child.text_contents());
                     xml.push_str("</style>");
-                },
+                }
                 Some("component") => {
                     // Serialize component with all attributes
                     xml.push_str(&serialize_element(&child));
@@ -1806,7 +1813,6 @@ pub fn inline_all_css(document: &NodeRef) {
 
 /// Clean up HTML by removing elements that can't be rendered
 pub fn clean_html_for_rendering(document: &NodeRef) {
-
     let non_renderable_elements = [
         "script", "noscript", "iframe", "canvas", "audio", "video", "source", "track", "embed",
         "object", "param", "picture",
@@ -1821,14 +1827,13 @@ pub fn clean_html_for_rendering(document: &NodeRef) {
 
 /// Main function to process HTML for rendering
 pub fn process_html_for_rendering(html: &str) -> (String, HtmlExtractedConfig) {
-    
     // First, inline all CSS
     let document = kuchiki::parse_html().one(html);
 
     let config = extract_config(&document);
 
     clean_html_for_rendering(&document);
-    
+
     inline_all_css(&document);
 
     let mut bytes = Vec::new();
@@ -1837,7 +1842,6 @@ pub fn process_html_for_rendering(html: &str) -> (String, HtmlExtractedConfig) {
 
     // Extract configuration
     let document = kuchiki::parse_html().one(html);
-
 
     (serialize_to_xml(&document), config)
 }

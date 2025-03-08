@@ -10,7 +10,10 @@ use lopdf::{
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    cmap::ToUnicodeCMap, color::IccProfile, font::SubsetFont, Actions, BuiltinFont, Color, ColorArray, Destination, FontId, IccProfileType, ImageOptimizationOptions, Line, LinkAnnotation, Op, PaintMode, ParsedFont, PdfDocument, PdfDocumentInfo, PdfPage, PdfResources, PdfWarnMsg, Polygon, PrepFont, TextItem, XObject, XObjectId
+    Actions, BuiltinFont, Color, ColorArray, Destination, FontId, IccProfileType,
+    ImageOptimizationOptions, Line, LinkAnnotation, Op, PaintMode, ParsedFont, PdfDocument,
+    PdfDocumentInfo, PdfPage, PdfResources, PdfWarnMsg, Polygon, PrepFont, TextItem, XObject,
+    XObjectId, color::IccProfile, font::SubsetFont,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
@@ -479,18 +482,23 @@ pub(crate) fn translate_operations(
             Op::WriteCodepoints { font, cp } => {
                 if let Some(prepared_font) = fonts.get(font) {
                     // Convert codepoints to TextItems
-                    let text_items = cp.iter()
+                    let text_items = cp
+                        .iter()
                         .map(|(gid, _)| {
-                            if let Some(subset_gid) = prepared_font.subset_font.glyph_mapping.get(gid) {
-                                TextItem::Text(std::char::from_u32(subset_gid.0 as u32)
-                                    .map(|c| c.to_string())
-                                    .unwrap_or_default())
+                            if let Some(subset_gid) =
+                                prepared_font.subset_font.glyph_mapping.get(gid)
+                            {
+                                TextItem::Text(
+                                    std::char::from_u32(subset_gid.0 as u32)
+                                        .map(|c| c.to_string())
+                                        .unwrap_or_default(),
+                                )
                             } else {
                                 TextItem::Text(String::new())
                             }
                         })
                         .collect::<Vec<_>>();
-                    
+
                     encode_text_items_to_pdf(&text_items, Some(prepared_font), None, &mut content);
                 }
             }
@@ -498,21 +506,21 @@ pub(crate) fn translate_operations(
                 if let Some(prepared_font) = fonts.get(font) {
                     // Convert codepoints with kerning to TextItems
                     let mut text_items = Vec::new();
-                    
+
                     for (kern, gid, _) in cpk {
                         if *kern != 0 {
                             text_items.push(TextItem::Offset(i64_clamp(*kern)));
                         }
-                        
+
                         if let Some(subset_gid) = prepared_font.subset_font.glyph_mapping.get(gid) {
                             text_items.push(TextItem::Text(
                                 std::char::from_u32(subset_gid.0 as u32)
                                     .map(|c| c.to_string())
-                                    .unwrap_or_default()
+                                    .unwrap_or_default(),
                             ));
                         }
                     }
-                    
+
                     encode_text_items_to_pdf(&text_items, Some(prepared_font), None, &mut content);
                 }
             }
@@ -529,7 +537,10 @@ pub(crate) fn translate_operations(
                 ));
             }
             Op::SetFontSizeBuiltinFont { size, font } => {
-                content.push(LoOp::new("Tf", vec![font.get_pdf_id().into(), (size.0).into()]));
+                content.push(LoOp::new(
+                    "Tf",
+                    vec![font.get_pdf_id().into(), (size.0).into()],
+                ));
             }
             Op::SetTextCursor { pos } => {
                 content.push(LoOp::new("Td", vec![pos.x.0.into(), pos.y.0.into()]));
@@ -709,8 +720,7 @@ pub(crate) fn translate_operations(
 }
 
 fn i64_clamp(i: i64) -> i32 {
-    i.min(i32::MAX as i64)
-    .max(i32::MIN as i64) as i32
+    i.min(i32::MAX as i64).max(i32::MIN as i64) as i32
 }
 
 // Helper function to encode text items to PDF operations
@@ -727,7 +737,7 @@ fn encode_text_items_to_pdf<T: PrepFont>(
 
     // Process text items into PDF objects for TJ/Tj operator
     let mut tj_array = Vec::new();
-    
+
     for item in items {
         match item {
             TextItem::Text(text) => {
@@ -736,7 +746,7 @@ fn encode_text_items_to_pdf<T: PrepFont>(
                     let bytes = if true {
                         // Directly map characters to subset glyph IDs using the subset font mapping
                         let mut encoded = Vec::new();
-                        
+
                         for c in text.chars() {
                             // Get original glyph ID from the original font
                             if let Some(orig_gid) = font.lgi(c as u32) {
@@ -749,14 +759,15 @@ fn encode_text_items_to_pdf<T: PrepFont>(
                                 encoded.push(0);
                             }
                         }
-                        
+
                         encoded
                     } else {
                         // This branch is for reference/comparison but not used
-                        // It would try to use lopdf::Document::encode_text if it supported UnicodeMapEncoding
+                        // It would try to use lopdf::Document::encode_text if it supported
+                        // UnicodeMapEncoding
                         Vec::new()
                     };
-                    
+
                     // Custom fonts must use hexadecimal encoding in PDF
                     tj_array.push(LoString(bytes, Hexadecimal));
                 } else if let Some(_) = builtin_font {
@@ -765,23 +776,23 @@ fn encode_text_items_to_pdf<T: PrepFont>(
                         &lopdf::Encoding::SimpleEncoding(b"WinAnsiEncoding"),
                         text,
                     );
-                    
+
                     // Choose appropriate string format based on content
                     let string_format = if needs_hex_encoding(&bytes) {
                         Hexadecimal
                     } else {
                         Literal
                     };
-                    
+
                     tj_array.push(LoString(bytes, string_format));
                 }
-            },
+            }
             TextItem::Offset(offset) => {
                 tj_array.push(Integer(*offset as i64));
             }
         }
     }
-    
+
     // Choose appropriate operator based on complexity
     if tj_array.len() == 1 && !items.iter().any(|i| matches!(i, TextItem::Offset(_))) {
         // Single text item with no kerning - use simpler Tj
@@ -822,10 +833,13 @@ pub(crate) struct PreparedFont {
 }
 
 impl PreparedFont {
-    pub fn new(font_id: &FontId, font: &ParsedFont, glyph_ids: BTreeMap<u16, char>, warnings: &mut Vec<PdfWarnMsg>) -> Option<Self> {
-        
-        let subset = font
-            .subset(&glyph_ids.iter().map(|s| (*s.0, *s.1)).collect::<Vec<_>>());
+    pub fn new(
+        font_id: &FontId,
+        font: &ParsedFont,
+        glyph_ids: BTreeMap<u16, char>,
+        warnings: &mut Vec<PdfWarnMsg>,
+    ) -> Option<Self> {
+        let subset = font.subset(&glyph_ids.iter().map(|s| (*s.0, *s.1)).collect::<Vec<_>>());
 
         let subset_font = match subset {
             Ok(o) => o,
@@ -838,10 +852,11 @@ impl PreparedFont {
                 return None;
             }
         };
-    
-        let new_glyph_ids = glyph_ids.iter().filter_map(|(ogid, ch)| {
-            subset_font.glyph_mapping.get(ogid).cloned()
-        }).collect();
+
+        let new_glyph_ids = glyph_ids
+            .iter()
+            .filter_map(|(ogid, ch)| subset_font.glyph_mapping.get(ogid).cloned())
+            .collect();
 
         let font = ParsedFont::from_bytes(&subset_font.bytes, 0, warnings)?;
         let cid_to_unicode = font.generate_cid_to_unicode_map(font_id, &new_glyph_ids);
@@ -1082,12 +1097,11 @@ pub(crate) fn prepare_fonts(
     let mut fonts_in_pdf = BTreeMap::new();
 
     for (font_id, font) in resources.fonts.map.iter() {
-
         let glyph_ids = font.get_used_glyph_ids(font_id, pages);
         if glyph_ids.is_empty() {
             continue; // unused font
         }
-        
+
         let prepared_font = match PreparedFont::new(font_id, font, glyph_ids, warnings) {
             Some(s) => s,
             None => continue,
@@ -1328,35 +1342,35 @@ fn color_array_to_f32(c: &ColorArray) -> Vec<f32> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::collections::BTreeMap;
+
+    use super::*;
     use crate::PrepFont;
 
     // Mock structs for testing
     struct MockParsedFont {
         char_to_gid: BTreeMap<char, u32>,
     }
-    
+
     impl PrepFont for MockParsedFont {
         fn lgi(&self, codepoint: u32) -> Option<u32> {
             self.char_to_gid.get(&(codepoint as u8 as char)).copied()
         }
     }
-    
+
     struct GlyphId(pub u16);
-    
+
     struct MockSubsetFont {
         glyph_mapping: BTreeMap<u32, GlyphId>,
     }
-    
+
     struct MockPreparedFont {
         original: MockParsedFont,
         subset_font: MockSubsetFont,
     }
-    
+
     impl PrepFont for MockPreparedFont {
         fn lgi(&self, codepoint: u32) -> Option<u32> {
             self.original.lgi(codepoint)
@@ -1365,47 +1379,49 @@ mod tests {
 
     #[test]
     fn test_encode_text_with_subset_font() {
-
         // Create mapping: 'A' -> original GID 65 -> subset GID 1
         //                 'B' -> original GID 66 -> subset GID 2
-        
+
         let mut char_to_gid = BTreeMap::new();
         char_to_gid.insert('A', 65);
         char_to_gid.insert('B', 66);
-        
+
         let original = MockParsedFont { char_to_gid };
-        
+
         let mut glyph_mapping = BTreeMap::new();
         glyph_mapping.insert(65, GlyphId(1));
         glyph_mapping.insert(66, GlyphId(2));
-        
+
         let subset_font = MockSubsetFont { glyph_mapping };
-        
-        let prepared_font = MockPreparedFont { original, subset_font };
-        
+
+        let prepared_font = MockPreparedFont {
+            original,
+            subset_font,
+        };
+
         // Mock text items and LoOp vector
         let text_items = vec![TextItem::Text("AB".to_string())];
         let mut content = Vec::new();
-        
+
         // Call the function
         encode_text_items_to_pdf(&text_items, Some(&prepared_font), None, &mut content);
-        
+
         // Verify results - we expect:
         // 1. A single Tj operation
         // 2. With bytes [0,1,0,2] (subset GIDs 1 and 2)
         // 3. Using Hexadecimal format
         assert_eq!(content.len(), 1);
-        
+
         match &content[0] {
             LoOp { operator, operands } => {
                 assert_eq!(operator, "Tj");
                 assert_eq!(operands.len(), 1);
-                
+
                 match &operands[0] {
                     LoString(bytes, format) => {
                         assert_eq!(*format, Hexadecimal);
                         assert_eq!(bytes, &[0, 1, 0, 2]);
-                    },
+                    }
                     _ => panic!("Expected LoString, got something else"),
                 }
             }
