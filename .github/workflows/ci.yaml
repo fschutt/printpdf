@@ -20,6 +20,7 @@ jobs:
       - run: cargo check --verbose
       # - run: cargo test --verbose # fails because of SIMD issues, test on Windows only
 
+
   check-and-test-windows:
     name: Cargo check and test on Windows
     strategy:
@@ -29,29 +30,16 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up MinGW
+        if: ${{ matrix.target-abi == 'gnu' }}
         uses: egor-tensin/setup-mingw@v2
         with:
-          platform: "x64"
-          version: 13.2.0
-          static: 0
-        continue-on-error: true
-      - name: Set up MinGW
-        uses: egor-tensin/setup-mingw@v2
-        with:
-          platform: "i686"
-          version: 13.2.0
-          static: 0
-        continue-on-error: true
-      - name: Check if i686-w64-mingw32-gcc is installed
-        shell: cmd
-        run: |
-          where i686-w64-mingw32-gcc && echo "Found MinGW toolchain" || echo "MinGW toolchain not found"
+          platform: "${{ contains(matrix.target-sys, 'x86_64') && 'x64' || 'i686' }}"
+          version: 12.2.0
       - name: Install toolchain for ${{ matrix.target-sys }}-${{ matrix.target-abi }}
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target-sys }}-${{ matrix.target-abi }}
+          targets: ${{ matrix.target-sys }}-${{ matrix.target-abi }}    
       - run: cargo check --verbose --target ${{ matrix.target-sys }}-${{ matrix.target-abi }} --examples
       - run: cargo check --verbose --target ${{ matrix.target-sys }}-${{ matrix.target-abi }}
       - run: cargo test --verbose --target ${{ matrix.target-sys }}-${{ matrix.target-abi }}
