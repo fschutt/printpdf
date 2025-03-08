@@ -5,8 +5,8 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::{
     Actions, BlackGenerationExtraFunction, BlackGenerationFunction, BlendMode, BuiltinFont,
-    BuiltinOrExternalFontId, Color, CurTransMat, Destination, ExtendedGraphicsState, FontId,
-    HalftoneType, Line, LineCapStyle, LineDashPattern, LineJoinStyle, OutputImageFormat,
+    BuiltinOrExternalFontId, ChangedField, Color, CurTransMat, Destination, ExtendedGraphicsState,
+    FontId, HalftoneType, Line, LineCapStyle, LineDashPattern, LineJoinStyle, OutputImageFormat,
     OverprintMode, PaintMode, PdfResources, PdfWarnMsg, Point, Polygon, Pt, RenderingIntent,
     SoftMask, TextItem, TextMatrix, TextRenderingMode, TransferExtraFunction, TransferFunction,
     UnderColorRemovalExtraFunction, UnderColorRemovalFunction, WindingOrder, XObject, XObjectId,
@@ -135,33 +135,93 @@ impl GraphicsStateVec {
     pub fn load_gs(&mut self, g: &ExtendedGraphicsState) -> Option<()> {
         let last = self._internal.last_mut()?;
 
-        last.overprint_fill = g.overprint_fill;
-        last.overprint_stroke = g.overprint_stroke;
-        last.current_font = g.font.clone();
-        last.dash_array = g.line_dash_pattern.clone();
-        last.stroke_width = Some(Pt(g.line_width));
-        last.line_cap = Some(g.line_cap);
-        last.line_join = Some(g.line_join);
-        last.rendering_intent = Some(g.rendering_intent);
-        last.overprint_mode = Some(g.overprint_mode);
-        last.miter_limit = Some(Pt(g.miter_limit));
-
-        last.black_generation = g.black_generation.clone();
-        last.black_generation_extra = g.black_generation_extra.clone();
-        last.under_color_removal = g.under_color_removal.clone();
-        last.under_color_removal_extra = g.under_color_removal_extra.clone();
-        last.transfer_function = g.transfer_function.clone();
-        last.transfer_extra_function = g.transfer_extra_function.clone();
-        last.halftone_dictionary = g.halftone_dictionary.clone();
-        last.soft_mask = g.soft_mask.clone();
-        last.flatness_tolerance = Some(g.flatness_tolerance.clone());
-        last.smoothness_tolerance = Some(g.smoothness_tolerance.clone());
-        last.stroke_adjustment = Some(g.stroke_adjustment.clone());
-        last.blend_mode = Some(g.blend_mode.clone());
-        last.current_stroke_alpha = Some(g.current_stroke_alpha.clone());
-        last.current_fill_alpha = Some(g.current_fill_alpha.clone());
-        last.alpha_is_shape = Some(g.alpha_is_shape.clone());
-        last.text_knockout = Some(g.text_knockout.clone());
+        // Only apply fields that are marked as changed
+        if g.changed_fields.contains(&ChangedField::OverprintFill) {
+            last.overprint_fill = g.overprint_fill;
+        }
+        if g.changed_fields.contains(&ChangedField::OverprintStroke) {
+            last.overprint_stroke = g.overprint_stroke;
+        }
+        if g.changed_fields.contains(&ChangedField::Font) {
+            last.current_font = g.font.clone();
+        }
+        if g.changed_fields.contains(&ChangedField::LineDashPattern) {
+            last.dash_array = g.line_dash_pattern.clone();
+        }
+        if g.changed_fields.contains(&ChangedField::LineWidth) {
+            last.stroke_width = Some(Pt(g.line_width));
+        }
+        if g.changed_fields.contains(&ChangedField::LineCap) {
+            last.line_cap = Some(g.line_cap);
+        }
+        if g.changed_fields.contains(&ChangedField::LineJoin) {
+            last.line_join = Some(g.line_join);
+        }
+        if g.changed_fields.contains(&ChangedField::RenderingIntent) {
+            last.rendering_intent = Some(g.rendering_intent);
+        }
+        if g.changed_fields.contains(&ChangedField::OverprintMode) {
+            last.overprint_mode = Some(g.overprint_mode);
+        }
+        if g.changed_fields.contains(&ChangedField::MiterLimit) {
+            last.miter_limit = Some(Pt(g.miter_limit));
+        }
+        if g.changed_fields.contains(&ChangedField::BlackGeneration) {
+            last.black_generation = g.black_generation.clone();
+        }
+        if g.changed_fields
+            .contains(&ChangedField::BlackGenerationExtra)
+        {
+            last.black_generation_extra = g.black_generation_extra.clone();
+        }
+        if g.changed_fields.contains(&ChangedField::UnderColorRemoval) {
+            last.under_color_removal = g.under_color_removal.clone();
+        }
+        if g.changed_fields
+            .contains(&ChangedField::UnderColorRemovalExtra)
+        {
+            last.under_color_removal_extra = g.under_color_removal_extra.clone();
+        }
+        if g.changed_fields.contains(&ChangedField::TransferFunction) {
+            last.transfer_function = g.transfer_function.clone();
+        }
+        if g.changed_fields
+            .contains(&ChangedField::TransferFunctionExtra)
+        {
+            last.transfer_extra_function = g.transfer_extra_function.clone();
+        }
+        if g.changed_fields.contains(&ChangedField::HalftoneDictionary) {
+            last.halftone_dictionary = g.halftone_dictionary.clone();
+        }
+        if g.changed_fields.contains(&ChangedField::SoftMask) {
+            last.soft_mask = g.soft_mask.clone();
+        }
+        if g.changed_fields.contains(&ChangedField::FlatnessTolerance) {
+            last.flatness_tolerance = Some(g.flatness_tolerance);
+        }
+        if g.changed_fields
+            .contains(&ChangedField::SmoothnessTolerance)
+        {
+            last.smoothness_tolerance = Some(g.smoothness_tolerance);
+        }
+        if g.changed_fields.contains(&ChangedField::StrokeAdjustment) {
+            last.stroke_adjustment = Some(g.stroke_adjustment);
+        }
+        if g.changed_fields.contains(&ChangedField::BlendMode) {
+            last.blend_mode = Some(g.blend_mode.clone());
+        }
+        if g.changed_fields.contains(&ChangedField::CurrentStrokeAlpha) {
+            last.current_stroke_alpha = Some(g.current_stroke_alpha);
+        }
+        if g.changed_fields.contains(&ChangedField::CurrentFillAlpha) {
+            last.current_fill_alpha = Some(g.current_fill_alpha);
+        }
+        if g.changed_fields.contains(&ChangedField::AlphaIsShape) {
+            last.alpha_is_shape = Some(g.alpha_is_shape);
+        }
+        if g.changed_fields.contains(&ChangedField::TextKnockout) {
+            last.text_knockout = Some(g.text_knockout);
+        }
 
         Some(())
     }
