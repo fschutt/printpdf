@@ -35,12 +35,14 @@ jobs:
         with:
           platform: "x64"
           version: 13.2.0
+          static: 0
         continue-on-error: true
       - name: Set up MinGW
         uses: egor-tensin/setup-mingw@v2
         with:
           platform: "i686"
           version: 13.2.0
+          static: 0
         continue-on-error: true
       - name: Check if i686-w64-mingw32-gcc is installed
         shell: cmd
