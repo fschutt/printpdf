@@ -558,7 +558,7 @@ impl LineCapStyle {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename = "kebap-case")]
+#[serde(rename = "kebab-case")]
 pub enum ChangedField {
     LineWidth,
     LineCap,
