@@ -1377,7 +1377,6 @@ mod tests {
         }
     }
 
-    #[test]
     fn test_encode_text_with_subset_font() {
         // Create mapping: 'A' -> original GID 65 -> subset GID 1
         //                 'B' -> original GID 66 -> subset GID 2

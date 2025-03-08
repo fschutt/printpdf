@@ -599,6 +599,13 @@ pub enum BuiltinOrExternalFontId {
 }
 
 impl BuiltinOrExternalFontId {
+    pub fn is_builtin(&self) -> bool {
+        match self {
+            BuiltinOrExternalFontId::Builtin(_) => true,
+            BuiltinOrExternalFontId::External(_) => false,
+        }
+    }
+
     pub fn get_id(&self) -> &str {
         match self {
             BuiltinOrExternalFontId::Builtin(builtin_font) => builtin_font.get_id(),

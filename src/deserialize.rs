@@ -19,7 +19,7 @@ use crate::{
     PdfDocumentInfo, PdfFontMap, PdfLayerMap, PdfMetadata, PdfPage, PdfResources, Point, Polygon,
     PolygonRing, Pt, RawImage, RenderingIntent, TextItem, TextMatrix, TextRenderingMode,
     WindingOrder, XObject, XObjectId, XObjectMap,
-    cmap::ToUnicodeCMap,
+    cmap::{ToUnicodeCMap},
     conformance::PdfConformance,
     date::{OffsetDateTime, UtcOffset},
 };
@@ -280,124 +280,24 @@ fn parse_pdf_from_bytes_end(
 }
 
 pub enum ParsedOrBuiltinFont {
-    P(ParsedFont),
+    P(ParsedFont, Option<ToUnicodeCMap>),
     B(BuiltinFont),
 }
 
 impl ParsedOrBuiltinFont {
     fn as_parsed_font(self) -> Option<ParsedFont> {
         match self {
-            ParsedOrBuiltinFont::P(p) => Some(p),
+            ParsedOrBuiltinFont::P(p, _) => Some(p),
             ParsedOrBuiltinFont::B(_) => None,
         }
     }
-}
 
-/// Given a Resources dictionary from a page or a global document dictionary,
-/// parse all embedded fonts and return a mapping from FontId to ParsedFont.
-fn parse_fonts(
-    doc: &LopdfDocument,
-    resources: &LopdfDictionary,
-    warnings: &mut Vec<PdfWarnMsg>,
-    page: Option<usize>,
-) -> BTreeMap<FontId, ParsedOrBuiltinFont> {
-    let mut fonts_map = BTreeMap::new();
-
-    let page_num = page.unwrap_or_default();
-
-    let font_map = match resources.get(b"Font") {
-        Ok(s) => s,
-        Err(_) => return fonts_map,
-    };
-
-    let fonts_dict = match get_dict_or_resolve_ref(
-        &format!("parse_fonts Font page {page_num}"),
-        doc,
-        font_map,
-        warnings,
-        page,
-    ) {
-        Some(s) => s,
-        None => return fonts_map,
-    };
-
-    'outer: for (key, value) in fonts_dict.iter() {
-        // TODO: better parsing
-        let font_id = FontId(String::from_utf8_lossy(key).to_string());
-
-        let font_entry = match get_dict_or_resolve_ref(
-            &format!("parse_fonts FontFile1 FontFile2 FontFile3 page {page_num}"),
-            doc,
-            value,
-            warnings,
-            page,
-        ) {
-            Some(s) => s,
-            None => continue,
-        };
-
-        for f in ["FontFile", "FontFile2", "FontFile3"] {
-            let f_ref = match font_entry.get(f.as_bytes()) {
-                Ok(o) => o,
-                Err(_) => continue,
-            };
-
-            let font_stream = match get_stream_or_resolve_ref(doc, f_ref, warnings, page) {
-                Some(s) => s,
-                None => continue,
-            };
-
-            let stream = font_stream
-                .decompressed_content()
-                .unwrap_or_else(|_| font_stream.content.clone());
-
-            warnings.push(PdfWarnMsg::info(
-                0,
-                0,
-                format!(
-                    "deserializing font stream for {}, {} bytes",
-                    font_id.0,
-                    stream.len()
-                ),
-            ));
-
-            match ParsedFont::from_bytes(&stream, 0, warnings) {
-                Some(o) => {
-                    fonts_map.insert(font_id, ParsedOrBuiltinFont::P(o));
-                    continue 'outer;
-                }
-                None => {
-                    warnings.push(PdfWarnMsg::error(
-                        page.unwrap_or(0),
-                        0,
-                        format!("font {}: corrupt {f}", font_id.0),
-                    ));
-                }
-            }
-        }
-
-        let basefont = match font_entry.get(b"BaseFont") {
-            Ok(Object::Name(basefont_bytes)) => {
-                String::from_utf8_lossy(&basefont_bytes).to_string()
-            }
-            _ => continue,
-        };
-
-        match BuiltinFont::from_id(&basefont) {
-            Some(s) => {
-                fonts_map.insert(font_id, ParsedOrBuiltinFont::B(s));
-            }
-            None => {
-                warnings.push(PdfWarnMsg::error(
-                    page.unwrap_or(0),
-                    0,
-                    format!("font {}: unknown basefont {basefont}", font_id.0),
-                ));
-            }
+    fn cmap(&self) -> Option<&ToUnicodeCMap> {
+        match self {
+            ParsedOrBuiltinFont::P(_, cmap) => cmap.as_ref(),
+            ParsedOrBuiltinFont::B(_) => None,
         }
     }
-
-    fonts_map
 }
 
 // Returns the dictionary, or resolves the reference
@@ -703,7 +603,8 @@ fn parse_fonts_from_entire_pdf(
         })
         .fold(BTreeMap::new(), |mut acc, fonts| {
             fonts.into_iter().for_each(|(font_id, parsed_font)| {
-                acc.entry(font_id).or_insert(parsed_font);
+                acc.entry(BuiltinOrExternalFontId::External(font_id))
+                    .or_insert(parsed_font);
             });
             acc
         });
@@ -718,11 +619,7 @@ fn parse_fonts_from_entire_pdf(
         })
         .collect::<BTreeMap<_, _>>();
 
-    map.extend(
-        obj.into_iter()
-            .map(|(k, v)| (BuiltinOrExternalFontId::External(k), v)),
-    );
-
+    map.extend(obj);
     map
 }
 
@@ -1622,25 +1519,17 @@ pub fn parse_op(
                     "Warning: 'TJ' with no operands".to_string(),
                 ));
             } else if let Some(arr) = op.operands.get(0).and_then(|o| o.as_array().ok()) {
-                // Get the font for CMap lookup
-                let to_unicode_cmap =
-                    if let (Some(fid), _) = (&state.current_font, state.current_font_size) {
-                        match fonts.get(fid) {
-                            Some(ParsedOrBuiltinFont::P(font)) => {
-                                // Try to get the CMap from the parsed font
-                                find_to_unicode_cmap(font)
-                            }
-                            _ => None,
-                        }
-                    } else {
-                        None
-                    };
+                // Get the pre-parsed CMap from the font
+                let to_unicode_cmap = if let Some(fid) = &state.current_font {
+                    fonts.get(fid).and_then(|font| font.cmap())
+                } else {
+                    None
+                };
 
-                // Decode the TJ array into TextItems
-                let text_items = crate::text::decode_tj_operands(arr, to_unicode_cmap.as_ref());
+                // Decode the TJ array using the pre-parsed CMap
+                let text_items = crate::text::decode_tj_operands(arr, to_unicode_cmap);
 
                 let default_font = BuiltinOrExternalFontId::Builtin(BuiltinFont::default());
-                let d_font = ParsedOrBuiltinFont::B(BuiltinFont::default());
                 let cur_font = state.current_font.as_ref().unwrap_or(&default_font);
 
                 match cur_font {
@@ -1682,32 +1571,23 @@ pub fn parse_op(
                     "Warning: 'Tj' with no operands".to_string(),
                 ));
             } else if let lopdf::Object::String(bytes, format) = &op.operands[0] {
-                // Get the font for CMap lookup
-                let to_unicode_cmap =
-                    if let (Some(fid), _) = (&state.current_font, state.current_font_size) {
-                        match fonts.get(fid) {
-                            Some(ParsedOrBuiltinFont::P(font)) => {
-                                // Try to get the CMap from the parsed font
-                                find_to_unicode_cmap_from_font(font)
-                            }
-                            _ => None,
-                        }
-                    } else {
-                        None
-                    };
+                // Get the pre-parsed CMap from the font
+                let to_unicode_cmap = if let Some(fid) = &state.current_font {
+                    fonts.get(fid).and_then(|font| font.cmap())
+                } else {
+                    None
+                };
 
                 // Create a temporary lopdf::Object for decoding
                 let string_obj = lopdf::Object::String(bytes.clone(), *format);
 
-                // Decode the PDF string using the CMap if available
-                let text_str =
-                    crate::text::decode_pdf_string(&string_obj, to_unicode_cmap.as_ref());
+                // Decode the PDF string using the pre-parsed CMap
+                let text_str = crate::text::decode_pdf_string(&string_obj, to_unicode_cmap);
 
                 // Create a single TextItem with no kerning
                 let text_items = vec![TextItem::Text(text_str)];
 
                 let default_font = BuiltinOrExternalFontId::Builtin(BuiltinFont::default());
-                let d_font = ParsedOrBuiltinFont::B(BuiltinFont::default());
                 let cur_font = state.current_font.as_ref().unwrap_or(&default_font);
 
                 match cur_font {
@@ -3480,20 +3360,77 @@ mod parsefont {
                 None => continue,
             };
 
+            // Extract ToUnicode CMap directly from the font dictionary (common to all font types)
+            let to_unicode_cmap = extract_to_unicode_cmap(doc, font_dict, warnings, page_num);
+
             // Handle different font types
             if &font_type == b"Type0" {
-                if let Some(font) = process_type0_font(doc, font_dict, &font_id, warnings, page_num)
+                if let Some(parsed_font) =
+                    process_type0_font(doc, font_dict, &font_id, warnings, page_num)
                 {
-                    fonts_map.insert(font_id, font);
+                    fonts_map.insert(
+                        font_id,
+                        ParsedOrBuiltinFont::P(parsed_font, to_unicode_cmap),
+                    );
                 }
             } else {
-                if let Some(font) = process_standard_font(font_dict, &font_id, warnings, page_num) {
-                    fonts_map.insert(font_id, font);
+                if let Some(builtin) =
+                    process_standard_font(font_dict, &font_id, warnings, page_num)
+                {
+                    fonts_map.insert(font_id, builtin);
                 }
             }
         }
 
         fonts_map
+    }
+
+    // Extract ToUnicode CMap from a font dictionary
+    pub(crate) fn extract_to_unicode_cmap(
+        doc: &Document,
+        font_dict: &Dictionary,
+        warnings: &mut Vec<PdfWarnMsg>,
+        page_num: usize,
+    ) -> Option<ToUnicodeCMap> {
+        // Check if font dictionary has a ToUnicode entry
+        if let Ok(to_unicode_ref) = font_dict.get(b"ToUnicode") {
+            // Get the ToUnicode stream
+            let to_unicode_stream = match to_unicode_ref {
+                Object::Stream(s) => Some(s),
+                Object::Reference(r) => match doc.get_object(*r) {
+                    Ok(Object::Stream(s)) => Some(s),
+                    _ => None,
+                },
+                _ => None,
+            };
+
+            if let Some(stream) = to_unicode_stream {
+                // Decompress the stream content
+                let content = match stream.decompressed_content() {
+                    Ok(data) => data,
+                    Err(_) => stream.content.clone(),
+                };
+
+                // Convert to string
+                if let Ok(cmap_str) = String::from_utf8(content) {
+                    // Parse using ToUnicodeCMap::parse
+                    match ToUnicodeCMap::parse(&cmap_str) {
+                        Ok(cmap) => {
+                            return Some(cmap);
+                        }
+                        Err(e) => {
+                            warnings.push(PdfWarnMsg::warning(
+                                page_num,
+                                0,
+                                format!("Failed to parse ToUnicode CMap: {}", e),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     /// Get fonts dictionary from PDF resources
@@ -3546,7 +3483,7 @@ mod parsefont {
         font_id: &FontId,
         warnings: &mut Vec<PdfWarnMsg>,
         page_num: usize,
-    ) -> Option<ParsedOrBuiltinFont> {
+    ) -> Option<ParsedFont> {
         // Get the descendant font dictionary
         let descendant_font_dict =
             get_descendant_font_dict(doc, font_dict, font_id, warnings, page_num)?;
@@ -3555,7 +3492,7 @@ mod parsefont {
         let font_descriptor =
             get_font_descriptor(doc, descendant_font_dict, font_id, warnings, page_num)?;
 
-        // Process font data and ToUnicode CMap
+        // Process font data (no need to handle CMap here anymore)
         process_font_data(doc, font_dict, font_descriptor, font_id, warnings, page_num)
     }
 
@@ -3640,7 +3577,7 @@ mod parsefont {
         font_id: &FontId,
         warnings: &mut Vec<PdfWarnMsg>,
         page_num: usize,
-    ) -> Option<ParsedOrBuiltinFont> {
+    ) -> Option<ParsedFont> {
         // Try each font file type
         for font_file_key in &[b"FontFile", b"FontFile2" as &[u8], b"FontFile3"] {
             if let Ok(font_file_ref) = font_descriptor.get(font_file_key) {
@@ -3659,10 +3596,7 @@ mod parsefont {
 
                 // Parse the font
                 if let Some(parsed_font) = ParsedFont::from_bytes(&font_data, 0, warnings) {
-                    // Handle ToUnicode CMap if present
-                    handle_to_unicode_cmap(doc, font_dict, font_id, warnings, page_num);
-
-                    return Some(ParsedOrBuiltinFont::P(parsed_font));
+                    return Some(parsed_font);
                 } else {
                     warnings.push(PdfWarnMsg::error(
                         page_num,
@@ -3746,9 +3680,9 @@ mod parsefont {
         warnings: &mut Vec<PdfWarnMsg>,
         page_num: usize,
     ) -> Option<ToUnicodeCMap> {
-
         // Decompress CMap data
-        let cmap_data = stream.decompressed_content()
+        let cmap_data = stream
+            .decompressed_content()
             .unwrap_or_else(|_| stream.content.clone());
 
         // Convert to string
@@ -3763,7 +3697,7 @@ mod parsefont {
             Ok(cmap) => {
                 println!("parsed: {cmap:#?}");
                 Some(cmap)
-            },
+            }
             Err(_) => None,
         }
     }
