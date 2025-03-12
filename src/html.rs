@@ -12,7 +12,7 @@ use azul_core::{
     dom::{NodeData, NodeId},
     id_tree::NodeDataContainer,
     pagination::PaginatedPage,
-    styled_dom::{NodeHierarchyItem, StyledNode},
+    styled_dom::{NodeHierarchyItem, StyledNode, StyledNodeState},
     ui_solver::{LayoutResult, PositionedRectangle},
     window::{AzStringPair, FullWindowState, LogicalSize},
 };
@@ -26,7 +26,7 @@ pub use azul_core::{
     },
 };
 use azul_css::{CssPropertyValue, FloatValue, LayoutDisplay, StyleTextColor};
-pub use azul_css_parser::CssApiWrapper;
+pub use azul_css::parser::CssApiWrapper;
 use kuchiki::{NodeRef, traits::*};
 use rust_fontconfig::{FcFont, FcFontCache, FcPattern, PatternMatch};
 use serde_derive::{Deserialize, Serialize};
@@ -158,6 +158,8 @@ pub(crate) fn html_to_document_inner(
     // Transform HTML to XML with extracted configuration
     let (transformed_xml, config) = crate::html::process_html_for_rendering(html);
 
+    println!("transformed xml: {}", transformed_xml);
+
     // Create document with title from input or extracted from HTML
     let title = config.title.clone().unwrap_or_default();
 
@@ -229,8 +231,11 @@ fn xml_to_pages_inner(
 
     // inserts images into the PDF resources and changes the src="..."
     let xml = fixup_xml(file_contents, document, &config, warnings);
+
+    println!("fixup_xml: {}", xml);
+
     let root_nodes =
-        azulc_lib::xml::parse_xml_string(&xml).map_err(|e| format!("Error parsing XML: {}", e))?;
+        azul_layout::xml::parse_xml_string(&xml).map_err(|e| format!("Error parsing XML: {}", e))?;
 
     let fixup = fixup_xml_nodes(&root_nodes);
 
@@ -246,9 +251,13 @@ fn xml_to_pages_inner(
     )
     .map_err(|e| format!("Error constructing DOM: {}", e.to_string()))?;
 
+    println!("styled_dom: {}", styled_dom.get_html_string("", "", true));
+
     let mut fake_window_state = FullWindowState::default();
     fake_window_state.size.dimensions = size;
     let mut renderer_resources = RendererResources::default();
+
+    println!("fake window state dimensions: {}", fake_window_state.size.dimensions);
 
     let new_image_keys = styled_dom.scan_for_image_keys(&image_cache);
     let fonts_in_dom = styled_dom.scan_for_font_keys(&renderer_resources);
@@ -297,8 +306,8 @@ fn xml_to_pages_inner(
         &fc_cache,
         ID_NAMESPACE,
         &fonts_in_dom,
-        azulc_lib::font_loading::font_source_get_bytes,
-        azul_text_layout::parse_font_fn,
+        azul_layout::font::loading::font_source_get_bytes,
+        azul_layout::text::parse_font_fn,
     );
 
     let add_image_resource_updates = azul_core::app_resources::build_add_image_resource_updates(
@@ -326,12 +335,16 @@ fn xml_to_pages_inner(
         &mut renderer_resources,
     );
 
+    println!("layout: {:#?}", layout.positioned_words_cache);
+
     // Break layout into pages using the pagination module
     let paginated_pages = azul_core::pagination::paginate_layout_result(
         &layout.styled_dom.node_hierarchy.as_container(),
         &layout.rects.as_ref(),
         config.page_height.into_pt().0,
     );
+
+    println!("paginated pages: {:#?}", paginated_pages);
 
     let pages = paginated_pages
         .into_iter()
@@ -572,6 +585,14 @@ fn displaylist_handle_rect_paginated(
     let styled_node = &layout_result.styled_dom.styled_nodes.as_container()[original_node_id];
     let html_node = &layout_result.styled_dom.node_data.as_container()[original_node_id];
 
+    println!("displaylist_handle_rect_paginated: {}{}", 
+        html_node.debug_print_start(
+            &layout_result.styled_dom.get_css_property_cache(), 
+            &original_node_id, 
+            &StyledNodeState::new(),
+        ),
+        html_node.debug_print_end(),
+    );
     // Get the positioned rect from the paginated data
     let positioned_rect = &rects.as_ref()[rect_idx];
 
@@ -980,14 +1001,14 @@ fn solve_layout(
     fake_window_state: &FullWindowState,
     renderer_resources: &mut RendererResources,
 ) -> LayoutResult {
-    let fc_cache = azulc_lib::font_loading::build_font_cache();
+
+    let fc_cache = azul_layout::font::loading::build_font_cache();
     let image_cache = ImageCache::default();
     let callbacks = RenderCallbacks {
         insert_into_active_gl_textures_fn: azul_core::gl::insert_into_active_gl_textures,
         layout_fn: azul_layout::do_the_layout,
-        load_font_fn: azulc_lib::font_loading::font_source_get_bytes, /* needs feature="
-                                                                       * font_loading" */
-        parse_font_fn: azul_layout::parse_font_fn, // needs feature="text_layout"
+        load_font_fn: azul_layout::font::loading::font_source_get_bytes,
+        parse_font_fn: azul_layout::parse_font_fn,
     };
 
     // Solve the layout (the extra parameters are necessary because of IFrame recursion)

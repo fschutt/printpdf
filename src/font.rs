@@ -5,16 +5,10 @@ use std::{
     vec::Vec,
 };
 
-use allsorts::{
-    binary::read::{ReadArray, ReadScope},
-    font_data::FontData,
-    layout::{GDEFTable, GPOS, GSUB, LayoutCache},
-    tables::{
-        FontTableProvider, HeadTable, HheaTable, IndexToLocFormat, MaxpTable,
-        cmap::{CmapSubtable, owned::CmapSubtable as OwnedCmapSubtable},
-        glyf::{GlyfRecord, GlyfTable, Glyph},
-        loca::{LocaOffsets, LocaTable},
-    },
+use allsorts_subset_browser::{
+    binary::read::{ReadArray, ReadScope}, font_data::FontData, layout::{GDEFTable, LayoutCache, GPOS, GSUB}, subset::SubsetProfile, tables::{
+        cmap::{owned::CmapSubtable as OwnedCmapSubtable, CmapSubtable}, glyf::{GlyfRecord, GlyfTable, Glyph}, loca::{LocaOffsets, LocaTable}, FontTableProvider, HeadTable, HheaTable, IndexToLocFormat, MaxpTable
+    }
 };
 use base64::Engine;
 use lopdf::Object::{Array, Integer};
@@ -504,7 +498,9 @@ impl ParsedFont {
         gids.sort();
         gids.dedup();
 
-        let bytes = allsorts::subset::subset(&provider, &gids).map_err(|e| e.to_string())?;
+        let bytes = allsorts_subset_browser::subset::subset(
+            &provider, &gids, &SubsetProfile::Web
+        ).map_err(|e| e.to_string())?;
 
         Ok(SubsetFont {
             bytes,
@@ -530,9 +526,10 @@ impl ParsedFont {
             .table_provider(self.original_index)
             .map_err(|e| e.to_string())?;
 
-        let font = allsorts::subset::subset(
+        let font = allsorts_subset_browser::subset::subset(
             &provider,
             &glyph_ids.iter().map(|s| s.0).collect::<Vec<_>>(),
+            &SubsetProfile::Web,
         )
         .map_err(|e| e.to_string())?;
 
@@ -740,7 +737,7 @@ impl ParsedFont {
         font_index: usize,
         warnings: &mut Vec<PdfWarnMsg>,
     ) -> Option<Self> {
-        use allsorts::tag;
+        use allsorts_subset_browser::tag;
 
         let scope = ReadScope::new(font_bytes);
         let font_file = match scope.read::<FontData<'_>>() {
@@ -912,7 +909,7 @@ impl ParsedFont {
             }
         };
 
-        let font_data_impl = match allsorts::font::Font::new(second_provider) {
+        let font_data_impl = match allsorts_subset_browser::font::Font::new(second_provider) {
             Ok(fdi) => {
                 warnings.push(PdfWarnMsg::info(
                     0,
@@ -1075,7 +1072,7 @@ impl ParsedFont {
                 }
 
                 let glyph_index = glyph_index as u16;
-                let horz_advance = match allsorts::glyph_info::advance(
+                let horz_advance = match allsorts_subset_browser::glyph_info::advance(
                     &maxp_table,
                     &hhea_table,
                     &hmtx_data,
@@ -1164,7 +1161,7 @@ impl ParsedFont {
         let glyph_index = self.lookup_glyph_index(' ' as u32)?;
         let maxp_table = self.maxp_table.as_ref()?;
         let hhea_table = self.hhea_table.as_ref()?;
-        allsorts::glyph_info::advance(&maxp_table, &hhea_table, &self.hmtx_data, glyph_index)
+        allsorts_subset_browser::glyph_info::advance(&maxp_table, &hhea_table, &self.hmtx_data, glyph_index)
             .ok()
             .map(|s| s as usize)
     }
@@ -1394,7 +1391,7 @@ impl FontMetrics {
             Ok(o) => o,
             Err(_) => return FontMetrics::default(),
         };
-        let font = match allsorts::font::Font::new(provider).ok() {
+        let font = match allsorts_subset_browser::font::Font::new(provider).ok() {
             Some(s) => s,
             _ => return FontMetrics::default(),
         };

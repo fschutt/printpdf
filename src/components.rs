@@ -7,7 +7,7 @@ use azul_core::{
         normalize_casing, prepare_string,
     },
 };
-use azul_css_parser::CssApiWrapper;
+use azul_css::parser::CssApiWrapper;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{ImageTypeInfo, RawImage, RawImageData, RawImageFormat};

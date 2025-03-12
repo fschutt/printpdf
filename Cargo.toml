@@ -22,7 +22,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 lopdf = { version = "0.35.0", default-features = false, features = ["nom_parser"] }
 time = { version = "0.3.25", default-features = false, features = ["std", "serde", "serde-human-readable"] }
-allsorts = { version = "0.15", git = "https://github.com/fschutt/allsorts", branch = "optional-brotli", default-features = false, features = ["flate2_rust"] }
+allsorts-subset-browser = { version = "0.16", default-features = false, features = ["flate2_rust"] }
 image = { version = "0.25", default-features = false }
 svg2pdf = { version = "0.13.0" }
 base64 = "0.22.1"
@@ -36,12 +36,9 @@ serde_json = { version = "1", optional = true }
 web-sys = { version = "0.3.77", optional = true, default-features = false, features = ["ImageData", "Window", "Document", "Blob", "CanvasRenderingContext2d", "HtmlCanvasElement", "HtmlImageElement", "ImageBitmap", "BlobPropertyBag"]}
 wasm-bindgen-futures = { version = "0.4.50", optional = true, default-features = false }
 kuchiki = { version = "0.8.1", optional = true }
-azul-css = { git = "https://github.com/fschutt/azul", rev = "84ed85b427661480994337506608e79690d187f8", default-features = false, optional = true }
-azul-css-parser = {  git = "https://github.com/fschutt/azul", rev = "84ed85b427661480994337506608e79690d187f8", default-features = false, optional = true }
-azul-core = {  git = "https://github.com/fschutt/azul", rev = "84ed85b427661480994337506608e79690d187f8", default-features = false, features = ["std"], optional = true }
-azul-layout = {  git = "https://github.com/fschutt/azul", rev = "84ed85b427661480994337506608e79690d187f8", default-features = false, features = ["std", "text_layout"], optional = true }
-azul-text-layout = {  git = "https://github.com/fschutt/azul", rev = "84ed85b427661480994337506608e79690d187f8", default-features = false, optional = true }
-azulc = {  git = "https://github.com/fschutt/azul", rev = "84ed85b427661480994337506608e79690d187f8", default-features = false, features = ["std", "xml", "text_layout", "font_loading"], optional = true }
+azul-css = { git = "https://github.com/fschutt/azul", rev = "2f75a527", default-features = false, features = ["parser"], optional = true }
+azul-core = { git = "https://github.com/fschutt/azul", rev = "2f75a527",  default-features = false, features = ["std"], optional = true }
+azul-layout = { git = "https://github.com/fschutt/azul", rev = "2f75a527", default-features = false, features = ["std", "text_layout", "font_loading", "xml"], optional = true }
 weezl = "0.1.8"
 
 [target.'cfg(target_family = "wasm")'.dependencies]
@@ -54,7 +51,7 @@ text-diff = "0.4.0"
 
 [features]
 default = ["html"]
-html = ["kuchiki", "azul-css", "azul-css-parser", "azul-core", "azul-layout", "azul-text-layout", "azulc", "rust-fontconfig", "xmlparser", "serde_json"]
+html = ["kuchiki", "azul-css", "azul-core", "azul-layout", "rust-fontconfig", "xmlparser", "serde_json"]
 js-sys = ["dep:js-sys", "web-sys", "wasm-bindgen-futures"] # wasm + browser context
 gif = ["image/gif"]
 jpeg = ["image/jpeg"]
