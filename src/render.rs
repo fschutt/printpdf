@@ -4,13 +4,13 @@ use base64::Engine;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    Actions, BlackGenerationExtraFunction, BlackGenerationFunction, BlendMode, BuiltinFont,
-    BuiltinOrExternalFontId, ChangedField, Color, CurTransMat, Destination, ExtendedGraphicsState,
-    FontId, HalftoneType, Line, LineCapStyle, LineDashPattern, LineJoinStyle, OutputImageFormat,
-    OverprintMode, PaintMode, PdfResources, PdfWarnMsg, Point, Polygon, Pt, RenderingIntent,
-    SoftMask, TextItem, TextMatrix, TextRenderingMode, TransferExtraFunction, TransferFunction,
-    UnderColorRemovalExtraFunction, UnderColorRemovalFunction, WindingOrder, XObject, XObjectId,
-    XObjectTransform, ops::PdfPage, serialize::prepare_fonts,
+    ops::PdfPage, serialize::prepare_fonts, Actions, BlackGenerationExtraFunction,
+    BlackGenerationFunction, BlendMode, BuiltinFont, BuiltinOrExternalFontId, ChangedField, Color,
+    CurTransMat, Destination, ExtendedGraphicsState, FontId, HalftoneType, Line, LineCapStyle,
+    LineDashPattern, LineJoinStyle, OutputImageFormat, OverprintMode, PaintMode, PdfResources,
+    PdfWarnMsg, Point, Polygon, Pt, RenderingIntent, SoftMask, TextItem, TextMatrix,
+    TextRenderingMode, TransferExtraFunction, TransferFunction, UnderColorRemovalExtraFunction,
+    UnderColorRemovalFunction, WindingOrder, XObject, XObjectId, XObjectTransform,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

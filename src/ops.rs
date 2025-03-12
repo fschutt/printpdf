@@ -2,14 +2,14 @@ use serde_derive::{Deserialize, Serialize};
 
 pub use crate::text::TextItem;
 use crate::{
-    BuiltinFont, DictItem, ExtendedGraphicsStateId, FontId, LayerInternalId, LinkAnnotation,
-    PdfResources, PdfToSvgOptions, PdfWarnMsg, RenderingIntent, XObjectId, XObjectTransform,
     color::Color,
     graphics::{
         Line, LineCapStyle, LineDashPattern, LineJoinStyle, Point, Polygon, Rect, TextRenderingMode,
     },
     matrix::{CurTransMat, TextMatrix},
     units::{Mm, Pt},
+    BuiltinFont, DictItem, ExtendedGraphicsStateId, FontId, LayerInternalId, LinkAnnotation,
+    PdfResources, PdfToSvgOptions, PdfWarnMsg, RenderingIntent, XObjectId, XObjectTransform,
 };
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -231,8 +231,8 @@ pub enum Op {
     DrawLine { line: Line },
     /// Draw a polygon
     DrawPolygon { polygon: Polygon },
-    /// Set the transformation matrix for this page. Make sure to save the old graphics state before
-    /// invoking!
+    /// Set the transformation matrix for this page. Make sure to save the old graphics state
+    /// before invoking!
     SetTransformationMatrix { matrix: CurTransMat },
     /// Sets a matrix that only affects subsequent text objects.
     SetTextMatrix { matrix: TextMatrix },

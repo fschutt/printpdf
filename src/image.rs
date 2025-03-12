@@ -1525,27 +1525,23 @@ pub(crate) fn image_to_stream(
                     if let Some(jpeg_data) = jpeg_encode(&rgb8, quality) {
                         compressed_pixels = jpeg_data;
                         dict.set("Filter", Name(filter.into()));
-                        println!("rgb: dct (JPEG) decode");
                     }
                 }
                 "FlateDecode" => {
                     if let Some(flate_data) = flate_encode(&rgb8.pixels) {
                         compressed_pixels = flate_data;
                         dict.set("Filter", Name(filter.into()));
-                        println!("rgb: flate decode");
                     }
                 }
                 "LZWDecode" => {
                     if let Some(flate_data) = flate_encode(&rgb8.pixels) {
                         compressed_pixels = flate_data;
                         dict.set("Filter", Name("FlateDecode".into()));
-                        println!("rgb: flate decode");
                     }
                     /*
                     if let Some(lzw_data) = lzw_encode(&rgb8.pixels) {
                         compressed_pixels = lzw_data;
                         dict.set("Filter", Name(filter.into()));
-                        println!("rgb: lzw decode");
                     }
                      */
                 }
@@ -1553,13 +1549,11 @@ pub(crate) fn image_to_stream(
                     if let Some(flate_data) = flate_encode(&rgb8.pixels) {
                         compressed_pixels = flate_data;
                         dict.set("Filter", Name("FlateDecode".into()));
-                        println!("rgb: flate decode");
                     }
                     /*
                     if let Some(rle_data) = rle_encode(&rgb8.pixels) {
                         compressed_pixels = rle_data;
                         dict.set("Filter", Name(filter.into()));
-                        println!("rgb: rle decode");
                     }
                     */
                 }
@@ -1603,7 +1597,6 @@ pub(crate) fn image_to_stream(
                         alpha_pixels = flate_data;
                         smask_dict.set("Filter", Name("FlateDecode".into()));
                         alpha_filter_applied = true;
-                        println!("alpha: flate decode");
                     }
                 }
                 "LZWDecode" => {
@@ -1612,13 +1605,11 @@ pub(crate) fn image_to_stream(
                         alpha_pixels = lzw_data;
                         smask_dict.set("Filter", Name("LZWDecode".into()));
                         alpha_filter_applied = true;
-                        println!("alpha: lzw decode");
                     }
                     */
                     if let Some(flate_data) = flate_encode(&rgb8.pixels) {
                         compressed_pixels = flate_data;
                         dict.set("Filter", Name("FlateDecode".into()));
-                        println!("rgb: flate decode");
                     }
                 }
                 "RunLengthDecode" => {
@@ -1627,13 +1618,11 @@ pub(crate) fn image_to_stream(
                         alpha_pixels = rle_data;
                         smask_dict.set("Filter", Name("RunLengthDecode".into()));
                         alpha_filter_applied = true;
-                        println!("alpha: run length decode");
                     }
                     */
                     if let Some(flate_data) = flate_encode(&rgb8.pixels) {
                         compressed_pixels = flate_data;
                         dict.set("Filter", Name("FlateDecode".into()));
-                        println!("rgb: flate decode");
                     }
                 }
                 _ => {}
@@ -1781,7 +1770,7 @@ fn jpeg_encode(image: &RawImageU8, quality: f32) -> Option<Vec<u8>> {
 fn flate_encode(data: &[u8]) -> Option<Vec<u8>> {
     use std::io::Write;
 
-    use flate2::{Compression, write::ZlibEncoder};
+    use flate2::{write::ZlibEncoder, Compression};
 
     let mut encoder = ZlibEncoder::new(Vec::new(), Compression::best());
     encoder.write_all(data).ok()?;
@@ -1790,7 +1779,7 @@ fn flate_encode(data: &[u8]) -> Option<Vec<u8>> {
 
 // LZW encoding
 fn lzw_encode(data: &[u8]) -> Option<Vec<u8>> {
-    use weezl::{BitOrder, encode::Encoder};
+    use weezl::{encode::Encoder, BitOrder};
     // Create encoder with MSB bit order (standard for PDF) and 8-bit code size
     let mut encoder = Encoder::new(BitOrder::Msb, 8);
     encoder.encode(data).ok()
@@ -2016,11 +2005,11 @@ fn f32vec_to_u8(data: Vec<f32>) -> Vec<u8> {
 mod browser_image {
 
     use js_sys::{Array, Object, Promise, Reflect, Uint8Array};
-    use wasm_bindgen::{JsCast, JsValue, closure::Closure};
+    use wasm_bindgen::{closure::Closure, JsCast, JsValue};
     use wasm_bindgen_futures::JsFuture;
     use web_sys::{
-        Blob, BlobPropertyBag, CanvasRenderingContext2d, HtmlCanvasElement, HtmlImageElement,
-        ImageBitmap, js_sys, window,
+        js_sys, window, Blob, BlobPropertyBag, CanvasRenderingContext2d, HtmlCanvasElement,
+        HtmlImageElement, ImageBitmap,
     };
 
     use super::{OutputImageFormat, RawImage, RawImageData, RawImageFormat};

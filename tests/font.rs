@@ -1,6 +1,6 @@
 use printpdf::{
-    Op, ParsedFont, PdfDocument, PdfPage, PdfParseOptions, PdfSaveOptions, TextItem,
     units::{Mm, Pt},
+    Op, ParsedFont, PdfDocument, PdfPage, PdfParseOptions, PdfSaveOptions, TextItem,
 };
 
 /// Creates and parses a PDF file with a custom font

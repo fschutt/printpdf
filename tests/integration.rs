@@ -3,12 +3,12 @@
 use std::collections::BTreeMap;
 
 use printpdf::{
+    wasm::structs::{
+        document_to_bytes, resources_for_page, DocumentToBytesInput, ResourcesForPageInput,
+    },
     BuiltinFont, Color, GeneratePdfOptions, Line, LinePoint, Mm, Op, PaintMode, PdfDocument,
     PdfPage, PdfParseOptions, PdfResources, PdfSaveOptions, PdfToSvgOptions, Point, Polygon,
     PolygonRing, Pt, Rgb, TextItem, WindingOrder, XObjectId, XObjectTransform,
-    wasm::structs::{
-        DocumentToBytesInput, ResourcesForPageInput, document_to_bytes, resources_for_page,
-    },
 };
 
 #[test]

@@ -292,12 +292,14 @@ impl TextMatrix {
             }
             Rotate(rot) => {
                 let rad = (360.0 - rot).to_radians();
-                [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), 0.0, 0.0] /* cos sin -sin cos 0 0 cm */
+                [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), 0.0, 0.0] /* cos sin -sin cos 0 0
+                                                                         * cm */
             }
             Raw(r) => *r,
             TranslateRotate(x, y, rot) => {
                 let rad = (360.0 - rot).to_radians();
-                [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), x.0, y.0] /* cos sin -sin cos x y cm */
+                [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), x.0, y.0] /* cos sin -sin cos x y
+                                                                         * cm */
             }
         }
     }
@@ -313,7 +315,8 @@ impl CurTransMat {
             }
             TranslateRotate(x, y, rot) => {
                 let rad = (360.0 - rot).to_radians();
-                [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), x.0, y.0] /* cos sin -sin cos x y cm */
+                [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), x.0, y.0] /* cos sin -sin cos x y
+                                                                         * cm */
             }
             Rotate(rot) => {
                 // cos sin -sin cos 0 0 cm

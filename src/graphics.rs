@@ -5,8 +5,8 @@ use lopdf::Dictionary as LoDictionary;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    BuiltinFont, FontId,
     units::{Mm, Pt},
+    BuiltinFont, FontId,
 };
 
 /// Fill path using nonzero winding number rule

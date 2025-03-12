@@ -1,21 +1,28 @@
 use core::fmt;
 use std::{
-    collections::{BTreeSet, btree_map::BTreeMap},
+    collections::{btree_map::BTreeMap, BTreeSet},
     rc::Rc,
     vec::Vec,
 };
 
 use allsorts_subset_browser::{
-    binary::read::{ReadArray, ReadScope}, font_data::FontData, layout::{GDEFTable, LayoutCache, GPOS, GSUB}, subset::SubsetProfile, tables::{
-        cmap::{owned::CmapSubtable as OwnedCmapSubtable, CmapSubtable}, glyf::{GlyfRecord, GlyfTable, Glyph}, loca::{LocaOffsets, LocaTable}, FontTableProvider, HeadTable, HheaTable, IndexToLocFormat, MaxpTable
-    }
+    binary::read::{ReadArray, ReadScope},
+    font_data::FontData,
+    layout::{GDEFTable, LayoutCache, GPOS, GSUB},
+    subset::SubsetProfile,
+    tables::{
+        cmap::{owned::CmapSubtable as OwnedCmapSubtable, CmapSubtable},
+        glyf::{GlyfRecord, GlyfTable, Glyph},
+        loca::{LocaOffsets, LocaTable},
+        FontTableProvider, HeadTable, HheaTable, IndexToLocFormat, MaxpTable,
+    },
 };
 use base64::Engine;
 use lopdf::Object::{Array, Integer};
 use serde_derive::{Deserialize, Serialize};
 use time::error::Parse;
 
-use crate::{FontId, Op, PdfPage, PdfWarnMsg, TextItem, cmap::ToUnicodeCMap};
+use crate::{cmap::ToUnicodeCMap, FontId, Op, PdfPage, PdfWarnMsg, TextItem};
 
 /// Builtin or external font
 #[derive(Debug, Clone, PartialEq)]
@@ -498,9 +505,8 @@ impl ParsedFont {
         gids.sort();
         gids.dedup();
 
-        let bytes = allsorts_subset_browser::subset::subset(
-            &provider, &gids, &SubsetProfile::Web
-        ).map_err(|e| e.to_string())?;
+        let bytes = allsorts_subset_browser::subset::subset(&provider, &gids, &SubsetProfile::Web)
+            .map_err(|e| e.to_string())?;
 
         Ok(SubsetFont {
             bytes,
@@ -1161,9 +1167,14 @@ impl ParsedFont {
         let glyph_index = self.lookup_glyph_index(' ' as u32)?;
         let maxp_table = self.maxp_table.as_ref()?;
         let hhea_table = self.hhea_table.as_ref()?;
-        allsorts_subset_browser::glyph_info::advance(&maxp_table, &hhea_table, &self.hmtx_data, glyph_index)
-            .ok()
-            .map(|s| s as usize)
+        allsorts_subset_browser::glyph_info::advance(
+            &maxp_table,
+            &hhea_table,
+            &self.hmtx_data,
+            glyph_index,
+        )
+        .ok()
+        .map(|s| s as usize)
     }
 
     /// Returns the width of the space " " character (unscaled units)

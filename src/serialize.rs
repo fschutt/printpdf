@@ -1,19 +1,19 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use lopdf::{
+    content::Operation as LoOp,
     Dictionary as LoDictionary,
     Object::{Array, Dictionary, Integer, Name, Null, Real, Reference, Stream, String as LoString},
     Stream as LoStream,
     StringFormat::{Hexadecimal, Literal},
-    content::Operation as LoOp,
 };
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    Actions, BuiltinFont, Color, ColorArray, Destination, FontId, IccProfileType,
-    ImageOptimizationOptions, Line, LinkAnnotation, Op, PaintMode, ParsedFont, PdfDocument,
-    PdfDocumentInfo, PdfPage, PdfResources, PdfWarnMsg, Polygon, PrepFont, TextItem, XObject,
-    XObjectId, color::IccProfile, font::SubsetFont,
+    color::IccProfile, font::SubsetFont, Actions, BuiltinFont, Color, ColorArray, Destination,
+    FontId, IccProfileType, ImageOptimizationOptions, Line, LinkAnnotation, Op, PaintMode,
+    ParsedFont, PdfDocument, PdfDocumentInfo, PdfPage, PdfResources, PdfWarnMsg, Polygon, PrepFont,
+    TextItem, XObject, XObjectId,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]

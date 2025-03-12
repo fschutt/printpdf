@@ -29,8 +29,6 @@ fn main() -> Result<(), String> {
             &mut Vec::new(),
         );
 
-        println!("{_id}: {newpages:#?}");
-
         pages.append(&mut newpages.unwrap_or_default().pages);
     }
 

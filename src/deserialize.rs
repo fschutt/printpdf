@@ -13,15 +13,15 @@ use lopdf::{
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
+    cmap::ToUnicodeCMap,
+    conformance::PdfConformance,
+    date::{OffsetDateTime, UtcOffset},
     BuiltinFont, BuiltinOrExternalFontId, Color, DictItem, ExtendedGraphicsState,
     ExtendedGraphicsStateId, ExtendedGraphicsStateMap, FontId, LayerInternalId, Line,
     LineDashPattern, LinePoint, LinkAnnotation, Op, PageAnnotId, PageAnnotMap, PaintMode,
     ParsedFont, PdfDocument, PdfDocumentInfo, PdfFontMap, PdfLayerMap, PdfMetadata, PdfPage,
     PdfResources, Point, Polygon, PolygonRing, Pt, RawImage, RenderingIntent, TextItem, TextMatrix,
     TextRenderingMode, WindingOrder, XObject, XObjectId, XObjectMap,
-    cmap::ToUnicodeCMap,
-    conformance::PdfConformance,
-    date::{OffsetDateTime, UtcOffset},
 };
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -1273,7 +1273,7 @@ fn test_bezier_path_parsing() {
         assert!(points[2].bezier); // Control point 2
         assert!(!points[3].bezier); // End point
         assert!(points[4].bezier); // Next control point 1
-    // And so on...
+                                   // And so on...
     } else {
         panic!("Expected DrawPolygon");
     }
@@ -2611,12 +2611,12 @@ mod links_and_bookmarks {
     use lopdf::{Dictionary, Document, Object, ObjectId};
 
     use crate::{
-        Pt,
         annotation::{
             Actions, BorderArray, ColorArray, DashPhase, Destination, HighlightingMode,
             LinkAnnotation, PageAnnotation,
         },
         graphics::Rect,
+        Pt,
     };
 
     /// Returns an empty vector if any required key is missing.
@@ -3035,11 +3035,11 @@ mod extgstate {
     use lopdf::{Dictionary as LoDictionary, Object};
 
     use crate::{
-        BuiltinFont, BuiltinOrExternalFontId, FontId,
         graphics::{
             BlendMode, ChangedField, ExtendedGraphicsState, LineCapStyle, LineDashPattern,
             LineJoinStyle, OverprintMode, RenderingIntent,
         },
+        BuiltinFont, BuiltinOrExternalFontId, FontId,
     };
 
     /// Given a PDF ExtGState dictionary, parse it into an ExtendedGraphicsState.
@@ -3278,9 +3278,9 @@ mod parsefont {
 
     use super::ParsedOrBuiltinFont;
     use crate::{
-        BuiltinFont, FontId, ParsedFont,
         cmap::ToUnicodeCMap,
-        deserialize::{PdfWarnMsg, get_dict_or_resolve_ref},
+        deserialize::{get_dict_or_resolve_ref, PdfWarnMsg},
+        BuiltinFont, FontId, ParsedFont,
     };
 
     /// Main function to parse fonts from PDF resources

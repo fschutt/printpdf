@@ -2,9 +2,9 @@ use azul_core::{
     dom::Dom,
     styled_dom::StyledDom,
     xml::{
-        CompileError, ComponentArgumentTypes, ComponentArguments, FilteredComponentArguments,
-        RenderDomError, XmlComponent, XmlComponentMap, XmlComponentTrait, XmlNode, XmlTextContent,
-        normalize_casing, prepare_string,
+        normalize_casing, prepare_string, CompileError, ComponentArgumentTypes, ComponentArguments,
+        FilteredComponentArguments, RenderDomError, XmlComponent, XmlComponentMap,
+        XmlComponentTrait, XmlNode, XmlTextContent,
     },
 };
 use azul_css::parser::CssApiWrapper;

@@ -10,10 +10,9 @@ use azul_core::{
         StyleBorderStyles, StyleBorderWidths,
     },
     dom::{NodeData, NodeId},
-    id_tree::NodeDataContainer,
-    pagination::PaginatedPage,
-    styled_dom::{NodeHierarchyItem, StyledNode, StyledNodeState},
-    ui_solver::{LayoutResult, PositionedRectangle},
+    pagination::{PaginatedNode, PaginatedPage},
+    styled_dom::StyledNode,
+    ui_solver::LayoutResult,
     window::{AzStringPair, FullWindowState, LogicalSize},
 };
 pub use azul_core::{
@@ -25,16 +24,16 @@ pub use azul_core::{
         XmlComponentTrait, XmlNode, XmlTextContent,
     },
 };
-use azul_css::{CssPropertyValue, FloatValue, LayoutDisplay, StyleTextColor};
 pub use azul_css::parser::CssApiWrapper;
-use kuchiki::{NodeRef, traits::*};
+use azul_css::{CssPropertyValue, FloatValue, LayoutDisplay, StyleTextColor};
+use kuchiki::{traits::*, NodeRef};
 use rust_fontconfig::{FcFont, FcFontCache, FcPattern, PatternMatch};
 use serde_derive::{Deserialize, Serialize};
 use svg2pdf::usvg::tiny_skia_path::Scalar;
 
 use crate::{
-    Base64OrRaw, BuiltinFont, Color, FontId, GeneratePdfOptions, Mm, Op, PdfDocument, PdfPage,
-    PdfResources, PdfWarnMsg, Pt, TextItem, TextMatrix, components::ImageInfo,
+    components::ImageInfo, Base64OrRaw, BuiltinFont, Color, FontId, GeneratePdfOptions, Mm, Op,
+    PdfDocument, PdfPage, PdfResources, PdfWarnMsg, Pt, TextItem, TextMatrix,
 };
 
 const DPI_SCALE: DpiScaleFactor = DpiScaleFactor {
@@ -158,8 +157,6 @@ pub(crate) fn html_to_document_inner(
     // Transform HTML to XML with extracted configuration
     let (transformed_xml, config) = crate::html::process_html_for_rendering(html);
 
-    println!("transformed xml: {}", transformed_xml);
-
     // Create document with title from input or extracted from HTML
     let title = config.title.clone().unwrap_or_default();
 
@@ -232,10 +229,8 @@ fn xml_to_pages_inner(
     // inserts images into the PDF resources and changes the src="..."
     let xml = fixup_xml(file_contents, document, &config, warnings);
 
-    println!("fixup_xml: {}", xml);
-
-    let root_nodes =
-        azul_layout::xml::parse_xml_string(&xml).map_err(|e| format!("Error parsing XML: {}", e))?;
+    let root_nodes = azul_layout::xml::parse_xml_string(&xml)
+        .map_err(|e| format!("Error parsing XML: {}", e))?;
 
     let fixup = fixup_xml_nodes(&root_nodes);
 
@@ -251,13 +246,9 @@ fn xml_to_pages_inner(
     )
     .map_err(|e| format!("Error constructing DOM: {}", e.to_string()))?;
 
-    println!("styled_dom: {}", styled_dom.get_html_string("", "", true));
-
     let mut fake_window_state = FullWindowState::default();
     fake_window_state.size.dimensions = size;
     let mut renderer_resources = RendererResources::default();
-
-    println!("fake window state dimensions: {}", fake_window_state.size.dimensions);
 
     let new_image_keys = styled_dom.scan_for_image_keys(&image_cache);
     let fonts_in_dom = styled_dom.scan_for_font_keys(&renderer_resources);
@@ -335,16 +326,12 @@ fn xml_to_pages_inner(
         &mut renderer_resources,
     );
 
-    println!("layout: {:#?}", layout.positioned_words_cache);
-
     // Break layout into pages using the pagination module
     let paginated_pages = azul_core::pagination::paginate_layout_result(
         &layout.styled_dom.node_hierarchy.as_container(),
         &layout.rects.as_ref(),
         config.page_height.into_pt().0,
     );
-
-    println!("paginated pages: {:#?}", paginated_pages);
 
     let pages = paginated_pages
         .into_iter()
@@ -513,42 +500,15 @@ fn layout_result_to_ops(
     page_height: Pt,
     warnings: &mut Vec<PdfWarnMsg>,
 ) {
-    // Instead of using the original styled_dom.get_rects_in_rendering_order(),
-    // we need to work with the paginated subset of nodes
-
-    // Find the root node in the paginated page
-    if pp.hierarchy.len() == 0 {
-        return; // Empty page, nothing to render
-    }
-
-    // Start with the root node (usually NodeId::ZERO in the paginated hierarchy)
-    let root_node_id = NodeId::ZERO;
-
-    // Process the root node first
-    if let Some(node) = pp.hierarchy.as_ref().get(root_node_id) {
-        let _ = displaylist_handle_rect_paginated(
+    // Check if the page has a root node
+    if let Some(root_node) = &pp.root {
+        // Process the root node and its children recursively
+        process_paginated_node(
             doc,
             ops,
             layout_result,
             renderer_resources,
-            root_node_id,
-            &pp.rects,
-            &pp.hierarchy,
-            &pp.old_to_new_id_map,
-            page_height,
-            warnings,
-        );
-
-        // Process children using the paginated hierarchy
-        process_children_paginated(
-            doc,
-            ops,
-            layout_result,
-            renderer_resources,
-            root_node_id,
-            &pp.rects,
-            &pp.hierarchy,
-            &pp.old_to_new_id_map,
+            root_node,
             page_height,
             warnings,
         );
@@ -560,10 +520,7 @@ fn displaylist_handle_rect_paginated(
     ops: &mut Vec<Op>,
     layout_result: &LayoutResult,
     renderer_resources: &RendererResources,
-    rect_idx: NodeId,
-    rects: &NodeDataContainer<PositionedRectangle>,
-    hierarchy: &NodeDataContainer<NodeHierarchyItem>,
-    id_map: &BTreeMap<NodeId, NodeId>,
+    node: &PaginatedNode,
     page_height: Pt,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> Option<()> {
@@ -571,38 +528,20 @@ fn displaylist_handle_rect_paginated(
 
     let mut newops = Vec::new();
 
-    // Find the original node ID that corresponds to this paginated node ID
-    // We need this to access the original node data
-    let original_node_id = id_map.iter().find_map(|(orig_id, page_id)| {
-        if *page_id == rect_idx {
-            Some(*orig_id)
-        } else {
-            None
-        }
-    })?;
+    // Get the original node ID and the paginated rect
+    let original_node_id = node.id;
+    let rect = &node.rect;
 
     // Get node data from the original layout result
     let styled_node = &layout_result.styled_dom.styled_nodes.as_container()[original_node_id];
     let html_node = &layout_result.styled_dom.node_data.as_container()[original_node_id];
-
-    println!("displaylist_handle_rect_paginated: {}{}", 
-        html_node.debug_print_start(
-            &layout_result.styled_dom.get_css_property_cache(), 
-            &original_node_id, 
-            &StyledNodeState::new(),
-        ),
-        html_node.debug_print_end(),
-    );
-    // Get the positioned rect from the paginated data
-    let positioned_rect = &rects.as_ref()[rect_idx];
 
     // Skip display:none elements
     if is_display_none(layout_result, html_node, original_node_id, styled_node) {
         return None;
     }
 
-    // The rest of the function is similar to the original displaylist_handle_rect,
-    // but uses the paginated rect and the original node data
+    // The rest of the function is similar to the original, but uses the paginated rect
     let border_radius = get_border_radius(layout_result, html_node, original_node_id, styled_node);
     let background_content =
         get_background_content(layout_result, html_node, original_node_id, styled_node);
@@ -620,13 +559,15 @@ fn displaylist_handle_rect_paginated(
 
     for b in background_content.iter() {
         if let RectBackground::Color(c) = &b.content {
-            let staticoffset = positioned_rect.position.get_static_offset();
-            let rect = crate::graphics::Rect {
-                x: Pt(staticoffset.x),
-                y: Pt(page_height.0 - staticoffset.y),
-                width: Pt(positioned_rect.size.width),
-                height: Pt(positioned_rect.size.height),
+            // PDF coordinates start at the bottom-left, but our rect has top-left origin
+            // Convert Y coordinate to PDF space
+            let rect_obj = crate::graphics::Rect {
+                x: Pt(rect.origin.x),
+                y: Pt(page_height.0 - rect.origin.y - rect.size.height), // Invert Y coordinate
+                width: Pt(rect.size.width),
+                height: Pt(rect.size.height),
             };
+
             newops.push(Op::SetFillColor {
                 col: crate::Color::Rgb(crate::Rgb {
                     r: c.r as f32 / 255.0,
@@ -636,7 +577,7 @@ fn displaylist_handle_rect_paginated(
                 }),
             });
             newops.push(Op::DrawPolygon {
-                polygon: rect.to_polygon(),
+                polygon: rect_obj.to_polygon(),
             });
         }
     }
@@ -692,16 +633,15 @@ fn displaylist_handle_rect_paginated(
                 .unwrap_or_default(),
         );
 
-        let staticoffset = positioned_rect.position.get_static_offset();
-        let rect = crate::graphics::Rect {
-            x: Pt(staticoffset.x),
-            y: Pt(page_height.0 - staticoffset.y),
-            width: Pt(positioned_rect.size.width),
-            height: Pt(positioned_rect.size.height),
+        let rect_obj = crate::graphics::Rect {
+            x: Pt(rect.origin.x),
+            y: Pt(page_height.0 - rect.origin.y - rect.size.height), // Invert Y coordinate
+            width: Pt(rect.size.width),
+            height: Pt(rect.size.height),
         };
 
         newops.push(Op::SetOutlineThickness {
-            pt: Pt(width_top.to_pixels(positioned_rect.size.height)),
+            pt: Pt(width_top.to_pixels(rect.size.height)),
         });
         newops.push(Op::SetOutlineColor {
             col: crate::Color::Rgb(crate::Rgb {
@@ -712,16 +652,15 @@ fn displaylist_handle_rect_paginated(
             }),
         });
         newops.push(Op::DrawLine {
-            line: rect.to_line(),
+            line: rect_obj.to_line(),
         });
     }
 
     if let Some(image_info) = opt_image {
         let source_width = image_info.width;
         let source_height = image_info.width;
-        let target_width = positioned_rect.size.width;
-        let target_height = positioned_rect.size.height;
-        let pos = positioned_rect.position.get_static_offset();
+        let target_width = rect.size.width;
+        let target_height = rect.size.height;
 
         let is_zero = target_width.is_nearly_zero()
             || target_height.is_nearly_zero()
@@ -732,9 +671,9 @@ fn displaylist_handle_rect_paginated(
             ops.push(Op::UseXobject {
                 id: crate::XObjectId(image_info.xobject_id.clone()),
                 transform: crate::XObjectTransform {
-                    translate_x: Some(Pt(pos.x)),
-                    translate_y: Some(Pt(page_height.0 - pos.y)),
-                    rotate: None, // todo
+                    translate_x: Some(Pt(rect.origin.x)),
+                    translate_y: Some(Pt(page_height.0 - rect.origin.y - rect.size.height)), // Invert Y coordinate for PDF
+                    rotate: None,
                     scale_x: Some(target_width / source_width as f32),
                     scale_y: Some(target_height / source_height as f32),
                     dpi: None,
@@ -744,8 +683,8 @@ fn displaylist_handle_rect_paginated(
     }
 
     if let Some((text, id, color, space_advance_scaled)) = opt_text {
-        let mut newops = to_pdf_ops(&text, page_height, id, color, space_advance_scaled);
-        ops.append(&mut newops);
+        let mut text_ops = to_pdf_ops(&text, page_height, id, color, space_advance_scaled);
+        ops.append(&mut text_ops);
     }
 
     if !newops.is_empty() {
@@ -931,66 +870,37 @@ pub fn to_pdf_ops(
     ops
 }
 
-fn process_children_paginated(
+fn process_paginated_node(
     doc: &mut PdfDocument,
     ops: &mut Vec<Op>,
     layout_result: &LayoutResult,
     renderer_resources: &RendererResources,
-    parent_id: NodeId,
-    rects: &NodeDataContainer<PositionedRectangle>,
-    hierarchy: &NodeDataContainer<NodeHierarchyItem>,
-    id_map: &BTreeMap<NodeId, NodeId>,
+    node: &PaginatedNode,
     page_height: Pt,
     warnings: &mut Vec<PdfWarnMsg>,
 ) {
-    // Get the first child of this parent in the paginated hierarchy
-    if let Some(first_child_id) = hierarchy
-        .as_ref()
-        .get(parent_id)
-        .and_then(|node| node.first_child_id(parent_id))
-    {
-        let mut current_id = first_child_id;
+    // Process this node
+    let _ = displaylist_handle_rect_paginated(
+        doc,
+        ops,
+        layout_result,
+        renderer_resources,
+        node,
+        page_height,
+        warnings,
+    );
 
-        // Iterate through all siblings
-        loop {
-            // Process this node
-            displaylist_handle_rect_paginated(
-                doc,
-                ops,
-                layout_result,
-                renderer_resources,
-                current_id,
-                rects,
-                hierarchy,
-                id_map,
-                page_height,
-                warnings,
-            );
-
-            // Process its children recursively
-            process_children_paginated(
-                doc,
-                ops,
-                layout_result,
-                renderer_resources,
-                current_id,
-                rects,
-                hierarchy,
-                id_map,
-                page_height,
-                warnings,
-            );
-
-            // Move to next sibling
-            match hierarchy
-                .as_ref()
-                .get(current_id)
-                .and_then(|node| node.next_sibling_id())
-            {
-                Some(next_id) => current_id = next_id,
-                None => break, // No more siblings
-            }
-        }
+    // Process its children recursively
+    for child in &node.children {
+        process_paginated_node(
+            doc,
+            ops,
+            layout_result,
+            renderer_resources,
+            child,
+            page_height,
+            warnings,
+        );
     }
 }
 
@@ -1001,7 +911,6 @@ fn solve_layout(
     fake_window_state: &FullWindowState,
     renderer_resources: &mut RendererResources,
 ) -> LayoutResult {
-
     let fc_cache = azul_layout::font::loading::build_font_cache();
     let image_cache = ImageCache::default();
     let callbacks = RenderCallbacks {

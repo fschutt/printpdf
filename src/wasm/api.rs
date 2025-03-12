@@ -6,6 +6,7 @@
 
 #[cfg(all(target_family = "wasm", feature = "js-sys"))]
 use std::{future::Future, pin::Pin};
+
 use serde_derive::{Deserialize, Serialize};
 
 /// Generalized API return for WASM / JS

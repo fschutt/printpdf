@@ -100,7 +100,7 @@ fn u8_to_char(input: u8) -> char {
 pub(crate) fn compress(bytes: &[u8]) -> Vec<u8> {
     use std::io::prelude::*;
 
-    use flate2::{Compression, write::GzEncoder};
+    use flate2::{write::GzEncoder, Compression};
     let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
     let _ = encoder.write_all(bytes);
     encoder.finish().unwrap_or_default()
