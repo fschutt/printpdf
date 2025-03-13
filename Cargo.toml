@@ -112,3 +112,7 @@ required-features = []
 [[example]]
 name = "text"
 required-features = []
+
+[[example]]
+name = "parse"
+required-features = []

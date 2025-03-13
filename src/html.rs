@@ -214,6 +214,52 @@ pub(crate) fn xml_to_pages(
     xml_to_pages_inner(file_contents, config, document, image_cache, warnings)
 }
 
+fn get_fc_cache(fonts: &BTreeMap<String, Vec<u8>>) -> FcFontCache {
+    let mut fc_cache = FcFontCache::default();
+    fc_cache
+        .with_memory_fonts(&get_system_fonts())
+        .with_memory_fonts(&[
+            get_fcpat(BuiltinFont::TimesRoman),
+            get_fcpat(BuiltinFont::TimesBold),
+            get_fcpat(BuiltinFont::TimesItalic),
+            get_fcpat(BuiltinFont::TimesBoldItalic),
+            get_fcpat(BuiltinFont::Helvetica),
+            get_fcpat(BuiltinFont::HelveticaBold),
+            get_fcpat(BuiltinFont::HelveticaOblique),
+            get_fcpat(BuiltinFont::HelveticaBoldOblique),
+            get_fcpat(BuiltinFont::Courier),
+            get_fcpat(BuiltinFont::CourierOblique),
+            get_fcpat(BuiltinFont::CourierBold),
+            get_fcpat(BuiltinFont::CourierBoldOblique),
+            get_fcpat(BuiltinFont::Symbol),
+            get_fcpat(BuiltinFont::ZapfDingbats),
+        ])
+        .with_memory_fonts(
+            &fonts
+                .iter()
+                .filter_map(|(id, bytes)| {
+                    // let bytes = base64::prelude::BASE64_STANDARD.decode(font_base64).ok()?;
+                    let pat = FcPattern {
+                        name: Some(id.split(".").next().unwrap_or("").to_string()),
+                        ..Default::default()
+                    };
+                    let font = FcFont {
+                        bytes: bytes.clone(),
+                        font_index: 0,
+                    };
+                    Some((pat, font))
+                })
+                .collect::<Vec<_>>(),
+        );
+    fc_cache
+}
+
+#[test]
+fn test_default_font() {
+    let fc_cache = get_fc_cache(&BTreeMap::new());
+    println!("default font: {:?}", fc_cache.query(&FcPattern::default()));
+}
+
 fn xml_to_pages_inner(
     file_contents: &str,
     config: XmlRenderOptions,
@@ -253,43 +299,7 @@ fn xml_to_pages_inner(
     let new_image_keys = styled_dom.scan_for_image_keys(&image_cache);
     let fonts_in_dom = styled_dom.scan_for_font_keys(&renderer_resources);
 
-    let mut fc_cache = FcFontCache::default();
-    fc_cache
-        .with_memory_fonts(&get_system_fonts())
-        .with_memory_fonts(&[
-            get_fcpat(BuiltinFont::TimesRoman),
-            get_fcpat(BuiltinFont::TimesBold),
-            get_fcpat(BuiltinFont::TimesItalic),
-            get_fcpat(BuiltinFont::TimesBoldItalic),
-            get_fcpat(BuiltinFont::Helvetica),
-            get_fcpat(BuiltinFont::HelveticaBold),
-            get_fcpat(BuiltinFont::HelveticaOblique),
-            get_fcpat(BuiltinFont::HelveticaBoldOblique),
-            get_fcpat(BuiltinFont::Courier),
-            get_fcpat(BuiltinFont::CourierOblique),
-            get_fcpat(BuiltinFont::CourierBold),
-            get_fcpat(BuiltinFont::CourierBoldOblique),
-            get_fcpat(BuiltinFont::Symbol),
-            get_fcpat(BuiltinFont::ZapfDingbats),
-        ])
-        .with_memory_fonts(
-            &config
-                .fonts
-                .iter()
-                .filter_map(|(id, bytes)| {
-                    // let bytes = base64::prelude::BASE64_STANDARD.decode(font_base64).ok()?;
-                    let pat = FcPattern {
-                        name: Some(id.split(".").next().unwrap_or("").to_string()),
-                        ..Default::default()
-                    };
-                    let font = FcFont {
-                        bytes: bytes.clone(),
-                        font_index: 0,
-                    };
-                    Some((pat, font))
-                })
-                .collect::<Vec<_>>(),
-        );
+    let fc_cache = get_fc_cache(&config.fonts);
 
     let add_font_resource_updates = azul_core::app_resources::build_add_font_resource_updates(
         &mut renderer_resources,
