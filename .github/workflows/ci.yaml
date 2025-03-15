@@ -16,8 +16,12 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.channel }}
-      - run: cargo check --verbose --examples
-      - run: cargo check --verbose
+      - run: cargo check --examples
+      - run: cargo check
+      - run: cargo check --no-default-features
+      - run: cargo check --no-default-features --features html
+      - run: cargo check --no-default-features --features std
+      - run: cargo check --all-features
       # - run: cargo test --verbose # fails because of SIMD issues, test on Windows only
 
 
@@ -66,3 +70,6 @@ jobs:
       - run: cargo check --verbose --target wasm32-wasip1
       - run: cargo check --verbose --target wasm32-wasip2 --examples
       - run: cargo check --verbose --target wasm32-wasip2
+      - run: cargo check --verbose --target wasm32-wasip2 --no-default-features
+      - run: cargo check --verbose --target wasm32-wasip2 --all-features
+

@@ -29,10 +29,10 @@ base64 = "0.22.1"
 serde = { version = "1" }
 serde_derive = { version = "1" }
 flate2 = "1.0.35" # for decompression of builtin fonts
+serde_json = { version = "1" }
 # feature=html, independent of feature=wasm
 rust-fontconfig = { version = "1.0.0", default-features = false, features = ["std", "parsing"], optional = true }
 xmlparser = { version = "0.13.6", default-features = false, optional = true }
-serde_json = { version = "1", optional = true }
 web-sys = { version = "0.3.77", optional = true, default-features = false, features = ["ImageData", "Window", "Document", "Blob", "CanvasRenderingContext2d", "HtmlCanvasElement", "HtmlImageElement", "ImageBitmap", "BlobPropertyBag"]}
 wasm-bindgen-futures = { version = "0.4.50", optional = true, default-features = false }
 kuchiki = { version = "0.8.1", optional = true }
@@ -51,7 +51,7 @@ text-diff = "0.4.0"
 
 [features]
 default = ["html"]
-html = ["kuchiki", "azul-css", "azul-core", "azul-layout", "rust-fontconfig", "xmlparser", "serde_json"]
+html = ["kuchiki", "azul-css", "azul-core", "azul-layout", "rust-fontconfig", "xmlparser"]
 js-sys = ["dep:js-sys", "web-sys", "wasm-bindgen-futures"] # wasm + browser context
 gif = ["image/gif"]
 jpeg = ["image/jpeg"]
