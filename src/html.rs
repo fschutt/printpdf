@@ -217,8 +217,8 @@ pub(crate) fn xml_to_pages(
 fn get_fc_cache(fonts: &BTreeMap<String, Vec<u8>>) -> FcFontCache {
     let mut fc_cache = FcFontCache::default();
     fc_cache
-        .with_memory_fonts(&get_system_fonts())
-        .with_memory_fonts(&[
+        .with_memory_fonts(get_system_fonts())
+        .with_memory_fonts(vec![
             get_fcpat(BuiltinFont::TimesRoman),
             get_fcpat(BuiltinFont::TimesBold),
             get_fcpat(BuiltinFont::TimesItalic),
@@ -235,7 +235,7 @@ fn get_fc_cache(fonts: &BTreeMap<String, Vec<u8>>) -> FcFontCache {
             get_fcpat(BuiltinFont::ZapfDingbats),
         ])
         .with_memory_fonts(
-            &fonts
+            fonts
                 .iter()
                 .filter_map(|(id, bytes)| {
                     // let bytes = base64::prelude::BASE64_STANDARD.decode(font_base64).ok()?;
@@ -244,6 +244,7 @@ fn get_fc_cache(fonts: &BTreeMap<String, Vec<u8>>) -> FcFontCache {
                         ..Default::default()
                     };
                     let font = FcFont {
+                        id: id.to_string(),
                         bytes: bytes.clone(),
                         font_index: 0,
                     };
@@ -257,7 +258,9 @@ fn get_fc_cache(fonts: &BTreeMap<String, Vec<u8>>) -> FcFontCache {
 #[test]
 fn test_default_font() {
     let fc_cache = get_fc_cache(&BTreeMap::new());
-    println!("default font: {:?}", fc_cache.query(&FcPattern::default()));
+    let mut msg = Vec::new();
+    println!("default font: {:?}", fc_cache.query(&FcPattern::default(), &mut msg));
+    println!("{msg:#?}");
 }
 
 fn xml_to_pages_inner(
@@ -381,6 +384,7 @@ fn get_system_fonts() -> Vec<(FcPattern, FcFont)> {
                     ..Default::default()
                 },
                 FcFont {
+                    id: id.to_string(),
                     bytes: subset_font.bytes.clone(),
                     font_index: 0,
                 },
@@ -408,6 +412,7 @@ fn get_fcpat(b: BuiltinFont) -> (FcPattern, FcFont) {
             ..Default::default()
         },
         FcFont {
+            id: b.get_id().to_string(),
             bytes: subset_font.bytes.clone(),
             font_index: 0,
         },

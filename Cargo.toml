@@ -30,15 +30,15 @@ serde = { version = "1" }
 serde_derive = { version = "1" }
 flate2 = "1.0.35" # for decompression of builtin fonts
 # feature=html, independent of feature=wasm
-rust-fontconfig = { version = "0.1.13", default-features = false, optional = true }
+rust-fontconfig = { version = "1.0.0", default-features = false, features = ["std", "parsing"], optional = true }
 xmlparser = { version = "0.13.6", default-features = false, optional = true }
 serde_json = { version = "1", optional = true }
 web-sys = { version = "0.3.77", optional = true, default-features = false, features = ["ImageData", "Window", "Document", "Blob", "CanvasRenderingContext2d", "HtmlCanvasElement", "HtmlImageElement", "ImageBitmap", "BlobPropertyBag"]}
 wasm-bindgen-futures = { version = "0.4.50", optional = true, default-features = false }
 kuchiki = { version = "0.8.1", optional = true }
-azul-css = { git = "https://github.com/fschutt/azul", rev = "2f75a527", default-features = false, features = ["parser"], optional = true }
-azul-core = { git = "https://github.com/fschutt/azul", rev = "2f75a527",  default-features = false, features = ["std"], optional = true }
-azul-layout = { git = "https://github.com/fschutt/azul", rev = "2f75a527", default-features = false, features = ["std", "text_layout", "font_loading", "xml"], optional = true }
+azul-css = { git = "https://github.com/fschutt/azul", rev = "193ed827", default-features = false, features = ["parser"], optional = true }
+azul-core = { git = "https://github.com/fschutt/azul", rev = "193ed827",  default-features = false, features = ["std"], optional = true }
+azul-layout = { git = "https://github.com/fschutt/azul", rev = "193ed827", default-features = false, features = ["std", "text_layout", "font_loading", "xml"], optional = true }
 weezl = "0.1.8"
 
 [target.'cfg(target_family = "wasm")'.dependencies]
