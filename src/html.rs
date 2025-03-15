@@ -259,7 +259,10 @@ fn get_fc_cache(fonts: &BTreeMap<String, Vec<u8>>) -> FcFontCache {
 fn test_default_font() {
     let fc_cache = get_fc_cache(&BTreeMap::new());
     let mut msg = Vec::new();
-    println!("default font: {:?}", fc_cache.query(&FcPattern::default(), &mut msg));
+    println!(
+        "default font: {:?}",
+        fc_cache.query(&FcPattern::default(), &mut msg)
+    );
     println!("{msg:#?}");
 }
 

@@ -8,13 +8,22 @@ fn main() -> Result<(), String> {
 
     // Basic HTML content with styles
     let html = vec![
-        // ("default", include_str!("./assets/html/default.html").to_string()),
-        // ("recipe", include_str!("./assets/html/recipe.html").to_string()),
+        (
+            "default",
+            include_str!("./assets/html/default.html").to_string(),
+        ),
+        (
+            "recipe",
+            include_str!("./assets/html/recipe.html").to_string(),
+        ),
         (
             "report",
             include_str!("./assets/html/report.html").to_string(),
         ),
-        // ("synthwave", include_str!("./assets/html/synthwave.html").to_string()),
+        (
+            "synthwave",
+            include_str!("./assets/html/synthwave.html").to_string(),
+        ),
     ];
 
     // Convert the HTML to PDF pages
