@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    io::Write,
+};
 
 use lopdf::{
     content::Operation as LoOp,
@@ -78,11 +81,12 @@ pub fn init_doc_and_resources(
     (doc, global_xobject_dict)
 }
 
-pub fn serialize_pdf_into_bytes(
+pub fn serialize_pdf<W: Write>(
     pdf: &PdfDocument,
     opts: &PdfSaveOptions,
+    mut writer: &mut W,
     warnings: &mut Vec<PdfWarnMsg>,
-) -> Vec<u8> {
+) -> () {
     let (mut doc, global_xobject_dict) = init_doc_and_resources(pdf, opts);
     let pages_id = doc.new_object_id();
     let mut catalog = LoDictionary::from_iter(vec![
@@ -389,14 +393,19 @@ pub fn serialize_pdf_into_bytes(
         // doc.compress();
     }
 
+    let _ = doc.save_to(&mut writer);
+}
+pub fn serialize_pdf_into_bytes(
+    pdf: &PdfDocument,
+    opts: &PdfSaveOptions,
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> Vec<u8> {
     let mut bytes = Vec::new();
     let mut writer = std::io::BufWriter::new(&mut bytes);
-    let _ = doc.save_to(&mut writer);
+    serialize_pdf(pdf, opts, &mut writer, warnings);
     std::mem::drop(writer);
-
     bytes
 }
-
 fn get_used_internal_fonts(pages: &[PdfPage]) -> BTreeSet<BuiltinFont> {
     pages
         .iter()

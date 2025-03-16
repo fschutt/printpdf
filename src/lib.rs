@@ -384,6 +384,9 @@ impl PdfDocument {
         self
     }
 
+		pub fn save_writer<W: std::io::Write>(&self, w: &mut W, opts: &PdfSaveOptions, warnings: &mut Vec<PdfWarnMsg>) {
+			self::serialize::serialize_pdf(self, opts, w, warnings);
+		}
     /// Serializes the PDF document to bytes
     pub fn save(&self, opts: &PdfSaveOptions, warnings: &mut Vec<PdfWarnMsg>) -> Vec<u8> {
         self::serialize::serialize_pdf_into_bytes(self, opts, warnings)
