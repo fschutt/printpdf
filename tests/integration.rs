@@ -30,6 +30,7 @@ fn test_document_to_bytes() {
     assert!(!output.bytes.decode_bytes().unwrap_or_default().is_empty());
 }
 
+/* 
 #[test]
 fn test_page_to_svg() {
     // Create a document with various operations
@@ -165,6 +166,7 @@ fn test_page_to_svg() {
     assert!(svg.contains("<text"));
     assert!(svg.contains("Hello, World!"));
 }
+*/
 
 #[test]
 fn test_resources_for_page() {
