@@ -20,7 +20,6 @@ jobs:
       - run: cargo check
       - run: cargo check --no-default-features
       - run: cargo check --no-default-features --features html
-      - run: cargo check --no-default-features --features std
       - run: cargo check --all-features
       # - run: cargo test --verbose # fails because of SIMD issues, test on Windows only
 

@@ -7,7 +7,7 @@ pub use time::{OffsetDateTime, UtcOffset};
 pub use self::js_sys_date::OffsetDateTime;
 #[cfg(all(feature = "js-sys", target_family = "wasm"))]
 mod js_sys_date {
-    use js_sys::Date;
+    use web_sys::js_sys::Date;
     use time::Month;
 
     #[derive(Debug, Clone, PartialEq)]
