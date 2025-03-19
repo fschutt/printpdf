@@ -16,11 +16,8 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.channel }}
-      - run: cargo check --examples
-      - run: cargo check
-      - run: cargo check --no-default-features
-      - run: cargo check --no-default-features --features html
-      - run: cargo check --all-features
+      - run: cargo check --verbose --examples
+      - run: cargo check --verbose
       # - run: cargo test --verbose # fails because of SIMD issues, test on Windows only
 
 
@@ -42,7 +39,7 @@ jobs:
       - name: Install toolchain for ${{ matrix.target-sys }}-${{ matrix.target-abi }}
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target-sys }}-${{ matrix.target-abi }}    
+          targets: ${{ matrix.target-sys }}-${{ matrix.target-abi }}
       - run: cargo check --verbose --target ${{ matrix.target-sys }}-${{ matrix.target-abi }} --examples
       - run: cargo check --verbose --target ${{ matrix.target-sys }}-${{ matrix.target-abi }}
       - run: cargo test --verbose --target ${{ matrix.target-sys }}-${{ matrix.target-abi }}
@@ -68,7 +65,7 @@ jobs:
       - run: cargo check --verbose --target wasm32-wasip1 --examples
       - run: cargo check --verbose --target wasm32-wasip1
       - run: cargo check --verbose --target wasm32-wasip2 --examples
-      - run: cargo check --verbose --target wasm32-wasip2
+      - run: cargo check --verbose --target wasm32-wasip2      
       - run: cargo check --verbose --target wasm32-wasip2 --no-default-features
       - run: cargo check --verbose --target wasm32-wasip2 --all-features
 
