@@ -1,7 +1,7 @@
 use printpdf::{
     shape::{TextAlign, TextHole, TextShapingOptions},
     Color, FontId, LinePoint, Mm, Op, PdfDocument, PdfPage, PdfSaveOptions, Point, Pt, Rect, Rgb,
-    TextItem,
+    TextItem, PolygonRing,
 };
 
 fn main() {
@@ -115,7 +115,7 @@ fn create_example_page(
          where text needs to flow around diagrams, tables, or sidebar content.",
         Pt(page_width_pt - 40.0),
         Pt(220.0),
-        Rect {
+        &Rect {
             x: Pt(100.0),
             y: Pt(230.0),
             width: Pt(80.0),
@@ -192,36 +192,38 @@ fn create_title(doc: &PdfDocument, font_id: &FontId, text: &str, page_width: f32
 
     ops.push(Op::DrawPolygon {
         polygon: printpdf::Polygon {
-            rings: vec![vec![
-                (
-                    Point {
-                        x: Pt(0.0),
-                        y: Pt(0.0),
+            rings: vec![PolygonRing {
+                points: vec![
+                    LinePoint {
+                        p: Point {
+                            x: Pt(0.0),
+                            y: Pt(0.0),
+                        },
+                        bezier: false,
                     },
-                    false,
-                ),
-                (
-                    Point {
-                        x: Pt(page_width),
-                        y: Pt(0.0),
+                    LinePoint {
+                        p: Point {
+                            x: Pt(page_width),
+                            y: Pt(0.0),
+                        },
+                        bezier: false,
                     },
-                    false,
-                ),
-                (
-                    Point {
-                        x: Pt(page_width),
-                        y: Pt(40.0),
+                    LinePoint {
+                        p: Point {
+                            x: Pt(page_width),
+                            y: Pt(40.0),
+                        },
+                        bezier: false,
                     },
-                    false,
-                ),
-                (
-                    Point {
-                        x: Pt(0.0),
-                        y: Pt(40.0),
+                    LinePoint {
+                        p: Point {
+                            x: Pt(0.0),
+                            y: Pt(40.0),
+                        },
+                        bezier: false,
                     },
-                    false,
-                ),
-            ]],
+                ],
+            }],
             mode: printpdf::PaintMode::Fill,
             winding_order: printpdf::WindingOrder::NonZero,
         },
@@ -344,20 +346,20 @@ fn create_section_title(
     ops.push(Op::DrawLine {
         line: printpdf::Line {
             points: vec![
-                (
-                    Point {
+                LinePoint {
+                    p: Point {
                         x: Pt(x),
                         y: Pt(y + 2.0),
                     },
-                    false,
-                ),
-                (
-                    Point {
+                    bezier: false,
+                },
+                LinePoint {
+                    p: Point {
                         x: Pt(x + 200.0),
                         y: Pt(y + 2.0),
                     },
-                    false,
-                ),
+                    bezier: false,
+                },
             ],
             is_closed: false,
         },
@@ -544,12 +546,12 @@ fn create_text_with_hole(
     text: &str,
     width: Pt,
     y: Pt,
-    hole_rect: Rect,
+    hole_rect: &Rect,
 ) -> Vec<Op> {
     let mut ops = Vec::new();
 
     // Create hole
-    let hole = TextHole { rect: hole_rect };
+    let hole = TextHole { rect: hole_rect.clone() };
 
     let options = TextShapingOptions {
         font_size: Pt(12.0),
@@ -584,36 +586,38 @@ fn create_text_with_hole(
 
     ops.push(Op::DrawPolygon {
         polygon: printpdf::Polygon {
-            rings: vec![vec![
-                (
-                    Point {
-                        x: hole_rect.x,
-                        y: hole_rect.y,
+            rings: vec![PolygonRing {
+                points: vec![
+                    LinePoint {
+                        p: Point {
+                            x: hole_rect.x,
+                            y: hole_rect.y,
+                        },
+                        bezier: false,
                     },
-                    false,
-                ),
-                (
-                    Point {
-                        x: Pt(hole_rect.x.0 + hole_rect.width.0),
-                        y: hole_rect.y,
+                    LinePoint {
+                        p: Point {
+                            x: Pt(hole_rect.x.0 + hole_rect.width.0),
+                            y: hole_rect.y,
+                        },
+                        bezier: false,
                     },
-                    false,
-                ),
-                (
-                    Point {
-                        x: Pt(hole_rect.x.0 + hole_rect.width.0),
-                        y: Pt(hole_rect.y.0 + hole_rect.height.0),
+                    LinePoint {
+                        p: Point {
+                            x: Pt(hole_rect.x.0 + hole_rect.width.0),
+                            y: Pt(hole_rect.y.0 + hole_rect.height.0),
+                        },
+                        bezier: false,
                     },
-                    false,
-                ),
-                (
-                    Point {
-                        x: hole_rect.x,
-                        y: Pt(hole_rect.y.0 + hole_rect.height.0),
+                    LinePoint {
+                        p: Point {
+                            x: hole_rect.x,
+                            y: Pt(hole_rect.y.0 + hole_rect.height.0),
+                        },
+                        bezier: false,
                     },
-                    false,
-                ),
-            ]],
+                ],
+            }],
             mode: printpdf::PaintMode::FillStroke,
             winding_order: printpdf::WindingOrder::NonZero,
         },
@@ -795,20 +799,20 @@ fn create_two_column_text(
     ops.push(Op::DrawLine {
         line: printpdf::Line {
             points: vec![
-                (
-                    Point {
+                LinePoint {
+                    p: Point {
                         x: Pt(width.0 / 2.0),
                         y: Pt(y.0),
                     },
-                    false,
-                ),
-                (
-                    Point {
+                    bezier: false,
+                },
+                LinePoint {
+                    p: Point {
                         x: Pt(width.0 / 2.0),
                         y: Pt(y.0 + 80.0),
                     },
-                    false,
-                ),
+                    bezier: false,
+                },
             ],
             is_closed: false,
         },
@@ -849,36 +853,38 @@ fn create_measured_text_in_box(
 
     ops.push(Op::DrawPolygon {
         polygon: printpdf::Polygon {
-            rings: vec![vec![
-                (
-                    Point {
-                        x: box_rect.x,
-                        y: box_rect.y,
+            rings: vec![PolygonRing {
+                points: vec![
+                    LinePoint {
+                        p: Point {
+                            x: box_rect.x,
+                            y: box_rect.y,
+                        },
+                        bezier: false,
                     },
-                    false,
-                ),
-                (
-                    Point {
-                        x: Pt(box_rect.x.0 + box_rect.width.0),
-                        y: box_rect.y,
+                    LinePoint {
+                        p: Point {
+                            x: Pt(box_rect.x.0 + box_rect.width.0),
+                            y: box_rect.y,
+                        },
+                        bezier: false,
                     },
-                    false,
-                ),
-                (
-                    Point {
-                        x: Pt(box_rect.x.0 + box_rect.width.0),
-                        y: Pt(box_rect.y.0 + box_rect.height.0),
+                    LinePoint {
+                        p: Point {
+                            x: Pt(box_rect.x.0 + box_rect.width.0),
+                            y: Pt(box_rect.y.0 + box_rect.height.0),
+                        },
+                        bezier: false,
                     },
-                    false,
-                ),
-                (
-                    Point {
-                        x: box_rect.x,
-                        y: Pt(box_rect.y.0 + box_rect.height.0),
+                    LinePoint {
+                        p: Point {
+                            x: box_rect.x,
+                            y: Pt(box_rect.y.0 + box_rect.height.0),
+                        },
+                        bezier: false,
                     },
-                    false,
-                ),
-            ]],
+                ],
+            }],
             mode: printpdf::PaintMode::FillStroke,
             winding_order: printpdf::WindingOrder::NonZero,
         },
