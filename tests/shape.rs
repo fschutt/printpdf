@@ -10,7 +10,7 @@ fn test_shape_text_simple() {
         ..Default::default()
     };
 
-    let shaped_text = shape_text("Hello World", &font, &options);
+    let shaped_text = font.shape_text("Hello World", &options, &FontId::new());
 
     // Should have at least one line
     assert!(!shaped_text.lines.is_empty());
@@ -45,7 +45,7 @@ fn test_text_with_hole() {
         ..Default::default()
     };
 
-    let shaped_text = shape_text(long_text, &font, &options);
+    let shaped_text = font.shape_text(long_text, &options, &FontId::new());
 
     // Text should have multiple lines
     assert!(shaped_text.lines.len() > 1);
