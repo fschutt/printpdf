@@ -237,7 +237,25 @@ pub struct PdfDocument {
     pub pages: Vec<PdfPage>,
 }
 
+
+// Add methods to PdfDocument
 impl PdfDocument {
+    /// Shape text using a font from the document
+    pub fn shape_text(
+        &self,
+        text: &str,
+        font_id: &FontId,
+        options: &TextShapingOptions,
+        origin: Point,
+    ) -> Option<ShapedText> {
+        self.resources.shape_text(text, font_id, options, origin)
+    }
+
+    /// Measure text using a font from the document
+    pub fn measure_text(&self, text: &str, font_id: &FontId, font_size: Pt) -> Option<(f32, f32)> {
+        self.resources.measure_text(text, font_id, font_size)
+    }
+
     pub fn new(name: &str) -> Self {
         Self {
             metadata: PdfMetadata {
@@ -424,6 +442,28 @@ pub struct PdfResources {
     /// Map of optional content groups
     #[serde(default)]
     pub layers: PdfLayerMap,
+}
+
+
+// Add methods to PdfResources
+impl PdfResources {
+    /// Shape text using a font from the document's resources
+    pub fn shape_text(
+        &self,
+        text: &str,
+        font_id: &FontId,
+        options: &TextShapingOptions,
+        origin: Point,
+    ) -> Option<ShapedText> {
+        let font = self.fonts.map.get(font_id)?;
+        Some(crate::shape::shape_text(text, font, options, origin))
+    }
+
+    /// Measure text using a font from the document's resources
+    pub fn measure_text(&self, text: &str, font_id: &FontId, font_size: Pt) -> Option<(f32, f32)> {
+        let font = self.fonts.map.get(font_id)?;
+        Some(measure_text(text, font, font_size))
+    }
 }
 
 #[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize)]

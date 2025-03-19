@@ -7,6 +7,7 @@
 use std::collections::BTreeMap;
 
 use azul_core::{
+    callbacks::InlineText,
     ui_solver::ResolvedTextLayoutOptions,
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
@@ -77,32 +78,11 @@ impl Default for TextShapingOptions {
     }
 }
 
-/// A shaped glyph with positioning information
-#[derive(Debug, Clone)]
-pub struct ShapedGlyph {
-    /// The character this glyph represents
-    pub char: char,
-    /// The glyph identifier in the font
-    pub glyph_id: u16,
-    /// X position relative to the text origin
-    pub x: f32,
-    /// Y position relative to the text origin
-    pub y: f32,
-    /// Width of the glyph in points
-    pub width: f32,
-    /// Height of the glyph in points
-    pub height: f32,
-    /// Horizontal advance of the glyph in points
-    pub advance: f32,
-}
-
 /// A shaped word with positioning information
 #[derive(Debug, Clone)]
 pub struct ShapedWord {
     /// The text content of the word
     pub text: String,
-    /// Shaped glyphs making up the word
-    pub glyphs: Vec<ShapedGlyph>,
     /// X position relative to the text origin
     pub x: f32,
     /// Y position relative to the text origin
@@ -143,6 +123,91 @@ pub struct ShapedText {
     pub height: f32,
     /// Origin point of the text block
     pub position: Point,
+}
+
+/// Extract ShapedText from InlineText
+fn extract_shaped_text(
+    inline_text: &InlineText,
+    origin: Point,
+) -> ShapedText {
+    let mut shaped_text = ShapedText {
+        lines: Vec::new(),
+        width: inline_text.content_size.width,
+        height: inline_text.content_size.height,
+        position: origin,
+    };
+
+    // Process each line
+    for (line_idx, line) in inline_text.lines.iter().enumerate() {
+        let mut shaped_line = ShapedLine {
+            words: Vec::new(),
+            x: line.bounds.origin.x + origin.x.0,
+            y: line.bounds.origin.y + origin.y.0,
+            width: line.bounds.size.width,
+            height: line.bounds.size.height,
+            index: line_idx,
+        };
+
+        // Process each word in the line
+        for (word_idx, word) in line.words.iter().enumerate() {
+            match word {
+                azul_core::callbacks::InlineWord::Word(contents) => {
+                    // Extract text from glyphs
+                    let text: String = contents.glyphs.iter()
+                        .filter_map(|g| {
+                            g.unicode_codepoint
+                                .as_ref()
+                                .and_then(|cp| std::char::from_u32(*cp))
+                                .map(|c| c.to_string())
+                        })
+                        .collect();
+
+                    let shaped_word = ShapedWord {
+                        text,
+                        x: contents.bounds.origin.x + origin.x.0,
+                        y: contents.bounds.origin.y + origin.y.0,
+                        width: contents.bounds.size.width,
+                        height: contents.bounds.size.height,
+                        index: word_idx,
+                    };
+
+                    shaped_line.words.push(shaped_word);
+                },
+                // Handle other word types (spaces, tabs, etc.) if needed for PDF generation
+                azul_core::callbacks::InlineWord::Space => {
+                    // Add a space character as a word
+                    shaped_line.words.push(ShapedWord {
+                        text: " ".to_string(),
+                        x: shaped_line.x + (shaped_line.words.last().map(|w| w.x + w.width).unwrap_or(0.0)),
+                        y: shaped_line.y,
+                        width: inline_text.font_size_px * 0.25, // Approximate space width
+                        height: inline_text.font_size_px,
+                        index: word_idx,
+                    });
+                },
+                azul_core::callbacks::InlineWord::Tab => {
+                    // Add a tab character as a word
+                    shaped_line.words.push(ShapedWord {
+                        text: "\t".to_string(),
+                        x: shaped_line.x + (shaped_line.words.last().map(|w| w.x + w.width).unwrap_or(0.0)),
+                        y: shaped_line.y,
+                        width: inline_text.font_size_px * 4.0, // Approximate tab width
+                        height: inline_text.font_size_px,
+                        index: word_idx,
+                    });
+                },
+                azul_core::callbacks::InlineWord::Return => {
+                    // Usually handled by line breaks, but include for completeness
+                }
+            }
+        }
+
+        if !shaped_line.words.is_empty() {
+            shaped_text.lines.push(shaped_line);
+        }
+    }
+
+    shaped_text
 }
 
 /// Shape text using the specified font and options
@@ -227,217 +292,16 @@ pub fn shape_text(
         }
     }
 
-    // Get layouted glyphs with final positioning
-    let layouted_glyphs = azul_core::app_resources::get_inline_text(
+    // Get inline text with final positioning
+    let inline_text = azul_core::app_resources::get_inline_text(
         &words,
         &shaped_words,
         &word_positions,
         &inline_text_layout,
-    )
-    .get_layouted_glyphs();
+    );
     
-    // Use our adapter to extract word layouts
-    let word_layouts = extract_word_layouts(&inline_text_layout, &word_positions);
-    
-    // Use our adapter to extract shaped glyphs
-    let line_word_glyphs = extract_shaped_glyphs(&layouted_glyphs, origin);
-
-    // Create our ShapedText result
-    let mut shaped_text = ShapedText {
-        lines: Vec::new(),
-        width: inline_text_layout.content_size.width,
-        height: inline_text_layout.content_size.height,
-        position: origin,
-    };
-
-    // Process each line
-    for (line_idx, word_map) in &line_word_glyphs {
-        if *line_idx >= inline_text_layout.lines.len() {
-            continue;
-        }
-
-        let line_layout = &inline_text_layout.lines.as_slice()[*line_idx];
-
-        let mut shaped_line = ShapedLine {
-            words: Vec::new(),
-            x: line_layout.bounds.origin.x + origin.x.0,
-            y: line_layout.bounds.origin.y + origin.y.0,
-            width: line_layout.bounds.size.width,
-            height: line_layout.bounds.size.height,
-            index: *line_idx,
-        };
-
-        // Get word layouts for this line
-        let line_word_layouts = word_layouts.get(line_idx).cloned().unwrap_or_default();
-
-        // Process each word in the line
-        for (word_idx, glyphs) in word_map {
-            let word_text: String = glyphs.iter().map(|g| g.char).collect();
-            
-            // Get word layout if available
-            let word_rect = line_word_layouts.get(word_idx).cloned().unwrap_or_else(|| {
-                // If not available, approximate from glyphs
-                let x = glyphs.first().map_or(0.0, |g| g.x - origin.x.0);
-                let y = glyphs.first().map_or(0.0, |g| g.y - origin.y.0);
-                let width = glyphs.iter().map(|g| g.advance).sum();
-                let height = glyphs.iter().map(|g| g.height).max_by(|a, b| 
-                    a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-                ).unwrap_or(0.0);
-                
-                LogicalRect {
-                    origin: LogicalPosition::new(x, y),
-                    size: LogicalSize::new(width, height),
-                }
-            });
-
-            let shaped_word = ShapedWord {
-                text: word_text,
-                glyphs: glyphs.clone(),
-                x: word_rect.origin.x + origin.x.0,
-                y: word_rect.origin.y + origin.y.0,
-                width: word_rect.size.width,
-                height: word_rect.size.height,
-                index: *word_idx,
-            };
-
-            shaped_line.words.push(shaped_word);
-        }
-
-        // Sort words by their index
-        shaped_line.words.sort_by_key(|w| w.index);
-        shaped_text.lines.push(shaped_line);
-    }
-
-    // Sort lines by their index
-    shaped_text.lines.sort_by_key(|l| l.index);
-
-    shaped_text
-}
-
-/// Extract information from layouted_glyphs to create ShapedGlyphs
-fn extract_shaped_glyphs(
-    layouted_glyphs: &azul_core::app_resources::LayoutedGlyphs,
-    origin: Point,
-) -> BTreeMap<usize, BTreeMap<usize, Vec<ShapedGlyph>>> {
-    
-    let mut line_word_glyphs: BTreeMap<usize, BTreeMap<usize, Vec<ShapedGlyph>>> = BTreeMap::new();
-    
-    for glyph in &layouted_glyphs.glyphs {
-        // Extract needed information from GlyphInstance
-        // azul_core's GlyphInstance has different structure than expected
-        // We need to extract line and word indices differently
-        
-        // In azul's implementation, these might be stored in different ways
-        // For now, we'll use glyph.index properties and derive others
-        
-        // Try to get line index from glyph y-position (approximate)
-        let line_index = if let Some(group_id) = glyph.grouped_id {
-            group_id.0
-        } else {
-            0 // Default to first line
-        };
-        
-        // Try to get word index from glyph x-position (approximate)
-        let word_index = if let Some(group_id) = glyph.grouped_id {
-            group_id.1
-        } else {
-            0 // Default to first word
-        };
-        
-        // Extract character from unicode codepoint
-        let character = if let Some(codepoint) = glyph.index.unicode_codepoint {
-            std::char::from_u32(codepoint).unwrap_or(' ')
-        } else {
-            ' ' // Default to space if no character info
-        };
-        
-        let shaped_glyph = ShapedGlyph {
-            char: character,
-            glyph_id: glyph.index.glyph_index,
-            x: glyph.point.x + origin.x.0,
-            y: glyph.point.y + origin.y.0,
-            width: glyph.size.width,
-            height: glyph.size.height,
-            advance: glyph.size.width, // Approximate advance with width
-        };
-        
-        line_word_glyphs
-            .entry(line_index)
-            .or_default()
-            .entry(word_index)
-            .or_default()
-            .push(shaped_glyph);
-    }
-    
-    line_word_glyphs
-}
-
-/// Extract word rectangles from InlineTextLayout
-fn extract_word_layouts(
-    inline_text_layout: &azul_core::ui_solver::InlineTextLayout,
-    word_positions: &azul_core::app_resources::WordPositions,
-) -> BTreeMap<usize, BTreeMap<usize, azul_core::window::LogicalRect>> {
-    let mut word_layouts = BTreeMap::new();
-    
-    // InlineTextLayout in azul doesn't have 'children' directly
-    // We need to reconstruct word layouts from word_positions
-    for (line_idx, line) in inline_text_layout.lines.iter().enumerate() {
-        let mut line_words = BTreeMap::new();
-        
-        // Get words for this line from word_positions
-        let start_idx = line.word_start;
-        let end_idx = line.word_end;
-        
-        // Process each word in the line
-        for word_idx in start_idx..=end_idx {
-            if word_idx < word_positions.word_positions.len() {
-                let pos = word_positions.word_positions[word_idx].clone();
-                let rect = azul_core::window::LogicalRect {
-                    origin: pos.position,
-                    size: pos.size,
-                };
-                
-                // Store word layout (relative to line)
-                line_words.insert(word_idx - start_idx, rect);
-            }
-        }
-        
-        word_layouts.insert(line_idx, line_words);
-    }
-    
-    word_layouts
-}
-
-/// Measure the width and height of text with the specified font and size
-///
-/// This is a simpler alternative to full text shaping when you just need
-/// dimensions. Note that this measures a single line of text without any
-/// line breaking or advanced layout.
-///
-/// # Arguments
-/// * `text` - The text to measure
-/// * `font` - The font to use for measurement
-/// * `font_size` - The font size in points
-///
-/// # Returns
-/// A tuple of (width, height) in points
-pub fn measure_text(text: &str, font: &ParsedFont, font_size: Pt) -> (f32, f32) {
-    let mut total_width = 0.0;
-    let mut max_height = 0.0_f32;
-
-    for ch in text.chars() {
-        if let Some(glyph_id) = font.lookup_glyph_index(ch as u32) {
-            if let Some((width, height)) = font.get_glyph_size(glyph_id) {
-                // Scale to font size
-                let scale_factor = font_size.0 / font.font_metrics.units_per_em as f32;
-                total_width += width as f32 * scale_factor;
-                let dup = height as f32 * scale_factor as f32;
-                max_height = max_height.max(dup);
-            }
-        }
-    }
-
-    (total_width, max_height)
+    // Extract shaped text from inline text
+    extract_shaped_text(&inline_text, origin)
 }
 
 /// Convert ShapedText to PDF operations
@@ -486,53 +350,60 @@ pub fn shaped_text_to_ops(shaped_text: &ShapedText, font_id: &FontId) -> Vec<Op>
     ops
 }
 
-// Add methods to PdfResources
-impl PdfResources {
-    /// Shape text using a font from the document's resources
-    pub fn shape_text(
-        &self,
-        text: &str,
-        font_id: &FontId,
-        options: &TextShapingOptions,
-        origin: Point,
-    ) -> Option<ShapedText> {
-        let font = self.fonts.map.get(font_id)?;
-        Some(shape_text(text, font, options, origin))
+/// Measure the width and height of text with the specified font and size
+///
+/// This is a simpler alternative to full text shaping when you just need
+/// dimensions. Note that this measures a single line of text without any
+/// line breaking or advanced layout.
+///
+/// # Arguments
+/// * `text` - The text to measure
+/// * `font` - The font to use for measurement
+/// * `font_size` - The font size in points
+///
+/// # Returns
+/// A tuple of (width, height) in points
+pub fn measure_text(text: &str, font: &ParsedFont, font_size: Pt) -> (f32, f32) {
+    let mut total_width = 0.0;
+    let mut max_height = 0.0_f32;
+
+    for ch in text.chars() {
+        if let Some(glyph_id) = font.lookup_glyph_index(ch as u32) {
+            if let Some((width, height)) = font.get_glyph_size(glyph_id) {
+                // Scale to font size
+                let scale_factor = font_size.0 / font.font_metrics.units_per_em as f32;
+                total_width += width as f32 * scale_factor;
+                let dup = height as f32 * scale_factor as f32;
+                max_height = max_height.max(dup);
+            }
+        }
     }
 
-    /// Measure text using a font from the document's resources
-    pub fn measure_text(&self, text: &str, font_id: &FontId, font_size: Pt) -> Option<(f32, f32)> {
-        let font = self.fonts.map.get(font_id)?;
-        Some(measure_text(text, font, font_size))
-    }
-}
-
-// Add methods to PdfDocument
-impl PdfDocument {
-    /// Shape text using a font from the document
-    pub fn shape_text(
-        &self,
-        text: &str,
-        font_id: &FontId,
-        options: &TextShapingOptions,
-        origin: Point,
-    ) -> Option<ShapedText> {
-        self.resources.shape_text(text, font_id, options, origin)
-    }
-
-    /// Measure text using a font from the document
-    pub fn measure_text(&self, text: &str, font_id: &FontId, font_size: Pt) -> Option<(f32, f32)> {
-        self.resources.measure_text(text, font_id, font_size)
-    }
+    (total_width, max_height)
 }
 
 fn convert_to_azul_parsed_font(font: &crate::font::ParsedFont) -> azul_layout::text::shaping::ParsedFont {
     azul_layout::text::shaping::ParsedFont {
         font_metrics: convert_font_metrics(&font.font_metrics),
         num_glyphs: font.num_glyphs,
-        hhea_table: font.hhea_table.clone(),
         hmtx_data: font.hmtx_data.clone(),
-        maxp_table: font.maxp_table.clone(),
+        hhea_table: font.hhea_table.clone().unwrap_or(allsorts_subset_browser::tables::HheaTable {
+            ascender: 0,
+            descender: 0,
+            line_gap: 0,
+            advance_width_max: 0,
+            min_left_side_bearing: 0,
+            min_right_side_bearing: 0,
+            x_max_extent: 0,
+            caret_slope_rise: 0,
+            caret_slope_run: 0,
+            caret_offset: 0,
+            num_h_metrics: 0,
+        }),
+        maxp_table: font.maxp_table.clone().unwrap_or(allsorts_subset_browser::tables::MaxpTable {
+            num_glyphs: 0,
+            version1_sub_table: None,
+        }),
         gsub_cache: font.gsub_cache.clone(),
         gpos_cache: font.gpos_cache.clone(),
         opt_gdef_table: font.opt_gdef_table.clone(),
@@ -698,51 +569,5 @@ pub fn from_azul_glyph_outline_operation(
             end_y: c.end_y,
         }),
         AzulOp::ClosePath => PdfOp::ClosePath,
-    }
-}
-
-/// Convert a vector of printpdf GlyphOutlineOperation to azul_layout GlyphOutlineOperationVec
-pub fn to_azul_glyph_outline(
-    operations: &Vec<crate::font::GlyphOutlineOperation>
-) -> azul_layout::text::shaping::GlyphOutlineOperationVec {
-    let mut azul_operations = Vec::new();
-    
-    for op in operations {
-        azul_operations.push(to_azul_glyph_outline_operation(op));
-    }
-    
-    azul_operations.into()
-}
-
-/// Convert azul_layout GlyphOutlineOperationVec to a vector of printpdf GlyphOutlineOperation
-pub fn from_azul_glyph_outline(
-    operations: &azul_layout::text::shaping::GlyphOutlineOperationVec
-) -> Vec<crate::font::GlyphOutlineOperation> {
-    let mut pdf_operations = Vec::new();
-    
-    for i in 0..operations.len() {
-        if let Some(op) = operations.get(i) {
-            pdf_operations.push(from_azul_glyph_outline_operation(op));
-        }
-    }
-    
-    pdf_operations
-}
-
-/// Convert printpdf GlyphOutline to azul_layout GlyphOutline
-pub fn to_azul_glyph_outline_struct(
-    outline: &crate::font::GlyphOutline
-) -> azul_layout::text::shaping::GlyphOutline {
-    azul_layout::text::shaping::GlyphOutline {
-        operations: to_azul_glyph_outline(&outline.operations),
-    }
-}
-
-/// Convert azul_layout GlyphOutline to printpdf GlyphOutline
-pub fn from_azul_glyph_outline_struct(
-    outline: &azul_layout::text::shaping::GlyphOutline
-) -> crate::font::GlyphOutline {
-    crate::font::GlyphOutline {
-        operations: from_azul_glyph_outline(&outline.operations),
     }
 }

@@ -34,9 +34,6 @@ fn test_shape_text_simple() {
 
     // The line should have words
     assert!(!shaped_text.lines[0].words.is_empty());
-
-    // The words should have glyphs
-    assert!(!shaped_text.lines[0].words[0].glyphs.is_empty());
 }
 
 #[test]
