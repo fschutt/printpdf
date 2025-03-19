@@ -26,16 +26,10 @@ jobs:
     strategy:
       matrix:
         target-sys: ["i686-pc-windows", "x86_64-pc-windows"]
-        target-abi: ["gnu", "msvc"]
+        target-abi: ["msvc"]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Set up MinGW
-        if: ${{ matrix.target-abi == 'gnu' }}
-        uses: egor-tensin/setup-mingw@v2
-        with:
-          platform: "${{ contains(matrix.target-sys, 'x86_64') && 'x64' || 'i686' }}"
-          version: 12.2.0
       - name: Install toolchain for ${{ matrix.target-sys }}-${{ matrix.target-abi }}
         uses: dtolnay/rust-toolchain@stable
         with:
