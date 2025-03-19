@@ -781,9 +781,10 @@ fn main() {
     pages.push(PdfPage::new(Mm(210.0), Mm(297.0), section2_ops));
 
     // Add bookmarks for the document outline
-    doc.add_bookmark("Introduction", 1);
-    doc.add_bookmark("Section 1: Documentation", 2);
-    doc.add_bookmark("Section 2: Advanced Usage", 3);
+    // Add Unicode bookmarks
+    doc.add_bookmark("Unicode: Здравствуйте", 1);
+    doc.add_bookmark("Unicode: Cześć", 2);
+    doc.add_bookmark("Mixed: English and Русский", 3);
 
     // Save the PDF to a file
     let mut warnings = Vec::new();

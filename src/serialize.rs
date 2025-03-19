@@ -338,7 +338,7 @@ pub fn serialize_pdf<W: Write>(
             let dest = Array(vec![Reference(*(*pageid)), "XYZ".into(), Null, Null, Null]);
             let mut dict = LoDictionary::from_iter(vec![
                 ("Parent", Reference(bookmarks_id)),
-                ("Title", LoString(name.to_string().into(), Literal)),
+                ("Title", encode_text_to_utf16be(name)),
                 ("Dest", dest),
             ]);
             if let Some(prev) = prev {
@@ -1349,4 +1349,21 @@ fn color_array_to_f32(c: &ColorArray) -> Vec<f32> {
         ColorArray::Rgb(arr) => arr.to_vec(),
         ColorArray::Cmyk(arr) => arr.to_vec(),
     }
+}
+
+
+// Encode text to UTF-16BE with BOM
+fn encode_text_to_utf16be(text: &str) -> lopdf::Object {
+    // Byte Order Mark
+    let mut bytes = vec![0xFE, 0xFF];
+    
+    // Encode as UTF-16BE
+    for c in text.chars() {
+        let code_point = c as u16;
+        bytes.push((code_point >> 8) as u8);
+        bytes.push((code_point & 0xFF) as u8);
+    }
+    
+    // Return as a Hex String
+    lopdf::Object::String(bytes, Hexadecimal)
 }
