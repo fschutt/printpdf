@@ -162,54 +162,53 @@ fn main() {
 use printpdf::*;
 
 fn main() {
-
     let mut doc = PdfDocument::new("My first PDF");
 
-    let roboto_bytes = include_bytes!("assets/fonts/RobotoMedium.ttf");
-    let font = ParsedFont::from_bytes(roboto_bytes).unwrap();
+    let roboto_bytes = include_bytes!("assets/fonts/RobotoMedium.ttf").unwrap()
+    let font_index = 0;
+    let mut warnings = Vec::new();
+    let font = ParsedFont::from_bytes(&roboto_bytes, font_index, &mut warnings).unwrap();
 
     // If you need custom text shaping (uses the `allsorts` font shaper internally)
     // let glyphs = font.shape(text);
 
     // printpdf automatically keeps track of which fonts are used in the PDF
-    let font_id = doc.add_font(font);
+    let font_id = doc.add_font(&font);
 
-    let text_pos = Point { 
-        x: Mm(10.0).into(), 
-        y: Mm(100.0).into() 
+    let text_pos = Point {
+        x: Mm(10.0).into(),
+        y: Mm(100.0).into(),
     }; // from bottom left
 
     let page1_contents = vec![
         Op::SetLineHeight { lh: Pt(33.0) },
-        Op::SetWordSpacing { percent: 3000.0 },
+        Op::SetWordSpacing { pt: Pt(33.0) },
         Op::SetCharacterSpacing { multiplier: 10.0 },
         Op::SetTextCursor { pos: text_pos },
-
         // Op::WriteCodepoints { ... }
         // Op::WriteCodepointsWithKerning { ... }
-        Op::WriteText { 
-            text: "Lorem ipsum".to_string(), 
-            font: font_id.clone(), 
-            size: Pt(33.0) 
+        Op::WriteText {
+            items: vec![TextItem::Text("Lorem ipsum".to_string())],
+            font: font_id.clone(),
         },
         Op::AddLineBreak,
-        Op::WriteText { 
-            text: "dolor sit amet".to_string(), 
-            font: font_id.clone(), 
-            size: Pt(33.0) 
+        Op::WriteText {
+            items: vec![TextItem::Text("dolor sit amet".to_string())],
+            font: font_id.clone(),
         },
         Op::AddLineBreak,
     ];
 
     let save_options = PdfSaveOptions {
         subset_fonts: true, // auto-subset fonts on save
-        .. Default::default()
+        ..Default::default()
     };
 
     let page1 = PdfPage::new(Mm(10.0), Mm(250.0), page1_contents);
+    let mut warnings = Vec::new();
     let pdf_bytes: Vec<u8> = doc
         .with_pages(vec![page1])
-        .save(&save_options);
+        .save(&save_options, &mut warnings);
 }
 ```
 
