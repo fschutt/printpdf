@@ -15,7 +15,7 @@ use serde_derive::{Deserialize, Serialize};
 use crate::{
     cmap::ToUnicodeCMap,
     conformance::PdfConformance,
-    date::{OffsetDateTime, UtcOffset},
+    date::{OffsetDateTime, Date, Time, Offset, UtcOffset, parse_pdf_date},
     BuiltinFont, BuiltinOrExternalFontId, Color, DictItem, ExtendedGraphicsState,
     ExtendedGraphicsStateId, ExtendedGraphicsStateMap, FontId, LayerInternalId, Line,
     LineDashPattern, LinePoint, LinkAnnotation, Op, PageAnnotId, PageAnnotMap, PaintMode,
@@ -2540,50 +2540,6 @@ fn parse_rect(obj: &Object) -> Result<crate::graphics::Rect, String> {
         })
     } else {
         Err("Rectangle is not an array".to_string())
-    }
-}
-
-/// A simple parser for PDF date strings (e.g. "D:20170505150224+02'00'")
-fn parse_pdf_date(s: &str) -> Result<OffsetDateTime, String> {
-    // Remove a leading "D:" if present.
-    let s = if s.starts_with("D:") { &s[2..] } else { s };
-    if s.len() < 14 {
-        return Err("Date string too short".to_string());
-    }
-    let year: i32 = s[0..4].parse::<i32>().map_err(|e| e.to_string())?;
-    let month: u8 = s[4..6].parse::<u8>().map_err(|e| e.to_string())?;
-    let day: u8 = s[6..8].parse::<u8>().map_err(|e| e.to_string())?;
-    let hour: u8 = s[8..10].parse::<u8>().map_err(|e| e.to_string())?;
-    let minute: u8 = s[10..12].parse::<u8>().map_err(|e| e.to_string())?;
-    let second: u8 = s[12..14].parse::<u8>().map_err(|e| e.to_string())?;
-    let month = match month {
-        1 => time::Month::January,
-        2 => time::Month::February,
-        3 => time::Month::March,
-        4 => time::Month::April,
-        5 => time::Month::May,
-        6 => time::Month::June,
-        7 => time::Month::July,
-        8 => time::Month::August,
-        9 => time::Month::September,
-        10 => time::Month::October,
-        11 => time::Month::November,
-        12 => time::Month::December,
-        _ => time::Month::January,
-    };
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        Ok(OffsetDateTime::from_unix_timestamp(0).unwrap())
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        Ok(OffsetDateTime::new_in_offset(
-            time::Date::from_calendar_date(year, month, day).map_err(|e| e.to_string())?,
-            time::Time::from_hms(hour, minute, second).map_err(|e| e.to_string())?,
-            UtcOffset::from_hms(0, 0, 0).map_err(|e| e.to_string())?,
-        ))
     }
 }
 
