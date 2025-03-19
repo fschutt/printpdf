@@ -4,29 +4,34 @@ use std::collections::BTreeMap;
 
 use serde_derive::{Deserialize, Serialize};
 
-/// Link / bookmark annotation handling
+/// Bookmarks, page and link annotation handling
 pub mod annotation;
-pub mod cmap;
-pub mod text;
-pub mod wasm;
 pub use annotation::*;
-/// PDF standard handling
+/// /ToUnicode map serialization / parsing
+pub mod cmap;
+pub use cmap::*;
+/// Text encoding and decoding functions
+pub mod text;
+pub use text::*;
+/// WASM API functions
+pub mod wasm;
+pub use wasm::*;
+/// PDF conformance / PDF standards handling and validation
 pub mod conformance;
 pub use conformance::*;
 /// Transformation and text matrices
 pub mod matrix;
 pub use matrix::*;
-/// Units (Pt, Mm, Px, etc.)
+/// Typed PDF units (Pt, Mm, Px, etc.)
 pub mod units;
 pub use units::*;
-/// Date handling (stubs for platforms that don't support access to time clocks, such as
-/// wasm32-unknown)
+/// Date parsing and serializiation
 pub mod date;
 pub use date::*;
 /// Font and codepoint handling
 pub mod font;
 pub use font::*;
-/// Text shaping, in case you want to position text manually
+/// Text shaping, to position text manually
 pub mod shape;
 pub use shape::*;
 /// Point / line / polygon handling
@@ -52,20 +57,23 @@ pub use image::*;
 pub mod html;
 #[cfg(feature = "html")]
 pub use html::*;
+/// HTML component rendering (h1 - h6, li, ol, etc. - only relevant for --feature html)
 #[cfg(feature = "html")]
-pub(crate) mod components;
+pub mod components;
+#[cfg(feature = "html")]
+pub use components::*;
 /// Utility functions (random strings, numbers, timestamp formatting)
-pub(crate) mod utils;
+pub mod utils;
 use utils::*;
-/// Writing PDF
-pub(crate) mod serialize;
-pub use serialize::PdfSaveOptions;
-/// Parsing PDF
-pub(crate) mod deserialize;
-pub use deserialize::{PdfParseOptions, PdfWarnMsg};
+/// Core utils for writing PDF
+pub mod serialize;
+pub use serialize::*;
+/// Core utils for parsing PDF
+pub mod deserialize;
+pub use deserialize::*;
 /// Rendering PDF to SVG
 pub(crate) mod render;
-pub use render::PdfToSvgOptions;
+pub use render::*;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct GeneratePdfOptions {

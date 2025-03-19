@@ -1,5 +1,3 @@
-//! Current transformation matrix, for transforming shapes (rotate, translate, scale)
-
 use serde_derive::{Deserialize, Serialize};
 
 use crate::units::Pt;
