@@ -51,7 +51,8 @@ text-diff = "0.4.0"
 
 [features]
 default = ["html"]
-html = ["kuchiki", "azul-css", "azul-core", "azul-layout", "rust-fontconfig", "xmlparser"]
+text_layout = ["azul-css", "azul-core", "azul-layout"]
+html = ["kuchiki", "text_layout", "rust-fontconfig", "xmlparser"]
 js-sys = ["dep:js-sys", "web-sys", "wasm-bindgen-futures"] # wasm + browser context
 gif = ["image/gif"]
 jpeg = ["image/jpeg"]

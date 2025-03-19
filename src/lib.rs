@@ -245,23 +245,21 @@ pub struct PdfDocument {
     pub pages: Vec<PdfPage>,
 }
 
-
-// Add methods to PdfDocument
 impl PdfDocument {
-    /// Shape text using a font from the document
+    /// Looks up a text and shapes it without coordinate transformation.
+    ///
+    /// Only returns `None` on an invalid `FontId`.
     pub fn shape_text(
         &self,
         text: &str,
         font_id: &FontId,
         options: &TextShapingOptions,
-        origin: Point,
     ) -> Option<ShapedText> {
-        self.resources.shape_text(text, font_id, options, origin)
-    }
+        let font = self.resources.fonts.map.get(font_id)?;
 
-    /// Measure text using a font from the document
-    pub fn measure_text(&self, text: &str, font_id: &FontId, font_size: Pt) -> Option<(f32, f32)> {
-        self.resources.measure_text(text, font_id, font_size)
+        let shaped_text = font.shape_text(text, options, font_id);
+
+        Some(shaped_text)
     }
 
     pub fn new(name: &str) -> Self {
@@ -452,7 +450,6 @@ pub struct PdfResources {
     pub layers: PdfLayerMap,
 }
 
-
 // Add methods to PdfResources
 impl PdfResources {
     /// Shape text using a font from the document's resources
@@ -461,16 +458,9 @@ impl PdfResources {
         text: &str,
         font_id: &FontId,
         options: &TextShapingOptions,
-        origin: Point,
     ) -> Option<ShapedText> {
         let font = self.fonts.map.get(font_id)?;
-        Some(crate::shape::shape_text(text, font, options, origin))
-    }
-
-    /// Measure text using a font from the document's resources
-    pub fn measure_text(&self, text: &str, font_id: &FontId, font_size: Pt) -> Option<(f32, f32)> {
-        let font = self.fonts.map.get(font_id)?;
-        Some(measure_text(text, font, font_size))
+        Some(font.shape_text(text, options, font_id))
     }
 }
 

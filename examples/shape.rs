@@ -1,7 +1,7 @@
 use printpdf::{
     shape::{TextAlign, TextHole, TextShapingOptions},
-    Color, FontId, LinePoint, Mm, Op, PdfDocument, PdfPage, PdfSaveOptions, Point, Pt, Rect, Rgb,
-    TextItem, PolygonRing,
+    Color, FontId, LinePoint, Mm, Op, PdfDocument, PdfPage, PdfSaveOptions, Point, PolygonRing, Pt,
+    Rect, Rgb, TextItem,
 };
 
 fn main() {
@@ -39,14 +39,14 @@ fn create_example_page(
     page_height: Mm,
 ) -> Vec<Op> {
     let mut ops = Vec::new();
-    let page_width_pt = page_width.into_pt().0;
 
     // Start with a title
     ops.extend(create_title(
         doc,
         font_id,
         "Advanced Text Shaping",
-        page_width_pt,
+        page_width.into_pt(),
+        page_height.into_pt(),
     ));
 
     // Example 1: Centered text
@@ -54,15 +54,15 @@ fn create_example_page(
         doc,
         font_id,
         "1. Centered Text",
-        20.0,
-        50.0,
+        Pt(20.0),
+        page_height.into_pt() - Pt(50.0),
     ));
     ops.extend(create_centered_text(
         doc,
         font_id,
         "This text is centered horizontally.",
-        Pt(page_width_pt),
-        Pt(70.0),
+        page_width.into_pt(),
+        page_height.into_pt() - Pt(70.0),
     ));
 
     // Example 2: Right-aligned text
@@ -70,15 +70,15 @@ fn create_example_page(
         doc,
         font_id,
         "2. Right-Aligned Text",
-        20.0,
-        100.0,
+        Pt(20.0),
+        page_height.into_pt() - Pt(100.0),
     ));
     ops.extend(create_aligned_text(
         doc,
         font_id,
         "This text is aligned to the right margin.",
-        Pt(page_width_pt),
-        Pt(120.0),
+        page_width.into_pt(),
+        page_height.into_pt() - Pt(120.0),
         TextAlign::Right,
     ));
 
@@ -87,15 +87,15 @@ fn create_example_page(
         doc,
         font_id,
         "3. Custom Spacing",
-        20.0,
-        150.0,
+        Pt(20.0),
+        page_height.into_pt() - Pt(150.0),
     ));
     ops.extend(create_custom_spacing_text(
         doc,
         font_id,
         "This text has increased letter and word spacing.",
-        Pt(page_width_pt),
-        Pt(170.0),
+        page_width.into_pt(),
+        page_height.into_pt() - Pt(170.0),
     ));
 
     // Example 4: Text flowing around a hole
@@ -103,8 +103,8 @@ fn create_example_page(
         doc,
         font_id,
         "4. Text Flow Around Objects",
-        20.0,
-        200.0,
+        Pt(20.0),
+        page_height.into_pt() - Pt(200.0),
     ));
     ops.extend(create_text_with_hole(
         doc,
@@ -113,11 +113,11 @@ fn create_example_page(
          other content. The text automatically wraps to avoid the rectangular area and continues \
          below it. This is useful for creating magazine-style layouts or technical documentation \
          where text needs to flow around diagrams, tables, or sidebar content.",
-        Pt(page_width_pt - 40.0),
-        Pt(220.0),
+        page_width.into_pt() - Pt(40.0),
+        page_height.into_pt() - Pt(220.0),
         &Rect {
             x: Pt(100.0),
-            y: Pt(230.0),
+            y: page_height.into_pt() - Pt(250.0), // Position hole with top at y=250 from top
             width: Pt(80.0),
             height: Pt(50.0),
         },
@@ -128,8 +128,8 @@ fn create_example_page(
         doc,
         font_id,
         "5. Multi-Column Layout",
-        20.0,
-        320.0,
+        Pt(20.0),
+        page_height.into_pt() - Pt(320.0),
     ));
     ops.extend(create_two_column_text(
         doc,
@@ -140,8 +140,8 @@ fn create_example_page(
         "This is the second column of text. With the text shaping functionality, you can create \
          sophisticated layouts for reports, newsletters, or any document that requires \
          professional typesetting features.",
-        Pt(page_width_pt),
-        Pt(340.0),
+        page_width.into_pt(),
+        page_height.into_pt() - Pt(340.0),
     ));
 
     // Example 6: Text measurement for positioning
@@ -149,8 +149,8 @@ fn create_example_page(
         doc,
         font_id,
         "6. Text Measurement",
-        20.0,
-        430.0,
+        Pt(20.0),
+        page_height.into_pt() - Pt(430.0),
     ));
     ops.extend(create_measured_text_in_box(
         doc,
@@ -158,7 +158,7 @@ fn create_example_page(
         "This text is centered in a box both horizontally and vertically using text measurement.",
         Rect {
             x: Pt(50.0),
-            y: Pt(450.0),
+            y: page_height.into_pt() - Pt(510.0), // Position rect with top at y=450
             width: Pt(300.0),
             height: Pt(60.0),
         },
@@ -169,17 +169,23 @@ fn create_example_page(
         doc,
         font_id,
         "Created with printpdf text shaping API",
-        page_width_pt,
+        page_width.into_pt(),
     ));
 
     ops
 }
 
 // Create a title at the top of the page
-fn create_title(doc: &PdfDocument, font_id: &FontId, text: &str, page_width: f32) -> Vec<Op> {
+fn create_title(
+    doc: &PdfDocument,
+    font_id: &FontId,
+    text: &str,
+    page_width: Pt,
+    page_height: Pt,
+) -> Vec<Op> {
     let mut ops = Vec::new();
 
-    // Title background
+    // Title background - positioned at the top of the page
     ops.push(Op::SaveGraphicsState);
     ops.push(Op::SetFillColor {
         col: Color::Rgb(Rgb {
@@ -197,28 +203,28 @@ fn create_title(doc: &PdfDocument, font_id: &FontId, text: &str, page_width: f32
                     LinePoint {
                         p: Point {
                             x: Pt(0.0),
-                            y: Pt(0.0),
+                            y: page_height, // Top left
                         },
                         bezier: false,
                     },
                     LinePoint {
                         p: Point {
-                            x: Pt(page_width),
-                            y: Pt(0.0),
+                            x: page_width,
+                            y: page_height, // Top right
                         },
                         bezier: false,
                     },
                     LinePoint {
                         p: Point {
-                            x: Pt(page_width),
-                            y: Pt(40.0),
+                            x: page_width,
+                            y: page_height - Pt(40.0), // Bottom right
                         },
                         bezier: false,
                     },
                     LinePoint {
                         p: Point {
                             x: Pt(0.0),
-                            y: Pt(40.0),
+                            y: page_height - Pt(40.0), // Bottom left
                         },
                         bezier: false,
                     },
@@ -228,21 +234,24 @@ fn create_title(doc: &PdfDocument, font_id: &FontId, text: &str, page_width: f32
             winding_order: printpdf::WindingOrder::NonZero,
         },
     });
+
     ops.push(Op::RestoreGraphicsState);
 
     // Title text
     let options = TextShapingOptions {
         font_size: Pt(24.0),
-        max_width: Some(Pt(page_width)),
+        max_width: Some(page_width),
         align: TextAlign::Center,
         ..Default::default()
     };
 
-    let origin = Point {
+    // TOP LEFT Position the text in the blue bar
+    let top_left_origin = Point {
         x: Pt(0.0),
-        y: Pt(15.0),
+        y: page_height - Pt(5.0),
     };
-    let shaped_text = doc.shape_text(text, font_id, &options, origin).unwrap();
+
+    let shaped_text = doc.shape_text(text, font_id, &options).unwrap();
 
     ops.push(Op::StartTextSection);
     ops.push(Op::SetFillColor {
@@ -255,23 +264,18 @@ fn create_title(doc: &PdfDocument, font_id: &FontId, text: &str, page_width: f32
     });
 
     ops.push(Op::SetFontSize {
-        size: Pt(12.0),
+        size: Pt(24.0),
         font: font_id.clone(),
     });
 
-    for line in &shaped_text.lines {
-        for word in &line.words {
-            ops.push(Op::SetTextCursor {
-                pos: Point {
-                    x: Pt(word.x),
-                    y: Pt(word.y),
-                },
-            });
+    // Get shaped text ops with correct PDF coordinate system
+    let text_ops = shaped_text.get_ops(top_left_origin);
 
-            ops.push(Op::WriteText {
-                items: vec![TextItem::Text(word.text.clone())],
-                font: font_id.clone(),
-            });
+    // Add all text ops except the StartTextSection and EndTextSection
+    for op in text_ops.iter().skip(1) {
+        match op {
+            Op::EndTextSection => break,
+            _ => ops.push(op.clone()),
         }
     }
 
@@ -281,13 +285,7 @@ fn create_title(doc: &PdfDocument, font_id: &FontId, text: &str, page_width: f32
 }
 
 // Create a section title
-fn create_section_title(
-    doc: &PdfDocument,
-    font_id: &FontId,
-    text: &str,
-    x: f32,
-    y: f32,
-) -> Vec<Op> {
+fn create_section_title(doc: &PdfDocument, font_id: &FontId, text: &str, x: Pt, y: Pt) -> Vec<Op> {
     let mut ops = Vec::new();
 
     let options = TextShapingOptions {
@@ -295,8 +293,7 @@ fn create_section_title(
         ..Default::default()
     };
 
-    let origin = Point { x: Pt(x), y: Pt(y) };
-    let shaped_text = doc.shape_text(text, font_id, &options, origin).unwrap();
+    let shaped_text = doc.shape_text(text, font_id, &options).unwrap();
 
     ops.push(Op::StartTextSection);
     ops.push(Op::SetFillColor {
@@ -309,23 +306,18 @@ fn create_section_title(
     });
 
     ops.push(Op::SetFontSize {
-        size: Pt(12.0),
+        size: Pt(14.0),
         font: font_id.clone(),
     });
 
-    for line in &shaped_text.lines {
-        for word in &line.words {
-            ops.push(Op::SetTextCursor {
-                pos: Point {
-                    x: Pt(word.x),
-                    y: Pt(word.y),
-                },
-            });
+    // Get shaped text ops with correct PDF coordinate system
+    let text_ops = shaped_text.get_ops(Point { x, y });
 
-            ops.push(Op::WriteText {
-                items: vec![TextItem::Text(word.text.clone())],
-                font: font_id.clone(),
-            });
+    // Add all text ops except the StartTextSection and EndTextSection
+    for op in text_ops.iter().skip(1) {
+        match op {
+            Op::EndTextSection => break,
+            _ => ops.push(op.clone()),
         }
     }
 
@@ -343,20 +335,18 @@ fn create_section_title(
     });
     ops.push(Op::SetOutlineThickness { pt: Pt(0.5) });
 
+    // Draw the line 2 points below the text origin (PDF coordinates)
     ops.push(Op::DrawLine {
         line: printpdf::Line {
             points: vec![
                 LinePoint {
-                    p: Point {
-                        x: Pt(x),
-                        y: Pt(y + 2.0),
-                    },
+                    p: Point { x, y: y - Pt(2.0) },
                     bezier: false,
                 },
                 LinePoint {
                     p: Point {
-                        x: Pt(x + 200.0),
-                        y: Pt(y + 2.0),
+                        x: x + Pt(200.0),
+                        y: y - Pt(2.0),
                     },
                     bezier: false,
                 },
@@ -377,52 +367,7 @@ fn create_centered_text(
     width: Pt,
     y: Pt,
 ) -> Vec<Op> {
-    let mut ops = Vec::new();
-
-    let options = TextShapingOptions {
-        font_size: Pt(12.0),
-        max_width: Some(width),
-        align: TextAlign::Center,
-        ..Default::default()
-    };
-
-    let origin = Point { x: Pt(0.0), y };
-    let shaped_text = doc.shape_text(text, font_id, &options, origin).unwrap();
-
-    ops.push(Op::StartTextSection);
-    ops.push(Op::SetFillColor {
-        col: Color::Rgb(Rgb {
-            r: 0.0,
-            g: 0.0,
-            b: 0.0,
-            icc_profile: None,
-        }),
-    });
-
-    ops.push(Op::SetFontSize {
-        size: Pt(12.0),
-        font: font_id.clone(),
-    });
-
-    for line in &shaped_text.lines {
-        for word in &line.words {
-            ops.push(Op::SetTextCursor {
-                pos: Point {
-                    x: Pt(word.x),
-                    y: Pt(word.y),
-                },
-            });
-
-            ops.push(Op::WriteText {
-                items: vec![TextItem::Text(word.text.clone())],
-                font: font_id.clone(),
-            });
-        }
-    }
-
-    ops.push(Op::EndTextSection);
-
-    ops
+    create_aligned_text(doc, font_id, text, width, y, TextAlign::Center)
 }
 
 // Create aligned text (left, center, or right)
@@ -434,8 +379,6 @@ fn create_aligned_text(
     y: Pt,
     align: TextAlign,
 ) -> Vec<Op> {
-    let mut ops = Vec::new();
-
     let options = TextShapingOptions {
         font_size: Pt(12.0),
         max_width: Some(width),
@@ -443,43 +386,9 @@ fn create_aligned_text(
         ..Default::default()
     };
 
+    let shaped_text = doc.shape_text(text, font_id, &options).unwrap();
     let origin = Point { x: Pt(0.0), y };
-    let shaped_text = doc.shape_text(text, font_id, &options, origin).unwrap();
-
-    ops.push(Op::StartTextSection);
-    ops.push(Op::SetFillColor {
-        col: Color::Rgb(Rgb {
-            r: 0.0,
-            g: 0.0,
-            b: 0.0,
-            icc_profile: None,
-        }),
-    });
-
-    ops.push(Op::SetFontSize {
-        size: Pt(12.0),
-        font: font_id.clone(),
-    });
-
-    for line in &shaped_text.lines {
-        for word in &line.words {
-            ops.push(Op::SetTextCursor {
-                pos: Point {
-                    x: Pt(word.x),
-                    y: Pt(word.y),
-                },
-            });
-
-            ops.push(Op::WriteText {
-                items: vec![TextItem::Text(word.text.clone())],
-                font: font_id.clone(),
-            });
-        }
-    }
-
-    ops.push(Op::EndTextSection);
-
-    ops
+    shaped_text.get_ops(origin)
 }
 
 // Create text with custom letter and word spacing
@@ -490,8 +399,6 @@ fn create_custom_spacing_text(
     width: Pt,
     y: Pt,
 ) -> Vec<Op> {
-    let mut ops = Vec::new();
-
     let options = TextShapingOptions {
         font_size: Pt(12.0),
         max_width: Some(width),
@@ -500,43 +407,10 @@ fn create_custom_spacing_text(
         ..Default::default()
     };
 
+    let shaped_text = doc.shape_text(text, font_id, &options).unwrap();
+
     let origin = Point { x: Pt(20.0), y };
-    let shaped_text = doc.shape_text(text, font_id, &options, origin).unwrap();
-
-    ops.push(Op::StartTextSection);
-    ops.push(Op::SetFillColor {
-        col: Color::Rgb(Rgb {
-            r: 0.0,
-            g: 0.0,
-            b: 0.0,
-            icc_profile: None,
-        }),
-    });
-
-    ops.push(Op::SetFontSize {
-        size: Pt(12.0),
-        font: font_id.clone(),
-    });
-
-    for line in &shaped_text.lines {
-        for word in &line.words {
-            ops.push(Op::SetTextCursor {
-                pos: Point {
-                    x: Pt(word.x),
-                    y: Pt(word.y),
-                },
-            });
-
-            ops.push(Op::WriteText {
-                items: vec![TextItem::Text(word.text.clone())],
-                font: font_id.clone(),
-            });
-        }
-    }
-
-    ops.push(Op::EndTextSection);
-
-    ops
+    shaped_text.get_ops(origin)
 }
 
 // Create text flowing around a hole
@@ -551,7 +425,9 @@ fn create_text_with_hole(
     let mut ops = Vec::new();
 
     // Create hole
-    let hole = TextHole { rect: hole_rect.clone() };
+    let hole = TextHole {
+        rect: hole_rect.clone(),
+    };
 
     let options = TextShapingOptions {
         font_size: Pt(12.0),
@@ -561,8 +437,7 @@ fn create_text_with_hole(
         ..Default::default()
     };
 
-    let origin = Point { x: Pt(20.0), y };
-    let shaped_text = doc.shape_text(text, font_id, &options, origin).unwrap();
+    let shaped_text = doc.shape_text(text, font_id, &options).unwrap();
 
     // Draw a box for the hole
     ops.push(Op::SaveGraphicsState);
@@ -584,6 +459,7 @@ fn create_text_with_hole(
     });
     ops.push(Op::SetOutlineThickness { pt: Pt(0.5) });
 
+    // Draw the hole rectangle
     ops.push(Op::DrawPolygon {
         polygon: printpdf::Polygon {
             rings: vec![PolygonRing {
@@ -624,39 +500,10 @@ fn create_text_with_hole(
     });
     ops.push(Op::RestoreGraphicsState);
 
-    // Draw text
-    ops.push(Op::StartTextSection);
-    ops.push(Op::SetFillColor {
-        col: Color::Rgb(Rgb {
-            r: 0.0,
-            g: 0.0,
-            b: 0.0,
-            icc_profile: None,
-        }),
-    });
-
-    ops.push(Op::SetFontSize {
-        size: Pt(12.0),
-        font: font_id.clone(),
-    });
-
-    for line in &shaped_text.lines {
-        for word in &line.words {
-            ops.push(Op::SetTextCursor {
-                pos: Point {
-                    x: Pt(word.x),
-                    y: Pt(word.y),
-                },
-            });
-
-            ops.push(Op::WriteText {
-                items: vec![TextItem::Text(word.text.clone())],
-                font: font_id.clone(),
-            });
-        }
-    }
-
-    ops.push(Op::EndTextSection);
+    // Convert text to ops and add them
+    let origin = Point { x: Pt(20.0), y };
+    let text_ops = shaped_text.get_ops(origin);
+    ops.extend(text_ops);
 
     // Add image placeholder text in the hole
     ops.push(Op::StartTextSection);
@@ -710,8 +557,7 @@ fn create_two_column_text(
         ..Default::default()
     };
 
-    let origin1 = Point { x: Pt(20.0), y };
-    let shaped_text1 = doc.shape_text(text1, font_id, &options1, origin1).unwrap();
+    let shaped_text1 = doc.shape_text(text1, font_id, &options1).unwrap();
 
     // Column 2
     let options2 = TextShapingOptions {
@@ -721,11 +567,7 @@ fn create_two_column_text(
         ..Default::default()
     };
 
-    let origin2 = Point {
-        x: Pt(width.0 / 2.0 + 10.0),
-        y,
-    };
-    let shaped_text2 = doc.shape_text(text2, font_id, &options2, origin2).unwrap();
+    let shaped_text2 = doc.shape_text(text2, font_id, &options2).unwrap();
 
     // Draw text for both columns
     ops.push(Op::StartTextSection);
@@ -738,47 +580,29 @@ fn create_two_column_text(
         }),
     });
 
-    ops.push(Op::SetFontSize {
-        size: Pt(12.0),
-        font: font_id.clone(),
-    });
+    // Get text ops for column 1
+    let origin1 = Point { x: Pt(20.0), y };
+    let text_ops1 = shaped_text1.get_ops(origin1);
 
-    // Draw column 1
-    for line in &shaped_text1.lines {
-        for word in &line.words {
-            ops.push(Op::SetTextCursor {
-                pos: Point {
-                    x: Pt(word.x),
-                    y: Pt(word.y),
-                },
-            });
+    // Get text ops for column 2
+    let origin2 = Point {
+        x: Pt(width.0 / 2.0 + 10.0),
+        y,
+    };
+    let text_ops2 = shaped_text2.get_ops(origin2);
 
-            ops.push(Op::WriteText {
-                items: vec![TextItem::Text(word.text.clone())],
-                font: font_id.clone(),
-            });
+    // Add all text ops except the StartTextSection and EndTextSection
+    for op in text_ops1.iter().skip(1) {
+        match op {
+            Op::EndTextSection => break,
+            _ => ops.push(op.clone()),
         }
     }
 
-    ops.push(Op::SetFontSize {
-        size: Pt(12.0),
-        font: font_id.clone(),
-    });
-
-    // Draw column 2
-    for line in &shaped_text2.lines {
-        for word in &line.words {
-            ops.push(Op::SetTextCursor {
-                pos: Point {
-                    x: Pt(word.x),
-                    y: Pt(word.y),
-                },
-            });
-
-            ops.push(Op::WriteText {
-                items: vec![TextItem::Text(word.text.clone())],
-                font: font_id.clone(),
-            });
+    for op in text_ops2.iter().skip(1) {
+        match op {
+            Op::EndTextSection => break,
+            _ => ops.push(op.clone()),
         }
     }
 
@@ -809,7 +633,7 @@ fn create_two_column_text(
                 LinePoint {
                     p: Point {
                         x: Pt(width.0 / 2.0),
-                        y: Pt(y.0 + 80.0),
+                        y: Pt(y.0 - 80.0),
                     },
                     bezier: false,
                 },
@@ -893,11 +717,13 @@ fn create_measured_text_in_box(
 
     // Measure the text
     let font_size = Pt(12.0);
-    let (text_width, text_height) = doc.measure_text(text, font_id, font_size).unwrap();
+    let parsed_font = &doc.resources.fonts.map[font_id];
+    let shaped_text = parsed_font.shape_text(text, &TextShapingOptions::new(font_size), font_id);
+    let (text_width, text_height) = (shaped_text.width, shaped_text.height);
 
     // Calculate center position
     let x = box_rect.x.0 + (box_rect.width.0 - text_width) / 2.0;
-    let y = box_rect.y.0 + (box_rect.height.0 - text_height) / 2.0;
+    let y = box_rect.y.0 + (box_rect.height.0 - text_height) / 2.0 + box_rect.height.0 / 2.0;
 
     // Shape the text
     let options = TextShapingOptions {
@@ -906,62 +732,33 @@ fn create_measured_text_in_box(
     };
 
     let origin = Point { x: Pt(x), y: Pt(y) };
-    let shaped_text = doc.shape_text(text, font_id, &options, origin).unwrap();
+    let shaped_text = doc.shape_text(text, font_id, &options).unwrap();
 
     // Draw the text
-    ops.push(Op::StartTextSection);
-    ops.push(Op::SetFillColor {
-        col: Color::Rgb(Rgb {
-            r: 0.2,
-            g: 0.2,
-            b: 0.8,
-            icc_profile: None,
-        }),
-    });
-
-    ops.push(Op::SetFontSize {
-        size: font_size,
-        font: font_id.clone(),
-    });
-
-    for line in &shaped_text.lines {
-        for word in &line.words {
-            ops.push(Op::SetTextCursor {
-                pos: Point {
-                    x: Pt(word.x),
-                    y: Pt(word.y),
-                },
-            });
-
-            ops.push(Op::WriteText {
-                items: vec![TextItem::Text(word.text.clone())],
-                font: font_id.clone(),
-            });
-        }
-    }
-
-    ops.push(Op::EndTextSection);
+    ops.extend(shaped_text.get_ops(origin));
 
     ops
 }
 
 // Create a footer at the bottom of the page
-fn create_footer(doc: &PdfDocument, font_id: &FontId, text: &str, page_width: f32) -> Vec<Op> {
+fn create_footer(doc: &PdfDocument, font_id: &FontId, text: &str, page_width: Pt) -> Vec<Op> {
     let mut ops = Vec::new();
+    let footer_y = 20.0; // Distance from bottom of page
 
     let font_size = Pt(10.0);
     let options = TextShapingOptions {
         font_size,
-        max_width: Some(Pt(page_width)),
+        max_width: Some(page_width),
         align: TextAlign::Center,
         ..Default::default()
     };
 
     let origin = Point {
         x: Pt(0.0),
-        y: Pt(570.0),
+        y: Pt(footer_y + 10.0), // Position slightly above the footer line
     };
-    let shaped_text = doc.shape_text(text, font_id, &options, origin).unwrap();
+
+    let shaped_text = doc.shape_text(text, font_id, &options).unwrap();
 
     // Line above footer
     ops.push(Op::SaveGraphicsState);
@@ -981,14 +778,14 @@ fn create_footer(doc: &PdfDocument, font_id: &FontId, text: &str, page_width: f3
                 LinePoint {
                     p: Point {
                         x: Pt(50.0),
-                        y: Pt(565.0),
+                        y: Pt(footer_y + 20.0),
                     },
                     bezier: false,
                 },
                 LinePoint {
                     p: Point {
-                        x: Pt(page_width - 50.0),
-                        y: Pt(565.0),
+                        x: page_width - Pt(50.0),
+                        y: Pt(footer_y + 20.0),
                     },
                     bezier: false,
                 },
@@ -998,39 +795,8 @@ fn create_footer(doc: &PdfDocument, font_id: &FontId, text: &str, page_width: f3
     });
     ops.push(Op::RestoreGraphicsState);
 
-    // Footer text
-    ops.push(Op::StartTextSection);
-    ops.push(Op::SetFillColor {
-        col: Color::Rgb(Rgb {
-            r: 0.5,
-            g: 0.5,
-            b: 0.5,
-            icc_profile: None,
-        }),
-    });
-
-    ops.push(Op::SetFontSize {
-        size: font_size,
-        font: font_id.clone(),
-    });
-
-    for line in &shaped_text.lines {
-        for word in &line.words {
-            ops.push(Op::SetTextCursor {
-                pos: Point {
-                    x: Pt(word.x),
-                    y: Pt(word.y),
-                },
-            });
-
-            ops.push(Op::WriteText {
-                items: vec![TextItem::Text(word.text.clone())],
-                font: font_id.clone(),
-            });
-        }
-    }
-
-    ops.push(Op::EndTextSection);
+    // Draw footer text
+    ops.extend(shaped_text.get_ops(origin));
 
     ops
 }

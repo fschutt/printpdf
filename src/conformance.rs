@@ -1,7 +1,7 @@
 use serde_derive::{Deserialize, Serialize};
 
 /// List of (relevant) PDF versions, see Wikipedia
-/// 
+///
 /// Please note the difference between **PDF/A** (archiving), **PDF/UA** (universal acessibility),
 /// **PDF/X** (printing), **PDF/E** (engineering / CAD), **PDF/VT** (large volume transactions with
 /// repeated content)
