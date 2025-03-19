@@ -91,7 +91,8 @@ impl DateTime {
         }
     }
 
-    #[cfg(not(target_family = "wasm"))]
+    // Non-WASM implementation
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn now() -> Self {
         use time::OffsetDateTime;
         
@@ -118,27 +119,28 @@ impl DateTime {
         }
     }
 
-    #[cfg(all(feature = "js-sys", target_family = "wasm"))]
+    // Browser WASM implementation (js-sys enabled, not WASI)
+    #[cfg(all(feature = "js-sys", target_arch = "wasm32", not(any(target_env = "p1", target_env = "p2"))))]
     pub fn now() -> Self {
-        use web_sys::js_sys::Date;
+        use js_sys::Date as JsDate;
         
-        let date = Date::new_0();
-        let month = (date.get_month() + 1) as u8;
-        let tz_offset_minutes = date.get_timezone_offset() as i16;
+        let js_date = JsDate::new_0();
+        let month = (js_date.get_month() + 1) as u8;
+        let tz_offset_minutes = js_date.get_timezone_offset() as i16;
         let offset_hours = -(tz_offset_minutes / 60) as i8;
         let offset_minutes = -(tz_offset_minutes % 60) as i8;
         
         Self {
             date: Date {
-                year: date.get_full_year() as i32,
+                year: js_date.get_full_year() as i32,
                 month,
-                day: date.get_date() as u8,
+                day: js_date.get_date() as u8,
             },
             time: Time {
-                hour: date.get_hours() as u8,
-                minute: date.get_minutes() as u8,
-                second: date.get_seconds() as u8,
-                millisecond: date.get_milliseconds() as u16,
+                hour: js_date.get_hours() as u8,
+                minute: js_date.get_minutes() as u8,
+                second: js_date.get_seconds() as u8,
+                millisecond: js_date.get_milliseconds() as u16,
             },
             offset: Offset {
                 hours: offset_hours,
@@ -149,7 +151,11 @@ impl DateTime {
         }
     }
 
-    #[cfg(all(not(feature = "js-sys"), target_family = "wasm"))]
+    // WASI or non-js-sys WASM implementation
+    #[cfg(any(
+        all(target_arch = "wasm32", any(target_env = "p1", target_env = "p2")),
+        all(not(feature = "js-sys"), target_arch = "wasm32")
+    ))]
     pub fn now() -> Self {
         Self::epoch()
     }
@@ -174,7 +180,7 @@ impl DateTime {
         )
     }
 
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn unix_timestamp(&self) -> i64 {
         use time::{Date as TimeDate, Month as TimeMonth, Time as TimeTime, PrimitiveDateTime, OffsetDateTime as TimeOffsetDateTime};
         
@@ -221,29 +227,31 @@ impl DateTime {
         offset_dt.unix_timestamp()
     }
 
-    #[cfg(all(feature = "js-sys", target_family = "wasm"))]
+    #[cfg(all(feature = "js-sys", target_arch = "wasm32", not(any(target_env = "p1", target_env = "p2"))))]
     pub fn unix_timestamp(&self) -> i64 {
-        use web_sys::js_sys::Date;
+        use js_sys::Date as JsDate;
         
-        let date = Date::new_with_year_month_day_hr_min_sec_ms(
+        let js_date = JsDate::new_with_year_month_day_hr_min_sec(
             self.date.year as f64,
             (self.date.month - 1) as f64,
             self.date.day as f64,
             self.time.hour as f64,
             self.time.minute as f64,
             self.time.second as f64,
-            self.time.millisecond as f64,
         );
         
-        (date.get_time() / 1000.0) as i64
+        (js_date.get_time() / 1000.0) as i64
     }
 
-    #[cfg(all(not(feature = "js-sys"), target_family = "wasm"))]
+    #[cfg(any(
+        all(target_arch = "wasm32", any(target_env = "p1", target_env = "p2")),
+        all(not(feature = "js-sys"), target_arch = "wasm32")
+    ))]
     pub fn unix_timestamp(&self) -> i64 {
         0
     }
 
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn from_unix_timestamp(timestamp: i64) -> Result<Self, &'static str> {
         use time::OffsetDateTime;
         
@@ -271,32 +279,32 @@ impl DateTime {
         })
     }
 
-    #[cfg(all(feature = "js-sys", target_family = "wasm"))]
+    #[cfg(all(feature = "js-sys", target_arch = "wasm32", not(any(target_env = "p1", target_env = "p2"))))]
     pub fn from_unix_timestamp(timestamp: i64) -> Result<Self, &'static str> {
-        use web_sys::js_sys::Date;
+        use js_sys::Date as JsDate;
         
         if timestamp < 0 {
             return Err("Invalid timestamp");
         }
         
-        let date = Date::new(&((timestamp as f64) * 1000.0).into());
+        let js_date = JsDate::new(&((timestamp as f64) * 1000.0).into());
         
-        let month = (date.get_month() + 1) as u8;
-        let tz_offset_minutes = date.get_timezone_offset() as i16;
+        let month = (js_date.get_month() + 1) as u8;
+        let tz_offset_minutes = js_date.get_timezone_offset() as i16;
         let offset_hours = -(tz_offset_minutes / 60) as i8;
         let offset_minutes = -(tz_offset_minutes % 60) as i8;
         
         Ok(Self {
             date: Date {
-                year: date.get_full_year() as i32,
+                year: js_date.get_full_year() as i32,
                 month,
-                day: date.get_date() as u8,
+                day: js_date.get_date() as u8,
             },
             time: Time {
-                hour: date.get_hours() as u8,
-                minute: date.get_minutes() as u8,
-                second: date.get_seconds() as u8,
-                millisecond: date.get_milliseconds() as u16,
+                hour: js_date.get_hours() as u8,
+                minute: js_date.get_minutes() as u8,
+                second: js_date.get_seconds() as u8,
+                millisecond: js_date.get_milliseconds() as u16,
             },
             offset: Offset {
                 hours: offset_hours,
@@ -307,7 +315,10 @@ impl DateTime {
         })
     }
 
-    #[cfg(all(not(feature = "js-sys"), target_family = "wasm"))]
+    #[cfg(any(
+        all(target_arch = "wasm32", any(target_env = "p1", target_env = "p2")),
+        all(not(feature = "js-sys"), target_arch = "wasm32")
+    ))]
     pub fn from_unix_timestamp(_timestamp: i64) -> Result<Self, &'static str> {
         Ok(Self::epoch())
     }
@@ -328,6 +339,8 @@ impl DateTime {
         }
     }
 }
+
+// Rest of the code remains unchanged
 
 impl ToString for DateTime {
     fn to_string(&self) -> String {
@@ -465,6 +478,8 @@ impl UtcOffset {
         self.hours < 0 || self.minutes < 0 || self.seconds < 0 
     }
 }
+
+// Serialization implementations remain unchanged
 
 impl Serialize for Date {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -680,7 +695,6 @@ pub fn parse_pdf_date(s: &str) -> Result<OffsetDateTime, String> {
 }
 
 fn parse_pdf_date_inner(s: &str) -> Result<OffsetDateTime, String> {
-
     // Remove a leading "D:" if present.
     let s = if s.starts_with("D:") { &s[2..] } else { s };
     if s.len() < 14 {
@@ -730,19 +744,10 @@ fn parse_pdf_date_inner(s: &str) -> Result<OffsetDateTime, String> {
         milliseconds: 0 
     };
     
-    #[cfg(all(target_arch = "wasm32", not(feature = "js-sys")))]
-    {
-        Ok(OffsetDateTime::epoch())
-    }
-    
-    #[cfg(any(not(target_arch = "wasm32"), feature = "js-sys"))]
-    {
-        Ok(OffsetDateTime::new_in_offset(date, time, offset))
-    }
+    Ok(OffsetDateTime::new_in_offset(date, time, offset))
 }
 
 fn check_date_valid(d: &DateTime) -> Result<(), String> {
-
     if !is_valid_date(d.date.year, d.date.month, d.date.day) {
         return Err(format!("Invalid date: {}-{:02}-{:02}", d.date.year, d.date.month, d.date.day));
     }
