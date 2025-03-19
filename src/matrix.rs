@@ -5,7 +5,7 @@ use serde_derive::{Deserialize, Serialize};
 use crate::units::Pt;
 
 /// PDF "current transformation matrix" (CTM) for the graphics state.
-/// 
+///
 /// This transformation affects drawing operations and uses the PDF "cm" operator,
 /// which is cumulative/additive to the graphics state stack. Each transformation
 /// combines with the existing state rather than replacing it completely.
@@ -19,12 +19,12 @@ pub enum CurTransMat {
     /// X and Y can have different values
     Translate(Pt, Pt),
     /// Rotation matrix (clockwise, in degrees)
-    /// 
+    ///
     /// Note: This rotates around ORIGIN (0,0) of the CURRENT graphics state
     Rotate(f32),
     /// Combined rotate + translate matrix
-    /// 
-    /// Rotates around the specified point, in ADDITION to the EXISTING 
+    ///
+    /// Rotates around the specified point, in ADDITION to the EXISTING
     /// matrix of the current graphics state
     TranslateRotate(Pt, Pt, f32),
     /// Scale matrix (1.0 = 100% scale, no change)
@@ -258,14 +258,14 @@ fn mul_add(a: f32, b: f32, c: f32) -> f32 {
 /// **COMPLETELY REPLACES** the current text matrix rather than combining with it.
 /// This means that setting a TextMatrix will reset any previously established
 /// text position and transformation.
-/// 
+///
 /// However, the text matrix is added ON TOP OF the "CurTransMat", it does not replace
 /// the "CurTransMat", but it will replace previous operations such as "SetTextPosition".
 ///
 /// This is why there is no simple "Rotate" variant - it would reset the text position
 /// to the origin (0,0). Use TranslateRotate instead to maintain position.
 ///
-/// Note: `TextScale` does not exist. Use `set_word_spacing()` and `set_character_spacing()` 
+/// Note: `TextScale` does not exist. Use `set_word_spacing()` and `set_character_spacing()`
 /// to specify the scaling between words and characters.
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -274,9 +274,9 @@ pub enum TextMatrix {
     /// This is equivalent to `SetTextCursor { x, y }`, since it will replace
     /// the position of the cursor. The x / y is relative to the pages lower left corner.
     Translate(Pt, Pt),
-    /// Combined translate + rotate matrix: Rotates text around the specified point 
+    /// Combined translate + rotate matrix: Rotates text around the specified point
     /// RELATIVE to the PAGE origin.
-    /// 
+    ///
     /// Since the `Tm` operator replaces the matrix completely, you must specify
     /// both position (relative to the PAGE, not the current text) and rotation in one operation
     TranslateRotate(Pt, Pt, f32),
@@ -311,7 +311,7 @@ impl TextMatrix {
             Translate(x, y) => {
                 // 1 0 0 1 x y cm
                 [1.0, 0.0, 0.0, 1.0, x.0, y.0]
-            },
+            }
             Raw(r) => *r,
             TranslateRotate(x, y, rot) => {
                 let rad = (360.0 - rot).to_radians();

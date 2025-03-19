@@ -15,7 +15,7 @@ use serde_derive::{Deserialize, Serialize};
 use crate::{
     cmap::ToUnicodeCMap,
     conformance::PdfConformance,
-    date::{OffsetDateTime, Date, Time, Offset, UtcOffset, parse_pdf_date},
+    date::{parse_pdf_date, Date, Offset, OffsetDateTime, Time, UtcOffset},
     BuiltinFont, BuiltinOrExternalFontId, Color, DictItem, ExtendedGraphicsState,
     ExtendedGraphicsStateId, ExtendedGraphicsStateMap, FontId, LayerInternalId, Line,
     LineDashPattern, LinePoint, LinkAnnotation, Op, PageAnnotId, PageAnnotMap, PaintMode,
@@ -2652,11 +2652,11 @@ mod links_and_bookmarks {
         if bytes.len() < 2 || bytes[0] != 0xFE || bytes[1] != 0xFF {
             return String::from_utf8_lossy(bytes).to_string();
         }
-        
+
         // Skip BOM (first 2 bytes) and decode as UTF-16BE
         let mut chars = Vec::with_capacity((bytes.len() - 2) / 2);
         let mut i = 2;
-        
+
         while i + 1 < bytes.len() {
             let high = bytes[i] as u16;
             let low = bytes[i + 1] as u16;
@@ -2664,13 +2664,13 @@ mod links_and_bookmarks {
             chars.push(code_point);
             i += 2;
         }
-        
+
         // Handle odd length (shouldn't happen in well-formed UTF-16)
         if i < bytes.len() {
             let high = bytes[i] as u16;
             chars.push(high << 8);
         }
-        
+
         String::from_utf16_lossy(&chars)
     }
 

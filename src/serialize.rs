@@ -1351,19 +1351,18 @@ fn color_array_to_f32(c: &ColorArray) -> Vec<f32> {
     }
 }
 
-
 // Encode text to UTF-16BE with BOM
 fn encode_text_to_utf16be(text: &str) -> lopdf::Object {
     // Byte Order Mark
     let mut bytes = vec![0xFE, 0xFF];
-    
+
     // Encode as UTF-16BE
     for c in text.chars() {
         let code_point = c as u16;
         bytes.push((code_point >> 8) as u8);
         bytes.push((code_point & 0xFF) as u8);
     }
-    
+
     // Return as a Hex String
     lopdf::Object::String(bytes, Hexadecimal)
 }
