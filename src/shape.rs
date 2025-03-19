@@ -10,8 +10,9 @@ use azul_core::{
     ui_solver::ResolvedTextLayoutOptions,
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
+use azul_css::StyleTextAlign;
 use azul_layout::text::layout::{
-    position_words, split_text_into_words, word_positions_to_inline_text_layout,
+    position_words, shape_words, split_text_into_words, word_positions_to_inline_text_layout,
 };
 
 use crate::{FontId, Op, ParsedFont, PdfDocument, PdfResources, Point, Pt, Rect, TextItem};
@@ -199,34 +200,37 @@ pub fn shape_text(
     let words = split_text_into_words(text);
 
     // Shape and scale words
-    let scaled_words = words_to_scaled_words(
-        &words,
-        &font.original_bytes,
-        font.original_index as u32,
-        font.font_metrics,
-        options.font_size.0,
-    );
+    let shaped_words = shape_words(&words, font);
 
     // Position words
-    let word_positions = position_words(&words, &scaled_words, &resolved_options);
+    let word_positions = position_words(&words, &shaped_words, &resolved_options);
 
     // Create text layout
-    let mut inline_text_layout =
-        word_positions_to_inline_text_layout(&word_positions, &scaled_words);
+    let mut inline_text_layout = word_positions_to_inline_text_layout(&word_positions);
 
     // Apply horizontal alignment if not left-aligned
     match options.align {
         TextAlign::Left => {} // Default
         TextAlign::Center => {
-            inline_text_layout.align_children_horizontal(StyleTextAlignmentHorz::Center);
+            inline_text_layout.align_children_horizontal(
+                &inline_text_layout.content_size,
+                StyleTextAlign::Center,
+            );
         }
         TextAlign::Right => {
-            inline_text_layout.align_children_horizontal(StyleTextAlignmentHorz::Right);
+            inline_text_layout
+                .align_children_horizontal(&inline_text_layout.content_size, StyleTextAlign::Right);
         }
     }
 
     // Get layouted glyphs with final positioning
-    let layouted_glyphs = get_layouted_glyphs(&word_positions, &scaled_words, &inline_text_layout);
+    let layouted_glyphs = azul_core::app_resources::get_inline_text(
+        &words,
+        &shaped_words,
+        &word_positions,
+        &inline_text_layout,
+    )
+    .get_layouted_glyphs();
 
     // Create our ShapedText result
     let mut shaped_text = ShapedText {
@@ -245,10 +249,10 @@ pub fn shape_text(
         let word_index = glyph.word_index;
 
         let shaped_glyph = ShapedGlyph {
-            char: glyph.character,
+            char: glyph.char,
             glyph_id: glyph.glyph_index,
-            x: glyph.offset.x + origin.x.0,
-            y: glyph.offset.y + origin.y.0,
+            x: glyph.point.x + origin.x.0,
+            y: glyph.point.y + origin.y.0,
             width: glyph.size.width,
             height: glyph.size.height,
             advance: glyph.advance,
