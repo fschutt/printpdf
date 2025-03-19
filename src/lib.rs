@@ -26,6 +26,9 @@ pub use date::*;
 /// Font and codepoint handling
 pub mod font;
 pub use font::*;
+/// Text shaping, in case you want to position text manually
+pub mod shape;
+pub use shape::*;
 /// Point / line / polygon handling
 pub mod graphics;
 pub use graphics::*;
