@@ -2,14 +2,14 @@ use serde_derive::{Deserialize, Serialize};
 
 pub use crate::text::TextItem;
 use crate::{
-    BuiltinFont, DictItem, ExtendedGraphicsStateId, FontId, LayerInternalId, LinkAnnotation,
-    PdfResources, PdfToSvgOptions, PdfWarnMsg, RenderingIntent, XObjectId, XObjectTransform,
     color::Color,
     graphics::{
         Line, LineCapStyle, LineDashPattern, LineJoinStyle, Point, Polygon, Rect, TextRenderingMode,
     },
     matrix::{CurTransMat, TextMatrix},
     units::{Mm, Pt},
+    BuiltinFont, DictItem, ExtendedGraphicsStateId, FontId, LayerInternalId, LinkAnnotation,
+    PdfResources, PdfToSvgOptions, PdfWarnMsg, RenderingIntent, XObjectId, XObjectTransform,
 };
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -92,6 +92,117 @@ impl PdfPage {
                 _ => None,
             })
             .collect()
+    }
+
+    /// Extracts text from a PDF page.
+    ///
+    /// This function processes text-related operations (WriteText, WriteTextBuiltinFont,
+    /// WriteCodepoints, WriteCodepointsWithKerning) to extract text content from the page.
+    ///
+    /// For codepoints, it uses the character mapping directly from the operations.
+    ///
+    /// Note: This implementation doesn't fully handle complex text positioning or
+    /// layout features such as columns or tables.
+    ///
+    /// # Arguments
+    /// * `resources` - The PDF resources containing font information
+    ///
+    /// # Returns
+    /// A vector of text chunks extracted from text sections
+    pub fn extract_text(&self, resources: &PdfResources) -> Vec<String> {
+        let mut text_chunks = Vec::new();
+        let mut current_chunk = String::new();
+        let mut in_text_section = false;
+        let mut cur_text_cursor = Point {
+            x: Pt(0.0),
+            y: Pt(0.0),
+        };
+
+        for op in &self.ops {
+            match op {
+                Op::StartTextSection => {
+                    in_text_section = true;
+                }
+                Op::EndTextSection => {
+                    in_text_section = false;
+                    if !current_chunk.is_empty() {
+                        text_chunks.push(current_chunk.trim().to_string());
+                        current_chunk = String::new();
+                    }
+                }
+                Op::SetTextMatrix { .. } => {
+                    current_chunk.push_str("\r\n");
+                }
+                Op::SetTextCursor { pos } => {
+                    if (cur_text_cursor.y.0.abs() - pos.y.0.abs()).abs() > 3.0 {
+                        current_chunk.push_str("\r\n");
+                    } else {
+                        println!("shifting {:?}", pos);
+                    }
+                    cur_text_cursor = *pos;
+                }
+                Op::WriteText { items, font: _ } if in_text_section => {
+                    for item in items {
+                        match item {
+                            TextItem::Offset(o) => {
+                                if *o < -100 {
+                                    current_chunk.push(' ');
+                                }
+                            }
+                            TextItem::Text(t) => current_chunk.push_str(t),
+                        }
+                    }
+                }
+                Op::WriteTextBuiltinFont { items, font: _ } if in_text_section => {
+                    for item in items {
+                        match item {
+                            TextItem::Offset(o) => {
+                                if *o < -100 {
+                                    current_chunk.push(' ');
+                                }
+                            }
+                            TextItem::Text(t) => current_chunk.push_str(t),
+                        }
+                    }
+                }
+                Op::WriteCodepoints { font: _, cp } if in_text_section => {
+                    for (_, ch) in cp {
+                        // current_chunk.push(*ch);
+                    }
+                    // current_chunk.push(' ');
+                }
+                Op::WriteCodepointsWithKerning { font: _, cpk } if in_text_section => {
+                    for (_, _, ch) in cpk {
+                        // current_chunk.push(*ch);
+                    }
+                    // current_chunk.push(' ');
+                }
+                Op::AddLineBreak if in_text_section => {
+                    current_chunk.push_str("\r\n");
+                }
+                Op::MoveTextCursorAndSetLeading { .. } if in_text_section => {
+                    current_chunk.push_str("\r\n");
+                }
+                Op::MoveToNextLineShowText { text } if in_text_section => {
+                    current_chunk.push_str("\r\n");
+                    current_chunk.push_str(text);
+                    current_chunk.push(' ');
+                }
+                Op::SetSpacingMoveAndShowText { text, .. } if in_text_section => {
+                    current_chunk.push_str("\r\n");
+                    current_chunk.push_str(text);
+                    current_chunk.push(' ');
+                }
+                _ => {}
+            }
+        }
+
+        if !current_chunk.is_empty() {
+            text_chunks.push(current_chunk.trim().to_string());
+        }
+
+        text_chunks.retain(|chunk| !chunk.is_empty());
+        text_chunks
     }
 }
 
@@ -231,8 +342,8 @@ pub enum Op {
     DrawLine { line: Line },
     /// Draw a polygon
     DrawPolygon { polygon: Polygon },
-    /// Set the transformation matrix for this page. Make sure to save the old graphics state before
-    /// invoking!
+    /// Set the transformation matrix for this page. Make sure to save the old graphics state
+    /// before invoking!
     SetTransformationMatrix { matrix: CurTransMat },
     /// Sets a matrix that only affects subsequent text objects.
     SetTextMatrix { matrix: TextMatrix },

@@ -1,6 +1,6 @@
 [package]
 name = "printpdf"
-version = "0.8.0"
+version = "0.8.2"
 authors = [
     "Felix Schütt <felix.schuett@maps4print.com>",
     "Julien Schminke <julien.schminke@web.de",
@@ -20,30 +20,26 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-lopdf = { git = "https://github.com/J-F-Liu/lopdf", rev = "80a6c505bf8303c74b3057c8e53d4f791e92e126", default-features = false, features = [
-    "nom_parser",
-] }
+lopdf = { version = "0.35.0", default-features = false, features = ["nom_parser"]}
 time = { version = "0.3.25", default-features = false, features = ["std", "serde", "serde-human-readable"] }
-allsorts = { version = "0.15", git = "https://github.com/fschutt/allsorts", branch = "optional-brotli", default-features = false, features = ["flate2_rust"] }
+allsorts-subset-browser = { version = "0.16", default-features = false, features = ["flate2_rust"] }
 image = { version = "0.25", default-features = false }
-svg2pdf = { version = "0.12.0" }
+svg2pdf = { version = "0.13.0" }
 base64 = "0.22.1"
 serde = { version = "1" }
 serde_derive = { version = "1" }
 flate2 = "1.0.35" # for decompression of builtin fonts
+serde_json = { version = "1" }
 # feature=html, independent of feature=wasm
-azul-css = { git = "https://github.com/fschutt/azul", rev = "84ed85b427661480994337506608e79690d187f8", default-features = false, optional = true }
-azul-css-parser = {  git = "https://github.com/fschutt/azul", rev = "84ed85b427661480994337506608e79690d187f8", default-features = false, optional = true }
-azul-core = {  git = "https://github.com/fschutt/azul", rev = "84ed85b427661480994337506608e79690d187f8", default-features = false, features = ["std"], optional = true }
-azul-layout = {  git = "https://github.com/fschutt/azul", rev = "84ed85b427661480994337506608e79690d187f8", default-features = false, features = ["std", "text_layout"], optional = true }
-azul-text-layout = {  git = "https://github.com/fschutt/azul", rev = "84ed85b427661480994337506608e79690d187f8", default-features = false, optional = true }
-azulc = {  git = "https://github.com/fschutt/azul", rev = "84ed85b427661480994337506608e79690d187f8", default-features = false, features = ["std", "xml", "text_layout", "font_loading"], optional = true }
-rust-fontconfig = { version = "0.1.13", default-features = false, optional = true }
+rust-fontconfig = { version = "1.0.0", default-features = false, features = ["std", "parsing"], optional = true }
 xmlparser = { version = "0.13.6", default-features = false, optional = true }
-serde_json = { version = "1", optional = true }
 web-sys = { version = "0.3.77", optional = true, default-features = false, features = ["ImageData", "Window", "Document", "Blob", "CanvasRenderingContext2d", "HtmlCanvasElement", "HtmlImageElement", "ImageBitmap", "BlobPropertyBag"]}
 wasm-bindgen-futures = { version = "0.4.50", optional = true, default-features = false }
 kuchiki = { version = "0.8.1", optional = true }
+azul-css = { version = "0.0.5", default-features = false, features = ["parser"], optional = true }
+azul-core = { version = "0.0.5",  default-features = false, features = ["std"], optional = true }
+azul-layout = { version = "0.0.5", default-features = false, features = ["std", "text_layout", "font_loading", "xml"], optional = true }
+weezl = "0.1.8"
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 wasm-bindgen = { version = "0.2" }
@@ -55,7 +51,8 @@ text-diff = "0.4.0"
 
 [features]
 default = ["html"]
-html = ["kuchiki", "azul-css", "azul-css-parser", "azul-core", "azul-layout", "azul-text-layout", "azulc", "rust-fontconfig", "xmlparser", "serde_json"]
+text_layout = ["azul-css", "azul-core", "azul-layout"]
+html = ["kuchiki", "text_layout", "rust-fontconfig", "xmlparser"]
 js-sys = ["dep:js-sys", "web-sys", "wasm-bindgen-futures"] # wasm + browser context
 gif = ["image/gif"]
 jpeg = ["image/jpeg"]
@@ -78,22 +75,45 @@ js-sys = { version = "0.3.40", optional = true }
 wasm-bindgen-futures = { version = "0.4.50", default-features = false }
 
 [[example]]
-name = "simple"
+name = "advanced"
+required-features = []
+
+[[example]]
+name = "bookmarks"
+required-features = []
+
+[[example]]
+name = "customfont"
+required-features = []
+
+[[example]]
+name = "graphics"
 required-features = []
 
 [[example]]
 name = "html"
 required-features = ["html"]
 
-# re-generates the /defaultfonts/*.ttf fonts
-[[example]]
-name = "subset"
-required-features = []
-
 [[example]]
 name = "image"
 required-features = ["png"]
 
 [[example]]
-name = "render"
+name = "layers"
+required-features = []
+
+[[example]]
+name = "multipage"
+required-features = []
+
+[[example]]
+name = "svg"
+required-features = []
+
+[[example]]
+name = "text"
+required-features = []
+
+[[example]]
+name = "shape"
 required-features = []

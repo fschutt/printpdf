@@ -1,5 +1,3 @@
-//! Bookmarks, page and link annotations
-
 use serde_derive::{Deserialize, Serialize};
 
 use crate::graphics::Rect;

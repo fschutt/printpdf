@@ -1,10 +1,9 @@
 use std::collections::BTreeMap;
 
-use svg2pdf::{ConversionOptions, PageOptions, usvg};
+use svg2pdf::{usvg, ConversionOptions, PageOptions};
 
 use crate::{
-    ColorSpace, DictItem, ExternalStream, PdfResources, PdfWarnMsg,
-    xobject::ExternalXObject,
+    xobject::ExternalXObject, ColorSpace, DictItem, ExternalStream, PdfResources, PdfWarnMsg,
 };
 
 /// SVG - wrapper around an `XObject` to allow for more

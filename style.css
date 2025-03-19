@@ -391,3 +391,51 @@ button:hover {
     flex-direction: row;
     justify-content: space-between;
 }
+
+/* Styles for the bookmarks and layers views */
+.bookmarks-list, .layers-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.bookmark-item, .layer-item {
+    padding: 5px 0;
+    border-bottom: 1px solid #eee;
+}
+
+.bookmark-item a {
+    text-decoration: none;
+    color: #333;
+    display: block;
+    padding: 3px 5px;
+    border-radius: 3px;
+}
+
+.bookmark-item a:hover {
+    background-color: #f0f0f0;
+    color: #007bff;
+}
+
+.layer-item {
+    display: flex;
+    align-items: center;
+    padding: 3px 0;
+}
+
+.layer-item input[type="checkbox"] {
+    margin-right: 8px;
+}
+
+.empty-message {
+    font-style: italic;
+    color: #666;
+    padding: 10px 0;
+}
+
+.sidebar-content h3 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    font-size: 14px;
+    color: #555;
+}

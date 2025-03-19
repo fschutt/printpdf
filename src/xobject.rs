@@ -4,12 +4,12 @@ use lopdf::StringFormat;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    ImageOptimizationOptions, Op,
     date::OffsetDateTime,
     deserialize::PageState,
     image::RawImage,
     matrix::CurTransMat,
     units::{Pt, Px},
+    ImageOptimizationOptions, Op,
 };
 
 /* Parent: Resources dictionary of the page */

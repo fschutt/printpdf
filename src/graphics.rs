@@ -1,11 +1,12 @@
+use core::fmt;
 use std::collections::HashSet;
 
 use lopdf::Dictionary as LoDictionary;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    BuiltinFont, FontId,
     units::{Mm, Pt},
+    BuiltinFont, FontId,
 };
 
 /// Fill path using nonzero winding number rule
@@ -26,13 +27,23 @@ pub const OP_PATH_CONST_CLIP_NZ: &str = "W";
 pub const OP_PATH_CONST_CLIP_EO: &str = "W*";
 
 /// Rectangle struct (x, y, width, height) from the LOWER LEFT corner of the page
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Rect {
     pub x: Pt,
     pub y: Pt,
     pub width: Pt,
     pub height: Pt,
+}
+
+impl fmt::Debug for Rect {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}x{} @ {} - {}",
+            self.width.0, self.height.0, self.x.0, self.y.0
+        )
+    }
 }
 
 impl Rect {
@@ -547,7 +558,7 @@ impl LineCapStyle {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename = "kebap-case")]
+#[serde(rename = "kebab-case")]
 pub enum ChangedField {
     LineWidth,
     LineCap,
@@ -588,6 +599,13 @@ pub enum BuiltinOrExternalFontId {
 }
 
 impl BuiltinOrExternalFontId {
+    pub fn is_builtin(&self) -> bool {
+        match self {
+            BuiltinOrExternalFontId::Builtin(_) => true,
+            BuiltinOrExternalFontId::External(_) => false,
+        }
+    }
+
     pub fn get_id(&self) -> &str {
         match self {
             BuiltinOrExternalFontId::Builtin(builtin_font) => builtin_font.get_id(),
@@ -665,7 +683,6 @@ pub struct ExtendedGraphicsState {
 
 // Implement getter methods for all fields
 impl ExtendedGraphicsState {
-
     // Getter methods for all fields
     pub fn line_width(&self) -> f32 {
         self.line_width
@@ -830,7 +847,8 @@ impl ExtendedGraphicsState {
 
     pub fn set_black_generation_extra(&mut self, value: Option<BlackGenerationExtraFunction>) {
         self.black_generation_extra = value;
-        self.changed_fields.insert(ChangedField::BlackGenerationExtra);
+        self.changed_fields
+            .insert(ChangedField::BlackGenerationExtra);
     }
 
     pub fn set_under_color_removal(&mut self, value: Option<UnderColorRemovalFunction>) {
@@ -840,7 +858,8 @@ impl ExtendedGraphicsState {
 
     pub fn set_under_color_removal_extra(&mut self, value: Option<UnderColorRemovalExtraFunction>) {
         self.under_color_removal_extra = value;
-        self.changed_fields.insert(ChangedField::UnderColorRemovalExtra);
+        self.changed_fields
+            .insert(ChangedField::UnderColorRemovalExtra);
     }
 
     pub fn set_transfer_function(&mut self, value: Option<TransferFunction>) {
@@ -850,7 +869,8 @@ impl ExtendedGraphicsState {
 
     pub fn set_transfer_extra_function(&mut self, value: Option<TransferExtraFunction>) {
         self.transfer_extra_function = value;
-        self.changed_fields.insert(ChangedField::TransferFunctionExtra);
+        self.changed_fields
+            .insert(ChangedField::TransferFunctionExtra);
     }
 
     pub fn set_halftone_dictionary(&mut self, value: Option<HalftoneType>) {
@@ -865,7 +885,8 @@ impl ExtendedGraphicsState {
 
     pub fn set_smoothness_tolerance(&mut self, value: f32) {
         self.smoothness_tolerance = value;
-        self.changed_fields.insert(ChangedField::SmoothnessTolerance);
+        self.changed_fields
+            .insert(ChangedField::SmoothnessTolerance);
     }
 
     pub fn set_stroke_adjustment(&mut self, value: bool) {
@@ -975,7 +996,10 @@ impl ExtendedGraphicsState {
     }
 
     /// Set black generation extra function and return self
-    pub fn with_black_generation_extra(mut self, func: Option<BlackGenerationExtraFunction>) -> Self {
+    pub fn with_black_generation_extra(
+        mut self,
+        func: Option<BlackGenerationExtraFunction>,
+    ) -> Self {
         self.set_black_generation_extra(func);
         self
     }
@@ -987,7 +1011,10 @@ impl ExtendedGraphicsState {
     }
 
     /// Set under color removal extra function and return self
-    pub fn with_under_color_removal_extra(mut self, func: Option<UnderColorRemovalExtraFunction>) -> Self {
+    pub fn with_under_color_removal_extra(
+        mut self,
+        func: Option<UnderColorRemovalExtraFunction>,
+    ) -> Self {
         self.set_under_color_removal_extra(func);
         self
     }

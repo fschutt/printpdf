@@ -4,6 +4,9 @@
 //! and `mod structs`, so that you can use the same API even on a non-WASM target,
 //! without the JS limitations of having to jump through base64 encoding / decoding.
 
+#[cfg(all(target_family = "wasm", feature = "js-sys"))]
+use std::{future::Future, pin::Pin};
+
 use serde_derive::{Deserialize, Serialize};
 
 /// Generalized API return for WASM / JS
@@ -116,6 +119,7 @@ where
     .unwrap_or_default()
 }
 
+#[cfg(all(target_family = "wasm", feature = "js-sys"))]
 #[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
 pub async fn Pdf_HtmlToDocument(input: String) -> String {
     api_inner_async(&input, |x| {
@@ -124,6 +128,7 @@ pub async fn Pdf_HtmlToDocument(input: String) -> String {
     .await
 }
 
+#[cfg(all(target_family = "wasm", feature = "js-sys"))]
 #[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
 pub async fn Pdf_BytesToDocument(input: String) -> String {
     api_inner_async(&input, |x| {
@@ -132,6 +137,7 @@ pub async fn Pdf_BytesToDocument(input: String) -> String {
     .await
 }
 
+#[cfg(all(target_family = "wasm", feature = "js-sys"))]
 #[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
 pub async fn Pdf_DocumentToBytes(input: String) -> String {
     api_inner_async(&input, |x| {
@@ -140,6 +146,7 @@ pub async fn Pdf_DocumentToBytes(input: String) -> String {
     .await
 }
 
+#[cfg(all(target_family = "wasm", feature = "js-sys"))]
 #[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
 pub async fn Pdf_ResourcesForPage(input: String) -> String {
     api_inner_async(&input, |x| {
@@ -148,6 +155,7 @@ pub async fn Pdf_ResourcesForPage(input: String) -> String {
     .await
 }
 
+#[cfg(all(target_family = "wasm", feature = "js-sys"))]
 #[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
 pub async fn Pdf_PageToSvg(input: String) -> String {
     api_inner_async(&input, |x| {
@@ -156,8 +164,7 @@ pub async fn Pdf_PageToSvg(input: String) -> String {
     .await
 }
 
-use std::{future::Future, pin::Pin};
-
+#[cfg(all(target_family = "wasm", feature = "js-sys"))]
 async fn api_inner_async<T, Q>(
     input: &str,
     f: fn(Q) -> Pin<Box<dyn Future<Output = Result<T, String>>>>,

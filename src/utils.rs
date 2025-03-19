@@ -97,67 +97,19 @@ fn u8_to_char(input: u8) -> char {
     (b'A' + input) as char
 }
 
-pub fn compress(bytes: &[u8]) -> Vec<u8> {
+pub(crate) fn compress(bytes: &[u8]) -> Vec<u8> {
     use std::io::prelude::*;
 
-    use flate2::{Compression, write::GzEncoder};
+    use flate2::{write::GzEncoder, Compression};
     let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
     let _ = encoder.write_all(bytes);
     encoder.finish().unwrap_or_default()
 }
 
-pub fn uncompress(bytes: &[u8]) -> Vec<u8> {
+pub(crate) fn uncompress(bytes: &[u8]) -> Vec<u8> {
     use flate2::read::GzDecoder;
     let mut gz = GzDecoder::new(bytes);
     let mut s = Vec::<u8>::new();
     let _ = gz.read_to_end(&mut s);
     s
-}
-
-/// Takes a Vec<u8> of RGBA data and returns two Vec<u8> of RGB and alpha data
-pub(crate) fn rgba_to_rgb(data: Vec<u8>) -> (Vec<u8>, Vec<u8>) {
-    let mut rgb = Vec::with_capacity(data.len() / 4 * 3);
-    let mut alpha = Vec::with_capacity(data.len() / 4);
-    for i in (0..data.len()).step_by(4) {
-        rgb.push(data[i]);
-        rgb.push(data[i + 1]);
-        rgb.push(data[i + 2]);
-        alpha.push(data[i + 3]);
-    }
-
-    (rgb, alpha)
-}
-
-pub(crate) fn rgba_to_rgb16(data: Vec<u16>) -> (Vec<u16>, Vec<u16>) {
-    let mut rgb = Vec::with_capacity(data.len() / 4 * 3);
-    let mut alpha = Vec::with_capacity(data.len() / 4);
-    for i in (0..data.len()).step_by(4) {
-        rgb.push(data[i]);
-        rgb.push(data[i + 1]);
-        rgb.push(data[i + 2]);
-        alpha.push(data[i + 3]);
-    }
-
-    (rgb, alpha)
-}
-
-pub(crate) fn rgba_to_rgbf32(data: Vec<f32>) -> (Vec<f32>, Vec<f32>) {
-    let mut rgb = Vec::with_capacity(data.len() / 4 * 3);
-    let mut alpha = Vec::with_capacity(data.len() / 4);
-    for i in (0..data.len()).step_by(4) {
-        rgb.push(data[i]);
-        rgb.push(data[i + 1]);
-        rgb.push(data[i + 2]);
-        alpha.push(data[i + 3]);
-    }
-
-    (rgb, alpha)
-}
-
-pub(crate) fn u16vec_to_u8(data: Vec<u16>) -> Vec<u8> {
-    data.iter().flat_map(|us| us.to_be_bytes()).collect()
-}
-
-pub(crate) fn f32vec_to_u8(data: Vec<f32>) -> Vec<u8> {
-    data.iter().flat_map(|us| us.to_be_bytes()).collect()
 }

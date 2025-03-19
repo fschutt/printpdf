@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html title="Synthwave Digital Art Gallery">
+    <head>
+        <style>
+            body {
+                background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+                color: #fff;
+                font-family: 'Orbitron', sans-serif;
+                padding: 10mm;
+            }
+            h1, h2 {
+                color: #ff00cc;
+                text-shadow: 0 0 10px #ff00cc, 0 0 20px #ff00cc;
+            }
+            .gallery {
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: space-around;
+            }
+            .gallery-item {
+                margin: 5mm;
+                background: rgba(0, 0, 0, 0.5);
+                border-radius: 5px;
+                overflow: hidden;
+                box-shadow: 0 0 20px rgba(255, 0, 204, 0.5);
+                transition: transform 0.3s;
+                width: 45%;
+            }
+            .gallery-item img {
+                width: 100%;
+                display: block;
+            }
+            .gallery-caption {
+                padding: 10px;
+                text-align: center;
+                background: rgba(0, 0, 0, 0.7);
+            }
+            .grid-container {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px;
+                margin-top: 10mm;
+            }
+            .grid-item {
+                flex: 1;
+                min-width: 30%;
+                height: 80px;
+                background: linear-gradient(45deg, #fc00ff, #00dbde);
+                border-radius: 5px;
+            }
+            .intro {
+                border-left: 5px solid #ff00cc;
+                padding-left: 10px;
+                margin: 20px 0;
+            }
+        </style>
+        
+        <header>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="font-size: 12px; color: #00eeff;">DIGITAL ART COLLECTION</div>
+                <div style="font-size: 12px; color: #00eeff;">PAGE <page-number/></div>
+            </div>
+            <hr style="border-color: #ff00cc; height: 2px; background-color: #ff00cc; border: none;">
+        </header>
+        
+        <footer>
+            <hr style="border-color: #00eeff; height: 1px; background-color: #00eeff; border: none;">
+            <div style="text-align: center; color: #00eeff; font-size: 10px;">
+                © 2025 SYNTHWAVE ARCHIVES
+            </div>
+        </footer>
+    </head>
+    <body>
+        <h1 style="text-align: center; font-size: 36px; letter-spacing: 5px;">SYNTHWAVE</h1>
+        <h2 style="text-align: center; font-size: 24px; letter-spacing: 3px;">DIGITAL ART COLLECTION</h2>
+        
+        <div class="intro">
+            <p>Welcome to the definitive collection of synthwave and retrowave digital art. This gallery showcases the neon-soaked aesthetics of 80s-inspired futurism, featuring stunning works from the most innovative digital artists in the scene.</p>
+        </div>
+        
+        <div class="gallery">
+            <div class="gallery-item">
+                <img src="neon_city.png" alt="Neon City"></img>
+                <div class="gallery-caption">
+                    <h3>NEON CITY</h3>
+                    <p>Digital artwork featuring a futuristic cityscape with glowing neon lights</p>
+                </div>
+            </div>
+            
+            <div class="gallery-item">
+                <img src="cyber_sunset.png" alt="Cyber Sunset"></img>
+                <div class="gallery-caption">
+                    <h3>CYBER SUNSET</h3>
+                    <p>Retrowave sun setting over a digital grid landscape</p>
+                </div>
+            </div>
+            
+            <div class="gallery-item">
+                <img src="digital_highway.png" alt="Digital Highway"></img>
+                <div class="gallery-caption">
+                    <h3>DIGITAL HIGHWAY</h3>
+                    <p>Endless road through a neon-lit digital universe</p>
+                </div>
+            </div>
+            
+            <div class="gallery-item">
+                <img src="retro_arcade.png" alt="Retro Arcade"></img>
+                <div class="gallery-caption">
+                    <h3>RETRO ARCADE</h3>
+                    <p>80s-inspired gaming environment with classic arcade machines</p>
+                </div>
+            </div>
+        </div>
+        
+        <h2 style="text-align: center; margin-top: 20mm;">COLOR PALETTES</h2>
+        
+        <div class="grid-container">
+            <div class="grid-item" style="background: linear-gradient(45deg, #fc00ff, #00dbde);"></div>
+            <div class="grid-item" style="background: linear-gradient(45deg, #3f5efb, #fc466b);"></div>
+            <div class="grid-item" style="background: linear-gradient(45deg, #0072ff, #00c6ff);"></div>
+            <div class="grid-item" style="background: linear-gradient(45deg, #f953c6, #b91d73);"></div>
+            <div class="grid-item" style="background: linear-gradient(45deg, #7f00ff, #e100ff);"></div>
+            <div class="grid-item" style="background: linear-gradient(45deg, #ff0099, #493240);"></div>
+        </div>
+        
+        <div style="margin-top: 15mm; text-align: center;">
+            <p>The synthwave aesthetic draws inspiration from 1980s pop culture, combining the visual elements of that era with modern digital art techniques. At its core are vibrant neon colors contrasted against dark backgrounds.</p>
+        </div>
+        
+        <div style="page-break-before: always;">
+            <h2 style="text-align: center; margin-top: 10mm;">FEATURED TECHNIQUES</h2>
+            
+            <div style="display: flex; justify-content: space-between; margin-top: 10mm;">
+                <div style="width: 48%;">
+                    <img src="wireframe_technique.png" alt="Wireframe Technique" style="width: 100%;"></img>
+                    <h3 style="color: #00eeff;">WIREFRAMES</h3>
+                    <p>The use of simple wireframe models creates depth while maintaining the retro-digital aesthetic that defines synthwave art.</p>
+                </div>
+                
+                <div style="width: 48%;">
+                    <img src="scanline_technique.png" alt="Scanline Technique" style="width: 100%;"></img>
+                    <h3 style="color: #00eeff;">SCANLINES</h3>
+                    <p>Scanlines invoke the feel of vintage CRT monitors, adding an authentic retro quality to digital compositions.</p>
+                </div>
+            </div>
+            
+            <div style="display: flex; justify-content: space-between; margin-top: 10mm;">
+                <div style="width: 48%;">
+                    <img src="chrome_technique.png" alt="Chrome Technique" style="width: 100%;"></img>
+                    <h3 style="color: #ff00cc;">CHROME EFFECTS</h3>
+                    <p>Reflective chrome surfaces were a staple of 80s futurism, representing the sleek design aesthetics of the period.</p>
+                </div>
+                
+                <div style="width: 48%;">
+                    <img src="grid_technique.png" alt="Grid Technique" style="width: 100%;"></img>
+                    <h3 style="color: #ff00cc;">GRID PERSPECTIVES</h3>
+                    <p>Infinite grids extending to the horizon create the illusion of digital landscapes that stretch endlessly.</p>
+                </div>
+            </div>
+        </div>
+    </body>
+</html>

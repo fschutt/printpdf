@@ -995,7 +995,7 @@ async function updatePdfViewer() {
             const svgI = { 
                 page: modifiedPage, 
                 resources: copyResourcesForPage(res, resourcesResult.data), 
-                options: { imageFormats: ["png", "jpeg"] } // Changed from image_formats to imageFormats
+                options: { imageFormats: ["png", "jpeg"] }
             };
             const svgInput = JSON.stringify(svgI);
             const svgJson = await Pdf_PageToSvg(svgInput);
@@ -1003,8 +1003,26 @@ async function updatePdfViewer() {
 
             if (svgResult.status === 0) {
                 const svgString = svgResult.data.svg;
-                pdfViewerDiv.innerHTML += svgString;
-                minimapViewDiv.innerHTML += svgString;
+                const svgContainer = document.createElement('div');
+                svgContainer.innerHTML = svgString;
+                
+                // Process SVG for layers if there are any
+                if (resourcesResult.data.layers && resourcesResult.data.layers.length > 0) {
+                    processSvgLayers(svgContainer.querySelector('svg'), resourcesResult.data.layers);
+                }
+                
+                pdfViewerDiv.appendChild(svgContainer.firstChild);
+                
+                // Also update minimap with the same SVG
+                const minimapContainer = document.createElement('div');
+                minimapContainer.innerHTML = svgString;
+                
+                // Process minimap SVG for layers too
+                if (resourcesResult.data.layers && resourcesResult.data.layers.length > 0) {
+                    processSvgLayers(minimapContainer.querySelector('svg'), resourcesResult.data.layers);
+                }
+                
+                minimapViewDiv.appendChild(minimapContainer.firstChild);
                 pdfViewerErrorText.innerHTML = "";
             } else {
                 console.error("Error rendering page to SVG:", svgResult.data);
@@ -1015,6 +1033,11 @@ async function updatePdfViewer() {
             pdfViewerDiv.innerHTML += `<p class="error">Error processing page ${i + 1}: ${error}</p>`;
         }
     }
+    
+    // Update the bookmarks and layers views after rendering
+    updateBookmarksView();
+    updateLayersView();
+    
     updatePageNavigation();
 }
 
@@ -1248,6 +1271,140 @@ savePdfButton.addEventListener('click', async () => {
         // alert2("Error saving PDF: " + error);
     // }
 });
+
+// Function to update bookmarks view
+function updateBookmarksView() {
+    if (!pdfDocument || !pdfDocument.bookmarks) return;
+    
+    const bookmarksView = document.getElementById('bookmarks-view');
+    bookmarksView.innerHTML = '';
+    
+    if (Object.keys(pdfDocument.bookmarks).length === 0) {
+        bookmarksView.innerHTML = '<p class="empty-message">No bookmarks in this document</p>';
+        return;
+    }
+    
+    const bookmarksList = document.createElement('ul');
+    bookmarksList.className = 'bookmarks-list';
+    
+    // Process and add bookmarks
+    Object.entries(pdfDocument.bookmarks).forEach(([uuid, bookmark]) => {
+        const item = document.createElement('li');
+        item.className = 'bookmark-item';
+        
+        // Extract title and page from bookmark
+        const title = bookmark.title || `Bookmark ${uuid.substring(0, 8)}`;
+        // For this demo, we'll use a simple approach to find page numbers
+        // In a real implementation, we'd need to properly interpret bookmark destination objects
+        let pageNumber = 1;
+        if (bookmark.dest && typeof bookmark.dest === 'object') {
+            // Try to extract page number from destination
+            if (bookmark.dest.page !== undefined) {
+                pageNumber = bookmark.dest.page;
+            }
+        }
+        
+        const link = document.createElement('a');
+        link.href = '#';
+        link.textContent = title;
+        link.dataset.page = pageNumber;
+        link.onclick = (e) => {
+            e.preventDefault();
+            navigateToBookmarkPage(parseInt(e.target.dataset.page) || 1);
+        };
+        
+        item.appendChild(link);
+        bookmarksList.appendChild(item);
+    });
+    
+    bookmarksView.appendChild(bookmarksList);
+}
+
+// Function to navigate to a bookmark page
+function navigateToBookmarkPage(page) {
+    if (!pdfDocument) return;
+    
+    // Adjust page number to be within valid range
+    page = Math.max(1, Math.min(pdfDocument.pages.length, page));
+    
+    // Set the current page and scroll to it
+    currentPageNumber = page;
+    updatePageNavigation();
+}
+
+// Function to update layers view
+function updateLayersView() {
+    if (!pdfDocument || !pdfDocument.resources || !pdfDocument.resources.layers) return;
+    
+    const layersView = document.getElementById('layers-view');
+    layersView.innerHTML = '';
+    
+    if (Object.keys(pdfDocument.resources.layers).length === 0) {
+        layersView.innerHTML = '<p class="empty-message">No layers in this document</p>';
+        return;
+    }
+    
+    const layersList = document.createElement('ul');
+    layersList.className = 'layers-list';
+    
+    // Map to track layer visibility state
+    const layerVisibility = {};
+    
+    // Process and add layers
+    Object.entries(pdfDocument.resources.layers).forEach(([id, layer]) => {
+        layerVisibility[id] = true; // Default to visible
+        
+        const item = document.createElement('li');
+        item.className = 'layer-item';
+        
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = `layer-checkbox-${id}`;
+        checkbox.checked = true;
+        checkbox.dataset.layerId = id;
+        checkbox.onchange = () => toggleLayerVisibility(id, checkbox.checked);
+        
+        const label = document.createElement('label');
+        label.htmlFor = `layer-checkbox-${id}`;
+        label.textContent = layer.name || `Layer ${id.substring(0, 8)}`;
+        
+        item.appendChild(checkbox);
+        item.appendChild(label);
+        layersList.appendChild(item);
+    });
+    
+    layersView.appendChild(layersList);
+}
+
+// Function to toggle layer visibility
+function toggleLayerVisibility(layerId, visible) {
+    // Find all SVG elements with the specified layer ID
+    document.querySelectorAll(`[data-layer-id="${layerId}"]`).forEach(el => {
+        el.style.display = visible ? '' : 'none';
+    });
+    
+    // Update layer visibility in minimap too
+    document.querySelectorAll(`#minimap-view [data-layer-id="${layerId}"]`).forEach(el => {
+        el.style.display = visible ? '' : 'none';
+    });
+}
+
+// Function to process SVG and add layer attributes
+function processSvgLayers(svg, layerIds) {
+    if (!layerIds || layerIds.length === 0) return;
+    
+    // Add data attributes to the SVG for each layer
+    layerIds.forEach(layerId => {
+        const groups = svg.querySelectorAll('g');
+        
+        // Since we don't have direct layer info in the SVG, we're taking an approach
+        // to mark the entire SVG with layer IDs for now
+        svg.setAttribute('data-layer-id', layerId);
+        
+        // In a full implementation, we'd need to analyze the SVG structure
+        // to identify which groups belong to which layers
+    });
+}
 
 function base64ToUint8Array(base64) {
     const binaryString = atob(base64);

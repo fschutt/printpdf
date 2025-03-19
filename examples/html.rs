@@ -1,27 +1,54 @@
+use std::collections::BTreeMap;
+
 use printpdf::*;
 
-const HTML_STRINGS: &[&str; 1] = &["<img src='test.bmp' />"];
-
 fn main() -> Result<(), String> {
-    for (i, h) in HTML_STRINGS.iter().enumerate() {
-        let config = XmlRenderOptions {
-            components: Vec::new(),
-            images: vec![(
-                "test.bmp".to_string(),
-                include_bytes!("./assets/img/BMP_test.bmp").to_vec(),
-            )]
-            .into_iter()
-            .collect(),
-            ..Default::default()
-        };
+    // Create a new PDF document
+    let mut doc = PdfDocument::new("HTML to PDF Example");
 
-        let mut doc = PdfDocument::new("HTML rendering demo");
-        let pages = doc.html_to_pages(h, config, &mut Vec::new())?;
-        let doc = doc
-            .with_pages(pages)
-            .save(&PdfSaveOptions::default(), &mut Vec::new());
-        std::fs::write(format!("html{i}.pdf"), doc).unwrap();
+    // Basic HTML content with styles
+    let html = vec![
+        (
+            "default",
+            include_str!("./assets/html/default.html").to_string(),
+        ),
+        (
+            "recipe",
+            include_str!("./assets/html/recipe.html").to_string(),
+        ),
+        (
+            "report",
+            include_str!("./assets/html/report.html").to_string(),
+        ),
+        (
+            "synthwave",
+            include_str!("./assets/html/synthwave.html").to_string(),
+        ),
+    ];
+
+    // Convert the HTML to PDF pages
+    let mut warnings = Vec::new();
+    let mut pages = Vec::new();
+    for (_id, html) in html.iter() {
+        let newpages = PdfDocument::from_html(
+            &html,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &GeneratePdfOptions::default(),
+            &mut Vec::new(),
+        );
+
+        pages.append(&mut newpages.unwrap_or_default().pages);
     }
+
+    // Add the pages to the document
+    doc.with_pages(pages);
+
+    // Save the PDF to a file
+    let bytes = doc.save(&PdfSaveOptions::default(), &mut warnings);
+
+    std::fs::write("./html_example.pdf", bytes).unwrap();
+    println!("Created html_example.pdf");
 
     Ok(())
 }

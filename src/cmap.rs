@@ -17,10 +17,10 @@ impl ToUnicodeCMap {
         let mut mappings = BTreeMap::new();
         let mut lines = input.lines().map(|l| l.trim()).filter(|l| !l.is_empty());
         while let Some(line) = lines.next() {
-            if line.starts_with("beginbfchar") {
+            if line.contains("beginbfchar") {
                 // Process each bfchar mapping line until "endbfchar"
                 while let Some(l) = lines.next() {
-                    if l.starts_with("endbfchar") {
+                    if l.contains("endbfchar") {
                         break;
                     }
                     // Expect a line like: "<0041> <0041>"
@@ -32,10 +32,10 @@ impl ToUnicodeCMap {
                     let uni = parse_hex_token(tokens[1])?;
                     mappings.insert(cid, vec![uni]);
                 }
-            } else if line.starts_with("beginbfrange") {
+            } else if line.contains("beginbfrange") {
                 // Process each bfrange mapping line until "endbfrange"
                 while let Some(l) = lines.next() {
-                    if l.starts_with("endbfrange") {
+                    if l.contains("endbfrange") {
                         break;
                     }
                     // There are two forms:
@@ -88,6 +88,56 @@ impl ToUnicodeCMap {
             // (Other lines, e.g. codespacerange, can be skipped for now.)
         }
         Ok(ToUnicodeCMap { mappings })
+    }
+
+    /// Generates a CMap string representation suitable for embedding in a PDF.
+    pub fn to_cmap_string(&self, font_name: &str) -> String {
+        // Header section
+        let mut result = format!(
+            "/CIDInit /ProcSet findresource begin\n\n12 dict begin\n\nbegincmap\n\n%!PS-Adobe-3.0 \
+             Resource-CMap\n%%DocumentNeededResources: procset CIDInit\n%%IncludeResource: \
+             procset CIDInit\n\n/CIDSystemInfo 3 dict dup begin\n/Registry (FontSpecific) \
+             def\n/Ordering ({}) def\n/Supplement 0 def\nend def\n\n/CMapName /FontSpecific-{} \
+             def\n/CMapVersion 1 def\n/CMapType 2 def\n/WMode 0 def\n\n1 \
+             begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n",
+            font_name, font_name
+        );
+
+        // Group mappings by high byte for better organization
+        let mut grouped_by_high_byte: BTreeMap<u8, Vec<(u32, u32)>> = BTreeMap::new();
+
+        for (&cid, unicode_values) in &self.mappings {
+            if let Some(&unicode) = unicode_values.first() {
+                let high_byte = ((cid >> 8) & 0xFF) as u8;
+                grouped_by_high_byte
+                    .entry(high_byte)
+                    .or_insert_with(Vec::new)
+                    .push((cid, unicode));
+            }
+        }
+
+        // Generate bfchar blocks with at most 100 entries each
+        for (_high_byte, mut entries) in grouped_by_high_byte {
+            // Sort by CID for deterministic output
+            entries.sort_by_key(|&(cid, _)| cid);
+
+            // Process in chunks of 100
+            for chunk in entries.chunks(100) {
+                result.push_str(&format!("{} beginbfchar\n", chunk.len()));
+                for &(cid, unicode) in chunk {
+                    result.push_str(&format!("<{:04X}> <{:04X}>\n", cid, unicode));
+                }
+                result.push_str("endbfchar\n");
+            }
+        }
+
+        // Footer section
+        result.push_str(
+            "\
+            endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n",
+        );
+
+        result
     }
 }
 

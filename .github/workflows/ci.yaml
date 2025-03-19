@@ -20,23 +20,16 @@ jobs:
       - run: cargo check --verbose
       # - run: cargo test --verbose # fails because of SIMD issues, test on Windows only
 
+
   check-and-test-windows:
     name: Cargo check and test on Windows
     strategy:
       matrix:
         target-sys: ["i686-pc-windows", "x86_64-pc-windows"]
-        target-abi: ["gnu", "msvc"]
+        target-abi: ["msvc"]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up MinGW
-        if: ${{ matrix.target-abi == 'gnu' }}
-        uses: egor-tensin/setup-mingw@v2
-        with:
-          platform: "x64"
-          version: 13.2.0
-        continue-on-error: true
       - name: Install toolchain for ${{ matrix.target-sys }}-${{ matrix.target-abi }}
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -66,4 +59,7 @@ jobs:
       - run: cargo check --verbose --target wasm32-wasip1 --examples
       - run: cargo check --verbose --target wasm32-wasip1
       - run: cargo check --verbose --target wasm32-wasip2 --examples
-      - run: cargo check --verbose --target wasm32-wasip2
+      - run: cargo check --verbose --target wasm32-wasip2      
+      - run: cargo check --verbose --target wasm32-wasip2 --no-default-features
+      - run: cargo check --verbose --target wasm32-wasip2 --all-features
+

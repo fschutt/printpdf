@@ -1,5 +1,3 @@
-//! Scaling types for reducing errors between conversions between point (pt) and millimeter (mm)
-
 use std::{cmp::Ordering, num::FpCategory};
 
 use serde_derive::{Deserialize, Serialize};

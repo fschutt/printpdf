@@ -1,12 +1,15 @@
-//! Current transformation matrix, for transforming shapes (rotate, translate, scale)
-
 use serde_derive::{Deserialize, Serialize};
 
 use crate::units::Pt;
 
-/// PDF "current transformation matrix". Once set, will operate on all following shapes,
-/// until the `layer.restore_graphics_state()` is called. It is important to
-/// call `layer.save_graphics_state()` earlier.
+/// PDF "current transformation matrix" (CTM) for the graphics state.
+///
+/// This transformation affects drawing operations and uses the PDF "cm" operator,
+/// which is cumulative/additive to the graphics state stack. Each transformation
+/// combines with the existing state rather than replacing it completely.
+///
+/// Once set, it operates on all following shapes until `restore_graphics_state()` is called.
+/// It is important to call `save_graphics_state()` before applying transformations.
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", tag = "type", content = "data")]
 pub enum CurTransMat {
@@ -14,8 +17,13 @@ pub enum CurTransMat {
     /// X and Y can have different values
     Translate(Pt, Pt),
     /// Rotation matrix (clockwise, in degrees)
+    ///
+    /// Note: This rotates around ORIGIN (0,0) of the CURRENT graphics state
     Rotate(f32),
     /// Combined rotate + translate matrix
+    ///
+    /// Rotates around the specified point, in ADDITION to the EXISTING
+    /// matrix of the current graphics state
     TranslateRotate(Pt, Pt, f32),
     /// Scale matrix (1.0 = 100% scale, no change)
     /// X and Y can have different values
@@ -242,23 +250,35 @@ fn mul_add(a: f32, b: f32, c: f32) -> f32 {
     }
 }
 
-/// Text matrix. Text placement is a bit different, but uses the same
-/// concepts as a CTM that's why it's merged here
+/// Text matrix for text positioning and transformation in PDF.
 ///
-/// Note: `TextScale` does not exist. Use `layer.set_word_spacing()`
-/// and `layer.set_character_spacing()` to specify the scaling between words
-/// and characters.
+/// IMPORTANT: Unlike CurTransMat, TextMatrix uses the PDF "Tm" operator which
+/// **COMPLETELY REPLACES** the current text matrix rather than combining with it.
+/// This means that setting a TextMatrix will reset any previously established
+/// text position and transformation.
+///
+/// However, the text matrix is added ON TOP OF the "CurTransMat", it does not replace
+/// the "CurTransMat", but it will replace previous operations such as "SetTextPosition".
+///
+/// This is why there is no simple "Rotate" variant - it would reset the text position
+/// to the origin (0,0). Use TranslateRotate instead to maintain position.
+///
+/// Note: `TextScale` does not exist. Use `set_word_spacing()` and `set_character_spacing()`
+/// to specify the scaling between words and characters.
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum TextMatrix {
-    /// Text rotation matrix, used for rotating text
-    Rotate(f32),
-    /// Text translate matrix, used for indenting (transforming) text
-    /// (different to regular text placement)
+    /// Text translate matrix: REPLACES the existing text cursor!
+    /// This is equivalent to `SetTextCursor { x, y }`, since it will replace
+    /// the position of the cursor. The x / y is relative to the pages lower left corner.
     Translate(Pt, Pt),
-    /// Combined translate + rotate matrix
+    /// Combined translate + rotate matrix: Rotates text around the specified point
+    /// RELATIVE to the PAGE origin.
+    ///
+    /// Since the `Tm` operator replaces the matrix completely, you must specify
+    /// both position (relative to the PAGE, not the current text) and rotation in one operation
     TranslateRotate(Pt, Pt, f32),
-    /// Raw matrix (/tm operator)
+    /// Raw matrix for the PDF "Tm" operator
     Raw([f32; 6]),
 }
 
@@ -290,14 +310,11 @@ impl TextMatrix {
                 // 1 0 0 1 x y cm
                 [1.0, 0.0, 0.0, 1.0, x.0, y.0]
             }
-            Rotate(rot) => {
-                let rad = (360.0 - rot).to_radians();
-                [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), 0.0, 0.0] /* cos sin -sin cos 0 0 cm */
-            }
             Raw(r) => *r,
             TranslateRotate(x, y, rot) => {
                 let rad = (360.0 - rot).to_radians();
-                [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), x.0, y.0] /* cos sin -sin cos x y cm */
+                [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), x.0, y.0] /* cos sin -sin cos x y
+                                                                         * cm */
             }
         }
     }
@@ -313,7 +330,8 @@ impl CurTransMat {
             }
             TranslateRotate(x, y, rot) => {
                 let rad = (360.0 - rot).to_radians();
-                [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), x.0, y.0] /* cos sin -sin cos x y cm */
+                [rad.cos(), -rad.sin(), rad.sin(), rad.cos(), x.0, y.0] /* cos sin -sin cos x y
+                                                                         * cm */
             }
             Rotate(rot) => {
                 // cos sin -sin cos 0 0 cm

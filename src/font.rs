@@ -1,19 +1,20 @@
 use core::fmt;
 use std::{
-    collections::{BTreeSet, btree_map::BTreeMap},
+    collections::{btree_map::BTreeMap, BTreeSet},
     rc::Rc,
     vec::Vec,
 };
 
-use allsorts::{
+use allsorts_subset_browser::{
     binary::read::{ReadArray, ReadScope},
     font_data::FontData,
-    layout::{GDEFTable, GPOS, GSUB, LayoutCache},
+    layout::{GDEFTable, LayoutCache, GPOS, GSUB},
+    subset::SubsetProfile,
     tables::{
-        FontTableProvider, HeadTable, HheaTable, IndexToLocFormat, MaxpTable,
-        cmap::{CmapSubtable, owned::CmapSubtable as OwnedCmapSubtable},
+        cmap::{owned::CmapSubtable as OwnedCmapSubtable, CmapSubtable},
         glyf::{GlyfRecord, GlyfTable, Glyph},
         loca::{LocaOffsets, LocaTable},
+        FontTableProvider, HeadTable, HheaTable, IndexToLocFormat, MaxpTable,
     },
 };
 use base64::Engine;
@@ -21,7 +22,9 @@ use lopdf::Object::{Array, Integer};
 use serde_derive::{Deserialize, Serialize};
 use time::error::Parse;
 
-use crate::{FontId, Op, PdfPage, PdfWarnMsg, TextItem};
+use crate::{
+    cmap::ToUnicodeCMap, FontId, Op, PdfPage, PdfWarnMsg, ShapedText, TextItem, TextShapingOptions,
+};
 
 /// Builtin or external font
 #[derive(Debug, Clone, PartialEq)]
@@ -61,6 +64,16 @@ impl Default for BuiltinFont {
 include!("../defaultfonts/mapping.rs");
 
 impl BuiltinFont {
+    pub fn check_if_matches(bytes: &[u8]) -> Option<Self> {
+        let matching_based_on_len = match_len(bytes)?;
+        // if the length is equal, check for equality
+        if bytes == matching_based_on_len.get_subset_font().bytes.as_slice() {
+            Some(matching_based_on_len)
+        } else {
+            None
+        }
+    }
+
     /// Returns a CSS font-family string appropriate for the built-in PDF font.
     /// For example, TimesRoman maps to "Times New Roman, Times, serif".
     pub fn get_svg_font_family(&self) -> &'static str {
@@ -121,44 +134,48 @@ impl BuiltinFont {
 
         SubsetFont {
             bytes: match self {
-                TimesRoman => {
-                    crate::uncompress(include_bytes!("../defaultfonts/Times-Roman.subset.ttf"))
-                }
-                TimesBold => {
-                    crate::uncompress(include_bytes!("../defaultfonts/Times-Bold.subset.ttf"))
-                }
-                TimesItalic => {
-                    crate::uncompress(include_bytes!("../defaultfonts/Times-Italic.subset.ttf"))
-                }
-                TimesBoldItalic => crate::uncompress(include_bytes!(
+                TimesRoman => crate::utils::uncompress(include_bytes!(
+                    "../defaultfonts/Times-Roman.subset.ttf"
+                )),
+                TimesBold => crate::utils::uncompress(include_bytes!(
+                    "../defaultfonts/Times-Bold.subset.ttf"
+                )),
+                TimesItalic => crate::utils::uncompress(include_bytes!(
+                    "../defaultfonts/Times-Italic.subset.ttf"
+                )),
+                TimesBoldItalic => crate::utils::uncompress(include_bytes!(
                     "../defaultfonts/Times-BoldItalic.subset.ttf"
                 )),
                 Helvetica => {
-                    crate::uncompress(include_bytes!("../defaultfonts/Helvetica.subset.ttf"))
+                    crate::utils::uncompress(include_bytes!("../defaultfonts/Helvetica.subset.ttf"))
                 }
-                HelveticaBold => {
-                    crate::uncompress(include_bytes!("../defaultfonts/Helvetica-Bold.subset.ttf"))
-                }
-                HelveticaOblique => crate::uncompress(include_bytes!(
+                HelveticaBold => crate::utils::uncompress(include_bytes!(
+                    "../defaultfonts/Helvetica-Bold.subset.ttf"
+                )),
+                HelveticaOblique => crate::utils::uncompress(include_bytes!(
                     "../defaultfonts/Helvetica-Oblique.subset.ttf"
                 )),
-                HelveticaBoldOblique => crate::uncompress(include_bytes!(
+                HelveticaBoldOblique => crate::utils::uncompress(include_bytes!(
                     "../defaultfonts/Helvetica-BoldOblique.subset.ttf"
                 )),
-                Courier => crate::uncompress(include_bytes!("../defaultfonts/Courier.subset.ttf")),
-                CourierOblique => {
-                    crate::uncompress(include_bytes!("../defaultfonts/Courier-Oblique.subset.ttf"))
+                Courier => {
+                    crate::utils::uncompress(include_bytes!("../defaultfonts/Courier.subset.ttf"))
                 }
-                CourierBold => {
-                    crate::uncompress(include_bytes!("../defaultfonts/Courier-Bold.subset.ttf"))
-                }
-                CourierBoldOblique => crate::uncompress(include_bytes!(
+                CourierOblique => crate::utils::uncompress(include_bytes!(
+                    "../defaultfonts/Courier-Oblique.subset.ttf"
+                )),
+                CourierBold => crate::utils::uncompress(include_bytes!(
+                    "../defaultfonts/Courier-Bold.subset.ttf"
+                )),
+                CourierBoldOblique => crate::utils::uncompress(include_bytes!(
                     "../defaultfonts/Courier-BoldOblique.subset.ttf"
                 )),
-                Symbol => crate::uncompress(include_bytes!("../defaultfonts/Symbol.subset.ttf")),
-                ZapfDingbats => {
-                    crate::uncompress(include_bytes!("../defaultfonts/ZapfDingbats.subset.ttf"))
+                Symbol => {
+                    crate::utils::uncompress(include_bytes!("../defaultfonts/Symbol.subset.ttf"))
                 }
+                ZapfDingbats => crate::utils::uncompress(include_bytes!(
+                    "../defaultfonts/ZapfDingbats.subset.ttf"
+                )),
             },
             glyph_mapping: FONTS
                 .iter()
@@ -293,6 +310,136 @@ pub struct ParsedFont {
     pub original_index: usize,
 }
 
+impl ParsedFont {
+    /// Shape text using the specified font and options
+    ///
+    /// This function performs full text shaping and layout, including:
+    ///
+    /// - Breaking text into words and lines
+    /// - Positioning glyphs with proper kerning
+    /// - Handling line breaks and wrapping
+    /// - Flowing text around "holes"
+    /// - Aligning text horizontally
+    ///
+    /// # Arguments
+    ///
+    /// * `self` - The font to use for shaping
+    /// * `text` - The text to shape
+    /// * `options` - Text shaping and layout options
+    ///
+    /// # Returns
+    ///
+    /// A `ShapedText` containing the fully laid out text (not yet positioned!)
+    #[cfg(feature = "text_layout")]
+    pub fn shape_text(
+        &self,
+        text: &str,
+        options: &TextShapingOptions,
+        font_id: &FontId,
+    ) -> ShapedText {
+        // Convert holes to azul_layout format
+
+        use azul_core::{
+            ui_solver::ResolvedTextLayoutOptions,
+            window::{LogicalPosition, LogicalRect, LogicalSize},
+        };
+        use azul_css::StyleTextAlign;
+        use azul_layout::text::layout::{
+            position_words, shape_words, split_text_into_words,
+            word_positions_to_inline_text_layout,
+        };
+
+        use crate::TextAlign;
+
+        let holes = options
+            .holes
+            .iter()
+            .map(|hole| LogicalRect {
+                origin: LogicalPosition {
+                    x: hole.rect.x.0,
+                    y: hole.rect.y.0,
+                },
+                size: LogicalSize {
+                    width: hole.rect.width.0,
+                    height: hole.rect.height.0,
+                },
+            })
+            .collect::<Vec<_>>();
+
+        // Create layout options
+        let resolved_options = ResolvedTextLayoutOptions {
+            font_size_px: options.font_size.0,
+            line_height: options.line_height.map(|lh| lh.0).into(),
+            letter_spacing: options.letter_spacing.into(),
+            word_spacing: options.word_spacing.into(),
+            tab_width: options.tab_width.into(),
+            max_horizontal_width: options.max_width.map(|w| w.0).into(),
+            leading: None.into(),
+            holes: holes.into(),
+        };
+
+        // Split text into words
+        let words = split_text_into_words(text);
+
+        // Use adapter to convert to azul_layout's ParsedFont type
+        let azul_font = self::azul_convert::convert_to_azul_parsed_font(self);
+
+        // Shape words using azul_layout's shaping
+        let shaped_words = shape_words(&words, &azul_font);
+
+        // Position words
+        let word_positions = position_words(&words, &shaped_words, &resolved_options);
+
+        // Create text layout
+        let mut inline_text_layout = word_positions_to_inline_text_layout(&word_positions);
+
+        let cs = options
+            .max_width
+            .map(|w| w.0)
+            .unwrap_or(inline_text_layout.content_size.width);
+
+        // Apply horizontal alignment if not left-aligned
+        if options.align == TextAlign::Center {
+            inline_text_layout.align_children_horizontal(
+                &LogicalSize {
+                    width: cs,
+                    height: inline_text_layout.content_size.height,
+                },
+                StyleTextAlign::Center,
+            );
+        } else if options.align == TextAlign::Right {
+            inline_text_layout.align_children_horizontal(
+                &LogicalSize {
+                    width: cs,
+                    height: inline_text_layout.content_size.height,
+                },
+                StyleTextAlign::Right,
+            );
+        }
+
+        // Get inline text with final positioning
+        let inline_text = azul_core::app_resources::get_inline_text(
+            &words,
+            &shaped_words,
+            &word_positions,
+            &inline_text_layout,
+        );
+
+        // Extract shaped text from inline text
+        ShapedText::from_inline_text(font_id, &inline_text, options)
+    }
+}
+
+pub trait PrepFont {
+    fn lgi(&self, codepoint: u32) -> Option<u32>;
+}
+
+impl PrepFont for ParsedFont {
+    fn lgi(&self, codepoint: u32) -> Option<u32> {
+        self.lookup_glyph_index(codepoint).map(Into::into)
+    }
+}
+
 const FONT_B64_START: &str = "data:font/ttf;base64,";
 
 impl serde::Serialize for ParsedFont {
@@ -352,6 +499,7 @@ impl fmt::Debug for ParsedFont {
 #[derive(Debug, Clone)]
 pub struct SubsetFont {
     pub bytes: Vec<u8>,
+    /// mapping (old glyph ID -> subset glyph ID + original char value)
     pub glyph_mapping: BTreeMap<u16, (u16, char)>,
 }
 
@@ -438,12 +586,6 @@ impl ParsedFont {
             })
             .collect::<BTreeSet<_>>();
 
-        /*
-        chars_to_resolve.extend(DEFAULT_ALPHABET.iter().flat_map(|line| {
-            line.chars().skip_while(|c| char::is_whitespace(*c))
-        }));
-        */
-
         let mut map = chars_to_resolve
             .iter()
             .filter_map(|c| self.lookup_glyph_index(*c as u32).map(|f| (f, *c)))
@@ -485,7 +627,8 @@ impl ParsedFont {
         gids.sort();
         gids.dedup();
 
-        let bytes = allsorts::subset::subset(&provider, &gids).map_err(|e| e.to_string())?;
+        let bytes = allsorts_subset_browser::subset::subset(&provider, &gids, &SubsetProfile::Web)
+            .map_err(|e| e.to_string())?;
 
         Ok(SubsetFont {
             bytes,
@@ -511,9 +654,10 @@ impl ParsedFont {
             .table_provider(self.original_index)
             .map_err(|e| e.to_string())?;
 
-        let font = allsorts::subset::subset(
+        let font = allsorts_subset_browser::subset::subset(
             &provider,
             &glyph_ids.iter().map(|s| s.0).collect::<Vec<_>>(),
+            &SubsetProfile::Web,
         )
         .map_err(|e| e.to_string())?;
 
@@ -523,30 +667,21 @@ impl ParsedFont {
         })
     }
 
+    /// Replace this function in the ParsedFont implementation
     pub(crate) fn generate_cid_to_unicode_map(
         &self,
         font_id: &FontId,
         glyph_ids: &BTreeMap<u16, char>,
     ) -> String {
-        // current first bit of the glyph id (0x10 or 0x12) for example
-        let mut cur_first_bit: u16 = 0_u16;
-        let mut all_cmap_blocks = Vec::new();
-        let mut current_cmap_block = Vec::new();
-
-        for (glyph_id, unicode) in glyph_ids.iter() {
-            // end the current (beginbfchar endbfchar) block if necessary
-            if (*glyph_id >> 8) != cur_first_bit || current_cmap_block.len() >= 100 {
-                all_cmap_blocks.push(current_cmap_block.clone());
-                current_cmap_block = Vec::new();
-                cur_first_bit = *glyph_id >> 8;
-            }
-
-            current_cmap_block.push((*glyph_id, *unicode as u32));
+        // Convert the glyph_ids map to a ToUnicodeCMap structure
+        let mut mappings = BTreeMap::new();
+        for (&glyph_id, &unicode) in glyph_ids {
+            mappings.insert(glyph_id as u32, vec![unicode as u32]);
         }
 
-        all_cmap_blocks.push(current_cmap_block);
-
-        generate_cid_to_unicode_map(font_id.0.clone(), all_cmap_blocks)
+        // Create the CMap and generate its string representation
+        let cmap = ToUnicodeCMap { mappings };
+        cmap.to_cmap_string(&font_id.0)
     }
 
     pub(crate) fn get_normalized_widths(
@@ -730,7 +865,7 @@ impl ParsedFont {
         font_index: usize,
         warnings: &mut Vec<PdfWarnMsg>,
     ) -> Option<Self> {
-        use allsorts::tag;
+        use allsorts_subset_browser::tag;
 
         let scope = ReadScope::new(font_bytes);
         let font_file = match scope.read::<FontData<'_>>() {
@@ -902,7 +1037,7 @@ impl ParsedFont {
             }
         };
 
-        let font_data_impl = match allsorts::font::Font::new(second_provider) {
+        let font_data_impl = match allsorts_subset_browser::font::Font::new(second_provider) {
             Ok(fdi) => {
                 warnings.push(PdfWarnMsg::info(
                     0,
@@ -1065,7 +1200,7 @@ impl ParsedFont {
                 }
 
                 let glyph_index = glyph_index as u16;
-                let horz_advance = match allsorts::glyph_info::advance(
+                let horz_advance = match allsorts_subset_browser::glyph_info::advance(
                     &maxp_table,
                     &hhea_table,
                     &hmtx_data,
@@ -1154,9 +1289,14 @@ impl ParsedFont {
         let glyph_index = self.lookup_glyph_index(' ' as u32)?;
         let maxp_table = self.maxp_table.as_ref()?;
         let hhea_table = self.hhea_table.as_ref()?;
-        allsorts::glyph_info::advance(&maxp_table, &hhea_table, &self.hmtx_data, glyph_index)
-            .ok()
-            .map(|s| s as usize)
+        allsorts_subset_browser::glyph_info::advance(
+            &maxp_table,
+            &hhea_table,
+            &self.hmtx_data,
+            glyph_index,
+        )
+        .ok()
+        .map(|s| s as usize)
     }
 
     /// Returns the width of the space " " character (unscaled units)
@@ -1187,29 +1327,6 @@ impl ParsedFont {
             _ => None,
         }
     }
-}
-
-type GlyphId = u16;
-type UnicodeCodePoint = u32;
-type CmapBlock = Vec<(GlyphId, UnicodeCodePoint)>;
-
-/// Generates a CMAP (character map) from valid cmap blocks
-fn generate_cid_to_unicode_map(face_name: String, all_cmap_blocks: Vec<CmapBlock>) -> String {
-    let mut cid_to_unicode_map = format!(include_str!("./res/gid_to_unicode_beg.txt"), face_name);
-
-    for cmap_block in all_cmap_blocks
-        .into_iter()
-        .filter(|block| !block.is_empty() || block.len() < 100)
-    {
-        cid_to_unicode_map.push_str(format!("{} beginbfchar\r\n", cmap_block.len()).as_str());
-        for (glyph_id, unicode) in cmap_block {
-            cid_to_unicode_map.push_str(format!("<{glyph_id:04x}> <{unicode:04x}>\n").as_str());
-        }
-        cid_to_unicode_map.push_str("endbfchar\r\n");
-    }
-
-    cid_to_unicode_map.push_str(include_str!("./res/gid_to_unicode_end.txt"));
-    cid_to_unicode_map
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1407,7 +1524,7 @@ impl FontMetrics {
             Ok(o) => o,
             Err(_) => return FontMetrics::default(),
         };
-        let font = match allsorts::font::Font::new(provider).ok() {
+        let font = match allsorts_subset_browser::font::Font::new(provider).ok() {
             Some(s) => s,
             _ => return FontMetrics::default(),
         };
@@ -1681,5 +1798,349 @@ impl FontMetrics {
     pub fn get_s_cap_height(&self, target_font_size: f32) -> Option<f32> {
         self.s_cap_height
             .map(|s| s as f32 / self.units_per_em as f32 * target_font_size)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::collections::BTreeMap;
+
+    use crate::*;
+
+    const WIN_1252: &[char; 214] = &[
+        '!', '"', '#', '$', '%', '&', '\'', '(', ')', '*', '+', ',', '-', '.', '/', '0', '1', '2',
+        '3', '4', '5', '6', '7', '8', '9', ':', ';', '<', '=', '>', '?', '@', 'A', 'B', 'C', 'D',
+        'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V',
+        'W', 'X', 'Y', 'Z', '[', '\\', ']', '^', '_', '`', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h',
+        'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
+        '{', '|', '}', '~', '€', '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', 'Ž', '‘',
+        '’', '“', '•', '–', '—', '˜', '™', 'š', '›', 'œ', 'ž', 'Ÿ', '¡', '¢', '£', '¤', '¥', '¦',
+        '§', '¨', '©', 'ª', '«', '¬', '®', '¯', '°', '±', '²', '³', '´', 'µ', '¶', '·', '¸', '¹',
+        'º', '»', '¼', '½', '¾', '¿', 'À', 'Á', 'Â', 'Ã', 'Ä', 'Å', 'Æ', 'Ç', 'È', 'É', 'Ê', 'Ë',
+        'Ì', 'Í', 'Î', 'Ï', 'Ð', 'Ñ', 'Ò', 'Ó', 'Ô', 'Õ', 'Ö', '×', 'Ø', 'Ù', 'Ú', 'Û', 'Ü', 'Ý',
+        'Þ', 'ß', 'à', 'á', 'â', 'ã', 'ä', 'å', 'æ', 'ç', 'è', 'é', 'ê', 'ë', 'ì', 'í', 'î', 'ï',
+        'ð', 'ñ', 'ò', 'ó', 'ô', 'õ', 'ö', '÷', 'ø', 'ù', 'ú', 'û', 'ü', 'ý', 'þ', 'ÿ',
+    ];
+
+    const FONTS: &[(BuiltinFont, &[u8])] = &[
+        (
+            BuiltinFont::Courier,
+            include_bytes!("../examples/assets/fonts/Courier.ttf"),
+        ),
+        (
+            BuiltinFont::CourierOblique,
+            include_bytes!("../examples/assets/fonts/Courier-Oblique.ttf"),
+        ),
+        (
+            BuiltinFont::CourierBold,
+            include_bytes!("../examples/assets/fonts/Courier-Bold.ttf"),
+        ),
+        (
+            BuiltinFont::CourierBoldOblique,
+            include_bytes!("../examples/assets/fonts/Courier-BoldOblique.ttf"),
+        ),
+        (
+            BuiltinFont::Helvetica,
+            include_bytes!("../examples/assets/fonts/Helvetica.ttf"),
+        ),
+        (
+            BuiltinFont::HelveticaBold,
+            include_bytes!("../examples/assets/fonts/Helvetica-Bold.ttf"),
+        ),
+        (
+            BuiltinFont::HelveticaOblique,
+            include_bytes!("../examples/assets/fonts/Helvetica-Oblique.ttf"),
+        ),
+        (
+            BuiltinFont::HelveticaBoldOblique,
+            include_bytes!("../examples/assets/fonts/Helvetica-BoldOblique.ttf"),
+        ),
+        (
+            BuiltinFont::Symbol,
+            include_bytes!("../examples/assets/fonts/PDFASymbol.woff2"),
+        ),
+        (
+            BuiltinFont::TimesRoman,
+            include_bytes!("../examples/assets/fonts/Times.ttf"),
+        ),
+        (
+            BuiltinFont::TimesBold,
+            include_bytes!("../examples/assets/fonts/Times-Bold.ttf"),
+        ),
+        (
+            BuiltinFont::TimesItalic,
+            include_bytes!("../examples/assets/fonts/Times-Oblique.ttf"),
+        ),
+        (
+            BuiltinFont::TimesBoldItalic,
+            include_bytes!("../examples/assets/fonts/Times-BoldOblique.ttf"),
+        ),
+        (
+            BuiltinFont::ZapfDingbats,
+            include_bytes!("../examples/assets/fonts/ZapfDingbats.ttf"),
+        ),
+    ];
+
+    #[test]
+    fn subset_test() {
+        let charmap = WIN_1252.iter().copied().collect();
+        let mut target_map = vec![];
+
+        let mut tm2 = BTreeMap::new();
+        for (name, bytes) in FONTS {
+            let font = ParsedFont::from_bytes(bytes, 0, &mut Vec::new()).unwrap();
+            let subset = font.subset_simple(&charmap).unwrap();
+            tm2.insert(name.clone(), subset.bytes.len());
+            let _ = std::fs::write(
+                format!(
+                    "{}/defaultfonts/{}.subset.ttf",
+                    env!("CARGO_MANIFEST_DIR"),
+                    name.get_id()
+                ),
+                crate::utils::compress(&subset.bytes),
+            );
+            for (old_gid, (new_gid, char)) in subset.glyph_mapping.iter() {
+                target_map.push(format!(
+                    "    ({}, {old_gid}, {new_gid}, '{c}'),",
+                    name.get_num(),
+                    c = if *char == '\'' {
+                        "\\'".to_string()
+                    } else if *char == '\\' {
+                        "\\\\".to_string()
+                    } else {
+                        char.to_string()
+                    }
+                ));
+            }
+        }
+
+        let mut tm = vec![format!(
+            "const FONTS: &[(usize, u16, u16, char);{}] = &[",
+            target_map.len()
+        )];
+        tm.append(&mut target_map);
+        tm.push("];".to_string());
+
+        tm.push("fn match_len(bytes: &[u8]) -> Option<BuiltinFont> {".to_string());
+        tm.push("match bytes.len() {".to_string());
+        for (f, b) in tm2.iter() {
+            tm.push(format!("{b} => Some(BuiltinFont::{f:?}),"));
+        }
+        tm.push("_ => None,".to_string());
+        tm.push("}".to_string());
+        tm.push("}".to_string());
+
+        let _ = std::fs::write(
+            format!("{}/defaultfonts/mapping.rs", env!("CARGO_MANIFEST_DIR")),
+            tm.join("\r\n"),
+        );
+    }
+}
+
+#[cfg(feature = "text_layout")]
+mod azul_convert {
+    use std::collections::BTreeMap;
+
+    pub(super) fn convert_to_azul_parsed_font(
+        font: &crate::font::ParsedFont,
+    ) -> azul_layout::text::shaping::ParsedFont {
+        azul_layout::text::shaping::ParsedFont {
+            font_metrics: convert_font_metrics(&font.font_metrics),
+            num_glyphs: font.num_glyphs,
+            hmtx_data: font.hmtx_data.clone(),
+            hhea_table: font.hhea_table.clone().unwrap_or(
+                allsorts_subset_browser::tables::HheaTable {
+                    ascender: 0,
+                    descender: 0,
+                    line_gap: 0,
+                    advance_width_max: 0,
+                    min_left_side_bearing: 0,
+                    min_right_side_bearing: 0,
+                    x_max_extent: 0,
+                    caret_slope_rise: 0,
+                    caret_slope_run: 0,
+                    caret_offset: 0,
+                    num_h_metrics: 0,
+                },
+            ),
+            maxp_table: font.maxp_table.clone().unwrap_or(
+                allsorts_subset_browser::tables::MaxpTable {
+                    num_glyphs: 0,
+                    version1_sub_table: None,
+                },
+            ),
+            gsub_cache: font.gsub_cache.clone(),
+            gpos_cache: font.gpos_cache.clone(),
+            opt_gdef_table: font.opt_gdef_table.clone(),
+            glyph_records_decoded: convert_glyph_records(&font.glyph_records_decoded),
+            space_width: font.space_width,
+            cmap_subtable: font.cmap_subtable.clone(),
+        }
+    }
+
+    fn convert_font_metrics(
+        metrics: &crate::font::FontMetrics,
+    ) -> azul_layout::text::layout::FontMetrics {
+        azul_layout::text::layout::FontMetrics {
+            units_per_em: metrics.units_per_em,
+            font_flags: metrics.font_flags,
+            x_min: metrics.x_min,
+            y_min: metrics.y_min,
+            x_max: metrics.x_max,
+            y_max: metrics.y_max,
+            ascender: metrics.ascender,
+            descender: metrics.descender,
+            line_gap: metrics.line_gap,
+            advance_width_max: metrics.advance_width_max,
+            min_left_side_bearing: metrics.min_left_side_bearing,
+            min_right_side_bearing: metrics.min_right_side_bearing,
+            x_max_extent: metrics.x_max_extent,
+            caret_slope_rise: metrics.caret_slope_rise,
+            caret_slope_run: metrics.caret_slope_run,
+            caret_offset: metrics.caret_offset,
+            num_h_metrics: metrics.num_h_metrics,
+            x_avg_char_width: metrics.x_avg_char_width,
+            us_weight_class: metrics.us_weight_class,
+            us_width_class: metrics.us_width_class,
+            fs_type: metrics.fs_type,
+            y_subscript_x_size: metrics.y_subscript_x_size,
+            y_subscript_y_size: metrics.y_subscript_y_size,
+            y_subscript_x_offset: metrics.y_subscript_x_offset,
+            y_subscript_y_offset: metrics.y_subscript_y_offset,
+            y_superscript_x_size: metrics.y_superscript_x_size,
+            y_superscript_y_size: metrics.y_superscript_y_size,
+            y_superscript_x_offset: metrics.y_superscript_x_offset,
+            y_superscript_y_offset: metrics.y_superscript_y_offset,
+            y_strikeout_size: metrics.y_strikeout_size,
+            y_strikeout_position: metrics.y_strikeout_position,
+            s_family_class: metrics.s_family_class,
+            panose: metrics.panose,
+            ul_unicode_range1: metrics.ul_unicode_range1,
+            ul_unicode_range2: metrics.ul_unicode_range2,
+            ul_unicode_range3: metrics.ul_unicode_range3,
+            ul_unicode_range4: metrics.ul_unicode_range4,
+            ach_vend_id: metrics.ach_vend_id,
+            fs_selection: metrics.fs_selection,
+            us_first_char_index: metrics.us_first_char_index,
+            us_last_char_index: metrics.us_last_char_index,
+            s_typo_ascender: metrics.s_typo_ascender.into(),
+            s_typo_descender: metrics.s_typo_descender.into(),
+            s_typo_line_gap: metrics.s_typo_line_gap.into(),
+            us_win_ascent: metrics.us_win_ascent.into(),
+            us_win_descent: metrics.us_win_descent.into(),
+            ul_code_page_range1: metrics.ul_code_page_range1.into(),
+            ul_code_page_range2: metrics.ul_code_page_range2.into(),
+            sx_height: metrics.sx_height.into(),
+            s_cap_height: metrics.s_cap_height.into(),
+            us_default_char: metrics.us_default_char.into(),
+            us_break_char: metrics.us_break_char.into(),
+            us_max_context: metrics.us_max_context.into(),
+            us_lower_optical_point_size: metrics.us_lower_optical_point_size.into(),
+            us_upper_optical_point_size: metrics.us_upper_optical_point_size.into(),
+        }
+    }
+
+    fn convert_glyph_records(
+        records: &BTreeMap<u16, crate::font::OwnedGlyph>,
+    ) -> BTreeMap<u16, azul_layout::text::shaping::OwnedGlyph> {
+        records
+            .iter()
+            .map(|(k, v)| {
+                (
+                    *k,
+                    azul_layout::text::shaping::OwnedGlyph {
+                        bounding_box: azul_layout::text::shaping::OwnedGlyphBoundingBox {
+                            max_x: v.bounding_box.max_x,
+                            max_y: v.bounding_box.max_y,
+                            min_x: v.bounding_box.min_x,
+                            min_y: v.bounding_box.min_y,
+                        },
+                        horz_advance: v.horz_advance,
+                        outline: v.outline.as_ref().map(|o| convert_glyph_outline(o)),
+                    },
+                )
+            })
+            .collect()
+    }
+
+    fn convert_glyph_outline(
+        outline: &crate::font::GlyphOutline,
+    ) -> azul_layout::text::shaping::GlyphOutline {
+        azul_layout::text::shaping::GlyphOutline {
+            operations: convert_glyph_outline_operations(&outline.operations),
+        }
+    }
+
+    fn convert_glyph_outline_operations(
+        ops: &[crate::font::GlyphOutlineOperation],
+    ) -> azul_layout::text::shaping::GlyphOutlineOperationVec {
+        ops.iter()
+            .map(to_azul_glyph_outline_operation)
+            .collect::<Vec<_>>()
+            .into()
+    }
+
+    /// Convert from printpdf GlyphOutlineOperation to azul_layout GlyphOutlineOperation
+    fn to_azul_glyph_outline_operation(
+        op: &crate::font::GlyphOutlineOperation,
+    ) -> azul_layout::text::shaping::GlyphOutlineOperation {
+        use azul_layout::text::shaping::{
+            GlyphOutlineOperation as AzulOp, OutlineCubicTo, OutlineLineTo, OutlineMoveTo,
+            OutlineQuadTo,
+        };
+
+        use crate::font::GlyphOutlineOperation as PdfOp;
+
+        match op {
+            PdfOp::MoveTo(m) => AzulOp::MoveTo(OutlineMoveTo { x: m.x, y: m.y }),
+            PdfOp::LineTo(l) => AzulOp::LineTo(OutlineLineTo { x: l.x, y: l.y }),
+            PdfOp::QuadraticCurveTo(q) => AzulOp::QuadraticCurveTo(OutlineQuadTo {
+                ctrl_1_x: q.ctrl_1_x,
+                ctrl_1_y: q.ctrl_1_y,
+                end_x: q.end_x,
+                end_y: q.end_y,
+            }),
+            PdfOp::CubicCurveTo(c) => AzulOp::CubicCurveTo(OutlineCubicTo {
+                ctrl_1_x: c.ctrl_1_x,
+                ctrl_1_y: c.ctrl_1_y,
+                ctrl_2_x: c.ctrl_2_x,
+                ctrl_2_y: c.ctrl_2_y,
+                end_x: c.end_x,
+                end_y: c.end_y,
+            }),
+            PdfOp::ClosePath => AzulOp::ClosePath,
+        }
+    }
+
+    /// Convert from azul_layout GlyphOutlineOperation to printpdf GlyphOutlineOperation
+    fn from_azul_glyph_outline_operation(
+        op: &azul_layout::text::shaping::GlyphOutlineOperation,
+    ) -> crate::font::GlyphOutlineOperation {
+        use azul_layout::text::shaping::GlyphOutlineOperation as AzulOp;
+
+        use crate::font::{
+            GlyphOutlineOperation as PdfOp, OutlineCubicTo, OutlineLineTo, OutlineMoveTo,
+            OutlineQuadTo,
+        };
+
+        match op {
+            AzulOp::MoveTo(m) => PdfOp::MoveTo(OutlineMoveTo { x: m.x, y: m.y }),
+            AzulOp::LineTo(l) => PdfOp::LineTo(OutlineLineTo { x: l.x, y: l.y }),
+            AzulOp::QuadraticCurveTo(q) => PdfOp::QuadraticCurveTo(OutlineQuadTo {
+                ctrl_1_x: q.ctrl_1_x,
+                ctrl_1_y: q.ctrl_1_y,
+                end_x: q.end_x,
+                end_y: q.end_y,
+            }),
+            AzulOp::CubicCurveTo(c) => PdfOp::CubicCurveTo(OutlineCubicTo {
+                ctrl_1_x: c.ctrl_1_x,
+                ctrl_1_y: c.ctrl_1_y,
+                ctrl_2_x: c.ctrl_2_x,
+                ctrl_2_y: c.ctrl_2_y,
+                end_x: c.end_x,
+                end_y: c.end_y,
+            }),
+            AzulOp::ClosePath => PdfOp::ClosePath,
+        }
     }
 }

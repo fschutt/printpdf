@@ -1,14 +1,7 @@
-//! Module regulating the comparison and feature sets / allowed plugins of a PDF document
-//!
-//! NOTE: All credit to Wikipedia:
-//!
-//! [PDF/X Versions](https://en.wikipedia.org/wiki/PDF/X)
-//!
-//! [PDF/A Versions](https://en.wikipedia.org/wiki/PDF/A)
-
 use serde_derive::{Deserialize, Serialize};
 
-/// List of (relevant) PDF versions
+/// List of (relevant) PDF versions, see Wikipedia
+///
 /// Please note the difference between **PDF/A** (archiving), **PDF/UA** (universal acessibility),
 /// **PDF/X** (printing), **PDF/E** (engineering / CAD), **PDF/VT** (large volume transactions with
 /// repeated content)
