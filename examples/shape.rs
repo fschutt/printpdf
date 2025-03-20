@@ -40,7 +40,6 @@ fn create_example_page(
 ) -> Vec<Op> {
     let mut ops = Vec::new();
 
-    /*
     // Start with a title
     ops.extend(create_title(
         doc,
@@ -107,7 +106,7 @@ fn create_example_page(
         Pt(20.0),
         page_height.into_pt() - Pt(200.0),
     ));
-    */
+
     ops.extend(create_text_with_hole(
         doc,
         font_id,
@@ -128,7 +127,6 @@ fn create_example_page(
         },
     ));
 
-    /*
     // Example 5: Multi-column text
     ops.extend(create_section_title(
         doc,
@@ -177,7 +175,6 @@ fn create_example_page(
         "Created with printpdf text shaping API",
         page_width.into_pt(),
     ));
-    */
 
     ops
 }
@@ -347,13 +344,16 @@ fn create_section_title(doc: &PdfDocument, font_id: &FontId, text: &str, x: Pt, 
         line: printpdf::Line {
             points: vec![
                 LinePoint {
-                    p: Point { x, y: y - Pt(2.0) },
+                    p: Point {
+                        x,
+                        y: y - options.font_size - Pt(2.0),
+                    },
                     bezier: false,
                 },
                 LinePoint {
                     p: Point {
                         x: x + Pt(200.0),
-                        y: y - Pt(2.0),
+                        y: y - options.font_size - Pt(2.0),
                     },
                     bezier: false,
                 },
@@ -447,7 +447,6 @@ fn create_text_with_hole(
 
     let options = TextShapingOptions {
         font_size: Pt(12.0),
-        line_height: Some(Pt(16.0)),
         max_width: Some(max_text_width),
         holes: vec![TextHole {
             rect: hole_relative_to_text_origin,
@@ -507,14 +506,14 @@ fn create_hole_with_label(hole_rect: &Rect, font_id: &FontId, label: &str) -> Ve
                     LinePoint {
                         p: Point {
                             x: Pt(hole_rect.x.0 + hole_rect.width.0),
-                            y: Pt(hole_rect.y.0 + hole_rect.height.0),
+                            y: Pt(hole_rect.y.0 - hole_rect.height.0),
                         },
                         bezier: false,
                     },
                     LinePoint {
                         p: Point {
                             x: hole_rect.x,
-                            y: Pt(hole_rect.y.0 + hole_rect.height.0),
+                            y: Pt(hole_rect.y.0 - hole_rect.height.0),
                         },
                         bezier: false,
                     },
@@ -531,7 +530,7 @@ fn create_hole_with_label(hole_rect: &Rect, font_id: &FontId, label: &str) -> Ve
     ops.push(Op::SetTextCursor {
         pos: Point {
             x: Pt(hole_rect.x.0 + hole_rect.width.0 / 2.0 - 20.0),
-            y: Pt(hole_rect.y.0 + hole_rect.height.0 / 2.0),
+            y: Pt(hole_rect.y.0 - hole_rect.height.0 / 2.0),
         },
     });
     ops.push(Op::SetFillColor {
@@ -716,14 +715,14 @@ fn create_measured_text_in_box(
                     LinePoint {
                         p: Point {
                             x: Pt(box_rect.x.0 + box_rect.width.0),
-                            y: Pt(box_rect.y.0 + box_rect.height.0),
+                            y: Pt(box_rect.y.0 - box_rect.height.0),
                         },
                         bezier: false,
                     },
                     LinePoint {
                         p: Point {
                             x: box_rect.x,
-                            y: Pt(box_rect.y.0 + box_rect.height.0),
+                            y: Pt(box_rect.y.0 - box_rect.height.0),
                         },
                         bezier: false,
                     },
@@ -738,21 +737,21 @@ fn create_measured_text_in_box(
     // Measure the text
     let font_size = Pt(12.0);
     let parsed_font = &doc.resources.fonts.map[font_id];
-    let shaped_text = parsed_font.shape_text(text, &TextShapingOptions::new(font_size), font_id);
+    let options = TextShapingOptions {
+        font_size,
+        align: TextAlign::Center,
+        max_width: Some(box_rect.width),
+        ..Default::default()
+    };
+    let shaped_text = parsed_font.shape_text(text, &options, font_id);
     let (text_width, text_height) = (shaped_text.width, shaped_text.height);
 
     // Calculate center position
-    let x = box_rect.x.0 + (box_rect.width.0 - text_width) / 2.0;
-    let y = box_rect.y.0 + (box_rect.height.0 - text_height) / 2.0 + box_rect.height.0 / 2.0;
+    let x = box_rect.x.0 + (box_rect.width.0 / 2.0) - (text_width / 2.0);
+    let y = box_rect.y.0 - (box_rect.height.0 / 2.0) + (text_height / 2.0);
 
     // Shape the text
-    let options = TextShapingOptions {
-        font_size,
-        ..Default::default()
-    };
-
     let origin = Point { x: Pt(x), y: Pt(y) };
-    let shaped_text = doc.shape_text(text, font_id, &options).unwrap();
 
     // Draw the text
     ops.extend(shaped_text.get_ops(origin));

@@ -236,6 +236,7 @@ impl ShapedText {
 
     pub fn get_ops(&self, origin_TOP_LEFT: Point) -> Vec<Op> {
         let line_height = self.options.line_height.unwrap_or(self.options.font_size);
+        let font_size = self.options.font_size.0;
 
         let mut ops = Vec::new();
 
@@ -249,7 +250,7 @@ impl ShapedText {
         ops.push(Op::SetTextCursor {
             pos: Point {
                 x: origin_TOP_LEFT.x,
-                y: origin_TOP_LEFT.y + line_height,
+                y: origin_TOP_LEFT.y - self.options.font_size,
             },
         });
 
@@ -274,6 +275,10 @@ impl ShapedText {
             }
 
             let mut textitems = Vec::new();
+            if line.x != 0.0 {
+                let offset = -((line.x / font_size) * 1000.0);
+                textitems.push(TextItem::Offset(offset));
+            }
             let mut lastx = 0.0;
 
             for word in line.words.iter() {
@@ -282,7 +287,6 @@ impl ShapedText {
                 }
 
                 let diff_x_pt = word.x - lastx;
-                let font_size = self.options.font_size.0;
 
                 lastx = word.x + word.width;
 
