@@ -4,20 +4,7 @@
 //! allowing for complex text layout with precise positioning, line breaks,
 //! and text flow around "holes" (like images or other non-text content).
 
-use std::collections::BTreeMap;
-
-use allsorts_subset_browser::cff::Font;
-use azul_core::{
-    callbacks::InlineText,
-    ui_solver::ResolvedTextLayoutOptions,
-    window::{LogicalPosition, LogicalRect, LogicalSize},
-};
-use azul_css::{LayoutSize, StyleTextAlign};
-use azul_layout::text::layout::{
-    position_words, shape_words, split_text_into_words, word_positions_to_inline_text_layout,
-};
-
-use crate::{FontId, Op, ParsedFont, PdfDocument, PdfResources, Point, Pt, Rect, TextItem};
+use crate::{FontId, Op, Point, Pt, Rect, TextItem};
 
 /// Represents a "hole" in the text layout where text won't flow
 #[derive(Debug, Clone)]
@@ -148,9 +135,10 @@ pub struct ShapedText {
 /// A vector of PDF operations
 #[allow(non_snake_case)]
 impl ShapedText {
+    #[cfg(feature = "text_layout")]
     pub(crate) fn from_inline_text(
         font_id: &FontId,
-        inline_text: &InlineText,
+        inline_text: &azul_core::callbacks::InlineText,
         options: &TextShapingOptions,
     ) -> Self {
         let mut shaped_text = ShapedText {

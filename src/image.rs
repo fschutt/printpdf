@@ -202,6 +202,7 @@ impl RawImageFormat {
         }
     }
 
+    #[allow(unused)]
     #[cfg(feature = "html")]
     fn from_internal(f: &azul_core::app_resources::RawImageFormat) -> Self {
         use azul_core::app_resources::RawImageFormat;
@@ -1778,6 +1779,7 @@ fn flate_encode(data: &[u8]) -> Option<Vec<u8>> {
 }
 
 // LZW encoding
+#[allow(dead_code)]
 fn lzw_encode(data: &[u8]) -> Option<Vec<u8>> {
     use weezl::{encode::Encoder, BitOrder};
     // Create encoder with MSB bit order (standard for PDF) and 8-bit code size
@@ -1786,6 +1788,7 @@ fn lzw_encode(data: &[u8]) -> Option<Vec<u8>> {
 }
 
 // Simple Run Length Encoding implementation
+#[allow(dead_code)]
 fn rle_encode(data: &[u8]) -> Option<Vec<u8>> {
     let mut result = Vec::with_capacity(data.len());
     let mut i = 0;
@@ -1967,6 +1970,7 @@ fn rgba_to_rgb(data: Vec<u8>) -> (Vec<u8>, Vec<u8>) {
     (rgb, alpha)
 }
 
+#[allow(dead_code)]
 fn rgba_to_rgb16(data: Vec<u16>) -> (Vec<u16>, Vec<u16>) {
     let mut rgb = Vec::with_capacity(data.len() / 4 * 3);
     let mut alpha = Vec::with_capacity(data.len() / 4);
@@ -1980,6 +1984,7 @@ fn rgba_to_rgb16(data: Vec<u16>) -> (Vec<u16>, Vec<u16>) {
     (rgb, alpha)
 }
 
+#[allow(dead_code)]
 fn rgba_to_rgbf32(data: Vec<f32>) -> (Vec<f32>, Vec<f32>) {
     let mut rgb = Vec::with_capacity(data.len() / 4 * 3);
     let mut alpha = Vec::with_capacity(data.len() / 4);

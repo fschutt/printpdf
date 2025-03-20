@@ -812,11 +812,6 @@ pub struct GlyphOutline {
     pub operations: Vec<GlyphOutlineOperation>,
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-struct GlyphOutlineBuilder {
-    operations: Vec<GlyphOutlineOperation>,
-}
-
 /*
 impl ttf_parser::OutlineBuilder for GlyphOutlineBuilder {
     fn move_to(&mut self, x: f32, y: f32) { self.operations.push(GlyphOutlineOperation::MoveTo(OutlineMoveTo { x, y })); }
@@ -2109,38 +2104,6 @@ mod azul_convert {
                 end_y: c.end_y,
             }),
             PdfOp::ClosePath => AzulOp::ClosePath,
-        }
-    }
-
-    /// Convert from azul_layout GlyphOutlineOperation to printpdf GlyphOutlineOperation
-    fn from_azul_glyph_outline_operation(
-        op: &azul_layout::text::shaping::GlyphOutlineOperation,
-    ) -> crate::font::GlyphOutlineOperation {
-        use azul_layout::text::shaping::GlyphOutlineOperation as AzulOp;
-
-        use crate::font::{
-            GlyphOutlineOperation as PdfOp, OutlineCubicTo, OutlineLineTo, OutlineMoveTo,
-            OutlineQuadTo,
-        };
-
-        match op {
-            AzulOp::MoveTo(m) => PdfOp::MoveTo(OutlineMoveTo { x: m.x, y: m.y }),
-            AzulOp::LineTo(l) => PdfOp::LineTo(OutlineLineTo { x: l.x, y: l.y }),
-            AzulOp::QuadraticCurveTo(q) => PdfOp::QuadraticCurveTo(OutlineQuadTo {
-                ctrl_1_x: q.ctrl_1_x,
-                ctrl_1_y: q.ctrl_1_y,
-                end_x: q.end_x,
-                end_y: q.end_y,
-            }),
-            AzulOp::CubicCurveTo(c) => PdfOp::CubicCurveTo(OutlineCubicTo {
-                ctrl_1_x: c.ctrl_1_x,
-                ctrl_1_y: c.ctrl_1_y,
-                ctrl_2_x: c.ctrl_2_x,
-                ctrl_2_y: c.ctrl_2_y,
-                end_x: c.end_x,
-                end_y: c.end_y,
-            }),
-            AzulOp::ClosePath => PdfOp::ClosePath,
         }
     }
 }

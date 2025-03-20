@@ -15,7 +15,7 @@ use serde_derive::{Deserialize, Serialize};
 use crate::{
     cmap::ToUnicodeCMap,
     conformance::PdfConformance,
-    date::{parse_pdf_date, Date, Offset, OffsetDateTime, Time, UtcOffset},
+    date::{parse_pdf_date, OffsetDateTime},
     BuiltinFont, BuiltinOrExternalFontId, Color, DictItem, ExtendedGraphicsState,
     ExtendedGraphicsStateId, ExtendedGraphicsStateMap, FontId, LayerInternalId, Line,
     LineDashPattern, LinePoint, LinkAnnotation, Op, PageAnnotId, PageAnnotMap, PaintMode,
@@ -82,6 +82,7 @@ struct InitialPdf {
     objs_to_search_for_resources: Vec<(Object, Option<usize>)>,
     page_refs: Vec<(u32, u16)>,
     document_info: PdfDocumentInfo,
+    #[allow(dead_code)]
     link_annots: Vec<LinkAnnotation>,
 }
 
@@ -226,7 +227,7 @@ fn parse_pdf_from_bytes_end(
         objs_to_search_for_resources,
         page_refs,
         document_info,
-        link_annots,
+        link_annots: _, // TODO
     } = initial_pdf;
 
     for (i, page_ref) in page_refs.into_iter().enumerate() {
@@ -1288,7 +1289,7 @@ pub fn parse_op(
     op: &lopdf::content::Operation,
     state: &mut PageState,
     fonts: &BTreeMap<BuiltinOrExternalFontId, ParsedOrBuiltinFont>,
-    xobjects: &BTreeMap<XObjectId, XObject>,
+    _xobjects: &BTreeMap<XObjectId, XObject>,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> Result<Vec<Op>, String> {
     use crate::units::Pt;
@@ -3518,7 +3519,7 @@ mod parsefont {
     /// Process font data (extract, decompress, parse) and handle ToUnicode CMap
     fn process_font_data(
         doc: &Document,
-        font_dict: &Dictionary,
+        _font_dict: &Dictionary,
         font_descriptor: &Dictionary,
         font_id: &FontId,
         warnings: &mut Vec<PdfWarnMsg>,
@@ -3559,7 +3560,7 @@ mod parsefont {
     fn get_font_data(
         doc: &Document,
         font_file_ref: &Object,
-        warnings: &mut Vec<PdfWarnMsg>,
+        _warnings: &mut Vec<PdfWarnMsg>,
     ) -> Option<Vec<u8>> {
         // Get font stream
         let font_stream = match font_file_ref {
@@ -3581,7 +3582,7 @@ mod parsefont {
     /// Process a standard font (Type1, TrueType, etc.)
     fn process_standard_font(
         font_dict: &Dictionary,
-        font_id: &FontId,
+        _font_id: &FontId,
         warnings: &mut Vec<PdfWarnMsg>,
         page_num: usize,
     ) -> Option<ParsedOrBuiltinFont> {

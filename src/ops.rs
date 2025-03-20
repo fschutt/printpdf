@@ -109,7 +109,7 @@ impl PdfPage {
     ///
     /// # Returns
     /// A vector of text chunks extracted from text sections
-    pub fn extract_text(&self, resources: &PdfResources) -> Vec<String> {
+    pub fn extract_text(&self, _resources: &PdfResources) -> Vec<String> {
         let mut text_chunks = Vec::new();
         let mut current_chunk = String::new();
         let mut in_text_section = false;
@@ -166,13 +166,13 @@ impl PdfPage {
                     }
                 }
                 Op::WriteCodepoints { font: _, cp } if in_text_section => {
-                    for (_, ch) in cp {
+                    for (_, _ch) in cp {
                         // current_chunk.push(*ch);
                     }
                     // current_chunk.push(' ');
                 }
                 Op::WriteCodepointsWithKerning { font: _, cpk } if in_text_section => {
-                    for (_, _, ch) in cpk {
+                    for (_, _, _ch) in cpk {
                         // current_chunk.push(*ch);
                     }
                     // current_chunk.push(' ');

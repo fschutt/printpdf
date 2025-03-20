@@ -962,18 +962,16 @@ fn transform_point(
 
     // Apply CTM first
     let ctm_array = ctm.as_array();
-    let final_x = ctm_array[0] * tx + ctm_array[2] * ty + ctm_array[4];
-    let final_y = ctm_array[1] * tx + ctm_array[3] * ty + ctm_array[5];
+    tx = ctm_array[0] * tx + ctm_array[2] * ty + ctm_array[4];
+    ty = ctm_array[1] * tx + ctm_array[3] * ty + ctm_array[5];
 
     // Apply text matrix
     let tm_array = text_matrix.as_array();
-    let new_x = tm_array[0] * tx + tm_array[2] * ty + tm_array[4];
-    let new_y = tm_array[1] * tx + tm_array[3] * ty + tm_array[5];
-    tx = new_x;
-    ty = new_y;
+    tx = tm_array[0] * tx + tm_array[2] * ty + tm_array[4];
+    ty = tm_array[1] * tx + tm_array[3] * ty + tm_array[5];
 
     // Convert to SVG coordinates (flip Y)
-    (final_x, page_height - final_y)
+    (tx, page_height - ty)
 }
 
 // Gets combined transform string for SVG elements

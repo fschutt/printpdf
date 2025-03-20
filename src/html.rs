@@ -152,7 +152,7 @@ pub(crate) fn html_to_document_inner(
     images: &BTreeMap<String, Base64OrRaw>,
     fonts: &BTreeMap<String, Base64OrRaw>,
     options: &GeneratePdfOptions,
-    warnings: &mut Vec<PdfWarnMsg>,
+    _warnings: &mut Vec<PdfWarnMsg>,
 ) -> Result<(String, PdfDocument, crate::XmlRenderOptions), String> {
     // Transform HTML to XML with extracted configuration
     let (transformed_xml, config) = crate::html::process_html_for_rendering(html);
@@ -560,7 +560,7 @@ fn displaylist_handle_rect_paginated(
     }
 
     // The rest of the function is similar to the original, but uses the paginated rect
-    let border_radius = get_border_radius(layout_result, html_node, original_node_id, styled_node);
+    let _border_radius = get_border_radius(layout_result, html_node, original_node_id, styled_node);
     let background_content =
         get_background_content(layout_result, html_node, original_node_id, styled_node);
     let opt_border = get_opt_border(layout_result, html_node, original_node_id, styled_node);
@@ -601,7 +601,7 @@ fn displaylist_handle_rect_paginated(
     }
 
     if let Some(border) = opt_border.as_ref() {
-        let (color_top, color_right, color_bottom, color_left) = (
+        let (color_top, _color_right, _color_bottom, _color_left) = (
             border
                 .colors
                 .top
@@ -624,7 +624,8 @@ fn displaylist_handle_rect_paginated(
                 .unwrap_or_default(),
         );
 
-        let (width_top, width_right, width_bottom, width_left) = (
+        // TODO! proper layout of rectangles!
+        let (width_top, _width_right, _width_bottom, _width_left) = (
             border
                 .widths
                 .top
@@ -1007,8 +1008,11 @@ fn get_border_radius(
 #[derive(Debug)]
 struct LayoutRectContentBackground {
     content: azul_core::display_list::RectBackground,
+    #[allow(dead_code)]
     size: Option<azul_css::StyleBackgroundSize>,
+    #[allow(dead_code)]
     offset: Option<azul_css::StyleBackgroundPosition>,
+    #[allow(dead_code)]
     repeat: Option<azul_css::StyleBackgroundRepeat>,
 }
 
@@ -1171,6 +1175,7 @@ fn get_text_node(
 struct LayoutRectContentBorder {
     widths: StyleBorderWidths,
     colors: StyleBorderColors,
+    #[allow(dead_code)]
     styles: StyleBorderStyles,
 }
 

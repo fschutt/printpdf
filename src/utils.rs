@@ -97,6 +97,7 @@ fn u8_to_char(input: u8) -> char {
     (b'A' + input) as char
 }
 
+#[allow(dead_code)]
 pub(crate) fn compress(bytes: &[u8]) -> Vec<u8> {
     use std::io::prelude::*;
 

@@ -637,7 +637,7 @@ pub(crate) fn translate_operations(
                     matrix.as_array().iter().copied().map(Real).collect(),
                 ));
             }
-            Op::LinkAnnotation { link } => {
+            Op::LinkAnnotation { link: _ } => {
                 // TODO!
             }
             Op::UseXobject { id, transform } => {

@@ -249,6 +249,7 @@ impl PdfDocument {
     /// Looks up a text and shapes it without coordinate transformation.
     ///
     /// Only returns `None` on an invalid `FontId`.
+    #[cfg(feature = "text_layout")]
     pub fn shape_text(
         &self,
         text: &str,
@@ -453,6 +454,7 @@ pub struct PdfResources {
 // Add methods to PdfResources
 impl PdfResources {
     /// Shape text using a font from the document's resources
+    #[cfg(feature = "text_layout")]
     pub fn shape_text(
         &self,
         text: &str,

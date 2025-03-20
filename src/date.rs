@@ -200,10 +200,7 @@ impl DateTime {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn unix_timestamp(&self) -> i64 {
-        use time::{
-            Date as TimeDate, Month as TimeMonth, OffsetDateTime as TimeOffsetDateTime,
-            PrimitiveDateTime, Time as TimeTime,
-        };
+        use time::{Date as TimeDate, Month as TimeMonth, PrimitiveDateTime, Time as TimeTime};
 
         let month = match self.date.month {
             1 => TimeMonth::January,
