@@ -699,11 +699,11 @@ impl ParsedFont {
         let percentage_font_scaling = 1000.0 / (self.font_metrics.units_per_em as f32);
 
         for gid in glyph_ids.keys() {
-            let (width, _) = match self.get_glyph_size(*gid) {
+            let width = match self.get_glyph_width_internal(*gid) {
                 Some(s) => s,
                 None => match self.get_space_width() {
-                    Some(w) => (w as i32, 0),
-                    None => (0, 0),
+                    Some(w) => w,
+                    None => 0,
                 },
             };
 
@@ -754,14 +754,11 @@ impl ParsedFont {
     }
 
     /// Returns the total width in UNSCALED units of the used glyph IDs
-    pub(crate) fn get_total_width(&self, glyph_ids: &BTreeMap<u16, char>) -> i64 {
-        let mut total_width = 0;
-        for (glyph_id, _) in glyph_ids.iter() {
-            if let Some((glyph_width, _)) = self.get_glyph_size(*glyph_id) {
-                total_width += glyph_width as i64;
-            }
-        }
-        total_width
+    pub(crate) fn get_total_width(&self, glyph_ids: &BTreeMap<u16, char>) -> usize {
+        glyph_ids
+            .keys()
+            .filter_map(|s| self.get_glyph_width_internal(*s))
+            .sum()
     }
 }
 
@@ -1282,10 +1279,17 @@ impl ParsedFont {
         Some(font)
     }
 
-    fn get_space_width_internal(&mut self) -> Option<usize> {
+    // returns the space width in unscaled units
+    fn get_space_width_internal(&self) -> Option<usize> {
         let glyph_index = self.lookup_glyph_index(' ' as u32)?;
+        self.get_glyph_width_internal(glyph_index)
+    }
+
+    // returns the glyph width in unscaled units
+    fn get_glyph_width_internal(&self, glyph_index: u16) -> Option<usize> {
         let maxp_table = self.maxp_table.as_ref()?;
         let hhea_table = self.hhea_table.as_ref()?;
+        // note: pass in vmtx_data for vertical writing here
         allsorts_subset_browser::glyph_info::advance(
             &maxp_table,
             &hhea_table,

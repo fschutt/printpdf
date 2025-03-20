@@ -878,7 +878,7 @@ impl PreparedFont {
             descent: font.font_metrics.descender as i64,
             widths_list: widths,
             max_height: font.get_max_height(&glyph_ids),
-            total_width: font.get_total_width(&glyph_ids),
+            total_width: font.get_total_width(&glyph_ids) as i64,
         })
     }
 }
