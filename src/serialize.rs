@@ -518,7 +518,7 @@ pub(crate) fn translate_operations(
 
                     for (kern, gid, _) in cpk {
                         if *kern != 0 {
-                            text_items.push(TextItem::Offset(i64_clamp(*kern)));
+                            text_items.push(TextItem::Offset(*kern as f32));
                         }
 
                         if let Some(subset_gid) = prepared_font.subset_font.glyph_mapping.get(gid) {
@@ -728,10 +728,6 @@ pub(crate) fn translate_operations(
     .unwrap_or_default()
 }
 
-fn i64_clamp(i: i64) -> i32 {
-    i.min(i32::MAX as i64).max(i32::MIN as i64) as i32
-}
-
 // Helper function to encode text items to PDF operations
 fn encode_text_items_to_pdf<T: PrepFont>(
     items: &[TextItem],
@@ -797,7 +793,7 @@ fn encode_text_items_to_pdf<T: PrepFont>(
                 }
             }
             TextItem::Offset(offset) => {
-                tj_array.push(Integer(*offset as i64));
+                tj_array.push(Real(*offset));
             }
         }
     }

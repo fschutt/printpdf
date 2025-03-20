@@ -145,7 +145,7 @@ impl PdfPage {
                     for item in items {
                         match item {
                             TextItem::Offset(o) => {
-                                if *o < -100 {
+                                if *o < -100.0 {
                                     current_chunk.push(' ');
                                 }
                             }
@@ -157,7 +157,7 @@ impl PdfPage {
                     for item in items {
                         match item {
                             TextItem::Offset(o) => {
-                                if *o < -100 {
+                                if *o < -100.0 {
                                     current_chunk.push(' ');
                                 }
                             }

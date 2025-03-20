@@ -239,31 +239,31 @@ fn main() {
         Op::WriteTextBuiltinFont {
             items: vec![
                 TextItem::Text("A".to_string()),
-                TextItem::Offset(-30), // Move closer to V
+                TextItem::Offset(-30.0), // Move closer to V
                 TextItem::Text("V".to_string()),
-                TextItem::Offset(10), // Normal spacing
+                TextItem::Offset(10.0), // Normal spacing
                 TextItem::Text("A".to_string()),
-                TextItem::Offset(-30), // Move closer to W
+                TextItem::Offset(-30.0), // Move closer to W
                 TextItem::Text("W".to_string()),
-                TextItem::Offset(-30), // Move closer to A
+                TextItem::Offset(-30.0), // Move closer to A
                 TextItem::Text("A".to_string()),
-                TextItem::Offset(-20), // Move closer to Y
+                TextItem::Offset(-20.0), // Move closer to Y
                 TextItem::Text("Y".to_string()),
-                TextItem::Offset(20), // Extra spacing
+                TextItem::Offset(20.0), // Extra spacing
                 TextItem::Text("W".to_string()),
-                TextItem::Offset(-30), // Move closer to A
+                TextItem::Offset(-30.0), // Move closer to A
                 TextItem::Text("A".to_string()),
-                TextItem::Offset(-30), // Move closer to V
+                TextItem::Offset(-30.0), // Move closer to V
                 TextItem::Text("V".to_string()),
-                TextItem::Offset(-30), // Move closer to E
+                TextItem::Offset(-30.0), // Move closer to E
                 TextItem::Text("E".to_string()),
-                TextItem::Offset(40), // Extra spacing
+                TextItem::Offset(40.0), // Extra spacing
                 TextItem::Text("T".to_string()),
-                TextItem::Offset(-20), // Move closer to o
+                TextItem::Offset(-20.0), // Move closer to o
                 TextItem::Text("o".to_string()),
-                TextItem::Offset(20), // Extra spacing
+                TextItem::Offset(20.0), // Extra spacing
                 TextItem::Text("V".to_string()),
-                TextItem::Offset(-40), // Move closer to a
+                TextItem::Offset(-40.0), // Move closer to a
                 TextItem::Text("a".to_string()),
             ],
             font: BuiltinFont::Helvetica,

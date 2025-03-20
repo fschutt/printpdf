@@ -235,7 +235,6 @@ impl ShapedText {
     }
 
     pub fn get_ops(&self, origin_TOP_LEFT: Point) -> Vec<Op> {
-        let font_id = &self.font_id;
         let line_height = self.options.line_height.unwrap_or(self.options.font_size);
 
         let mut ops = Vec::new();
@@ -250,51 +249,54 @@ impl ShapedText {
         ops.push(Op::SetTextCursor {
             pos: Point {
                 x: origin_TOP_LEFT.x,
-                y: origin_TOP_LEFT.y,
+                y: origin_TOP_LEFT.y + line_height,
             },
         });
 
         ops.push(Op::SetFontSize {
             size: self.options.font_size,
-            font: font_id.clone(),
+            font: self.font_id.clone(),
         });
-        ops.push(Op::SetWordSpacing { pt: Pt(100.0) });
+        ops.push(Op::SetFontSize {
+            size: self.options.font_size,
+            font: self.font_id.clone(),
+        });
+
+        // TODO: word spacing / character spacing
+
         ops.push(Op::SetLineHeight { lh: line_height });
 
-        for line in &self.lines {
-            // ... which is why we simply add a line break here before
-            // the first line starts
-            ops.push(Op::AddLineBreak);
-
-            // In difference to the text matrix, this will MOVE the text cursor
-            if line.x != 0.0 {
-                ops.push(Op::MoveTextCursorAndSetLeading {
-                    tx: line.x, // relative to text origin
-                    ty: 0.0,    // handled by line break already
-                });
+        for (i, line) in self.lines.as_slice().iter().enumerate() {
+            if i != 0 {
+                // ... which is why we simply add a line break here before
+                // the first line starts
+                ops.push(Op::AddLineBreak);
             }
 
+            let mut textitems = Vec::new();
             let mut lastx = 0.0;
+
             for word in line.words.iter() {
                 if word.text.trim().is_empty() {
                     continue;
                 }
 
-                let diff = word.x - lastx;
-                if diff.abs() != 0.0 {
-                    ops.push(Op::MoveTextCursorAndSetLeading {
-                        tx: diff, // relative to text origin
-                        ty: 0.0,  // handled by line break already
-                    });
-                }
+                let diff_x_pt = word.x - lastx;
+                let font_size = self.options.font_size.0;
 
-                lastx = word.x;
+                lastx = word.x + word.width;
 
-                ops.push(Op::WriteText {
-                    items: vec![TextItem::Text(word.text.clone())],
-                    font: font_id.clone(),
-                });
+                // Negative to move text to the right
+                let offset = -((diff_x_pt / font_size) * 1000.0);
+
+                textitems.push(TextItem::Offset(offset));
+                textitems.push(TextItem::Text(word.text.clone()));
             }
+
+            ops.push(Op::WriteText {
+                items: textitems,
+                font: self.font_id.clone(),
+            });
         }
 
         // End text section

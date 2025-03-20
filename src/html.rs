@@ -839,9 +839,7 @@ pub fn to_pdf_ops(
                     // If position changes significantly from expected, add positioning kerning
                     if !text_items.is_empty() && (word_origin.x - last_x_position).abs() > 0.1 {
                         // Add kerning offset
-                        text_items.push(TextItem::Offset(
-                            ((last_x_position - word_origin.x) * -1.0) as i32,
-                        ));
+                        text_items.push(TextItem::Offset((last_x_position - word_origin.x) * -1.0));
                     }
 
                     // Process each glyph in the word

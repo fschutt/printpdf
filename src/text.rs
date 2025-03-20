@@ -6,8 +6,10 @@ use serde_derive::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, PartialOrd, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum TextItem {
-    Text(String), // A segment of text
-    Offset(i32),  // A spacing adjustment (in thousandths of an em)
+    /// A segment of text
+    Text(String),
+    /// A spacing adjustment, in thousandths of an em
+    Offset(f32),
 }
 
 impl From<String> for TextItem {
@@ -22,34 +24,34 @@ impl From<&str> for TextItem {
     }
 }
 
-impl From<i32> for TextItem {
-    fn from(n: i32) -> Self {
-        TextItem::Offset(n)
-    }
-}
-
-impl From<i64> for TextItem {
-    fn from(n: i64) -> Self {
-        TextItem::Offset(n as i32)
-    }
-}
-
 impl From<f32> for TextItem {
     fn from(n: f32) -> Self {
-        TextItem::Offset(n.round() as i32)
+        TextItem::Offset(n)
     }
 }
 
 impl From<f64> for TextItem {
     fn from(n: f64) -> Self {
-        TextItem::Offset(n.round() as i32)
+        TextItem::Offset(n as f32)
+    }
+}
+
+impl From<i32> for TextItem {
+    fn from(n: i32) -> Self {
+        TextItem::Offset(n as f32)
+    }
+}
+
+impl From<i64> for TextItem {
+    fn from(n: i64) -> Self {
+        TextItem::Offset(n as f32)
     }
 }
 
 // Optional: For convenience with small integer literals
 impl From<u8> for TextItem {
     fn from(n: u8) -> Self {
-        TextItem::Offset(n as i32)
+        TextItem::Offset(n as f32)
     }
 }
 
@@ -113,10 +115,10 @@ pub fn decode_tj_operands(operands: &[Object], to_unicode: Option<&impl CMap>) -
                 items.push(TextItem::Text(s));
             }
             Object::Integer(i) => {
-                items.push(TextItem::Offset(*i as i32));
+                items.push(TextItem::Offset(*i as f32));
             }
             Object::Real(r) => {
-                items.push(TextItem::Offset(*r as i32));
+                items.push(TextItem::Offset(*r as f32));
             }
             _ => {
                 // Ignore unsupported types or log a warning.

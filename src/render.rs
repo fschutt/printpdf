@@ -742,7 +742,7 @@ fn render_to_svg_internal(
                     let mut items = Vec::new();
                     for (kerning, _, ch) in cpk {
                         if *kerning != 0 {
-                            items.push(TextItem::Offset(*kerning as i32));
+                            items.push(TextItem::Offset(*kerning as f32));
                         }
                         items.push(TextItem::Text(ch.to_string()));
                     }

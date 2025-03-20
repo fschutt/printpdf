@@ -115,8 +115,11 @@ fn create_example_page(
          other content. The text automatically wraps to avoid the rectangular area and continues \
          below it. This is useful for creating magazine-style layouts or technical documentation \
          where text needs to flow around diagrams, tables, or sidebar content.",
-        page_width.into_pt() - Pt(40.0),
-        page_height.into_pt() - Pt(220.0),
+        Pt(300.0),
+        Point {
+            x: Pt(20.0),
+            y: page_height.into_pt() - Pt(220.0),
+        },
         &Rect {
             x: Pt(100.0),
             y: page_height.into_pt() - Pt(250.0), // Position hole with top at y=250 from top
@@ -175,7 +178,7 @@ fn create_example_page(
         page_width.into_pt(),
     ));
     */
-    
+
     ops
 }
 
@@ -422,26 +425,45 @@ fn create_text_with_hole(
     doc: &PdfDocument,
     font_id: &FontId,
     text: &str,
-    width: Pt,
-    y: Pt,
-    hole_rect: &Rect,
+    max_text_width: Pt,
+    text_position_relative_to_page: Point,
+    hole_rect_relative_to_page: &Rect,
 ) -> Vec<Op> {
     let mut ops = Vec::new();
 
-    // Create hole
-    let hole = TextHole {
-        rect: hole_rect.clone(),
+    ops.extend(create_hole_with_label(
+        &hole_rect_relative_to_page,
+        font_id,
+        "IMAGE",
+    ));
+
+    let hole_relative_to_text_origin = Rect {
+        width: hole_rect_relative_to_page.width,
+        height: hole_rect_relative_to_page.height,
+        x: hole_rect_relative_to_page.x - text_position_relative_to_page.x,
+        y: (hole_rect_relative_to_page.y + hole_rect_relative_to_page.height)
+            - text_position_relative_to_page.y,
     };
 
     let options = TextShapingOptions {
         font_size: Pt(12.0),
         line_height: Some(Pt(16.0)),
-        max_width: Some(width),
-        holes: vec![hole.clone()],
+        max_width: Some(max_text_width),
+        holes: vec![TextHole {
+            rect: hole_relative_to_text_origin,
+        }],
         ..Default::default()
     };
 
     let shaped_text = doc.shape_text(text, font_id, &options).unwrap();
+    let text_ops = shaped_text.get_ops(text_position_relative_to_page);
+
+    ops.extend(text_ops);
+    ops
+}
+
+fn create_hole_with_label(hole_rect: &Rect, font_id: &FontId, label: &str) -> Vec<Op> {
+    let mut ops = Vec::new();
 
     // Draw a box for the hole
     ops.push(Op::SaveGraphicsState);
@@ -504,11 +526,6 @@ fn create_text_with_hole(
     });
     ops.push(Op::RestoreGraphicsState);
 
-    // Convert text to ops and add them
-    let origin = Point { x: Pt(20.0), y };
-    let text_ops = shaped_text.get_ops(origin);
-    ops.extend(text_ops);
-
     // Add image placeholder text in the hole
     ops.push(Op::StartTextSection);
     ops.push(Op::SetTextCursor {
@@ -532,11 +549,10 @@ fn create_text_with_hole(
     });
 
     ops.push(Op::WriteText {
-        items: vec![TextItem::Text("IMAGE".to_string())],
+        items: vec![TextItem::Text(label.to_string())],
         font: font_id.clone(),
     });
     ops.push(Op::EndTextSection);
-
     ops
 }
 
