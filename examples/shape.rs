@@ -40,6 +40,7 @@ fn create_example_page(
 ) -> Vec<Op> {
     let mut ops = Vec::new();
 
+    /*
     // Start with a title
     ops.extend(create_title(
         doc,
@@ -106,6 +107,7 @@ fn create_example_page(
         Pt(20.0),
         page_height.into_pt() - Pt(200.0),
     ));
+    */
     ops.extend(create_text_with_hole(
         doc,
         font_id,
@@ -123,6 +125,7 @@ fn create_example_page(
         },
     ));
 
+    /*
     // Example 5: Multi-column text
     ops.extend(create_section_title(
         doc,
@@ -171,7 +174,8 @@ fn create_example_page(
         "Created with printpdf text shaping API",
         page_width.into_pt(),
     ));
-
+    */
+    
     ops
 }
 

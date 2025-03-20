@@ -37,7 +37,7 @@ fn test_custom_font_roundtrip() {
         .save(&PdfSaveOptions::default(), &mut Vec::new());
 
     // Save the PDF for inspection if needed
-    std::fs::write("./test_font_roundtrip.pdf", &bytes).unwrap();
+    // std::fs::write("./test_font_roundtrip.pdf", &bytes).unwrap();
 
     // Now try to parse the PDF back
     let mut warnings = Vec::new();

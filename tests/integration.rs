@@ -222,10 +222,12 @@ fn test_html_to_document() {
         })
         .unwrap();
 
+    /*
     let _ = std::fs::write(
         "./htmltest.pdf",
         output.save(&PdfSaveOptions::default(), &mut Vec::new()),
     );
+    */
 
     assert!(!output.pages.is_empty());
 }

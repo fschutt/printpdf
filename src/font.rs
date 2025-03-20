@@ -351,6 +351,8 @@ impl ParsedFont {
 
         use crate::TextAlign;
 
+        let hie = options.holes.is_empty();
+
         let holes = options
             .holes
             .iter()
@@ -365,6 +367,10 @@ impl ParsedFont {
                 },
             })
             .collect::<Vec<_>>();
+
+        if !hie {
+            println!("holes: {holes:#?}");
+        }
 
         // Create layout options
         let resolved_options = ResolvedTextLayoutOptions {
@@ -381,17 +387,33 @@ impl ParsedFont {
         // Split text into words
         let words = split_text_into_words(text);
 
+        if !hie {
+            println!("words: {words:#?}");
+        }
+
         // Use adapter to convert to azul_layout's ParsedFont type
         let azul_font = self::azul_convert::convert_to_azul_parsed_font(self);
 
         // Shape words using azul_layout's shaping
         let shaped_words = shape_words(&words, &azul_font);
 
+        if !hie {
+            println!("shaped_words: {shaped_words:#?}");
+        }
+
         // Position words
         let word_positions = position_words(&words, &shaped_words, &resolved_options);
 
+        if !hie {
+            println!("word_positions: {word_positions:#?}");
+        }
+
         // Create text layout
         let mut inline_text_layout = word_positions_to_inline_text_layout(&word_positions);
+
+        if !hie {
+            println!("inline_text_layout: {inline_text_layout:#?}");
+        }
 
         let cs = options
             .max_width
@@ -425,8 +447,19 @@ impl ParsedFont {
             &inline_text_layout,
         );
 
+
+        if !hie {
+            println!("inline_text: {inline_text:#?}");
+        }
+
         // Extract shaped text from inline text
-        ShapedText::from_inline_text(font_id, &inline_text, options)
+        let st = ShapedText::from_inline_text(font_id, &inline_text, options);
+
+        if !hie {
+            println!("shaped text: {st:#?}");
+        }
+
+        st
     }
 }
 
