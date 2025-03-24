@@ -32,8 +32,6 @@ use crate::{
     cmap::ToUnicodeCMap, FontId, Op, PdfPage, PdfWarnMsg, ShapedText, TextItem, TextShapingOptions,
 };
 
-const SUBSET_OFFSET: u16 = 0;
-
 /// Builtin or external font
 #[derive(Debug, Clone, PartialEq)]
 pub enum Font {
@@ -704,7 +702,7 @@ impl ParsedFont {
         // Convert the glyph_ids map to a ToUnicodeCMap structure
         let mut mappings = BTreeMap::new();
         for (&glyph_id, &unicode) in glyph_ids {
-            mappings.insert(glyph_id as u32 + SUBSET_OFFSET as u32, vec![unicode as u32]);
+            mappings.insert(glyph_id as u32, vec![unicode as u32]);
         }
 
         // Create the CMap and generate its string representation
@@ -725,7 +723,7 @@ impl ParsedFont {
         let percentage_font_scaling = 1000.0 / (self.font_metrics.units_per_em as f32);
 
         for gid in glyph_ids.keys() {
-            let width = match self.get_glyph_width_internal(*gid + SUBSET_OFFSET) {
+            let width = match self.get_glyph_width_internal(*gid) {
                 Some(s) => s,
                 None => match self.get_space_width() {
                     Some(w) => w,
@@ -783,7 +781,7 @@ impl ParsedFont {
     pub(crate) fn get_total_width(&self, glyph_ids: &BTreeMap<u16, char>) -> usize {
         glyph_ids
             .keys()
-            .filter_map(|s| self.get_glyph_width_internal(*s + SUBSET_OFFSET))
+            .filter_map(|s| self.get_glyph_width_internal(*s))
             .sum()
     }
 }
