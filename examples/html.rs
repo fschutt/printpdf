@@ -12,6 +12,7 @@ fn main() -> Result<(), String> {
             "default",
             include_str!("./assets/html/default.html").to_string(),
         ),
+        /*
         (
             "recipe",
             include_str!("./assets/html/recipe.html").to_string(),
@@ -24,7 +25,11 @@ fn main() -> Result<(), String> {
             "synthwave",
             include_str!("./assets/html/synthwave.html").to_string(),
         ),
+        */
     ];
+    // let html_id = "default";
+    // let html_str = "<!doctype html><html><body><p>Hello</p></body></html>";
+    // let html = vec![(html_id, html_str)];
 
     // Convert the HTML to PDF pages
     let mut warnings = Vec::new();
