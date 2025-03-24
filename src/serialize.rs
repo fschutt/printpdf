@@ -3,6 +3,8 @@ use std::{
     io::Write,
 };
 
+use allsorts_subset_browser::tables::cmap;
+use azul_layout::image::encode;
 use lopdf::{
     content::Operation as LoOp,
     Dictionary as LoDictionary,
@@ -756,8 +758,8 @@ fn encode_text_items_to_pdf<T: PrepFont>(
                             // Get original glyph ID from the original font
                             if let Some(orig_gid) = font.lgi(c as u32) {
                                 // Encode subset glyph ID as two-byte value
-                                encoded.push((orig_gid >> 8) as u8);
-                                encoded.push((orig_gid & 0xFF) as u8);
+                                encoded.push(((orig_gid) >> 8) as u8);
+                                encoded.push(((orig_gid) & 0xFF) as u8);
                             } else {
                                 // Character not in font, use space or notdef
                                 encoded.push(0);
@@ -844,7 +846,7 @@ impl PreparedFont {
         glyph_ids: BTreeMap<u16, char>,
         warnings: &mut Vec<PdfWarnMsg>,
     ) -> Option<Self> {
-        let subset = font.subset(&glyph_ids.iter().map(|s| (*s.0, *s.1)).collect::<Vec<_>>());
+        let subset = font.subset_cff(&glyph_ids.iter().map(|s| (*s.0, *s.1)).collect::<Vec<_>>());
 
         let subset_font = match subset {
             Ok(o) => o,
@@ -877,8 +879,8 @@ impl PreparedFont {
             ascent: font.font_metrics.ascender as i64,
             descent: font.font_metrics.descender as i64,
             widths_list: widths,
-            max_height: font.get_max_height(&glyph_ids),
-            total_width: font.get_total_width(&glyph_ids) as i64,
+            max_height: font.get_max_height(&new_glyph_ids),
+            total_width: font.get_total_width(&new_glyph_ids) as i64,
         })
     }
 }
@@ -1123,17 +1125,57 @@ fn add_font_to_pdf(
     font_id: &FontId,
     prepared: &PreparedFont,
 ) -> LoDictionary {
-    let face_name = font_id.0.clone();
+    println!("\n\n##########################");
+    println!("{}", prepared.cid_to_unicode_map);
+
+    // let face_name = font_id.0.clone();
+    let face_name = String::from("NotoSansJP-Black");
 
     let vertical = prepared.vertical_writing;
 
     // WARNING: Font stream MAY NOT be compressed
+    // let font_stream = LoStream::new(
+    //     LoDictionary::from_iter(vec![("Subtype", Name("CIDFontType0C".into()))]),
+    //     prepared.original.cff_table_bytes.clone(),
+    // )
+    // .with_compression(false);
+
+    // let hex = prepared
+    //     .original
+    //     .cff_table_bytes
+    //     .clone()
+    //     .iter()
+    //     .map(|byte| format!("{:02X}", byte))
+    //     .collect::<String>();
+
+    // let font_stream = LoStream::new(
+    //     LoDictionary::from_iter(vec![
+    //         ("Subtype", Name("CIDFontType0C".into())),
+    //         ("Filter", Name("ASCIIHexDecode".into())),
+    //     ]),
+    //     hex.as_bytes().into(),
+    // )
+    // .with_compression(false);
+    // let hex = prepared
+    //     .subset_font
+    //     .bytes
+    //     .clone()
+    //     .iter()
+    //     .map(|byte| format!("{:02X}", byte))
+    //     .collect::<String>();
+
+    // let font_stream = LoStream::new(
+    //     LoDictionary::from_iter(vec![
+    //         ("Subtype", Name("OpenType".into())),
+    //         ("Filter", Name("ASCIIHexDecode".into())),
+    //     ]),
+    //     hex.as_bytes().into(),
+    // )
+    // .with_compression(false);
+
     let font_stream = LoStream::new(
-        LoDictionary::from_iter(vec![(
-            "Length1",
-            Integer(prepared.subset_font.bytes.len() as i64),
-        )]),
-        prepared.subset_font.bytes.clone(),
+        LoDictionary::from_iter(vec![("Subtype", Name("OpenType".into()))]),
+        prepared.subset_font.bytes.clone().into(),
     )
     .with_compression(false);
 
@@ -1142,11 +1184,11 @@ fn add_font_to_pdf(
     LoDictionary::from_iter(vec![
         ("Type", Name("Font".into())),
         ("Subtype", Name("Type0".into())),
-        ("BaseFont", Name(face_name.clone().into_bytes())),
         (
-            "Encoding",
-            Name(if vertical { "Identity-V" } else { "Identity-H" }.into()),
+            "BaseFont",
+            Name(format!("{}-Identity-H", face_name.clone()).into_bytes()),
         ),
+        ("Encoding", Name("Identity-H".into())),
         (
             "ToUnicode",
             Reference(doc.add_object(LoStream::new(
@@ -1158,8 +1200,8 @@ fn add_font_to_pdf(
             "DescendantFonts",
             Array(vec![Dictionary(LoDictionary::from_iter(vec![
                 ("Type", Name("Font".into())),
-                ("Subtype", Name("CIDFontType2".into())),
                 ("BaseFont", Name(face_name.clone().into_bytes())),
+                ("Subtype", Name("CIDFontType0".into())),
                 (
                     "CIDSystemInfo",
                     Dictionary(LoDictionary::from_iter(vec![
@@ -1181,20 +1223,23 @@ fn add_font_to_pdf(
                     Reference(doc.add_object(LoDictionary::from_iter(vec![
                         ("Type", Name("FontDescriptor".into())),
                         ("FontName", Name(face_name.clone().into_bytes())),
+                        ("FontFamily", LoString("Noto Sans JP Black".into(), Literal)),
                         ("Ascent", Integer(prepared.ascent)),
                         ("Descent", Integer(prepared.descent)),
                         ("CapHeight", Integer(prepared.ascent)),
                         ("ItalicAngle", Integer(0)),
                         ("Flags", Integer(32)),
                         ("StemV", Integer(80)),
-                        ("FontFile2", Reference(font_stream_ref)),
+                        ("FontFile3", Reference(font_stream_ref)),
                         (
                             "FontBBox",
                             Array(vec![
                                 Integer(0),
                                 Integer(0),
-                                Integer(prepared.total_width),
-                                Integer(prepared.max_height),
+                                // Integer(prepared.total_width),
+                                // Integer(prepared.max_height),
+                                Integer(1100),
+                                Integer(1000),
                             ]),
                         ),
                     ]))),
