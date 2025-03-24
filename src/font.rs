@@ -1510,7 +1510,6 @@ impl ParsedFont {
     // returns the space width in unscaled units
     fn get_space_width_internal(&self) -> Option<usize> {
         let glyph_index = self.lookup_glyph_index(' ' as u32)?;
-
         self.get_glyph_width_internal(glyph_index)
     }
 
@@ -1518,7 +1517,6 @@ impl ParsedFont {
     fn get_glyph_width_internal(&self, glyph_index: u16) -> Option<usize> {
         let maxp_table = self.maxp_table.as_ref()?;
         let hhea_table = self.hhea_table.as_ref()?;
-
         // note: pass in vmtx_data for vertical writing here
         allsorts_subset_browser::glyph_info::advance(
             &maxp_table,

@@ -3,8 +3,6 @@ use std::{
     io::Write,
 };
 
-use allsorts_subset_browser::tables::cmap;
-use azul_layout::image::encode;
 use lopdf::{
     content::Operation as LoOp,
     Dictionary as LoDictionary,
@@ -758,8 +756,8 @@ fn encode_text_items_to_pdf<T: PrepFont>(
                             // Get original glyph ID from the original font
                             if let Some(orig_gid) = font.lgi(c as u32) {
                                 // Encode subset glyph ID as two-byte value
-                                encoded.push(((orig_gid) >> 8) as u8);
-                                encoded.push(((orig_gid) & 0xFF) as u8);
+                                encoded.push((orig_gid >> 8) as u8);
+                                encoded.push((orig_gid & 0xFF) as u8);
                             } else {
                                 // Character not in font, use space or notdef
                                 encoded.push(0);
