@@ -956,8 +956,6 @@ fn solve_layout(
         &mut debug,
     );
 
-    println!("{:#?}", debug.unwrap_or_default());
-    println!("{:#?}", solved_layout);
     solved_layout.layout_results.remove(0)
 }
 
