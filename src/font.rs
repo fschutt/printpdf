@@ -7,16 +7,13 @@ use std::{
 };
 
 use allsorts_subset_browser::{
-    binary::{
-        read::{ReadArray, ReadScope},
-        write::WriteBinary,
-    },
+    binary::read::{ReadArray, ReadScope},
     cff::CFF,
     font::GlyphTableFlags,
     font_data::FontData,
     layout::{GDEFTable, LayoutCache, GPOS, GSUB},
     outline::{OutlineBuilder, OutlineSink},
-    subset::{tag, SubsetError, SubsetProfile},
+    subset::SubsetProfile,
     tables::SfntVersion,
     tables::{
         cmap::{owned::CmapSubtable as OwnedCmapSubtable, CmapSubtable},
@@ -304,6 +301,14 @@ impl BuiltinFont {
 }
 
 #[derive(Clone, Default)]
+pub(crate) enum FontType {
+    OpenTypeCFF,
+    OpenTypeCFF2,
+    #[default]
+    TrueType,
+}
+
+#[derive(Clone, Default)]
 pub struct ParsedFont {
     pub font_metrics: FontMetrics,
     pub num_glyphs: u16,
@@ -319,6 +324,7 @@ pub struct ParsedFont {
     pub cmap_subtable: Option<OwnedCmapSubtable>,
     pub original_bytes: Vec<u8>,
     pub original_index: usize,
+    pub font_type: FontType,
 }
 
 impl ParsedFont {
@@ -666,103 +672,25 @@ impl ParsedFont {
             .table_provider(self.original_index)
             .map_err(|e| e.to_string())?;
 
-        let font = if provider.has_table(tag::CFF) && provider.sfnt_version() == tag::OTTO {
-            let mut ids: Vec<u16> = vec![];
-            for s in glyph_ids {
-                ids.push(s.0);
+        let font = allsorts_subset_browser::subset::subset(
+            &provider,
+            &glyph_ids.iter().map(|s| s.0).collect::<Vec<_>>(),
+            &SubsetProfile::Web,
+        )
+        .map_err(|e| e.to_string())?;
+
+        //TODO: Remove later
+        match self.font_type {
+            FontType::TrueType => {
+                std::fs::write("subset.ttf", &font).unwrap();
             }
-
-            allsorts_subset_browser::subset::subset(&provider, &ids, &SubsetProfile::Full).unwrap()
-        } else if provider.has_table(tag::CFF2) && provider.sfnt_version() == tag::OTTO {
-            return Err(String::from("CFF2 font is not supported yet"));
-        } else if provider.has_table(tag::GLYF) {
-            allsorts_subset_browser::subset::subset(
-                &provider,
-                &glyph_ids.iter().map(|s| s.0).collect::<Vec<_>>(),
-                &SubsetProfile::Full,
-            )
-            .map_err(|e| e.to_string())?
-        } else {
-            return Err(String::from("Unsupported font file"));
-        };
+            _ => {
+                std::fs::write("subset.otf", &font).unwrap();
+            }
+        }
 
         Ok(SubsetFont {
             bytes: font,
-            glyph_mapping,
-        })
-    }
-
-    /// Generates a new font file from the used glyph IDs
-    pub fn subset_cff(&self, glyph_ids: &[(u16, char)]) -> Result<SubsetFont, String> {
-        let glyph_mapping = glyph_ids
-            .iter()
-            .enumerate()
-            .map(|(new_glyph_id, (original_glyph_id, ch))| {
-                (*original_glyph_id, (new_glyph_id as u16, *ch))
-            })
-            .collect();
-
-        let scope = ReadScope::new(&self.original_bytes);
-
-        let font_file = scope.read::<FontData<'_>>().map_err(|e| e.to_string())?;
-
-        let provider = font_file
-            .table_provider(self.original_index)
-            .map_err(|e| e.to_string())?;
-
-        let mut ids: Vec<u16> = vec![];
-        for s in glyph_ids {
-            ids.push(s.0);
-        }
-
-        let font =
-            allsorts_subset_browser::subset::subset(&provider, &ids, &SubsetProfile::Full).unwrap();
-        std::fs::write("f.otf", &font).unwrap();
-
-        Ok(SubsetFont {
-            bytes: font,
-            glyph_mapping,
-        })
-    }
-
-    pub fn subset_cff_table_old(&self, glyph_ids: &[(u16, char)]) -> Result<SubsetFont, String> {
-        let glyph_mapping = glyph_ids
-            .iter()
-            .enumerate()
-            .map(|(new_glyph_id, (original_glyph_id, ch))| {
-                (*original_glyph_id, (new_glyph_id as u16, *ch))
-            })
-            .collect();
-
-        let scope = ReadScope::new(&self.original_bytes);
-
-        let font_file = scope.read::<FontData<'_>>().map_err(|e| e.to_string())?;
-
-        let provider = font_file
-            .table_provider(self.original_index)
-            .map_err(|e| e.to_string())?;
-
-        let cff_data = provider.read_table_data(tag::CFF).unwrap();
-        let scope = ReadScope::new(&cff_data);
-        let cff: CFF<'_> = scope.read::<CFF<'_>>().unwrap();
-        if cff.name_index.len() != 1 || cff.fonts.len() != 1 {
-            return Err(SubsetError::InvalidFontCount.to_string());
-        }
-
-        let mut ids: Vec<u16> = vec![0];
-        for s in glyph_ids {
-            ids.push(s.0);
-        }
-
-        let cff_subset = cff.subset(&ids, false).unwrap();
-
-        let cff: CFF = cff_subset.into();
-        let mut buf = allsorts_subset_browser::binary::write::WriteBuffer::new();
-
-        CFF::write(&mut buf, &cff).unwrap();
-
-        Ok(SubsetFont {
-            bytes: buf.into_inner(),
             glyph_mapping,
         })
     }
@@ -823,7 +751,7 @@ impl ParsedFont {
         // push the last widths, because the loop is delayed by one iteration
         widths_list.push(Integer(current_low_gid as i64));
         widths_list.push(Array(std::mem::take(&mut current_width_vec)));
-        println!("WIDTH LIST {:?}", widths_list);
+
         widths_list
         /*
         let mut cmap = glyph_ids.iter()
@@ -853,7 +781,6 @@ impl ParsedFont {
 
     /// Returns the total width in UNSCALED units of the used glyph IDs
     pub(crate) fn get_total_width(&self, glyph_ids: &BTreeMap<u16, char>) -> usize {
-        println!("TOTAL {:?}", glyph_ids);
         glyph_ids
             .keys()
             .filter_map(|s| self.get_glyph_width_internal(*s + SUBSET_OFFSET))
@@ -1391,6 +1318,7 @@ impl ParsedFont {
             format!("Font metrics: units_per_em={}", font_metrics.units_per_em),
         ));
 
+        let mut font_type = FontType::default();
         let glyph_records_decoded = if font.glyph_table_flags.contains(GlyphTableFlags::CFF)
             && provider.sfnt_version() == tag::OTTO
         {
@@ -1400,37 +1328,48 @@ impl ParsedFont {
                 .and_then(|cff_data| {
                     let result = ReadScope::new(cff_data.as_ref()?).read_dep::<CFF>(()).ok();
                     if result.is_some() {
-                        println!("cff table extracted");
+                        warnings.push(PdfWarnMsg::info(
+                            0,
+                            0,
+                            "Successfully read CFF  table".to_string(),
+                        ));
                     } else {
-                        println!("failed to cff table");
+                        warnings.push(PdfWarnMsg::warning(
+                            0,
+                            0,
+                            "Failed to parse CFF  table".to_string(),
+                        ));
                     }
                     result
                 })
                 .unwrap();
 
-            let mut cff_table_buf = allsorts_subset_browser::binary::write::WriteBuffer::new();
-            CFF::write(&mut cff_table_buf, &cff_table).unwrap();
-            let cff_table_bytes: Vec<u8> = cff_table_buf.into_inner();
-
             let mut decoded: Vec<(u16, OwnedGlyph)> = vec![];
 
-            let count = font.maxp_table.num_glyphs;
-            println!("count {}", count);
+            let glyph_count = font.maxp_table.num_glyphs;
 
-            for glyph_index in 0..count {
+            for glyph_index in 0..glyph_count {
                 let mut owned_glyph = OwnedGlyph::new();
 
-                cff_table
-                    .visit(glyph_index, &mut owned_glyph)
-                    .map_err(|err| {
-                        println!("{:?}", err);
-                        err
-                    })
-                    .unwrap();
+                if let Err(e) = cff_table.visit(glyph_index, &mut owned_glyph) {
+                    warnings.push(PdfWarnMsg::warning(
+                        0,
+                        0,
+                        format!("Failed to parse glyph {}: {}", glyph_index, e),
+                    ));
+                    return None;
+                }
 
                 decoded.push((glyph_index, owned_glyph));
             }
 
+            warnings.push(PdfWarnMsg::info(
+                0,
+                0,
+                format!("Successfully decoded {} glyphs from CFF font", glyph_count),
+            ));
+
+            font_type = FontType::OpenTypeCFF;
             decoded.into_iter().collect()
         } else if font.glyph_table_flags.contains(GlyphTableFlags::CFF2)
             && provider.sfnt_version() == tag::OTTO
@@ -1440,6 +1379,7 @@ impl ParsedFont {
                 0,
                 format!("CFF2 font file is not supported yet"),
             ));
+            font_type = FontType::OpenTypeCFF2;
             return None;
         } else if font.glyph_table_flags.contains(GlyphTableFlags::GLYF) {
             // Process glyph records with detailed warnings
@@ -1498,7 +1438,7 @@ impl ParsedFont {
                                     0,
                                     0,
                                     format!(
-                                        "Failed to convert glyph {} to OwnedGlyph",
+                                        "Failed to convert glyph {} to OwnedGlyph from GLYF font",
                                         glyph_index
                                     ),
                                 ));
@@ -1515,6 +1455,8 @@ impl ParsedFont {
                 format!("Successfully decoded {} glyphs", glyph_count),
             ));
 
+            font_type = FontType::TrueType;
+
             decoded.into_iter().collect()
         } else {
             warnings.push(PdfWarnMsg::error(
@@ -1524,10 +1466,6 @@ impl ParsedFont {
             ));
             return None;
         };
-
-        //
-        //
-        //
 
         let mut font = ParsedFont {
             font_metrics,
@@ -1544,6 +1482,7 @@ impl ParsedFont {
             original_bytes: font_bytes.to_vec(),
             original_index: font_index,
             space_width: None,
+            font_type,
         };
 
         let space_width = font.get_space_width_internal();
@@ -1573,7 +1512,7 @@ impl ParsedFont {
     // returns the space width in unscaled units
     fn get_space_width_internal(&self) -> Option<usize> {
         let glyph_index = self.lookup_glyph_index(' ' as u32)?;
-        println!("glyph index of white space {}", glyph_index);
+
         self.get_glyph_width_internal(glyph_index)
     }
 

@@ -15,10 +15,10 @@ use lopdf::{
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    color::IccProfile, font::SubsetFont, Actions, BuiltinFont, Color, ColorArray, Destination,
-    FontId, IccProfileType, ImageOptimizationOptions, Line, LinkAnnotation, Op, PaintMode,
-    ParsedFont, PdfDocument, PdfDocumentInfo, PdfPage, PdfResources, PdfWarnMsg, Polygon, PrepFont,
-    TextItem, XObject, XObjectId,
+    color::IccProfile, font::FontType, font::SubsetFont, Actions, BuiltinFont, Color, ColorArray,
+    Destination, FontId, IccProfileType, ImageOptimizationOptions, Line, LinkAnnotation, Op,
+    PaintMode, ParsedFont, PdfDocument, PdfDocumentInfo, PdfPage, PdfResources, PdfWarnMsg,
+    Polygon, PrepFont, TextItem, XObject, XObjectId,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
@@ -846,7 +846,7 @@ impl PreparedFont {
         glyph_ids: BTreeMap<u16, char>,
         warnings: &mut Vec<PdfWarnMsg>,
     ) -> Option<Self> {
-        let subset = font.subset_cff(&glyph_ids.iter().map(|s| (*s.0, *s.1)).collect::<Vec<_>>());
+        let subset = font.subset(&glyph_ids.iter().map(|s| (*s.0, *s.1)).collect::<Vec<_>>());
 
         let subset_font = match subset {
             Ok(o) => o,
@@ -1125,70 +1125,33 @@ fn add_font_to_pdf(
     font_id: &FontId,
     prepared: &PreparedFont,
 ) -> LoDictionary {
-    println!("\n\n##########################");
-    println!("{}", prepared.cid_to_unicode_map);
-
-    // let face_name = font_id.0.clone();
-    let face_name = String::from("NotoSansJP-Black");
+    let face_name = font_id.0.clone();
 
     let vertical = prepared.vertical_writing;
 
+    let (sub_type, font_file_key, font_dict) = match prepared.original.font_type {
+        FontType::OpenTypeCFF | FontType::OpenTypeCFF2 => (
+            "CIDFontType0",
+            "FontFile3",
+            LoDictionary::from_iter(vec![("Subtype", Name("OpenType".into()))]),
+        ),
+        FontType::TrueType => ("CIDFontType2", "FontFile2", LoDictionary::new()),
+    };
+
     // WARNING: Font stream MAY NOT be compressed
-    // let font_stream = LoStream::new(
-    //     LoDictionary::from_iter(vec![("Subtype", Name("CIDFontType0C".into()))]),
-    //     prepared.original.cff_table_bytes.clone(),
-    // )
-    // .with_compression(false);
-
-    // let hex = prepared
-    //     .original
-    //     .cff_table_bytes
-    //     .clone()
-    //     .iter()
-    //     .map(|byte| format!("{:02X}", byte))
-    //     .collect::<String>();
-
-    // let font_stream = LoStream::new(
-    //     LoDictionary::from_iter(vec![
-    //         ("Subtype", Name("CIDFontType0C".into())),
-    //         ("Filter", Name("ASCIIHexDecode".into())),
-    //     ]),
-    //     hex.as_bytes().into(),
-    // )
-    // .with_compression(false);
-    // let hex = prepared
-    //     .subset_font
-    //     .bytes
-    //     .clone()
-    //     .iter()
-    //     .map(|byte| format!("{:02X}", byte))
-    //     .collect::<String>();
-
-    // let font_stream = LoStream::new(
-    //     LoDictionary::from_iter(vec![
-    //         ("Subtype", Name("OpenType".into())),
-    //         ("Filter", Name("ASCIIHexDecode".into())),
-    //     ]),
-    //     hex.as_bytes().into(),
-    // )
-    // .with_compression(false);
-
-    let font_stream = LoStream::new(
-        LoDictionary::from_iter(vec![("Subtype", Name("OpenType".into()))]),
-        prepared.subset_font.bytes.clone().into(),
-    )
-    .with_compression(false);
+    let font_stream =
+        LoStream::new(font_dict, prepared.subset_font.bytes.clone().into()).with_compression(false);
 
     let font_stream_ref = doc.add_object(font_stream);
 
     LoDictionary::from_iter(vec![
         ("Type", Name("Font".into())),
         ("Subtype", Name("Type0".into())),
+        ("BaseFont", Name(face_name.clone().into_bytes())),
         (
-            "BaseFont",
-            Name(format!("{}-Identity-H", face_name.clone()).into_bytes()),
+            "Encoding",
+            Name(if vertical { "Identity-V" } else { "Identity-H" }.into()),
         ),
-        ("Encoding", Name("Identity-H".into())),
         (
             "ToUnicode",
             Reference(doc.add_object(LoStream::new(
@@ -1201,7 +1164,7 @@ fn add_font_to_pdf(
             Array(vec![Dictionary(LoDictionary::from_iter(vec![
                 ("Type", Name("Font".into())),
                 ("BaseFont", Name(face_name.clone().into_bytes())),
-                ("Subtype", Name("CIDFontType0".into())),
+                ("Subtype", Name(sub_type.into())),
                 (
                     "CIDSystemInfo",
                     Dictionary(LoDictionary::from_iter(vec![
@@ -1223,23 +1186,20 @@ fn add_font_to_pdf(
                     Reference(doc.add_object(LoDictionary::from_iter(vec![
                         ("Type", Name("FontDescriptor".into())),
                         ("FontName", Name(face_name.clone().into_bytes())),
-                        ("FontFamily", LoString("Noto Sans JP Black".into(), Literal)),
                         ("Ascent", Integer(prepared.ascent)),
                         ("Descent", Integer(prepared.descent)),
                         ("CapHeight", Integer(prepared.ascent)),
                         ("ItalicAngle", Integer(0)),
                         ("Flags", Integer(32)),
                         ("StemV", Integer(80)),
-                        ("FontFile3", Reference(font_stream_ref)),
+                        (font_file_key, Reference(font_stream_ref)),
                         (
                             "FontBBox",
                             Array(vec![
                                 Integer(0),
                                 Integer(0),
-                                // Integer(prepared.total_width),
-                                // Integer(prepared.max_height),
-                                Integer(1100),
-                                Integer(1000),
+                                Integer(prepared.total_width),
+                                Integer(prepared.max_height),
                             ]),
                         ),
                     ]))),
