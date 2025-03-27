@@ -1363,7 +1363,7 @@ impl ParsedFont {
                 0,
                 format!("CFF2 font file is not supported yet"),
             ));
-            font_type = FontType::OpenTypeCFF2;
+
             return None;
         } else if font.glyph_table_flags.contains(GlyphTableFlags::GLYF) {
             // Process glyph records with detailed warnings
