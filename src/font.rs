@@ -670,22 +670,32 @@ impl ParsedFont {
             .table_provider(self.original_index)
             .map_err(|e| e.to_string())?;
 
-        let font = allsorts_subset_browser::subset::subset(
-            &provider,
-            &glyph_ids.iter().map(|s| s.0).collect::<Vec<_>>(),
-            &SubsetProfile::Web,
-        )
-        .map_err(|e| e.to_string())?;
-
-        //TODO: Remove later
-        match self.font_type {
+        //TODO: Clean up later
+        let font = match self.font_type {
             FontType::TrueType => {
+                let font = allsorts_subset_browser::subset::subset(
+                    &provider,
+                    &glyph_ids.iter().map(|s| s.0).collect::<Vec<_>>(),
+                    &SubsetProfile::Web,
+                )
+                .map_err(|e| e.to_string())?;
                 std::fs::write("subset.ttf", &font).unwrap();
+                font
             }
             _ => {
+                let mut ids = vec![0];
+                for glyph_id in glyph_ids {
+                    ids.push(glyph_id.0);
+                }
+
+                let font =
+                    allsorts_subset_browser::subset::subset(&provider, &ids, &SubsetProfile::Web)
+                        .map_err(|e| e.to_string())?;
+
                 std::fs::write("subset.otf", &font).unwrap();
+                font
             }
-        }
+        };
 
         Ok(SubsetFont {
             bytes: font,
@@ -1130,30 +1140,6 @@ impl ParsedFont {
                 offsets: LocaOffsets::Long(ReadArray::empty()),
             });
 
-        let glyf_table = provider.table_data(tag::GLYF).ok();
-        let mut glyf_table = glyf_table
-            .as_ref()
-            .and_then(|glyf_data| {
-                let result = ReadScope::new(glyf_data.as_ref()?)
-                    .read_dep::<GlyfTable<'_>>(&loca_table)
-                    .ok();
-                if result.is_some() {
-                    warnings.push(PdfWarnMsg::info(
-                        0,
-                        0,
-                        "Successfully read GLYF table".to_string(),
-                    ));
-                } else {
-                    warnings.push(PdfWarnMsg::warning(
-                        0,
-                        0,
-                        "Failed to parse GLYF table".to_string(),
-                    ));
-                }
-                result
-            })
-            .unwrap_or(GlyfTable::new(Vec::new()).unwrap());
-
         let second_scope = ReadScope::new(font_bytes);
         let second_font_file = match second_scope.read::<FontData<'_>>() {
             Ok(ff) => ff,
@@ -1381,6 +1367,30 @@ impl ParsedFont {
             return None;
         } else if font.glyph_table_flags.contains(GlyphTableFlags::GLYF) {
             // Process glyph records with detailed warnings
+            let glyf_table = provider.table_data(tag::GLYF).ok();
+            let mut glyf_table = glyf_table
+                .as_ref()
+                .and_then(|glyf_data| {
+                    let result = ReadScope::new(glyf_data.as_ref()?)
+                        .read_dep::<GlyfTable<'_>>(&loca_table)
+                        .ok();
+                    if result.is_some() {
+                        warnings.push(PdfWarnMsg::info(
+                            0,
+                            0,
+                            "Successfully read GLYF table".to_string(),
+                        ));
+                    } else {
+                        warnings.push(PdfWarnMsg::warning(
+                            0,
+                            0,
+                            "Failed to parse GLYF table".to_string(),
+                        ));
+                    }
+                    result
+                })
+                .unwrap_or(GlyfTable::new(Vec::new()).unwrap());
+
             let mut glyph_count = 0;
             let decoded = glyf_table
                 .records_mut()
