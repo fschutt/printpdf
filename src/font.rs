@@ -790,17 +790,18 @@ begincmap
 end def
 
 /CMapName /CIDFont-CMap def
-
 /CMapVersion 1.0 def
 /CMapType 1 def
 
 /UIDOffset 0 def
+/XUID [] def
 
 /WMode 0 def
 
 1 begincodespacerange
 <0000> <FFFF>
 endcodespacerange
+
 "##
         );
         cmap_content.push_str(&format!("{} begincidchar\n", cid_to_gid_map.len()));
@@ -813,6 +814,8 @@ endcodespacerange
             r##"CMapName currentdict /CMap defineresource pop
 end
 end
+%%EndResource
+%%EOF
 "##,
         );
 
@@ -832,7 +835,7 @@ end
         let percentage_font_scaling = 1000.0 / (self.font_metrics.units_per_em as f32);
 
         for gid in glyph_ids.keys() {
-            let width = match self.get_glyph_width_internal(*gid + 1) {
+            let width = match self.get_glyph_width_internal(*gid) {
                 Some(s) => s,
                 None => match self.get_space_width() {
                     Some(w) => w,
@@ -856,7 +859,7 @@ end
         }
 
         // push the last widths, because the loop is delayed by one iteration
-        widths_list.push(Integer(current_low_gid as i64 + 1));
+        widths_list.push(Integer(current_low_gid as i64));
         widths_list.push(Array(std::mem::take(&mut current_width_vec)));
 
         widths_list

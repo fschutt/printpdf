@@ -67,7 +67,7 @@ pub fn init_doc_and_resources(
     pdf: &PdfDocument,
     opts: &PdfSaveOptions,
 ) -> (lopdf::Document, lopdf::Dictionary) {
-    let mut doc = lopdf::Document::with_version("1.3");
+    let mut doc = lopdf::Document::with_version("1.6");
     doc.reference_table.cross_reference_type = lopdf::xref::XrefType::CrossReferenceTable;
 
     let mut global_xobject_dict = LoDictionary::new();
@@ -1223,26 +1223,33 @@ fn add_font_to_pdf(
                 ),
                 (
                     "FontDescriptor",
-                    Reference(doc.add_object(LoDictionary::from_iter(vec![
-                        ("Type", Name("FontDescriptor".into())),
-                        ("FontName", Name(face_name.clone().into_bytes())),
-                        ("Ascent", Integer(prepared.ascent)),
-                        ("Descent", Integer(prepared.descent)),
-                        ("CapHeight", Integer(prepared.ascent)),
-                        ("ItalicAngle", Integer(0)),
-                        ("Flags", Integer(32)),
-                        ("StemV", Integer(80)),
-                        (font_file_key, Reference(font_stream_ref)),
-                        (
-                            "FontBBox",
-                            Array(vec![
-                                Integer(prepared.original.font_metrics.x_min as i64),
-                                Integer(prepared.original.font_metrics.y_min as i64),
-                                Integer(prepared.original.font_metrics.x_max as i64),
-                                Integer(prepared.original.font_metrics.y_max as i64),
-                            ]),
-                        ),
-                    ]))),
+                    Reference(
+                        doc.add_object(LoDictionary::from_iter(vec![
+                            ("Type", Name("FontDescriptor".into())),
+                            ("FontName", Name(face_name.clone().into_bytes())),
+                            ("Ascent", Integer(prepared.ascent)),
+                            ("Descent", Integer(prepared.descent)),
+                            (
+                                "CapHeight",
+                                Integer(
+                                    prepared.original.font_metrics.s_cap_height.unwrap_or(0) as i64
+                                ),
+                            ),
+                            ("ItalicAngle", Integer(0)),
+                            ("Flags", Integer(32)),
+                            ("StemV", Integer(80)),
+                            (font_file_key, Reference(font_stream_ref)),
+                            (
+                                "FontBBox",
+                                Array(vec![
+                                    Integer(prepared.original.font_metrics.x_min as i64),
+                                    Integer(prepared.original.font_metrics.y_min as i64),
+                                    Integer(prepared.original.font_metrics.x_max as i64),
+                                    Integer(prepared.original.font_metrics.y_max as i64),
+                                ]),
+                            ),
+                        ])),
+                    ),
                 ),
             ]))]),
         ),
