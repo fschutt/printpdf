@@ -823,6 +823,7 @@ pub(crate) struct PreparedFont {
     original: ParsedFont,
     pub(crate) subset_font: SubsetFont,
     cid_to_unicode_map: String,
+    custom_cmap: Option<String>,
     vertical_writing: bool, // default: false
     ascent: i64,
     descent: i64,
@@ -865,7 +866,18 @@ impl PreparedFont {
 
         let font = ParsedFont::from_bytes(&subset_font.bytes, 0, warnings)?;
         let cid_to_unicode = font.generate_cid_to_unicode_map(font_id, &new_glyph_ids);
-        let widths = font.get_normalized_widths(&new_glyph_ids);
+
+        let (widths, custom_cmap) = match font.font_type {
+            FontType::TrueType => (font.get_normalized_widths_ttf(&new_glyph_ids), None),
+            _ => {
+                let cid_to_gid = font.generate_cid_to_gid(&new_glyph_ids);
+                let custom_cmap = font.generate_encoding_cmap(&cid_to_gid);
+                (
+                    font.get_normalized_widths_cff(&cid_to_gid),
+                    Some(custom_cmap),
+                )
+            }
+        };
 
         assert_eq!(font.original_bytes.len(), subset_font.bytes.len());
 
@@ -873,6 +885,7 @@ impl PreparedFont {
             original: font.clone(),
             subset_font,
             cid_to_unicode_map: cid_to_unicode,
+            custom_cmap,
             vertical_writing: false, // !font.vmtx_data.is_empty(),
             ascent: font.font_metrics.ascender as i64,
             descent: font.font_metrics.descender as i64,
@@ -1123,17 +1136,49 @@ fn add_font_to_pdf(
     font_id: &FontId,
     prepared: &PreparedFont,
 ) -> LoDictionary {
-    let face_name = font_id.0.clone();
+    let face_name = prepared
+        .original
+        .font_name
+        .clone()
+        .unwrap_or(font_id.0.clone());
+
+    //TODO: should add an unique prefix for each subset
+    let face_name = format!("ABCDEF+{}", face_name);
 
     let vertical = prepared.vertical_writing;
 
-    let (sub_type, font_file_key, font_dict) = match prepared.original.font_type {
+    let (sub_type, font_file_key, font_dict, encoding) = match prepared.original.font_type {
         FontType::OpenTypeCFF | FontType::OpenTypeCFF2 => (
             "CIDFontType0",
             "FontFile3",
             LoDictionary::from_iter(vec![("Subtype", Name("OpenType".into()))]),
+            Reference(doc.add_object(LoStream::new(
+                LoDictionary::from_iter(vec![
+                    ("Type", Name("CMap".into())),
+                    ("CMapName", Name("CIDFont-CMap".into())),
+                    ("WMode", Integer(0)),
+                    (
+                        "CIDSystemInfo",
+                        Dictionary(LoDictionary::from_iter(vec![
+                            ("Registry", LoString("Adobe".into(), Literal)),
+                            ("Ordering", LoString("Identity".into(), Literal)),
+                            ("Supplement", Integer(0)),
+                        ])),
+                    ),
+                ]),
+                prepared.custom_cmap.as_ref().unwrap().as_bytes().to_vec(),
+            ))),
         ),
-        FontType::TrueType => ("CIDFontType2", "FontFile2", LoDictionary::new()),
+        FontType::TrueType => (
+            "CIDFontType2",
+            "FontFile2",
+            LoDictionary::new(),
+            if vertical {
+                Name("Identity-V".into())
+            } else {
+                Name("Identity-H".into())
+            },
+        ),
     };
 
     // WARNING: Font stream MAY NOT be compressed
@@ -1146,10 +1191,7 @@ fn add_font_to_pdf(
         ("Type", Name("Font".into())),
         ("Subtype", Name("Type0".into())),
         ("BaseFont", Name(face_name.clone().into_bytes())),
-        (
-            "Encoding",
-            Name(if vertical { "Identity-V" } else { "Identity-H" }.into()),
-        ),
+        ("Encoding", encoding),
         (
             "ToUnicode",
             Reference(doc.add_object(LoStream::new(
@@ -1194,10 +1236,10 @@ fn add_font_to_pdf(
                         (
                             "FontBBox",
                             Array(vec![
-                                Integer(0),
-                                Integer(0),
-                                Integer(prepared.total_width),
-                                Integer(prepared.max_height),
+                                Integer(prepared.original.font_metrics.x_min as i64),
+                                Integer(prepared.original.font_metrics.y_min as i64),
+                                Integer(prepared.original.font_metrics.x_max as i64),
+                                Integer(prepared.original.font_metrics.y_max as i64),
                             ]),
                         ),
                     ]))),

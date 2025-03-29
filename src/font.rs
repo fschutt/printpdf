@@ -14,12 +14,12 @@ use allsorts_subset_browser::{
     layout::{GDEFTable, LayoutCache, GPOS, GSUB},
     outline::{OutlineBuilder, OutlineSink},
     subset::SubsetProfile,
-    tables::SfntVersion,
     tables::{
         cmap::{owned::CmapSubtable as OwnedCmapSubtable, CmapSubtable},
         glyf::{GlyfRecord, GlyfTable, Glyph},
         loca::{LocaOffsets, LocaTable},
-        FontTableProvider, HeadTable, HheaTable, IndexToLocFormat, MaxpTable,
+        FontTableProvider, HeadTable, HheaTable, IndexToLocFormat, MaxpTable, NameTable,
+        SfntVersion,
     },
 };
 
@@ -299,7 +299,7 @@ impl BuiltinFont {
 }
 
 #[derive(Clone, Default)]
-pub(crate) enum FontType {
+pub enum FontType {
     OpenTypeCFF,
     OpenTypeCFF2,
     #[default]
@@ -323,6 +323,7 @@ pub struct ParsedFont {
     pub original_bytes: Vec<u8>,
     pub original_index: usize,
     pub font_type: FontType,
+    pub font_name: Option<String>,
 }
 
 impl ParsedFont {
@@ -670,7 +671,6 @@ impl ParsedFont {
             .table_provider(self.original_index)
             .map_err(|e| e.to_string())?;
 
-        //TODO: Clean up later
         let font = match self.font_type {
             FontType::TrueType => {
                 let font = allsorts_subset_browser::subset::subset(
@@ -679,6 +679,8 @@ impl ParsedFont {
                     &SubsetProfile::Web,
                 )
                 .map_err(|e| e.to_string())?;
+
+                //TODO: Remove later
                 std::fs::write("subset.ttf", &font).unwrap();
                 font
             }
@@ -692,6 +694,7 @@ impl ParsedFont {
                     allsorts_subset_browser::subset::subset(&provider, &ids, &SubsetProfile::Web)
                         .map_err(|e| e.to_string())?;
 
+                //TODO: Remove later
                 std::fs::write("subset.otf", &font).unwrap();
                 font
             }
@@ -710,7 +713,7 @@ impl ParsedFont {
         glyph_ids: &BTreeMap<u16, char>,
     ) -> String {
         // Convert the glyph_ids map to a ToUnicodeCMap structure
-        let mut mappings = BTreeMap::new();
+        let mut mappings: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
         for (&glyph_id, &unicode) in glyph_ids {
             mappings.insert(glyph_id as u32, vec![unicode as u32]);
         }
@@ -720,7 +723,103 @@ impl ParsedFont {
         cmap.to_cmap_string(&font_id.0)
     }
 
-    pub(crate) fn get_normalized_widths(
+    pub(crate) fn generate_cid_to_gid(
+        &self,
+        glyph_ids: &BTreeMap<u16, char>,
+    ) -> BTreeMap<u16, u16> {
+        let scope = allsorts_subset_browser::binary::read::ReadScope::new(&self.original_bytes);
+
+        let font_file = scope
+            .read::<allsorts_subset_browser::font_data::FontData<'_>>()
+            .map_err(|e| e.to_string())
+            .unwrap();
+
+        let provider: allsorts_subset_browser::font_data::DynamicFontTableProvider<'_> = font_file
+            .table_provider(self.original_index)
+            .map_err(|e| e.to_string())
+            .unwrap();
+
+        let cff_table = allsorts_subset_browser::tables::FontTableProvider::table_data(
+            &provider,
+            allsorts_subset_browser::tag::CFF,
+        )
+        .ok();
+        let cff = cff_table
+            .as_ref()
+            .and_then(|cff_data| {
+                let result =
+                    allsorts_subset_browser::binary::read::ReadScope::new(cff_data.as_ref()?)
+                        .read_dep::<allsorts_subset_browser::cff::CFF>(())
+                        .ok();
+
+                result
+            })
+            .unwrap();
+
+        let mut mappings: BTreeMap<u16, u16> = BTreeMap::new();
+
+        for (&glyph_id, _) in glyph_ids {
+            let cid = cff.fonts[0].charset.id_for_glyph(glyph_id + 1).unwrap();
+
+            mappings.insert(glyph_id, cid);
+        }
+
+        mappings
+    }
+
+    pub(crate) fn generate_encoding_cmap(&self, cid_to_gid_map: &BTreeMap<u16, u16>) -> String {
+        let mut cmap_content = format!(
+            r##"%!PS-Adobe-3.0 Resource-CMap
+%%DocumentNeededResources: ProcSet (CIDInit)
+%%IncludeResource: ProcSet (CIDInit)
+%%BeginResource: CMap (CIDFont-CMap)
+%%Title: (CIDFont-CMap Adobe Identity 0)
+%%Version: 1.0
+%%EndComments
+
+/CIDInit /ProcSet findresource begin
+
+12 dict begin
+
+begincmap
+
+/CIDSystemInfo 3 dict dup begin
+  /Registry (Adobe) def
+  /Ordering (Identity) def
+  /Supplement 0 def
+end def
+
+/CMapName /CIDFont-CMap def
+
+/CMapVersion 1.0 def
+/CMapType 1 def
+
+/UIDOffset 0 def
+
+/WMode 0 def
+
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+"##
+        );
+        cmap_content.push_str(&format!("{} begincidchar\n", cid_to_gid_map.len()));
+        for (cid, gid) in cid_to_gid_map.iter() {
+            cmap_content.push_str(&format!("<{:04X}> {}\n", cid + 1, gid));
+        }
+        cmap_content.push_str("endcidchar\n");
+        cmap_content.push_str("endcmap\n");
+        cmap_content.push_str(
+            r##"CMapName currentdict /CMap defineresource pop
+end
+end
+"##,
+        );
+
+        cmap_content
+    }
+
+    pub(crate) fn get_normalized_widths_ttf(
         &self,
         glyph_ids: &BTreeMap<u16, char>,
     ) -> Vec<lopdf::Object> {
@@ -733,7 +832,7 @@ impl ParsedFont {
         let percentage_font_scaling = 1000.0 / (self.font_metrics.units_per_em as f32);
 
         for gid in glyph_ids.keys() {
-            let width = match self.get_glyph_width_internal(*gid) {
+            let width = match self.get_glyph_width_internal(*gid + 1) {
                 Some(s) => s,
                 None => match self.get_space_width() {
                     Some(w) => w,
@@ -757,7 +856,7 @@ impl ParsedFont {
         }
 
         // push the last widths, because the loop is delayed by one iteration
-        widths_list.push(Integer(current_low_gid as i64));
+        widths_list.push(Integer(current_low_gid as i64 + 1));
         widths_list.push(Array(std::mem::take(&mut current_width_vec)));
 
         widths_list
@@ -776,6 +875,33 @@ impl ParsedFont {
         */
     }
 
+    pub(crate) fn get_normalized_widths_cff(
+        &self,
+        cid_to_gid: &BTreeMap<u16, u16>,
+    ) -> Vec<lopdf::Object> {
+        let mut widths_list = Vec::new();
+
+        // scale the font width so that it sort-of fits into an 1000 unit square
+        let percentage_font_scaling = 1000.0 / (self.font_metrics.units_per_em as f32);
+
+        for (gid, cid) in cid_to_gid {
+            let width = match self.get_glyph_width_internal(*gid + 1) {
+                Some(s) => s,
+                None => match self.get_space_width() {
+                    Some(w) => w,
+                    None => 0,
+                },
+            };
+
+            let width = (width as f32 * percentage_font_scaling) as i64;
+
+            widths_list.push(Integer(*cid as i64));
+            widths_list.push(Integer(*cid as i64));
+            widths_list.push(Integer(width));
+        }
+
+        widths_list
+    }
     /// Returns the maximum height in UNSCALED units of the used glyph IDs
     pub(crate) fn get_max_height(&self, glyph_ids: &BTreeMap<u16, char>) -> i64 {
         let mut max_height = 0;
@@ -1061,6 +1187,15 @@ impl ParsedFont {
         let font = allsorts_subset_browser::font::Font::new(provider).unwrap();
         let provider = &font.font_table_provider;
 
+        let font_name = provider.table_data(tag::NAME).ok().and_then(|name_data| {
+            let result = ReadScope::new(&name_data?)
+                .read::<NameTable>()
+                .ok()
+                .and_then(|name_table| name_table.string_for_id(NameTable::POSTSCRIPT_NAME));
+
+            result
+        });
+
         let head_table = provider.table_data(tag::HEAD).ok().and_then(|head_data| {
             let result = ReadScope::new(&head_data?).read::<HeadTable>().ok();
             if result.is_some() {
@@ -1315,14 +1450,15 @@ impl ParsedFont {
                         warnings.push(PdfWarnMsg::info(
                             0,
                             0,
-                            "Successfully read CFF  table".to_string(),
+                            "Successfully read `CFF ` table".to_string(),
                         ));
                     } else {
                         warnings.push(PdfWarnMsg::warning(
                             0,
                             0,
-                            "Failed to parse CFF  table".to_string(),
+                            "Failed to parse `CFF ` table".to_string(),
                         ));
+                        return None;
                     }
                     result
                 })
@@ -1491,6 +1627,7 @@ impl ParsedFont {
             original_index: font_index,
             space_width: None,
             font_type,
+            font_name,
         };
 
         let space_width = font.get_space_width_internal();
@@ -1527,6 +1664,7 @@ impl ParsedFont {
     fn get_glyph_width_internal(&self, glyph_index: u16) -> Option<usize> {
         let maxp_table = self.maxp_table.as_ref()?;
         let hhea_table = self.hhea_table.as_ref()?;
+
         // note: pass in vmtx_data for vertical writing here
         allsorts_subset_browser::glyph_info::advance(
             &maxp_table,
