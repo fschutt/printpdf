@@ -1132,9 +1132,7 @@ impl OutlineSink for OwnedGlyph {
         self.bounding_box.update(to.x(), to.y());
     }
 
-    fn close(&mut self) {
-        self.horz_advance = (self.bounding_box.max_x - self.bounding_box.min_x) as u16;
-    }
+    fn close(&mut self) {}
 }
 
 impl ParsedFont {
@@ -1482,6 +1480,23 @@ impl ParsedFont {
                     ));
                     return None;
                 }
+                let horz_advance = match allsorts_subset_browser::glyph_info::advance(
+                    &maxp_table,
+                    &hhea_table,
+                    &hmtx_data,
+                    glyph_index,
+                ) {
+                    Ok(adv) => adv,
+                    Err(e) => {
+                        warnings.push(PdfWarnMsg::warning(
+                            0,
+                            0,
+                            format!("Error getting advance for glyph {}: {}", glyph_index, e),
+                        ));
+                        0
+                    }
+                };
+                owned_glyph.horz_advance = horz_advance;
 
                 decoded.push((glyph_index, owned_glyph));
             }
