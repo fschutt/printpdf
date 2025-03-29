@@ -1142,8 +1142,7 @@ fn add_font_to_pdf(
         .clone()
         .unwrap_or(font_id.0.clone());
 
-    //TODO: should add an unique prefix for each subset
-    let face_name = format!("ABCDEF+{}", face_name);
+    let face_name = format!("{}+{}", font_id.0.clone().get(0..6).unwrap(), face_name);
 
     let vertical = prepared.vertical_writing;
 

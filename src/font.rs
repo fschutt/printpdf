@@ -671,34 +671,15 @@ impl ParsedFont {
             .table_provider(self.original_index)
             .map_err(|e| e.to_string())?;
 
-        let font = match self.font_type {
-            FontType::TrueType => {
-                let font = allsorts_subset_browser::subset::subset(
-                    &provider,
-                    &glyph_ids.iter().map(|s| s.0).collect::<Vec<_>>(),
-                    &SubsetProfile::Web,
-                )
-                .map_err(|e| e.to_string())?;
+        // https://docs.rs/allsorts/latest/allsorts/subset/fn.subset.html
+        // Glyph id 0, corresponding to the .notdef glyph must always be present.
+        let mut ids = vec![0];
+        for glyph_id in glyph_ids {
+            ids.push(glyph_id.0);
+        }
 
-                //TODO: Remove later
-                std::fs::write("subset.ttf", &font).unwrap();
-                font
-            }
-            _ => {
-                let mut ids = vec![0];
-                for glyph_id in glyph_ids {
-                    ids.push(glyph_id.0);
-                }
-
-                let font =
-                    allsorts_subset_browser::subset::subset(&provider, &ids, &SubsetProfile::Web)
-                        .map_err(|e| e.to_string())?;
-
-                //TODO: Remove later
-                std::fs::write("subset.otf", &font).unwrap();
-                font
-            }
-        };
+        let font = allsorts_subset_browser::subset::subset(&provider, &ids, &SubsetProfile::Web)
+            .map_err(|e| e.to_string())?;
 
         Ok(SubsetFont {
             bytes: font,
