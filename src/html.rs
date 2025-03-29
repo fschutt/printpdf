@@ -314,7 +314,7 @@ fn xml_to_pages_inner(
         ID_NAMESPACE,
         &fonts_in_dom,
         azul_layout::font::loading::font_source_get_bytes,
-        azul_layout::text::parse_font_fn,
+        azul_layout::parse_font_fn,
     );
 
     let add_image_resource_updates = azul_core::app_resources::build_add_image_resource_updates(
@@ -932,13 +932,15 @@ fn solve_layout(
     let image_cache = ImageCache::default();
     let callbacks = RenderCallbacks {
         insert_into_active_gl_textures_fn: azul_core::gl::insert_into_active_gl_textures,
-        layout_fn: azul_layout::do_the_layout,
+        layout_fn: azul_layout::solver2::do_the_layout,
         load_font_fn: azul_layout::font::loading::font_source_get_bytes,
         parse_font_fn: azul_layout::parse_font_fn,
     };
 
     // Solve the layout (the extra parameters are necessary because of IFrame recursion)
     let mut resource_updates = Vec::new();
+    let mut debug = Some(Vec::new());
+    println!("{}", styled_dom.get_html_string("", "", false));
     let mut solved_layout = SolvedLayout::new(
         styled_dom,
         epoch,
@@ -951,6 +953,7 @@ fn solve_layout(
         &callbacks,
         renderer_resources,
         DPI_SCALE,
+        &mut debug,
     );
 
     solved_layout.layout_results.remove(0)
@@ -1144,7 +1147,7 @@ fn get_text_node(
     let inline_text = azul_core::app_resources::get_inline_text(
         words,
         shaped_words,
-        &word_positions.0,
+        &word_positions,
         inline_text_layout,
     );
     let text_color = layout_result

@@ -359,7 +359,7 @@ impl ParsedFont {
             window::{LogicalPosition, LogicalRect, LogicalSize},
         };
         use azul_css::StyleTextAlign;
-        use azul_layout::text::layout::{
+        use azul_layout::text2::layout::{
             position_words, shape_words, split_text_into_words,
             word_positions_to_inline_text_layout,
         };
@@ -391,6 +391,18 @@ impl ParsedFont {
             max_horizontal_width: options.max_width.map(|w| w.0).into(),
             leading: None.into(),
             holes: holes.into(),
+            max_vertical_height: None.into(),
+            can_break: true,
+            can_hyphenate: true,
+            hyphenation_character: Some('-' as u32).into(),
+            is_rtl: azul_core::ui_solver::ScriptType::Mixed,
+            text_justify: Some(match options.align {
+                TextAlign::Left => StyleTextAlign::Left,
+                TextAlign::Center => StyleTextAlign::Center,
+                TextAlign::Right => StyleTextAlign::Right,
+                TextAlign::Justify => StyleTextAlign::Justify,
+            })
+            .into(),
         };
 
         // Split text into words
@@ -403,34 +415,10 @@ impl ParsedFont {
         let shaped_words = shape_words(&words, &azul_font);
 
         // Position words
-        let word_positions = position_words(&words, &shaped_words, &resolved_options);
+        let word_positions = position_words(&words, &shaped_words, &resolved_options, &mut None);
 
         // Create text layout
-        let mut inline_text_layout = word_positions_to_inline_text_layout(&word_positions);
-
-        let cs = options
-            .max_width
-            .map(|w| w.0)
-            .unwrap_or(inline_text_layout.content_size.width);
-
-        // Apply horizontal alignment if not left-aligned
-        if options.align == TextAlign::Center {
-            inline_text_layout.align_children_horizontal(
-                &LogicalSize {
-                    width: cs,
-                    height: inline_text_layout.content_size.height,
-                },
-                StyleTextAlign::Center,
-            );
-        } else if options.align == TextAlign::Right {
-            inline_text_layout.align_children_horizontal(
-                &LogicalSize {
-                    width: cs,
-                    height: inline_text_layout.content_size.height,
-                },
-                StyleTextAlign::Right,
-            );
-        }
+        let inline_text_layout = word_positions_to_inline_text_layout(&word_positions);
 
         // Get inline text with final positioning
         let inline_text = azul_core::app_resources::get_inline_text(
@@ -2319,11 +2307,12 @@ mod azul_convert {
 
     pub(super) fn convert_to_azul_parsed_font(
         font: &crate::font::ParsedFont,
-    ) -> azul_layout::text::shaping::ParsedFont {
-        azul_layout::text::shaping::ParsedFont {
+    ) -> azul_layout::text2::shaping::ParsedFont {
+        azul_layout::text2::shaping::ParsedFont {
             font_metrics: convert_font_metrics(&font.font_metrics),
             num_glyphs: font.num_glyphs,
             hmtx_data: font.hmtx_data.clone(),
+            mock: None,
             hhea_table: font.hhea_table.clone().unwrap_or(
                 allsorts_subset_browser::tables::HheaTable {
                     ascender: 0,
@@ -2354,10 +2343,8 @@ mod azul_convert {
         }
     }
 
-    fn convert_font_metrics(
-        metrics: &crate::font::FontMetrics,
-    ) -> azul_layout::text::layout::FontMetrics {
-        azul_layout::text::layout::FontMetrics {
+    fn convert_font_metrics(metrics: &crate::font::FontMetrics) -> azul_css::FontMetrics {
+        azul_css::FontMetrics {
             units_per_em: metrics.units_per_em,
             font_flags: metrics.font_flags,
             x_min: metrics.x_min,
@@ -2418,14 +2405,14 @@ mod azul_convert {
 
     fn convert_glyph_records(
         records: &BTreeMap<u16, crate::font::OwnedGlyph>,
-    ) -> BTreeMap<u16, azul_layout::text::shaping::OwnedGlyph> {
+    ) -> BTreeMap<u16, azul_layout::text2::shaping::OwnedGlyph> {
         records
             .iter()
             .map(|(k, v)| {
                 (
                     *k,
-                    azul_layout::text::shaping::OwnedGlyph {
-                        bounding_box: azul_layout::text::shaping::OwnedGlyphBoundingBox {
+                    azul_layout::text2::shaping::OwnedGlyph {
+                        bounding_box: azul_layout::text2::shaping::OwnedGlyphBoundingBox {
                             max_x: v.bounding_box.max_x,
                             max_y: v.bounding_box.max_y,
                             min_x: v.bounding_box.min_x,
@@ -2441,15 +2428,15 @@ mod azul_convert {
 
     fn convert_glyph_outline(
         outline: &crate::font::GlyphOutline,
-    ) -> azul_layout::text::shaping::GlyphOutline {
-        azul_layout::text::shaping::GlyphOutline {
+    ) -> azul_layout::text2::shaping::GlyphOutline {
+        azul_layout::text2::shaping::GlyphOutline {
             operations: convert_glyph_outline_operations(&outline.operations),
         }
     }
 
     fn convert_glyph_outline_operations(
         ops: &[crate::font::GlyphOutlineOperation],
-    ) -> azul_layout::text::shaping::GlyphOutlineOperationVec {
+    ) -> azul_layout::text2::shaping::GlyphOutlineOperationVec {
         ops.iter()
             .map(to_azul_glyph_outline_operation)
             .collect::<Vec<_>>()
@@ -2459,8 +2446,8 @@ mod azul_convert {
     /// Convert from printpdf GlyphOutlineOperation to azul_layout GlyphOutlineOperation
     fn to_azul_glyph_outline_operation(
         op: &crate::font::GlyphOutlineOperation,
-    ) -> azul_layout::text::shaping::GlyphOutlineOperation {
-        use azul_layout::text::shaping::{
+    ) -> azul_layout::text2::shaping::GlyphOutlineOperation {
+        use azul_layout::text2::shaping::{
             GlyphOutlineOperation as AzulOp, OutlineCubicTo, OutlineLineTo, OutlineMoveTo,
             OutlineQuadTo,
         };
