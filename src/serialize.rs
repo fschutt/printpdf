@@ -67,7 +67,7 @@ pub fn init_doc_and_resources(
     pdf: &PdfDocument,
     opts: &PdfSaveOptions,
 ) -> (lopdf::Document, lopdf::Dictionary) {
-    let mut doc = lopdf::Document::with_version("1.6");
+    let mut doc = lopdf::Document::with_version("1.3");
     doc.reference_table.cross_reference_type = lopdf::xref::XrefType::CrossReferenceTable;
 
     let mut global_xobject_dict = LoDictionary::new();
