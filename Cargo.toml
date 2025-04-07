@@ -117,3 +117,7 @@ required-features = []
 [[example]]
 name = "shape"
 required-features = []
+
+[[example]]
+name = "otf-font"
+required-features = []
