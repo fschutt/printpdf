@@ -7,8 +7,11 @@ use std::{
 };
 
 use allsorts_subset_browser::{
-    binary::read::{ReadArray, ReadScope},
-    cff::CFF,
+    binary::{
+        read::{ReadArray, ReadScope},
+        write::WriteBinary,
+    },
+    cff::{self, CFF},
     font::GlyphTableFlags,
     font_data::FontData,
     layout::{GDEFTable, LayoutCache, GPOS, GSUB},
@@ -21,6 +24,7 @@ use allsorts_subset_browser::{
         FontTableProvider, HeadTable, HheaTable, IndexToLocFormat, MaxpTable, NameTable,
         SfntVersion,
     },
+    tag,
 };
 
 use base64::Engine;
@@ -324,6 +328,7 @@ pub struct ParsedFont {
     pub original_index: usize,
     pub font_type: FontType,
     pub font_name: Option<String>,
+    pub index_to_cid: BTreeMap<u32, u32>,
 }
 
 impl ParsedFont {
@@ -449,11 +454,17 @@ impl ParsedFont {
 
 pub trait PrepFont {
     fn lgi(&self, codepoint: u32) -> Option<u32>;
+
+    fn index_to_cid(&self, index: u32) -> Option<u32>;
 }
 
 impl PrepFont for ParsedFont {
     fn lgi(&self, codepoint: u32) -> Option<u32> {
         self.lookup_glyph_index(codepoint).map(Into::into)
+    }
+
+    fn index_to_cid(&self, index: u32) -> Option<u32> {
+        self.index_to_cid.get(&index).copied()
     }
 }
 
@@ -681,6 +692,8 @@ impl ParsedFont {
         let font = allsorts_subset_browser::subset::subset(&provider, &ids, &SubsetProfile::Web)
             .map_err(|e| e.to_string())?;
 
+        std::fs::write("subset.otf", &font);
+
         Ok(SubsetFont {
             bytes: font,
             glyph_mapping,
@@ -698,7 +711,8 @@ impl ParsedFont {
         for (&glyph_id, &unicode) in glyph_ids {
             mappings.insert(glyph_id as u32, vec![unicode as u32]);
         }
-
+        // mappings.insert(0x5088, vec![0x65E5]);
+        // mappings.insert(0x52A4, vec![0x672C]);
         // Create the CMap and generate its string representation
         let cmap = ToUnicodeCMap { mappings };
         cmap.to_cmap_string(&font_id.0)
@@ -1419,6 +1433,8 @@ impl ParsedFont {
             format!("Font metrics: units_per_em={}", font_metrics.units_per_em),
         ));
 
+        let mut index_to_cid: BTreeMap<u32, u32> = BTreeMap::new();
+
         let mut font_type = FontType::default();
         let glyph_records_decoded = if font.glyph_table_flags.contains(GlyphTableFlags::CFF)
             && provider.sfnt_version() == tag::OTTO
@@ -1480,6 +1496,13 @@ impl ParsedFont {
                 owned_glyph.horz_advance = horz_advance;
 
                 decoded.push((glyph_index, owned_glyph));
+
+                if let Some(cid) = cff_table.fonts[0 as usize]
+                    .charset
+                    .id_for_glyph(glyph_index)
+                {
+                    index_to_cid.insert(glyph_index as u32, cid as u32);
+                }
             }
 
             warnings.push(PdfWarnMsg::info(
@@ -1627,6 +1650,7 @@ impl ParsedFont {
             space_width: None,
             font_type,
             font_name,
+            index_to_cid,
         };
 
         let space_width = font.get_space_width_internal();
@@ -1699,7 +1723,7 @@ impl ParsedFont {
 
     pub fn lookup_glyph_index(&self, c: u32) -> Option<u16> {
         match self.cmap_subtable.as_ref()?.map_glyph(c) {
-            Ok(Some(c)) => Some(c),
+            Ok(c) => c,
             _ => None,
         }
     }

@@ -125,7 +125,7 @@ impl ToUnicodeCMap {
             for chunk in entries.chunks(100) {
                 result.push_str(&format!("{} beginbfchar\n", chunk.len()));
                 for &(cid, unicode) in chunk {
-                    result.push_str(&format!("<{:04X}> <{:04X}>\n", cid + 1, unicode));
+                    result.push_str(&format!("<{:04X}> <{:04X}>\n", cid, unicode));
                 }
                 result.push_str("endbfchar\n");
             }
