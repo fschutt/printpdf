@@ -3,13 +3,6 @@ use std::{
     io::Write,
 };
 
-use allsorts_subset_browser::{
-    binary::{read::ReadScope, write::WriteBinary},
-    cff::CFF,
-    font_data::FontData,
-    tables::FontTableProvider,
-    tag,
-};
 use lopdf::{
     content::Operation as LoOp,
     Dictionary as LoDictionary,
@@ -762,7 +755,7 @@ fn encode_text_items_to_pdf<T: PrepFont>(
                         for c in text.chars() {
                             // Get original glyph ID from the original font
                             if let Some(orig_gid) = font.lgi(c as u32) {
-                                let gid = font.index_to_cid(orig_gid).unwrap();
+                                let gid = font.index_to_cid(orig_gid as u16).unwrap();
                                 // Encode subset glyph ID as two-byte value
                                 encoded.push((gid >> 8) as u8);
                                 encoded.push((gid & 0xFF) as u8);
@@ -772,11 +765,6 @@ fn encode_text_items_to_pdf<T: PrepFont>(
                                 encoded.push(0);
                             }
                         }
-                        println!("encoded {:?}", encoded);
-                        // encoded.push(0x50);
-                        // encoded.push(0x88);
-                        // encoded.push(0x52);
-                        // encoded.push(0xa4);
 
                         encoded
                     } else {
@@ -836,7 +824,6 @@ pub(crate) struct PreparedFont {
     original: ParsedFont,
     pub(crate) subset_font: SubsetFont,
     cid_to_unicode_map: String,
-    custom_cmap: Option<String>,
     vertical_writing: bool, // default: false
     ascent: i64,
     descent: i64,
@@ -883,22 +870,17 @@ impl PreparedFont {
             .clone()
             .iter()
             .filter_map(|(index, char)| {
-                font.index_to_cid(*index as u32 + 1)
-                    .map(|gid| (gid as u16, *char))
+                font.index_to_cid(*index + 1).map(|gid| (gid as u16, *char))
             })
             .collect();
 
         let cid_to_unicode = font.generate_cid_to_unicode_map(font_id, &index_to_unicode);
 
-        let (widths, custom_cmap) = match font.font_type {
-            FontType::TrueType => (font.get_normalized_widths_ttf(&new_glyph_ids), None),
+        let widths = match font.font_type {
+            FontType::TrueType => font.get_normalized_widths_ttf(&new_glyph_ids),
             _ => {
                 let cid_to_gid = font.generate_cid_to_gid(&new_glyph_ids);
-                let custom_cmap = font.generate_encoding_cmap(&cid_to_gid);
-                (
-                    font.get_normalized_widths_cff(&cid_to_gid),
-                    Some(custom_cmap),
-                )
+                font.get_normalized_widths_cff(&cid_to_gid)
             }
         };
 
@@ -908,7 +890,7 @@ impl PreparedFont {
             original: font.clone(),
             subset_font,
             cid_to_unicode_map: cid_to_unicode,
-            custom_cmap,
+
             vertical_writing: false, // !font.vmtx_data.is_empty(),
             ascent: font.font_metrics.ascender as i64,
             descent: font.font_metrics.descender as i64,
@@ -923,7 +905,7 @@ impl PrepFont for PreparedFont {
         self.original.lgi(codepoint) // .lookup_glyph_index(codepoint).map(Into::into)
     }
 
-    fn index_to_cid(&self, index: u32) -> Option<u32> {
+    fn index_to_cid(&self, index: u16) -> Option<u16> {
         self.original.index_to_cid(index)
     }
 }
@@ -1163,23 +1145,6 @@ fn add_font_to_pdf(
     font_id: &FontId,
     prepared: &PreparedFont,
 ) -> LoDictionary {
-    let scope = ReadScope::new(&prepared.original.original_bytes);
-
-    let font_file = scope
-        .read::<FontData<'_>>()
-        .map_err(|e| e.to_string())
-        .unwrap();
-
-    let provider = font_file
-        .table_provider(prepared.original.original_index)
-        .map_err(|e| e.to_string())
-        .unwrap();
-    let cff_table = provider.read_table_data(tag::CFF).unwrap();
-    let cff = ReadScope::new(&cff_table).read::<CFF<'_>>().unwrap();
-    let mut buf = allsorts_subset_browser::binary::write::WriteBuffer::new();
-
-    allsorts_subset_browser::cff::CFF::write(&mut buf, &cff).unwrap();
-
     let font_name = prepared
         .original
         .font_name
@@ -1190,21 +1155,37 @@ fn add_font_to_pdf(
 
     let vertical = prepared.vertical_writing;
 
-    let (sub_type, font_file_key, font_dict) = match prepared.original.font_type {
-        FontType::OpenTypeCFF | FontType::OpenTypeCFF2 => (
-            "CIDFontType0",
-            "FontFile3",
-            LoDictionary::from_iter(vec![("Subtype", Name("CIDFontType0C".into()))]),
-        ),
-        FontType::TrueType => ("CIDFontType2", "FontFile2", LoDictionary::new()),
+    let (sub_type, font_tuple) = match &prepared.original.font_type {
+        FontType::OpenTypeCFF(buf) => {
+            // WARNING: Font stream MAY NOT be compressed
+            let font_stream = LoStream::new(
+                LoDictionary::from_iter(vec![("Subtype", Name("CIDFontType0C".into()))]),
+                buf.clone(),
+            )
+            .with_compression(false);
+
+            (
+                "CIDFontType0",
+                ("FontFile3", Reference(doc.add_object(font_stream))),
+            )
+        }
+        FontType::OpenTypeCFF2 => {
+            unimplemented!()
+        }
+        FontType::TrueType => {
+            // WARNING: Font stream MAY NOT be compressed
+            let font_stream = LoStream::new(
+                LoDictionary::new(),
+                prepared.subset_font.bytes.clone().into(),
+            )
+            .with_compression(false);
+
+            (
+                "CIDFontType2",
+                ("FontFile2", Reference(doc.add_object(font_stream))),
+            )
+        }
     };
-
-    // WARNING: Font stream MAY NOT be compressed
-    let font_stream =
-        // LoStream::new(font_dict, prepared.subset_font.bytes.clone().into()).with_compression(false);
-        LoStream::new(font_dict, buf.into_inner()).with_compression(false);
-
-    let font_stream_ref = doc.add_object(font_stream);
 
     LoDictionary::from_iter(vec![
         ("Type", Name("Font".into())),
@@ -1264,7 +1245,7 @@ fn add_font_to_pdf(
                             ("ItalicAngle", Integer(0)),
                             ("Flags", Integer(32)),
                             ("StemV", Integer(80)),
-                            (font_file_key, Reference(font_stream_ref)),
+                            font_tuple,
                             (
                                 "FontBBox",
                                 Array(vec![
