@@ -256,24 +256,12 @@ pub fn serialize_pdf<W: Write>(
             }
 
             // Gather annotations
-            let links = page
-                .ops
-                .iter()
-                .filter_map(|l| match l {
-                    Op::LinkAnnotation { link } => Some(link.clone()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>();
-
-            page_resources.set(
-                "Annots",
-                Array(
-                    links
-                        .iter()
-                        .map(|l| Dictionary(link_annotation_to_dict(l, &page_ids_reserved)))
-                        .collect(),
-                ),
-            );
+            let mut links = Vec::new();
+            for op in &page.ops {
+                if let Op::LinkAnnotation { link } = op {
+                    links.push(Dictionary(link_annotation_to_dict(link, &page_ids_reserved)))
+                }
+            }
 
             page_resources.set("Font", Reference(global_font_dict_id));
             page_resources.set("XObject", Reference(global_xobject_dict_id));
@@ -297,6 +285,7 @@ pub fn serialize_pdf<W: Write>(
                 ("Parent", Reference(pages_id)),
                 ("Resources", Reference(doc.add_object(page_resources))),
                 ("Contents", Reference(doc.add_object(merged_layer_stream))),
+                ("Annots", Array(links)),
             ]);
 
             doc.set_object(*page_id, page_obj);
@@ -637,9 +626,7 @@ pub(crate) fn translate_operations(
                     matrix.as_array().iter().copied().map(Real).collect(),
                 ));
             }
-            Op::LinkAnnotation { link: _ } => {
-                // TODO!
-            }
+            Op::LinkAnnotation { link: _ } => {}
             Op::UseXobject { id, transform } => {
                 use crate::matrix::CurTransMat;
                 let mut t = CurTransMat::Identity;
