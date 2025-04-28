@@ -22,7 +22,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 lopdf = { version = "0.35.0", default-features = false, features = ["nom_parser"]}
 time = { version = "0.3.25", default-features = false, features = ["std", "serde", "serde-human-readable"] }
-allsorts-subset-browser = { version = "0.16", default-features = false, features = ["flate2_rust"] }
+allsorts-subset-browser = { version = "0.16", default-features = false, features = ["flate2_rust", "outline"] }
 image = { version = "0.25", default-features = false }
 svg2pdf = { version = "0.13.0" }
 base64 = "0.22.1"
@@ -116,4 +116,8 @@ required-features = []
 
 [[example]]
 name = "shape"
+required-features = []
+
+[[example]]
+name = "otf-font"
 required-features = []
