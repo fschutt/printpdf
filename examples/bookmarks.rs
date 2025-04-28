@@ -94,7 +94,7 @@ fn main() {
             link: LinkAnnotation::new(
                 Rect {
                     x: Pt(100.0),
-                    y: Pt(200.0),
+                    y: Pt(170.0),
                     width: Pt(200.0),
                     height: Pt(30.0),
                 },
@@ -209,7 +209,7 @@ fn main() {
             link: LinkAnnotation::new(
                 Rect {
                     x: Pt(100.0),
-                    y: Pt(110.0),
+                    y: Pt(80.0),
                     width: Pt(200.0),
                     height: Pt(30.0),
                 },
@@ -355,7 +355,7 @@ fn main() {
             link: LinkAnnotation::new(
                 Rect {
                     x: Pt(100.0),
-                    y: Pt(200.0),
+                    y: Pt(170.0),
                     width: Pt(200.0),
                     height: Pt(30.0),
                 },
@@ -447,7 +447,7 @@ fn main() {
             link: LinkAnnotation::new(
                 Rect {
                     x: Pt(100.0),
-                    y: Pt(150.0),
+                    y: Pt(120.0),
                     width: Pt(200.0),
                     height: Pt(30.0),
                 },
@@ -598,7 +598,7 @@ fn main() {
             link: LinkAnnotation::new(
                 Rect {
                     x: Pt(100.0),
-                    y: Pt(200.0),
+                    y: Pt(170.0),
                     width: Pt(200.0),
                     height: Pt(30.0),
                 },
@@ -688,7 +688,7 @@ fn main() {
             link: LinkAnnotation::new(
                 Rect {
                     x: Pt(100.0),
-                    y: Pt(150.0),
+                    y: Pt(120.0),
                     width: Pt(200.0),
                     height: Pt(30.0),
                 },
