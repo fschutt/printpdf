@@ -13,10 +13,12 @@ use lopdf::{
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    color::IccProfile, font::FontType, font::SubsetFont, Actions, BuiltinFont, Color, ColorArray,
-    Destination, FontId, IccProfileType, ImageOptimizationOptions, Line, LinkAnnotation, Op,
-    PaintMode, ParsedFont, PdfDocument, PdfDocumentInfo, PdfPage, PdfResources, PdfWarnMsg,
-    Polygon, PrepFont, TextItem, XObject, XObjectId,
+    color::IccProfile,
+    font::{FontType, SubsetFont},
+    Actions, BuiltinFont, Color, ColorArray, Destination, FontId, IccProfileType,
+    ImageOptimizationOptions, Line, LinkAnnotation, Op, PaintMode, ParsedFont, PdfDocument,
+    PdfDocumentInfo, PdfPage, PdfResources, PdfWarnMsg, Polygon, PrepFont, TextItem, XObject,
+    XObjectId,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
@@ -259,7 +261,10 @@ pub fn serialize_pdf<W: Write>(
             let mut links = Vec::new();
             for op in &page.ops {
                 if let Op::LinkAnnotation { link } = op {
-                    links.push(Dictionary(link_annotation_to_dict(link, &page_ids_reserved)))
+                    links.push(Dictionary(link_annotation_to_dict(
+                        link,
+                        &page_ids_reserved,
+                    )))
                 }
             }
 

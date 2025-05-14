@@ -25,7 +25,6 @@ use allsorts_subset_browser::{
         SfntVersion,
     },
 };
-
 use base64::Engine;
 use lopdf::Object::{Array, Integer};
 use serde_derive::{Deserialize, Serialize};
@@ -2394,12 +2393,22 @@ mod azul_convert {
     fn to_azul_glyph_outline_operation(
         op: &crate::font::GlyphOutlineOperation,
     ) -> azul_core::app_resources::GlyphOutlineOperation {
-        use azul_core::app_resources::{GlyphOutlineOperation as AzulOp, OutlineQuadTo, OutlineLineTo, OutlineCubicTo, OutlineMoveTo};
+        use azul_core::app_resources::{
+            GlyphOutlineOperation as AzulOp, OutlineCubicTo, OutlineLineTo, OutlineMoveTo,
+            OutlineQuadTo,
+        };
+
         use crate::font::GlyphOutlineOperation as PdfOp;
 
         match op {
-            PdfOp::MoveTo(m) => AzulOp::MoveTo(OutlineMoveTo { x: m.x.round() as i16, y: m.y.round() as i16 }),
-            PdfOp::LineTo(l) => AzulOp::LineTo(OutlineLineTo { x: l.x.round() as i16, y: l.y.round() as i16 }),
+            PdfOp::MoveTo(m) => AzulOp::MoveTo(OutlineMoveTo {
+                x: m.x.round() as i16,
+                y: m.y.round() as i16,
+            }),
+            PdfOp::LineTo(l) => AzulOp::LineTo(OutlineLineTo {
+                x: l.x.round() as i16,
+                y: l.y.round() as i16,
+            }),
             PdfOp::QuadraticCurveTo(q) => AzulOp::QuadraticCurveTo(OutlineQuadTo {
                 ctrl_1_x: q.ctrl_1_x.round() as i16,
                 ctrl_1_y: q.ctrl_1_y.round() as i16,
