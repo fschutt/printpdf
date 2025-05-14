@@ -1335,7 +1335,7 @@ impl ParsedFont {
 
         let mut index_to_cid: BTreeMap<u16, u16> = BTreeMap::new();
 
-        let mut font_type = FontType::default();
+        let font_type;
         let glyph_records_decoded = if font.glyph_table_flags.contains(GlyphTableFlags::CFF)
             && provider.sfnt_version() == tag::OTTO
         {
@@ -2246,8 +2246,8 @@ mod azul_convert {
 
     pub(super) fn convert_to_azul_parsed_font(
         font: &crate::font::ParsedFont,
-    ) -> azul_layout::text2::shaping::ParsedFont {
-        azul_layout::text2::shaping::ParsedFont {
+    ) -> azul_layout::parsedfont::ParsedFont {
+        azul_layout::parsedfont::ParsedFont {
             font_metrics: convert_font_metrics(&font.font_metrics),
             num_glyphs: font.num_glyphs,
             hmtx_data: font.hmtx_data.clone(),
@@ -2344,21 +2344,26 @@ mod azul_convert {
 
     fn convert_glyph_records(
         records: &BTreeMap<u16, crate::font::OwnedGlyph>,
-    ) -> BTreeMap<u16, azul_layout::text2::shaping::OwnedGlyph> {
+    ) -> BTreeMap<u16, azul_layout::parsedfont::OwnedGlyph> {
         records
             .iter()
             .map(|(k, v)| {
                 (
                     *k,
-                    azul_layout::text2::shaping::OwnedGlyph {
-                        bounding_box: azul_layout::text2::shaping::OwnedGlyphBoundingBox {
+                    azul_layout::parsedfont::OwnedGlyph {
+                        phantom_points: None,
+                        unresolved_composite: Vec::new(),
+                        bounding_box: azul_core::app_resources::OwnedGlyphBoundingBox {
                             max_x: v.bounding_box.max_x,
                             max_y: v.bounding_box.max_y,
                             min_x: v.bounding_box.min_x,
                             min_y: v.bounding_box.min_y,
                         },
                         horz_advance: v.horz_advance,
-                        outline: v.outline.as_ref().map(|o| convert_glyph_outline(o)),
+                        outline: match v.outline.as_ref().map(|o| convert_glyph_outline(o)) {
+                            Some(s) => vec![s],
+                            None => Vec::new(),
+                        },
                     },
                 )
             })
@@ -2367,15 +2372,15 @@ mod azul_convert {
 
     fn convert_glyph_outline(
         outline: &crate::font::GlyphOutline,
-    ) -> azul_layout::text2::shaping::GlyphOutline {
-        azul_layout::text2::shaping::GlyphOutline {
+    ) -> azul_core::app_resources::GlyphOutline {
+        azul_core::app_resources::GlyphOutline {
             operations: convert_glyph_outline_operations(&outline.operations),
         }
     }
 
     fn convert_glyph_outline_operations(
         ops: &[crate::font::GlyphOutlineOperation],
-    ) -> azul_layout::text2::shaping::GlyphOutlineOperationVec {
+    ) -> azul_core::app_resources::GlyphOutlineOperationVec {
         ops.iter()
             .map(to_azul_glyph_outline_operation)
             .collect::<Vec<_>>()
@@ -2385,12 +2390,8 @@ mod azul_convert {
     /// Convert from printpdf GlyphOutlineOperation to azul_layout GlyphOutlineOperation
     fn to_azul_glyph_outline_operation(
         op: &crate::font::GlyphOutlineOperation,
-    ) -> azul_layout::text2::shaping::GlyphOutlineOperation {
-        use azul_layout::text2::shaping::{
-            GlyphOutlineOperation as AzulOp, OutlineCubicTo, OutlineLineTo, OutlineMoveTo,
-            OutlineQuadTo,
-        };
-
+    ) -> azul_core::app_resources::GlyphOutlineOperation {
+        use azul_core::app_resources::{GlyphOutlineOperation as AzulOp, OutlineQuadTo, OutlineLineTo, OutlineCubicTo, OutlineMoveTo};
         use crate::font::GlyphOutlineOperation as PdfOp;
 
         match op {
