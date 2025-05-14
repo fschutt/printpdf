@@ -814,8 +814,8 @@ pub(crate) struct PreparedFont {
     vertical_writing: bool, // default: false
     ascent: i64,
     descent: i64,
-    max_height: i64,
-    total_width: i64,
+    // max_height: i64,
+    // total_width: i64,
     // encode widths / heights so that they fit into what PDF expects
     // see page 439 in the PDF 1.7 reference
     // basically widths_list will contain objects like this:
@@ -882,8 +882,8 @@ impl PreparedFont {
             ascent: font.font_metrics.ascender as i64,
             descent: font.font_metrics.descender as i64,
             widths_list: widths,
-            max_height: font.get_max_height(&new_glyph_ids),
-            total_width: font.get_total_width(&new_glyph_ids) as i64,
+            // max_height: font.get_max_height(&new_glyph_ids),
+            // total_width: font.get_total_width(&new_glyph_ids) as i64,
         })
     }
 }

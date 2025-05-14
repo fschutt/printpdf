@@ -800,6 +800,8 @@ impl ParsedFont {
 
         widths_list
     }
+
+    /*
     /// Returns the maximum height in UNSCALED units of the used glyph IDs
     pub(crate) fn get_max_height(&self, glyph_ids: &BTreeMap<u16, char>) -> i64 {
         let mut max_height = 0;
@@ -818,6 +820,7 @@ impl ParsedFont {
             .filter_map(|s| self.get_glyph_width_internal(*s))
             .sum()
     }
+    */
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -2395,21 +2398,21 @@ mod azul_convert {
         use crate::font::GlyphOutlineOperation as PdfOp;
 
         match op {
-            PdfOp::MoveTo(m) => AzulOp::MoveTo(OutlineMoveTo { x: m.x, y: m.y }),
-            PdfOp::LineTo(l) => AzulOp::LineTo(OutlineLineTo { x: l.x, y: l.y }),
+            PdfOp::MoveTo(m) => AzulOp::MoveTo(OutlineMoveTo { x: m.x.round() as i16, y: m.y.round() as i16 }),
+            PdfOp::LineTo(l) => AzulOp::LineTo(OutlineLineTo { x: l.x.round() as i16, y: l.y.round() as i16 }),
             PdfOp::QuadraticCurveTo(q) => AzulOp::QuadraticCurveTo(OutlineQuadTo {
-                ctrl_1_x: q.ctrl_1_x,
-                ctrl_1_y: q.ctrl_1_y,
-                end_x: q.end_x,
-                end_y: q.end_y,
+                ctrl_1_x: q.ctrl_1_x.round() as i16,
+                ctrl_1_y: q.ctrl_1_y.round() as i16,
+                end_x: q.end_x.round() as i16,
+                end_y: q.end_y.round() as i16,
             }),
             PdfOp::CubicCurveTo(c) => AzulOp::CubicCurveTo(OutlineCubicTo {
-                ctrl_1_x: c.ctrl_1_x,
-                ctrl_1_y: c.ctrl_1_y,
-                ctrl_2_x: c.ctrl_2_x,
-                ctrl_2_y: c.ctrl_2_y,
-                end_x: c.end_x,
-                end_y: c.end_y,
+                ctrl_1_x: c.ctrl_1_x.round() as i16,
+                ctrl_1_y: c.ctrl_1_y.round() as i16,
+                ctrl_2_x: c.ctrl_2_x.round() as i16,
+                ctrl_2_y: c.ctrl_2_y.round() as i16,
+                end_x: c.end_x.round() as i16,
+                end_y: c.end_y.round() as i16,
             }),
             PdfOp::ClosePath => AzulOp::ClosePath,
         }
