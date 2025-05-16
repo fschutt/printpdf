@@ -738,27 +738,14 @@ fn encode_text_items_to_pdf<T: PrepFont>(
     for item in items {
         match item {
             TextItem::Text(text) => {
-                if let Some(font) = prepared_font {
+                if prepared_font.is_some() {
                     // For custom fonts, convert each character to its subset glyph ID
                     let bytes = if true {
                         // Directly map characters to subset glyph IDs using the subset font mapping
-                        let mut encoded = Vec::new();
-
-                        for c in text.chars() {
-                            // Get original glyph ID from the original font
-                            if let Some(orig_gid) = font.lgi(c as u32) {
-                                let gid = font.index_to_cid(orig_gid as u16).unwrap();
-                                // Encode subset glyph ID as two-byte value
-                                encoded.push((gid >> 8) as u8);
-                                encoded.push((gid & 0xFF) as u8);
-                            } else {
-                                // Character not in font, use space or notdef
-                                encoded.push(0);
-                                encoded.push(0);
-                            }
-                        }
-
-                        encoded
+                        text.chars()
+                            .map(|c| c as u32 as u16)
+                            .flat_map(u16::to_be_bytes)
+                            .collect()
                     } else {
                         // This branch is for reference/comparison but not used
                         // It would try to use lopdf::Document::encode_text if it supported
@@ -768,7 +755,7 @@ fn encode_text_items_to_pdf<T: PrepFont>(
 
                     // Custom fonts must use hexadecimal encoding in PDF
                     tj_array.push(LoString(bytes, Hexadecimal));
-                } else if let Some(_) = builtin_font {
+                } else if builtin_font.is_some() {
                     // For built-in fonts, use WinAnsiEncoding
                     let bytes = lopdf::Document::encode_text(
                         &lopdf::Encoding::SimpleEncoding(b"WinAnsiEncoding"),
