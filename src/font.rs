@@ -614,6 +614,8 @@ impl ParsedFont {
             map.insert(sp, ' ');
         }
 
+        map.insert(0, '\0');
+
         map
     }
 
@@ -669,9 +671,9 @@ impl ParsedFont {
             .map_err(|e| e.to_string())?;
 
         // https://docs.rs/allsorts/latest/allsorts/subset/fn.subset.html
-        // Glyph id 0, corresponding to the .notdef glyph must always be present.
-        let mut ids = vec![0];
-        ids.extend(glyph_ids.keys());
+        // Glyph id 0, corresponding to the .notdef glyph is always present,
+        // because it is returned from get_used_glyphs_ids.
+        let ids: Vec<_> = glyph_ids.keys().copied().collect();
 
         let font = allsorts_subset_browser::subset::subset(&provider, &ids, &SubsetProfile::Web)
             .map_err(|e| e.to_string())?;
