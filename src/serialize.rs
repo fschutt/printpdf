@@ -484,47 +484,26 @@ pub(crate) fn translate_operations(
             }
             Op::WriteCodepoints { font, cp } => {
                 if let Some(prepared_font) = fonts.get(font) {
-                    // Convert codepoints to TextItems
-                    let text_items = cp
-                        .iter()
-                        .map(|(gid, _)| {
-                            if let Some(subset_gid) =
-                                prepared_font.subset_font.glyph_mapping.get(gid)
-                            {
-                                TextItem::Text(
-                                    std::char::from_u32(subset_gid.0 as u32)
-                                        .map(|c| c.to_string())
-                                        .unwrap_or_default(),
-                                )
-                            } else {
-                                TextItem::Text(String::new())
-                            }
-                        })
-                        .collect::<Vec<_>>();
-
-                    encode_text_items_to_pdf(&text_items, Some(prepared_font), None, &mut content);
+                    let mapping = &prepared_font.subset.glyph_mapping;
+                    let codepoints = cp.iter().map(|(gid, _)| {
+                        mapping
+                            .get(gid)
+                            .map(|&(src_gid, _)| (src_gid, 0))
+                            .unwrap_or((0, 0))
+                    });
+                    encode_codepoints_to_pdf(codepoints, &mut content);
                 }
             }
             Op::WriteCodepointsWithKerning { font, cpk } => {
                 if let Some(prepared_font) = fonts.get(font) {
-                    // Convert codepoints with kerning to TextItems
-                    let mut text_items = Vec::new();
-
-                    for (kern, gid, _) in cpk {
-                        if *kern != 0 {
-                            text_items.push(TextItem::Offset(*kern as f32));
-                        }
-
-                        if let Some(subset_gid) = prepared_font.subset_font.glyph_mapping.get(gid) {
-                            text_items.push(TextItem::Text(
-                                std::char::from_u32(subset_gid.0 as u32)
-                                    .map(|c| c.to_string())
-                                    .unwrap_or_default(),
-                            ));
-                        }
-                    }
-
-                    encode_text_items_to_pdf(&text_items, Some(prepared_font), None, &mut content);
+                    let mapping = &prepared_font.subset.glyph_mapping;
+                    let codepoints = cpk.iter().map(|(kern, gid, _)| {
+                        mapping
+                            .get(gid)
+                            .map(|&(subset_gid, _)| (subset_gid, *kern))
+                            .unwrap_or((0, 0))
+                    });
+                    encode_codepoints_to_pdf(codepoints, &mut content);
                 }
             }
             Op::SetLineHeight { lh } => {
@@ -744,7 +723,7 @@ fn encode_text_items_to_pdf<T: PrepFont>(
                         text.chars()
                             .flat_map(|c| {
                                 font.lgi(c as u32)
-                                    .and_then(|orig_gdi| font.index_to_cid(orig_gdi as u16))
+                                    .and_then(|src_gdi| font.index_to_cid(src_gdi as u16))
                                     .unwrap_or(0)
                                     .to_be_bytes()
                             })
@@ -784,10 +763,35 @@ fn encode_text_items_to_pdf<T: PrepFont>(
     // Choose appropriate operator based on complexity
     if tj_array.len() == 1 && !items.iter().any(|i| matches!(i, TextItem::Offset(_))) {
         // Single text item with no kerning - use simpler Tj
-        content.push(LoOp::new("Tj", vec![tj_array[0].clone()]));
+        content.push(LoOp::new("Tj", vec![tj_array.swap_remove(0)]));
     } else {
         // Multiple items or has kerning offsets - use TJ
         content.push(LoOp::new("TJ", vec![Array(tj_array)]));
+    }
+}
+
+// Helper function to encode codepoints to PDF operations
+fn encode_codepoints_to_pdf(codepoints: impl Iterator<Item = (u16, i64)>, content: &mut Vec<LoOp>) {
+    let mut tj_array = Vec::new();
+    let mut any_kerning = false;
+
+    for (codepoint, kerning) in codepoints {
+        if kerning != 0 {
+            any_kerning = true;
+            tj_array.push(Real(kerning as f32));
+        }
+
+        tj_array.push(LoString(codepoint.to_be_bytes().to_vec(), Hexadecimal));
+    }
+
+    match tj_array.len() {
+        0 => {}
+        1 if !any_kerning => {
+            content.push(LoOp::new("Tj", vec![tj_array.swap_remove(0)]));
+        }
+        _ => {
+            content.push(LoOp::new("TJ", vec![Array(tj_array)]));
+        }
     }
 }
 
@@ -1146,7 +1150,7 @@ fn add_font_to_pdf(
             // WARNING: Font stream MAY NOT be compressed
             let font_stream =
                 LoStream::new(LoDictionary::new(), prepared.subset.bytes.clone().into())
-            .with_compression(false);
+                    .with_compression(false);
 
             (
                 "CIDFontType2",

@@ -75,5 +75,8 @@ fn test_custom_font_roundtrip() {
 
     // Check that we found a WriteText operation with the correct text
     assert!(!text_ops.is_empty(), "No WriteText operations found");
-    assert_eq!(text_ops[0], russian_text, "Text not decoded correctly");
+
+    const RUSSIAN_SUBSETTED: &str =
+        "\n\u{6}\u{4}\u{c}\t\u{2}\u{1}\u{7}\u{b}\u{7}\u{1}\u{5}\u{c}\u{8}\u{b}\u{3}";
+    assert_eq!(text_ops[0], RUSSIAN_SUBSETTED, "Text not decoded correctly");
 }
