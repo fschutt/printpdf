@@ -741,25 +741,19 @@ fn encode_text_items_to_pdf<T: PrepFont>(
                 if let Some(font) = prepared_font {
                     // For custom fonts, convert each character to its subset glyph ID
                     let bytes = if true {
-                        let mut encoded = Vec::new();
-
-                        for c in text.chars() {
-                            if let Some(orig_gid) = font.lgi(c as u32) {
-                                let gid = font.index_to_cid(orig_gid as u16).unwrap();
-                                encoded.push((gid >> 8) as u8);
-                                encoded.push((gid & 0xFF) as u8);
-                            } else {
-                                encoded.push(0);
-                                encoded.push(0);
-                            }
-                        }
-
-                        encoded
+                        text.chars()
+                            .flat_map(|c| {
+                                font.lgi(c as u32)
+                                    .and_then(|orig_gdi| font.index_to_cid(orig_gdi as u16))
+                                    .unwrap_or(0)
+                                    .to_be_bytes()
+                            })
+                            .collect()
                     } else {
                         // This branch is for reference/comparison but not used
                         // It would try to use lopdf::Document::encode_text if it supported
                         // UnicodeMapEncoding
-                        Vec::new()
+                        vec![]
                     };
 
                     // Custom fonts must use hexadecimal encoding in PDF
@@ -833,7 +827,7 @@ impl PreparedFont {
         glyph_ids: BTreeMap<u16, char>,
         warnings: &mut Vec<PdfWarnMsg>,
     ) -> Option<Self> {
-        let subset = font.subset(&glyph_ids.iter().map(|s| (*s.0, *s.1)).collect::<Vec<_>>());
+        let subset = font.subset(&glyph_ids);
 
         let subset_font = match subset {
             Ok(o) => o,
@@ -847,28 +841,26 @@ impl PreparedFont {
             }
         };
 
-        let new_glyph_ids: BTreeMap<u16, char> = glyph_ids
-            .clone()
+        let font = ParsedFont::from_bytes(&subset_font.bytes, 0, warnings)?;
+
+        let new_glyph_ids: Vec<(u16, char)> = glyph_ids
             .iter()
             .filter_map(|(ogid, _ch)| subset_font.glyph_mapping.get(ogid).cloned())
             .collect();
-
-        let font = ParsedFont::from_bytes(&subset_font.bytes, 0, warnings)?;
-        let index_to_unicode = new_glyph_ids
-            .clone()
-            .iter()
-            .filter_map(|(index, char)| font.index_to_cid(*index).map(|gid| (gid as u16, *char)))
-            .collect();
-
-        let cid_to_unicode = font.generate_cid_to_unicode_map(font_id, &index_to_unicode);
 
         let widths = match font.font_type {
             FontType::TrueType => font.get_normalized_widths_ttf(&new_glyph_ids),
             _ => {
                 let cid_to_gid = font.generate_cid_to_gid(&new_glyph_ids);
-                font.get_normalized_widths_cff(&cid_to_gid)
+                font.get_normalized_widths_cff(cid_to_gid)
             }
         };
+
+        let index_to_unicode = new_glyph_ids
+            .iter()
+            .filter_map(|(index, char)| font.index_to_cid(*index).map(|gid| (gid as u16, *char)));
+
+        let cid_to_unicode = font.generate_cid_to_unicode_map(font_id, index_to_unicode);
 
         assert_eq!(font.original_bytes.len(), subset_font.bytes.len());
 
@@ -881,8 +873,6 @@ impl PreparedFont {
             ascent: font.font_metrics.ascender as i64,
             descent: font.font_metrics.descender as i64,
             widths_list: widths,
-            // max_height: font.get_max_height(&new_glyph_ids),
-            // total_width: font.get_total_width(&new_glyph_ids) as i64,
         })
     }
 }

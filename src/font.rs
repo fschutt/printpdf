@@ -651,7 +651,7 @@ impl ParsedFont {
     }
 
     /// Generates a new font file from the used glyph IDs
-    pub fn subset(&self, glyph_ids: &[(u16, char)]) -> Result<SubsetFont, String> {
+    pub fn subset(&self, glyph_ids: &BTreeMap<u16, char>) -> Result<SubsetFont, String> {
         let glyph_mapping = glyph_ids
             .iter()
             .enumerate()
@@ -671,9 +671,7 @@ impl ParsedFont {
         // https://docs.rs/allsorts/latest/allsorts/subset/fn.subset.html
         // Glyph id 0, corresponding to the .notdef glyph must always be present.
         let mut ids = vec![0];
-        for glyph_id in glyph_ids {
-            ids.push(glyph_id.0);
-        }
+        ids.extend(glyph_ids.keys());
 
         let font = allsorts_subset_browser::subset::subset(&provider, &ids, &SubsetProfile::Web)
             .map_err(|e| e.to_string())?;
@@ -688,37 +686,30 @@ impl ParsedFont {
     pub(crate) fn generate_cid_to_unicode_map(
         &self,
         font_id: &FontId,
-        glyph_ids: &BTreeMap<u16, char>,
+        glyph_ids: impl Iterator<Item = (u16, char)>,
     ) -> String {
         // Convert the glyph_ids map to a ToUnicodeCMap structure
-        let mut mappings: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
-        for (&glyph_id, &unicode) in glyph_ids {
-            mappings.insert(glyph_id as u32, vec![unicode as u32]);
-        }
+        let mappings = glyph_ids
+            .map(|(gid, c)| (gid as u32, vec![c as u32]))
+            .collect();
 
         // Create the CMap and generate its string representation
         let cmap = ToUnicodeCMap { mappings };
         cmap.to_cmap_string(&font_id.0)
     }
 
-    pub(crate) fn generate_cid_to_gid(
-        &self,
-        glyph_ids: &BTreeMap<u16, char>,
-    ) -> BTreeMap<u16, u16> {
-        let mut mappings: BTreeMap<u16, u16> = BTreeMap::new();
-
-        for (&glyph_id, _) in glyph_ids {
-            let cid = self.index_to_cid(glyph_id).unwrap();
-
-            mappings.insert(glyph_id, cid);
-        }
-
-        mappings
+    pub(crate) fn generate_cid_to_gid<'a>(
+        &'a self,
+        glyph_ids: &'a [(u16, char)],
+    ) -> impl Iterator<Item = (u16, u16)> + 'a {
+        glyph_ids
+            .iter()
+            .filter_map(|(gid, _)| self.index_to_cid(*gid).map(|cid| (*gid, cid)))
     }
 
     pub(crate) fn get_normalized_widths_ttf(
         &self,
-        glyph_ids: &BTreeMap<u16, char>,
+        glyph_ids: &[(u16, char)],
     ) -> Vec<lopdf::Object> {
         let mut widths_list = Vec::new();
         let mut current_low_gid = 0;
@@ -728,7 +719,7 @@ impl ParsedFont {
         // scale the font width so that it sort-of fits into an 1000 unit square
         let percentage_font_scaling = 1000.0 / (self.font_metrics.units_per_em as f32);
 
-        for gid in glyph_ids.keys() {
+        for (gid, _) in glyph_ids {
             let width = match self.get_glyph_width_internal(*gid) {
                 Some(s) => s,
                 None => match self.get_space_width() {
@@ -757,24 +748,11 @@ impl ParsedFont {
         widths_list.push(Array(std::mem::take(&mut current_width_vec)));
 
         widths_list
-        /*
-        let mut cmap = glyph_ids.iter()
-        .filter_map(|(glyph_id, c)| {
-            let (glyph_width, glyph_height) = self.get_glyph_size(*glyph_id)?;
-            let k = *glyph_id as u32;
-            let v = (*c as u32, glyph_width.abs() as u32, glyph_height.abs() as u32);
-            Some((k, v))
-        }).collect::<BTreeMap<_, _>>();
-
-        cmap.insert(0, (0, 1000, 1000));
-
-        widths.push((*glyph_id, width));
-        */
     }
 
     pub(crate) fn get_normalized_widths_cff(
         &self,
-        cid_to_gid: &BTreeMap<u16, u16>,
+        cid_to_gid: impl Iterator<Item = (u16, u16)>,
     ) -> Vec<lopdf::Object> {
         let mut widths_list = Vec::new();
 
@@ -782,7 +760,7 @@ impl ParsedFont {
         let percentage_font_scaling = 1000.0 / (self.font_metrics.units_per_em as f32);
 
         for (gid, cid) in cid_to_gid {
-            let width = match self.get_glyph_width_internal(*gid) {
+            let width = match self.get_glyph_width_internal(gid) {
                 Some(s) => s,
                 None => match self.get_space_width() {
                     Some(w) => w,
@@ -792,8 +770,8 @@ impl ParsedFont {
 
             let width = (width as f32 * percentage_font_scaling) as i64;
 
-            widths_list.push(Integer(*cid as i64));
-            widths_list.push(Integer(*cid as i64));
+            widths_list.push(Integer(cid as i64));
+            widths_list.push(Integer(cid as i64));
             widths_list.push(Integer(width));
         }
 
