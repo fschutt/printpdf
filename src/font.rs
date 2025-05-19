@@ -683,14 +683,15 @@ impl ParsedFont {
     }
 
     /// Replace this function in the ParsedFont implementation
-    pub(crate) fn generate_cid_to_unicode_map(
+    pub(crate) fn generate_cmap_string(
         &self,
         font_id: &FontId,
-        glyph_ids: impl Iterator<Item = (u16, char)>,
+        gid_to_cid_map: &[(u16, u16)],
     ) -> String {
         // Convert the glyph_ids map to a ToUnicodeCMap structure
-        let mappings = glyph_ids
-            .map(|(gid, c)| (gid as u32, vec![c as u32]))
+        let mappings = gid_to_cid_map
+            .iter()
+            .map(|&(gid, cp)| (gid as u32, vec![cp as u32]))
             .collect();
 
         // Create the CMap and generate its string representation
@@ -698,19 +699,14 @@ impl ParsedFont {
         cmap.to_cmap_string(&font_id.0)
     }
 
-    pub(crate) fn generate_cid_to_gid<'a>(
-        &'a self,
-        glyph_ids: &'a [(u16, char)],
-    ) -> impl Iterator<Item = (u16, u16)> + 'a {
+    pub(crate) fn generate_gid_to_cid_map(&self, glyph_ids: &[u16]) -> Vec<(u16, u16)> {
         glyph_ids
             .iter()
-            .filter_map(|(gid, _)| self.index_to_cid(*gid).map(|cid| (*gid, cid)))
+            .filter_map(|gid| self.index_to_cid(*gid).map(|cid| (*gid, cid)))
+            .collect()
     }
 
-    pub(crate) fn get_normalized_widths_ttf(
-        &self,
-        glyph_ids: &[(u16, char)],
-    ) -> Vec<lopdf::Object> {
+    pub(crate) fn get_normalized_widths_ttf(&self, glyph_ids: &[u16]) -> Vec<lopdf::Object> {
         let mut widths_list = Vec::new();
         let mut current_low_gid = 0;
         let mut current_high_gid = 0;
@@ -719,8 +715,8 @@ impl ParsedFont {
         // scale the font width so that it sort-of fits into an 1000 unit square
         let percentage_font_scaling = 1000.0 / (self.font_metrics.units_per_em as f32);
 
-        for (gid, _) in glyph_ids {
-            let width = match self.get_glyph_width_internal(*gid) {
+        for &gid in glyph_ids {
+            let width = match self.get_glyph_width_internal(gid) {
                 Some(s) => s,
                 None => match self.get_space_width() {
                     Some(w) => w,
@@ -728,7 +724,7 @@ impl ParsedFont {
                 },
             };
 
-            if *gid == current_high_gid {
+            if gid == current_high_gid {
                 // subsequent GID
                 current_width_vec.push(Integer((width as f32 * percentage_font_scaling) as i64));
                 current_high_gid += 1;
@@ -738,7 +734,7 @@ impl ParsedFont {
                 widths_list.push(Array(std::mem::take(&mut current_width_vec)));
 
                 current_width_vec.push(Integer((width as f32 * percentage_font_scaling) as i64));
-                current_low_gid = *gid;
+                current_low_gid = gid;
                 current_high_gid = gid + 1;
             }
         }
@@ -752,14 +748,14 @@ impl ParsedFont {
 
     pub(crate) fn get_normalized_widths_cff(
         &self,
-        cid_to_gid: impl Iterator<Item = (u16, u16)>,
+        gid_to_cid_map: &[(u16, u16)],
     ) -> Vec<lopdf::Object> {
         let mut widths_list = Vec::new();
 
         // scale the font width so that it sort-of fits into an 1000 unit square
         let percentage_font_scaling = 1000.0 / (self.font_metrics.units_per_em as f32);
 
-        for (gid, cid) in cid_to_gid {
+        for &(gid, cid) in gid_to_cid_map {
             let width = match self.get_glyph_width_internal(gid) {
                 Some(s) => s,
                 None => match self.get_space_width() {

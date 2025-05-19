@@ -804,7 +804,7 @@ fn needs_hex_encoding(bytes: &[u8]) -> bool {
 
 pub(crate) struct PreparedFont {
     original: ParsedFont,
-    pub(crate) subset_font: SubsetFont,
+    pub(crate) subset: SubsetFont,
     cid_to_unicode_map: String,
     vertical_writing: bool, // default: false
     ascent: i64,
@@ -829,8 +829,8 @@ impl PreparedFont {
     ) -> Option<Self> {
         let subset = font.subset(&glyph_ids);
 
-        let subset_font = match subset {
-            Ok(o) => o,
+        let subset = match subset {
+            Ok(subset) => subset,
             Err(e) => {
                 warnings.push(PdfWarnMsg::error(
                     0,
@@ -841,38 +841,32 @@ impl PreparedFont {
             }
         };
 
-        let font = ParsedFont::from_bytes(&subset_font.bytes, 0, warnings)?;
+        let font = ParsedFont::from_bytes(&subset.bytes, 0, warnings)?;
+        assert_eq!(font.original_bytes.len(), subset.bytes.len());
 
-        let new_glyph_ids: Vec<(u16, char)> = glyph_ids
+        let new_glyph_ids: Vec<u16> = glyph_ids
             .iter()
-            .filter_map(|(ogid, _ch)| subset_font.glyph_mapping.get(ogid).cloned())
+            .filter_map(|(orig_gid, _)| subset.glyph_mapping.get(orig_gid).map(|(gid, _)| *gid))
             .collect();
+
+        let gid_to_cid_map = font.generate_gid_to_cid_map(&new_glyph_ids);
+
+        let cid_to_unicode_map = font.generate_cmap_string(font_id, &gid_to_cid_map);
 
         let widths = match font.font_type {
             FontType::TrueType => font.get_normalized_widths_ttf(&new_glyph_ids),
-            _ => {
-                let cid_to_gid = font.generate_cid_to_gid(&new_glyph_ids);
-                font.get_normalized_widths_cff(cid_to_gid)
-            }
+            _ => font.get_normalized_widths_cff(&gid_to_cid_map),
         };
 
-        let index_to_unicode = new_glyph_ids
-            .iter()
-            .filter_map(|(index, char)| font.index_to_cid(*index).map(|gid| (gid as u16, *char)));
-
-        let cid_to_unicode = font.generate_cid_to_unicode_map(font_id, index_to_unicode);
-
-        assert_eq!(font.original_bytes.len(), subset_font.bytes.len());
-
         Some(PreparedFont {
-            original: font.clone(),
-            subset_font,
-            cid_to_unicode_map: cid_to_unicode,
-
-            vertical_writing: false, // !font.vmtx_data.is_empty(),
             ascent: font.font_metrics.ascender as i64,
             descent: font.font_metrics.descender as i64,
+            vertical_writing: false, // !font.vmtx_data.is_empty(),
             widths_list: widths,
+
+            original: font,
+            subset,
+            cid_to_unicode_map,
         })
     }
 }
@@ -1150,10 +1144,8 @@ fn add_font_to_pdf(
         }
         FontType::TrueType => {
             // WARNING: Font stream MAY NOT be compressed
-            let font_stream = LoStream::new(
-                LoDictionary::new(),
-                prepared.subset_font.bytes.clone().into(),
-            )
+            let font_stream =
+                LoStream::new(LoDictionary::new(), prepared.subset.bytes.clone().into())
             .with_compression(false);
 
             (
