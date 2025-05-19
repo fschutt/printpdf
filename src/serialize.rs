@@ -861,9 +861,7 @@ impl PreparedFont {
         let index_to_unicode = new_glyph_ids
             .clone()
             .iter()
-            .filter_map(|(index, char)| {
-                font.index_to_cid(*index + 1).map(|gid| (gid as u16, *char))
-            })
+            .filter_map(|(index, char)| font.index_to_cid(*index).map(|gid| (gid as u16, *char)))
             .collect();
 
         let cid_to_unicode = font.generate_cid_to_unicode_map(font_id, &index_to_unicode);

@@ -708,7 +708,7 @@ impl ParsedFont {
         let mut mappings: BTreeMap<u16, u16> = BTreeMap::new();
 
         for (&glyph_id, _) in glyph_ids {
-            let cid = self.index_to_cid(glyph_id + 1).unwrap();
+            let cid = self.index_to_cid(glyph_id).unwrap();
 
             mappings.insert(glyph_id, cid);
         }
@@ -782,7 +782,7 @@ impl ParsedFont {
         let percentage_font_scaling = 1000.0 / (self.font_metrics.units_per_em as f32);
 
         for (gid, cid) in cid_to_gid {
-            let width = match self.get_glyph_width_internal(*gid + 1) {
+            let width = match self.get_glyph_width_internal(*gid) {
                 Some(s) => s,
                 None => match self.get_space_width() {
                     Some(w) => w,
