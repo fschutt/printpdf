@@ -543,42 +543,20 @@ impl ParsedFont {
         font_id: &FontId,
         pages: &[PdfPage],
     ) -> BTreeMap<u16, char> {
-        enum CharsOrCodepoint {
-            Chars(String),
-            Cp(Vec<(u16, char)>),
-        }
-
-        let chars_or_codepoints = pages
+        let codepoints = pages
             .iter()
             .flat_map(|p| {
                 p.ops.iter().filter_map(|s| match s {
-                    Op::WriteText { font, items, .. } => {
-                        if font_id == font {
-                            Some(CharsOrCodepoint::Chars(
-                                items
-                                    .iter()
-                                    .filter_map(|s| match s {
-                                        TextItem::Text(t) => Some(t.clone()),
-                                        TextItem::Offset(_) => None,
-                                    })
-                                    .collect(),
-                            ))
-                        } else {
-                            None
-                        }
-                    }
                     Op::WriteCodepoints { font, cp, .. } => {
-                        if font_id == font {
-                            Some(CharsOrCodepoint::Cp(cp.clone()))
+                        if font == font_id {
+                            Some(cp.clone())
                         } else {
                             None
                         }
                     }
                     Op::WriteCodepointsWithKerning { font, cpk, .. } => {
-                        if font_id == font {
-                            Some(CharsOrCodepoint::Cp(
-                                cpk.iter().map(|s| (s.1, s.2)).collect(),
-                            ))
+                        if font == font_id {
+                            Some(cpk.iter().map(|s| (s.1, s.2)).collect())
                         } else {
                             None
                         }
@@ -586,29 +564,45 @@ impl ParsedFont {
                     _ => None,
                 })
             })
-            .collect::<Vec<_>>();
+            .flatten()
+            .collect::<BTreeMap<_, _>>();
 
-        if chars_or_codepoints.is_empty() {
+        let chars = pages
+            .iter()
+            .flat_map(|p| {
+                p.ops.iter().filter_map(|s| match s {
+                    Op::WriteText { font, items, .. } => {
+                        if font_id == font {
+                            Some(
+                                items
+                                    .iter()
+                                    .flat_map(|s| match s {
+                                        TextItem::Text(t) => Some(t.chars()),
+                                        TextItem::Offset(_) => None,
+                                    })
+                                    .flatten(),
+                            )
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                })
+            })
+            .flatten()
+            .map(|x| x)
+            .collect::<BTreeSet<_>>();
+
+        if codepoints.is_empty() && chars.is_empty() {
             return BTreeMap::new(); // font added, but never used
         }
 
-        let chars_to_resolve = chars_or_codepoints
+        let resolved_chars = chars
             .iter()
-            .flat_map(|s| match s {
-                CharsOrCodepoint::Chars(c) => c.chars().collect(),
-                _ => Vec::new(),
-            })
-            .collect::<BTreeSet<_>>();
+            .filter_map(|c| self.lookup_glyph_index(*c as u32).map(|f| (f, *c)));
 
-        let mut map = chars_to_resolve
-            .iter()
-            .filter_map(|c| self.lookup_glyph_index(*c as u32).map(|f| (f, *c)))
-            .collect::<BTreeMap<_, _>>();
-
-        map.extend(chars_or_codepoints.iter().flat_map(|s| match s {
-            CharsOrCodepoint::Cp(c) => c.clone(),
-            _ => Vec::new(),
-        }));
+        let mut map = codepoints;
+        map.extend(resolved_chars);
 
         if let Some(sp) = self.lookup_glyph_index(' ' as u32) {
             map.insert(sp, ' ');
