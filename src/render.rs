@@ -526,7 +526,7 @@ fn render_to_svg_internal(
         for (font_id, font) in fonts.iter() {
             svg.push_str(&format!(
                 r#"@font-face {{ font-family: "{}"; src: url("data:font/otf;charset=utf-8;base64,{}"); }}"#,
-                font_id.0, base64::prelude::BASE64_STANDARD.encode(&font.subset_font.bytes),
+                font_id.0, base64::prelude::BASE64_STANDARD.encode(&font.subset.bytes),
             ));
         }
         svg.push_str("</style>\n");
