@@ -45,7 +45,7 @@ pub struct ImageOptimizationOptions {
 }
 
 const fn default_quality() -> Option<f32> {
-    Some(85.0)
+    Some(0.85)
 }
 
 fn default_max_img_size() -> Option<String> {
