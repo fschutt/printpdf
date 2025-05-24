@@ -722,8 +722,8 @@ fn encode_text_items_to_pdf<T: PrepFont>(
                     let bytes = if true {
                         text.chars()
                             .flat_map(|c| {
-                                font.lgi(c as u32)
-                                    .and_then(|src_gdi| font.index_to_cid(src_gdi as u16))
+                                font.lookup_glyph_index(c as u32)
+                                    .map(|src_gdi| font.index_to_cid(src_gdi).unwrap_or(src_gdi))
                                     .unwrap_or(0)
                                     .to_be_bytes()
                             })
@@ -848,9 +848,11 @@ impl PreparedFont {
         let font = ParsedFont::from_bytes(&subset.bytes, 0, warnings)?;
         assert_eq!(font.original_bytes.len(), subset.bytes.len());
 
-        let new_glyph_ids: Vec<u16> = glyph_ids
+        let new_glyph_ids: Vec<_> = glyph_ids
             .iter()
-            .filter_map(|(orig_gid, _)| subset.glyph_mapping.get(orig_gid).map(|(gid, _)| *gid))
+            .filter_map(|(orig_gid, _)| {
+                subset.glyph_mapping.get(orig_gid).map(|&(gid, c)| (gid, c))
+            })
             .collect();
 
         let gid_to_cid_map = font.generate_gid_to_cid_map(&new_glyph_ids);
@@ -874,9 +876,10 @@ impl PreparedFont {
         })
     }
 }
+
 impl PrepFont for PreparedFont {
-    fn lgi(&self, codepoint: u32) -> Option<u32> {
-        self.original.lgi(codepoint) // .lookup_glyph_index(codepoint).map(Into::into)
+    fn lookup_glyph_index(&self, codepoint: u32) -> Option<u16> {
+        self.original.lookup_glyph_index(codepoint)
     }
 
     fn index_to_cid(&self, index: u16) -> Option<u16> {
