@@ -88,8 +88,8 @@ impl Rect {
     }
 
     fn gen_points(&self) -> Vec<LinePoint> {
-        let top = self.y;
-        let bottom = Pt(self.y.0 - self.height.0);
+        let top = Pt(self.y.0 + self.height.0);
+        let bottom = self.y;
         let left = self.x;
         let right = Pt(self.x.0 + self.width.0);
 
