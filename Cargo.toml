@@ -121,7 +121,3 @@ required-features = []
 [[example]]
 name = "otf-font"
 required-features = []
-
-[[example]]
-name = "test_rect"
-required-features = []
