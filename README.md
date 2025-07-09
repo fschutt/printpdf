@@ -3,13 +3,14 @@
 [![CI](https://github.com/fschutt/printpdf/actions/workflows/ci.yaml/badge.svg)](https://github.com/fschutt/printpdf/actions/workflows/ci.yaml)
 [![Dependencies](https://deps.rs/repo/github/fschutt/printpdf/status.svg)](https://deps.rs/repo/github/fschutt/printpdf)
 
-`printpdf` is a Rust library for generating, reading (!), rendering (!!) and optimizing PDF documents.
+`printpdf` is a Rust library for creating, reading, writing and rendering PDF documents.
 
 [Website](https://fschutt.github.io/printpdf) | [Crates.io](https://crates.io/crates/printpdf) | [Documentation](https://docs.rs/printpdf) | [Donate](https://github.com/sponsors/fschutt)
 
 > [!IMPORTANT]  
-> HTML-to-PDF rendering is still experimental and WIP. 
-> In doubt, position PDF elements manually instead.
+> HTML-to-PDF rendering is still experimental (a stub API) and WIP.
+> 
+> You need to position PDF elements manually for now.
 
 ## Features
 
@@ -19,12 +20,18 @@
 - Images encoding / decoding (read support: experimental / write supported with `image`)
 - Embedded fonts, Unicode support (read support: experimental / write)
 - Minifying file size (auto-subsetting fonts)
-- Rendering PDF pages to SVG files: experimental
-- Extracting text from PDF pages (with auto-decoding Unicode, line breaks, text positions: experimental)
-- Minimal HTML layouting for simple page layout (using `azul-layout` + `kuchiki` HTML parser)
 - Advanced graphics - overprint, blending, etc.
 - Advanced typography - character / word scaling and spacing, superscript, subscript, etc.
 - Embedding SVGs (uses `svg2pdf` crate internally)
+
+Experimental features:
+
+- Rendering PDF pages to SVG (one standalone SVG file per page)
+    - You can use the resulting SVG to render the PDF page into an image using `resvg`
+- Extracting text from PDF pages (auto-decodes Unicode, line breaks and text positions)
+- Minimal XHTML layouting for simple page layout (using `azul-layout` + `kuchiki` HTML parser)
+    - This is merely a stub API for now: it compiles, but won't produce usable output
+    - The html-to-pdf pipeline will improve when `azul-layout` gets a better HTML solver
 
 NOT supported are:
 
