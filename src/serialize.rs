@@ -1243,9 +1243,7 @@ fn docinfo_to_dict(m: &PdfDocumentInfo) -> LoDictionary {
     let info_create_date = crate::utils::to_pdf_time_stamp_metadata(&m.creation_date);
 
     let creation_date = LoString(info_create_date.into_bytes(), Literal);
-    let title = LoString(m.document_title.to_string().as_bytes().to_vec(), Literal);
     let identifier = LoString(m.identifier.as_bytes().to_vec(), Literal);
-    let keywords = LoString(m.keywords.join(",").as_bytes().to_vec(), Literal);
 
     LoDictionary::from_iter(vec![
         ("Trapped", trapping.into()),
@@ -1255,16 +1253,13 @@ fn docinfo_to_dict(m: &PdfDocumentInfo) -> LoDictionary {
             "GTS_PDFXVersion",
             LoString(gts_pdfx_version.into(), Literal),
         ),
-        ("Title", title),
-        ("Author", LoString(m.author.as_bytes().to_vec(), Literal)),
-        ("Creator", LoString(m.creator.as_bytes().to_vec(), Literal)),
-        (
-            "Producer",
-            LoString(m.producer.as_bytes().to_vec(), Literal),
-        ),
-        ("Subject", LoString(m.subject.as_bytes().to_vec(), Literal)),
+        ("Title", encode_text_to_utf16be(&m.document_title)),
+        ("Author", encode_text_to_utf16be(&m.author)),
+        ("Creator", encode_text_to_utf16be(&m.creator)),
+        ("Producer", encode_text_to_utf16be(&m.producer)),
+        ("Subject", encode_text_to_utf16be(&m.subject)),
         ("Identifier", identifier),
-        ("Keywords", keywords),
+        ("Keywords", encode_text_to_utf16be(&m.keywords.join(","))),
     ])
 }
 
