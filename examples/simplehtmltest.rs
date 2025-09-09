@@ -75,7 +75,7 @@ const XHTML: &str = r#"
         </style>
     </head>
     <body>
-        <p>Test passes if the filled blue square touches the upper-left corner of the black box.</p>
+        <p>Test passes the a filled blue square touches the upper-left corner of the black box.</p>
         <div id="div1">
             <div></div>
         </div>
@@ -176,7 +176,11 @@ fn main() {
         &XHTML,
         &BTreeMap::new(), // fonts - should use builtin TimesRoman font
         &BTreeMap::new(), // images - no images used
-        &GeneratePdfOptions::default(),
+        &GeneratePdfOptions {
+            page_width: Some(800.0),
+            page_height: Some(600.0),
+            .. Default::default()
+        },
         &mut warnings,
     );
 
