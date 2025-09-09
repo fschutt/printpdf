@@ -27,7 +27,7 @@ pub const OP_PATH_CONST_CLIP_NZ: &str = "W";
 pub const OP_PATH_CONST_CLIP_EO: &str = "W*";
 
 /// Rectangle struct (x, y, width, height) from the LOWER LEFT corner of the page
-#[derive(PartialEq, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Copy, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Rect {
     pub x: Pt,
@@ -47,6 +47,7 @@ impl fmt::Debug for Rect {
 }
 
 impl Rect {
+    /// Returns the lower-left corner of the rectangle as a `Point`.
     pub fn lower_left(&self) -> Point {
         Point {
             x: self.x,
@@ -54,10 +55,27 @@ impl Rect {
         }
     }
 
+    /// Returns the upper-right corner of the rectangle as a `Point`.
     pub fn upper_right(&self) -> Point {
         Point {
             x: self.x + self.width,
             y: self.y + self.height,
+        }
+    }
+
+    /// Returns the upper-left corner of the rectangle as a `Point`.
+    pub fn upper_left(&self) -> Point {
+        Point {
+            x: self.x,
+            y: self.y + self.height,
+        }
+    }
+
+    /// Returns the lower-right corner of the rectangle as a `Point`.
+    pub fn lower_right(&self) -> Point {
+        Point {
+            x: self.x + self.width,
+            y: self.y,
         }
     }
 
@@ -306,6 +324,53 @@ pub struct Polygon {
 pub struct PolygonRing {
     /// 2D Points for the ring
     pub points: Vec<LinePoint>,
+}
+
+impl PolygonRing {
+    /// Calculates the bounding box of the polygon ring.
+    ///
+    /// The bounding box is the smallest rectangle that encloses all points in the ring.
+    /// If the ring contains no points, a zero-sized rectangle at the origin is returned.
+    pub fn bbox(&self) -> Rect {
+        if self.points.is_empty() {
+            return Rect {
+                x: Pt(0.0),
+                y: Pt(0.0),
+                width: Pt(0.0),
+                height: Pt(0.0),
+            };
+        }
+
+        // Create an iterator over the raw (x, y) float values of the points.
+        let mut points_iter = self
+            .points
+            .iter()
+            .map(|line_point| (line_point.p.x.0, line_point.p.y.0));
+
+        // Initialize min/max values with the coordinates of the first point.
+        // It's safe to unwrap because we've already checked that the vec is not empty.
+        let (first_x, first_y) = points_iter.next().unwrap();
+        let mut min_x = first_x;
+        let mut max_x = first_x;
+        let mut min_y = first_y;
+        let mut max_y = first_y;
+
+        // Iterate through the rest of the points to find the overall min and max coordinates.
+        for (x, y) in points_iter {
+            min_x = min_x.min(x);
+            max_x = max_x.max(x);
+            min_y = min_y.min(y);
+            max_y = max_y.max(y);
+        }
+
+        // Construct the Rect from the calculated bounding values.
+        Rect {
+            x: Pt(min_x),
+            y: Pt(min_y),
+            width: Pt(max_x - min_x),
+            height: Pt(max_y - min_y),
+        }
+    }
 }
 
 impl FromIterator<(Point, bool)> for Polygon {

@@ -40,6 +40,7 @@ azul-css = { git = "https://github.com/fschutt/azul", rev = "3fe83b9d4c8004ebe96
 azul-core = {  git = "https://github.com/fschutt/azul",  rev = "3fe83b9d4c8004ebe96ea0a77660c777fcd05bc8", default-features = false, features = ["std"], optional = true }
 azul-layout = {  git = "https://github.com/fschutt/azul", rev = "3fe83b9d4c8004ebe96ea0a77660c777fcd05bc8", default-features = false, features = ["std", "text_layout", "font_loading", "xml"], optional = true }
 weezl = "0.1.8"
+assert-struct = { version = "0.2.0", optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 wasm-bindgen = { version = "0.2" }
@@ -52,7 +53,7 @@ text-diff = "0.4.0"
 [features]
 default = ["html"]
 text_layout = ["azul-css", "azul-core", "azul-layout"]
-html = ["kuchiki", "text_layout", "rust-fontconfig", "xmlparser"]
+html = ["kuchiki", "text_layout", "rust-fontconfig", "xmlparser", "assert-struct"]
 js-sys = ["dep:js-sys", "web-sys", "wasm-bindgen-futures"] # wasm + browser context
 gif = ["image/gif"]
 jpeg = ["image/jpeg"]
@@ -93,6 +94,11 @@ required-features = []
 [[example]]
 name = "html"
 required-features = ["html"]
+
+[[example]]
+name = "simplehtmltest"
+required-features = ["html"]
+
 
 [[example]]
 name = "image"
