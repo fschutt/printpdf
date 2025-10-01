@@ -25,6 +25,8 @@ use allsorts_subset_browser::{
         SfntVersion,
     },
 };
+#[cfg(feature = "text_layout")]
+pub use azul_core::callbacks::{InlineText, InlineWord};
 use base64::Engine;
 use lopdf::Object::{Array, Integer};
 use serde_derive::{Deserialize, Serialize};
