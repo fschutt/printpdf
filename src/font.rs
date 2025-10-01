@@ -330,31 +330,12 @@ pub struct ParsedFont {
 }
 
 impl ParsedFont {
-    ///
-    /// This function performs full text shaping and layout, including:
-    ///
-    /// - Breaking text into words and lines
-    /// - Positioning glyphs with proper kerning
-    /// - Handling line breaks and wrapping
-    /// - Flowing text around "holes"
-    /// - Aligning text horizontally
-    ///
-    /// # Arguments
-    ///
-    /// * `self` - The font to use for shaping
-    /// * `text` - The text to shape
-    /// * `options` - Text shaping and layout options
-    ///
-    /// # Returns
-    ///
-    /// A `ShapedText` containing the fully laid out text (not yet positioned!)
     #[cfg(feature = "text_layout")]
-    pub fn shape_text(
+    pub fn shape_text_inline(
         &self,
         text: &str,
         options: &TextShapingOptions,
-        font_id: &FontId,
-    ) -> ShapedText {
+    ) -> azul_core::callbacks::InlineText {
         // Convert holes to azul_layout format
 
         use azul_core::{
@@ -424,12 +405,40 @@ impl ParsedFont {
         let inline_text_layout = word_positions_to_inline_text_layout(&word_positions);
 
         // Get inline text with final positioning
-        let inline_text = azul_core::app_resources::get_inline_text(
+        azul_core::app_resources::get_inline_text(
             &words,
             &shaped_words,
             &word_positions,
             &inline_text_layout,
-        );
+        )
+    }
+
+    ///
+    /// This function performs full text shaping and layout, including:
+    ///
+    /// - Breaking text into words and lines
+    /// - Positioning glyphs with proper kerning
+    /// - Handling line breaks and wrapping
+    /// - Flowing text around "holes"
+    /// - Aligning text horizontally
+    ///
+    /// # Arguments
+    ///
+    /// * `self` - The font to use for shaping
+    /// * `text` - The text to shape
+    /// * `options` - Text shaping and layout options
+    ///
+    /// # Returns
+    ///
+    /// A `ShapedText` containing the fully laid out text (not yet positioned!)
+    #[cfg(feature = "text_layout")]
+    pub fn shape_text(
+        &self,
+        text: &str,
+        options: &TextShapingOptions,
+        font_id: &FontId,
+    ) -> ShapedText {
+        let inline_text = self.shape_text_inline(text, options);
 
         // Extract shaped text from inline text
         let st = ShapedText::from_inline_text(font_id, &inline_text, options);

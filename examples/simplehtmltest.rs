@@ -179,7 +179,7 @@ fn main() {
         &GeneratePdfOptions {
             page_width: Some(800.0),
             page_height: Some(600.0),
-            .. Default::default()
+            ..Default::default()
         },
         &mut warnings,
     );
