@@ -848,18 +848,19 @@ impl PreparedFont {
         let font = ParsedFont::from_bytes(&subset.bytes, 0, warnings)?;
         assert_eq!(font.original_bytes.len(), subset.bytes.len());
 
-        let new_glyph_ids: Vec<u16> = glyph_ids
+        let new_glyph_ids: Vec<(u16, char)> = glyph_ids
             .iter()
-            .filter_map(|(orig_gid, _)| subset.glyph_mapping.get(orig_gid).map(|(gid, _)| *gid))
+            .filter_map(|(orig_gid, _)| subset.glyph_mapping.get(orig_gid).copied())
             .collect();
 
-        let gid_to_cid_map = font.generate_gid_to_cid_map(&new_glyph_ids);
-
-        let cid_to_unicode_map = font.generate_cmap_string(font_id, &gid_to_cid_map);
+        let cid_to_unicode_map = font.generate_cmap_string(font_id, &new_glyph_ids);
 
         let widths = match font.font_type {
             FontType::TrueType => font.get_normalized_widths_ttf(&new_glyph_ids),
-            _ => font.get_normalized_widths_cff(&gid_to_cid_map),
+            _ => {
+                let gid_to_cid_map = font.generate_gid_to_cid_map(&new_glyph_ids);
+                font.get_normalized_widths_cff(&gid_to_cid_map)
+            }
         };
 
         Some(PreparedFont {
