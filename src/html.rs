@@ -940,7 +940,6 @@ fn solve_layout(
     // Solve the layout (the extra parameters are necessary because of IFrame recursion)
     let mut resource_updates = Vec::new();
     let mut debug = Some(Vec::new());
-    println!("{}", styled_dom.get_html_string("", "", false));
     let mut solved_layout = SolvedLayout::new(
         styled_dom,
         epoch,
@@ -956,6 +955,7 @@ fn solve_layout(
         &mut debug,
     );
 
+    println!("solved HTML layout: {solved_layout:#?}");
     solved_layout.layout_results.remove(0)
 }
 
