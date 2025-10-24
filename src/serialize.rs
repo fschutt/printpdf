@@ -89,6 +89,19 @@ pub fn serialize_pdf<W: Write>(
     mut writer: &mut W,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> () {
+    let mut doc = to_lopdf_doc(pdf, opts, warnings);
+    if opts.optimize {
+        // doc.compress();
+    }
+
+    let _ = doc.save_to(&mut writer);
+}
+
+pub fn to_lopdf_doc(
+    pdf: &PdfDocument,
+    opts: &PdfSaveOptions,
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> lopdf::Document {
     let (mut doc, global_xobject_dict) = init_doc_and_resources(pdf, opts);
     let pages_id = doc.new_object_id();
     let mut catalog = LoDictionary::from_iter(vec![
@@ -383,11 +396,7 @@ pub fn serialize_pdf<W: Write>(
         ]),
     );
 
-    if opts.optimize {
-        // doc.compress();
-    }
-
-    let _ = doc.save_to(&mut writer);
+    doc
 }
 pub fn serialize_pdf_into_bytes(
     pdf: &PdfDocument,

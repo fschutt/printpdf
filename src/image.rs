@@ -403,6 +403,33 @@ impl RawImage {
         Self::decode_from_bytes(bytes, warnings)
     }
 
+    pub fn from_dynamic_image(image: DynamicImage) -> Result<Self, String> {
+        let (w, h) = image.dimensions();
+        let data_format = match image.color() {
+            image::ColorType::L8 => RawImageFormat::R8,
+            image::ColorType::La8 => RawImageFormat::RG8,
+            image::ColorType::Rgb8 => RawImageFormat::RGB8,
+            image::ColorType::Rgba8 => RawImageFormat::RGBA8,
+            _ => return Err("Unsupported color type".to_string()),
+        };
+
+        let pixels = match image {
+            DynamicImage::ImageLuma8(buf) => RawImageData::U8(buf.into_raw()),
+            DynamicImage::ImageLumaA8(buf) => RawImageData::U8(buf.into_raw()),
+            DynamicImage::ImageRgb8(buf) => RawImageData::U8(buf.into_raw()),
+            DynamicImage::ImageRgba8(buf) => RawImageData::U8(buf.into_raw()),
+            _ => return Err("Unsupported dynamic image format".to_string()),
+        };
+
+        Ok(RawImage {
+            pixels,
+            width: w as usize,
+            height: h as usize,
+            data_format,
+            tag: Vec::new(),
+        })
+    }
+
     /// NOTE: depends on the enabled image formats!
     pub fn decode_from_bytes(bytes: &[u8], warnings: &mut Vec<PdfWarnMsg>) -> Result<Self, String> {
         use image::DynamicImage::*;

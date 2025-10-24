@@ -425,6 +425,15 @@ impl PdfDocument {
         self::serialize::serialize_pdf_into_bytes(self, opts, warnings)
     }
 
+    /// Returns the lopdf Document structure for advanced manipulation
+    pub fn to_lopdf_document(
+        &self,
+        opts: &PdfSaveOptions,
+        warnings: &mut Vec<PdfWarnMsg>,
+    ) -> lopdf::Document {
+        self::serialize::to_lopdf_doc(self, opts, warnings)
+    }
+
     pub async fn save_async(
         &self,
         opts: &PdfSaveOptions,
