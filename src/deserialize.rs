@@ -1471,6 +1471,54 @@ pub fn parse_op(
                 ));
             }
         }
+        "k" => {
+            // 'k' sets fill color in Cmyk.
+            if op.operands.len() == 4 {
+                let c = to_f32(&op.operands[0]);
+                let m = to_f32(&op.operands[1]);
+                let y = to_f32(&op.operands[2]);
+                let k = to_f32(&op.operands[3]);
+                out_ops.push(Op::SetFillColor {
+                    col: Color::cmyk(crate::Cmyk {
+                        c,
+                        m,
+                        y,
+                        k,
+                        icc_profile: None,
+                    }),
+                });
+            } else {
+                warnings.push(PdfWarnMsg::error(
+                    page,
+                    op_id,
+                    "Warning: 'k' expects 4 operands".to_string(),
+                ));
+            }
+        }
+        "K" => {
+            // 'K' sets stroke (outline) color in CMYK.
+            if op.operands.len() == 4 {
+                let c = to_f32(&op.operands[0]);
+                let m = to_f32(&op.operands[1]);
+                let y = to_f32(&op.operands[2]);
+                let k = to_f32(&op.operands[3]);
+                out_ops.push(Op::SetOutlineColor {
+                    col: Color::Cmyk(crate::Cmyk {
+                        c,
+                        m,
+                        y,
+                        k,
+                        icc_profile: None,
+                    }),
+                });
+            } else {
+                warnings.push(PdfWarnMsg::error(
+                    page,
+                    op_id,
+                    "Warning: 'K' expects 4 operands".to_string(),
+                ));
+            }
+        }
         "g" => {
             // 'g' sets the fill color in grayscale.
             if op.operands.len() == 1 {
@@ -2046,10 +2094,10 @@ pub fn parse_op(
                 });
                 state.path_builder.close_path();
 
-                // In PDF 're' implicitly fills and strokes
+                // In PDF 're' implicitly strokes but doesn't fill
                 let path = state
                     .path_builder
-                    .build(PaintMode::FillStroke, WindingOrder::NonZero);
+                    .build(PaintMode::Stroke, WindingOrder::NonZero);
                 out_ops.push(path_to_op(&path));
                 state.path_builder.clear();
             } else {
