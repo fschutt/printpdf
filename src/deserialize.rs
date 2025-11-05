@@ -1479,7 +1479,7 @@ pub fn parse_op(
                 let y = to_f32(&op.operands[2]);
                 let k = to_f32(&op.operands[3]);
                 out_ops.push(Op::SetFillColor {
-                    col: Color::cmyk(crate::Cmyk {
+                    col: Color::Cmyk(crate::Cmyk {
                         c,
                         m,
                         y,
@@ -2476,7 +2476,7 @@ pub fn parse_document_info(dict: &LopdfDictionary) -> PdfDocumentInfo {
         .get(b"Title")
         .ok()
         .and_then(|obj| match &obj {
-            Object::String(s, _) => Some(String::from_utf8_lossy(s).into_owned()),
+            Object::String(s, _) => Some(decode_text_from_utf16be(s)),
             _ => None,
         })
         .unwrap_or_default();
@@ -2485,7 +2485,7 @@ pub fn parse_document_info(dict: &LopdfDictionary) -> PdfDocumentInfo {
         .get(b"Author")
         .ok()
         .and_then(|obj| match &obj {
-            Object::String(s, _) => Some(String::from_utf8_lossy(s).into_owned()),
+            Object::String(s, _) => Some(decode_text_from_utf16be(s)),
             _ => None,
         })
         .unwrap_or_default();
@@ -2494,7 +2494,7 @@ pub fn parse_document_info(dict: &LopdfDictionary) -> PdfDocumentInfo {
         .get(b"Creator")
         .ok()
         .and_then(|obj| match &obj {
-            Object::String(s, _) => Some(String::from_utf8_lossy(s).into_owned()),
+            Object::String(s, _) => Some(decode_text_from_utf16be(s)),
             _ => None,
         })
         .unwrap_or_default();
@@ -2503,7 +2503,7 @@ pub fn parse_document_info(dict: &LopdfDictionary) -> PdfDocumentInfo {
         .get(b"Producer")
         .ok()
         .and_then(|obj| match &obj {
-            Object::String(s, _) => Some(String::from_utf8_lossy(s).into_owned()),
+            Object::String(s, _) => Some(decode_text_from_utf16be(s)),
             _ => None,
         })
         .unwrap_or_default();
@@ -2512,7 +2512,7 @@ pub fn parse_document_info(dict: &LopdfDictionary) -> PdfDocumentInfo {
         .get(b"Subject")
         .ok()
         .and_then(|obj| match &obj {
-            Object::String(s, _) => Some(String::from_utf8_lossy(s).into_owned()),
+            Object::String(s, _) => Some(decode_text_from_utf16be(s)),
             _ => None,
         })
         .unwrap_or_default();
@@ -2521,7 +2521,7 @@ pub fn parse_document_info(dict: &LopdfDictionary) -> PdfDocumentInfo {
         .get(b"Identifier")
         .ok()
         .and_then(|obj| match &obj {
-            Object::String(s, _) => Some(String::from_utf8_lossy(s).into_owned()),
+            Object::String(s, _) => Some(decode_text_from_utf16be(s)),
             _ => None,
         })
         .unwrap_or_default();
@@ -2530,7 +2530,7 @@ pub fn parse_document_info(dict: &LopdfDictionary) -> PdfDocumentInfo {
         .get(b"Keywords")
         .ok()
         .and_then(|obj| match &obj {
-            Object::String(s, _) => Some(String::from_utf8_lossy(s).into_owned()),
+            Object::String(s, _) => Some(decode_text_from_utf16be(s)),
             _ => None,
         })
         .map(|joined| {
@@ -3369,10 +3369,20 @@ mod parsefont {
                     );
                 }
             } else {
-                if let Some(builtin) =
-                    process_standard_font(font_dict, &font_id, warnings, page_num)
-                {
-                    fonts_map.insert(font_id, builtin);
+                match process_standard_font(doc, font_dict, &font_id, warnings, page_num) {
+                    Some(ParsedOrBuiltinFont::B(builtin)) => {
+                        fonts_map.insert(
+                            font_id,
+                            ParsedOrBuiltinFont::B(builtin)
+                        );
+                    },
+                    Some(ParsedOrBuiltinFont::P(parsed_font, _)) => {
+                        fonts_map.insert(
+                            font_id,
+                            ParsedOrBuiltinFont::P(parsed_font, to_unicode_cmap)
+                        );
+                    },
+                    None => {}
                 }
             }
         }
@@ -3500,32 +3510,33 @@ mod parsefont {
         page_num: usize,
     ) -> Option<&'a Dictionary> {
         // Get DescendantFonts array
-        let descendant_fonts = match font_dict.get(b"DescendantFonts") {
-            Ok(Object::Array(arr)) if !arr.is_empty() => arr,
+        match font_dict.get(b"DescendantFonts") {
+            Ok(Object::Array(arr)) if !arr.is_empty() => {
+                // Get first descendant font
+                match arr[0].as_dict().ok().or_else(|| {
+                    if let Ok(id) = arr[0].as_reference() {
+                        doc.get_dictionary(id).ok()
+                    } else {
+                        None
+                    }
+                }) {
+                    Some(d) => Some(d),
+                    None => {
+                        warnings.push(PdfWarnMsg::warning(
+                            page_num,
+                            0,
+                            format!("Cannot resolve descendant font for {}", font_id.0),
+                        ));
+                        None
+                    }
+                }
+            },
+            Ok(Object::Reference(id)) => doc.get_dictionary(*id).ok(),
             _ => {
                 warnings.push(PdfWarnMsg::warning(
                     page_num,
                     0,
                     format!("Type0 font {} missing DescendantFonts", font_id.0),
-                ));
-                return None;
-            }
-        };
-
-        // Get first descendant font
-        match descendant_fonts[0].as_dict().ok().or_else(|| {
-            if let Ok(id) = descendant_fonts[0].as_reference() {
-                doc.get_dictionary(id).ok()
-            } else {
-                None
-            }
-        }) {
-            Some(d) => Some(d),
-            None => {
-                warnings.push(PdfWarnMsg::warning(
-                    page_num,
-                    0,
-                    format!("Cannot resolve descendant font for {}", font_id.0),
                 ));
                 None
             }
@@ -3627,10 +3638,27 @@ mod parsefont {
         }
     }
 
+    /// Process a Type1 font
+    fn process_type1_font(
+        doc: &Document,
+        font_dict: &Dictionary,
+        font_id: &FontId,
+        warnings: &mut Vec<PdfWarnMsg>,
+        page_num: usize,
+    ) -> Option<ParsedFont> {
+        // Get the font descriptor
+        let font_descriptor =
+            get_font_descriptor(doc, font_dict, font_id, warnings, page_num)?;
+
+        // Process font data (no need to handle CMap here anymore)
+        process_font_data(doc, font_dict, font_descriptor, font_id, warnings, page_num)
+    }
+
     /// Process a standard font (Type1, TrueType, etc.)
     fn process_standard_font(
+        doc: &Document,
         font_dict: &Dictionary,
-        _font_id: &FontId,
+        font_id: &FontId,
         warnings: &mut Vec<PdfWarnMsg>,
         page_num: usize,
     ) -> Option<ParsedOrBuiltinFont> {
@@ -3644,13 +3672,41 @@ mod parsefont {
         match BuiltinFont::from_id(&basefont) {
             Some(builtin) => Some(ParsedOrBuiltinFont::B(builtin)),
             None => {
-                warnings.push(PdfWarnMsg::warning(
-                    page_num,
-                    0,
-                    format!("Unknown base font: {}", basefont),
-                ));
-                None
+                match process_type1_font(doc, font_dict, font_id, warnings, page_num) {
+                    Some(parsed_font) => {
+                        Some(ParsedOrBuiltinFont::P(parsed_font, None))
+                    },
+                    None => {
+                        warnings.push(PdfWarnMsg::warning(
+                            page_num,
+                            0,
+                            format!("Unknown base font: {}", basefont),
+                        ));
+                        None
+                    }
+                }
             }
         }
     }
+}
+
+// Decode text from UTF-16BE with BOM
+fn decode_text_from_utf16be(bytes: &[u8]) -> String {
+    if bytes.len() < 2 {
+        // not UTF-16BE encoded, use UTF-8
+        return String::from_utf8_lossy(bytes).into_owned();
+    }
+
+    // check for Byte Order Mask
+    if bytes[0] != 0xFE || bytes[1] != 0xFF {
+        // not UTF-16BE encoded, use UTF-8
+        return String::from_utf8_lossy(bytes).into_owned();
+    }
+
+    // Decode from UTF-16BE
+    let (chunks, remainder) = bytes[2..].as_chunks::<2>();
+    let string = char::decode_utf16(chunks.iter().copied().map(u16::from_be_bytes))
+        .map(|r| r.unwrap_or(char::REPLACEMENT_CHARACTER))
+        .collect();
+    if remainder.is_empty() { string } else { string + "\u{FFFD}" }
 }
