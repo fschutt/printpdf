@@ -820,8 +820,8 @@ pub struct PageState {
     /// Current transformation matrix stack. Each entry is a 6-float array [a b c d e f].
     pub transform_stack: Vec<[f32; 6]>,
 
-    /// Name of the current layer, if any (set by BDC with /OC).
-    pub current_layer: Option<String>,
+    /// Name of the current marked content, if any (set by BMC/BDC)
+    pub current_marked_content: Vec<String>,
 
     pub path_builder: PathBuilder,
 
@@ -1892,17 +1892,57 @@ pub fn parse_op(
             }
         }
 
-        // --- Begin/End layer (BDC/EMC) ---
+        // --- Begin/End marked content or optional content (BMC,BDC/EMC) ---
+        // NOTE: optional content can be nested
         "BDC" => {
-            // Typically something like: [Name("OC"), Name("MyLayer")]
-            if op.operands.len() == 2 {
-                if let Some(layer_nm) = as_name(&op.operands[1]) {
-                    state.current_layer = Some(layer_nm.clone());
-                    out_ops.push(Op::BeginLayer {
-                        layer_id: crate::LayerInternalId(layer_nm),
-                    });
-                }
+            // Typically something like: [Name("Span"), Properties as a Dictionary]
+            // In case of optional content: [Name("OC"), Name("MyLayer")]
+            if op.operands.len() != 2 {
+                warnings.push(PdfWarnMsg::error(
+                    page,
+                    op_id,
+                    "BDC expects 2 operands".to_string(),
+                ));
+                return Ok(Vec::new());
             }
+            let Some(marked_content_nm) = as_name(&op.operands[0]) else {
+                warnings.push(PdfWarnMsg::error(
+                    page,
+                    op_id,
+                    "BDC operand is not a name".to_string(),
+                ));
+                return Ok(Vec::new());
+            };
+            if marked_content_nm.as_str() == "OC" {
+                let Some(layer_nm) = as_name(&op.operands[1]) else {
+                    warnings.push(PdfWarnMsg::error(
+                        page,
+                        op_id,
+                        "BDC OC layer operand is not a name".to_string(),
+                    ));
+                    return Ok(Vec::new());
+                };
+                out_ops.push(Op::BeginLayer {
+                    layer_id: crate::LayerInternalId(layer_nm),
+                });
+            } else {
+                let properties = match op.operands[1].as_dict() {
+                    Ok(dict) => vec![DictItem::from_lopdf(&Object::Dictionary(dict.to_owned()))],
+                    Err(_err) => {
+                        warnings.push(PdfWarnMsg::warning(
+                            page,
+                            op_id,
+                            "BDC properties is not a dictionary".to_string(),
+                        ));
+                        vec![]
+                    }
+                };
+                out_ops.push(Op::BeginMarkedContentWithProperties {
+                    tag: marked_content_nm.clone(),
+                    properties,
+                });
+            }
+            state.current_marked_content.push(marked_content_nm.clone());
         }
         "BMC" => {
             if op.operands.len() != 1 {
@@ -1913,7 +1953,7 @@ pub fn parse_op(
                 ));
                 return Ok(Vec::new());
             }
-            let layer_nm = match as_name(&op.operands[0]) {
+            let marked_content_nm = match as_name(&op.operands[0]) {
                 Some(t) => t,
                 None => {
                     warnings.push(PdfWarnMsg::error(
@@ -1924,21 +1964,19 @@ pub fn parse_op(
                     return Ok(Vec::new());
                 }
             };
-            state.current_layer = Some(layer_nm.clone());
-            out_ops.push(Op::BeginLayer {
-                layer_id: crate::LayerInternalId(layer_nm),
+            state.current_marked_content.push(marked_content_nm.clone());
+            out_ops.push(Op::BeginMarkedContent {
+                tag: marked_content_nm.clone(),
             });
         }
         "EMC" => {
-            if let Some(layer_str) = state.current_layer.take() {
-                out_ops.push(Op::EndLayer {
-                    layer_id: crate::LayerInternalId(layer_str),
-                });
+            if let Some(_marked_content_str) = state.current_marked_content.pop() {
+                out_ops.push(Op::EndMarkedContent { });
             } else {
                 warnings.push(PdfWarnMsg::error(
                     page,
                     op_id,
-                    format!("Warning: 'EMC' with no current_layer"),
+                    format!("Warning: 'EMC' with no current_marked_content"),
                 ));
             }
         }
