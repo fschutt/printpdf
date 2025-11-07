@@ -91,7 +91,7 @@ pub fn serialize_pdf<W: Write>(
 ) -> () {
     let mut doc = to_lopdf_doc(pdf, opts, warnings);
     if opts.optimize {
-        // doc.compress();
+        doc.compress();
     }
 
     let _ = doc.save_to(&mut writer);
@@ -293,7 +293,7 @@ pub fn to_lopdf_doc(
                 warnings,
             ); // Vec<u8>
             let merged_layer_stream =
-                LoStream::new(LoDictionary::new(), layer_stream).with_compression(false);
+                LoStream::new(LoDictionary::new(), layer_stream);
 
             let page_obj = LoDictionary::from_iter(vec![
                 ("Type", "Page".into()),
@@ -650,7 +650,9 @@ pub(crate) fn translate_operations(
                 content.push(LoOp::new("BMC", vec![Name(tag.clone().into())]));
             }
             Op::BeginMarkedContentWithProperties { tag, properties } => {
-                let props = Array(properties.iter().map(|item| item.to_lopdf()).collect());
+                // NOTE: properties should be a single dictionary, not a vector of dictionaries, only use the first item
+                // TODO API change
+                let props = properties.first().map(|item| item.to_lopdf()).expect("properties can not be empty");
                 content.push(LoOp::new("BDC", vec![Name(tag.clone().into()), props]));
             }
             Op::DefineMarkedContentPoint { tag, properties } => {
@@ -1385,6 +1387,10 @@ fn color_array_to_f32(c: &ColorArray) -> Vec<f32> {
 
 // Encode text to UTF-16BE with BOM
 fn encode_text_to_utf16be(text: &str) -> lopdf::Object {
+    if text.is_empty() {
+        return lopdf::Object::string_literal("");
+    }
+
     // Byte Order Mark
     let mut bytes = vec![0xFE, 0xFF];
 
