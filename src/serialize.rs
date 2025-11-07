@@ -1389,10 +1389,9 @@ fn encode_text_to_utf16be(text: &str) -> lopdf::Object {
     let mut bytes = vec![0xFE, 0xFF];
 
     // Encode as UTF-16BE
-    for c in text.chars() {
-        let code_point = c as u16;
-        bytes.push((code_point >> 8) as u8);
-        bytes.push((code_point & 0xFF) as u8);
+    for c in text.encode_utf16() {
+        bytes.push((c >> 8) as u8);
+        bytes.push((c & 0xFF) as u8);
     }
 
     // Return as a Hex String

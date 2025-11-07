@@ -1052,7 +1052,17 @@ impl ParsedFont {
             }
         };
 
-        let font = allsorts_subset_browser::font::Font::new(provider).unwrap();
+        let font = match allsorts_subset_browser::font::Font::new(provider) {
+            Ok(font) => font,
+            Err(err) => {
+                warnings.push(PdfWarnMsg::error(
+                    0,
+                    0,
+                    format!("Error parsing font: {:?}", err),
+                ));
+                return None;
+            }
+        };
         let provider = &font.font_table_provider;
 
         let font_name = provider.table_data(tag::NAME).ok().and_then(|name_data| {
