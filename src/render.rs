@@ -628,7 +628,7 @@ fn render_to_svg_internal(
                     tag
                 ));
             }
-            Op::EndMarkedContent => {
+            Op::EndMarkedContent | Op::EndMarkedContentWithProperties => {
                 gst.end_marked_content();
                 if let Some(group_type) = current_svg_group.last() {
                     if group_type == "marked" {
@@ -650,7 +650,7 @@ fn render_to_svg_internal(
                     id
                 ));
             }
-            Op::BeginLayer { layer_id } => {
+            Op::BeginLayer { layer_id } | Op::BeginOptionalContent { layer_id } => {
                 if let Some(layer) = resources.layers.map.get(layer_id) {
                     svg.push_str(&format!(
                         "<g class=\"layer\" id=\"{}\" data-name=\"{}\">",
@@ -661,7 +661,7 @@ fn render_to_svg_internal(
                 }
                 current_svg_group.push(String::from("layer"));
             }
-            Op::EndLayer { .. } => {
+            Op::EndLayer | Op::EndOptionalContent => {
                 if let Some(group_type) = current_svg_group.last() {
                     if group_type == "layer" {
                         current_svg_group.pop();
@@ -828,6 +828,10 @@ fn render_to_svg_internal(
             }
             Op::DrawPolygon { polygon } => {
                 let polygon_svg = render_polygon_to_svg(polygon, &gst, height);
+                svg.push_str(&polygon_svg);
+            }
+            Op::DrawRectangle { rectangle } => {
+                let polygon_svg = render_polygon_to_svg(&rectangle.to_polygon(), &gst, height);
                 svg.push_str(&polygon_svg);
             }
             Op::UseXobject { id, transform } => {

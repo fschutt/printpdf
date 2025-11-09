@@ -85,9 +85,7 @@ fn main() {
                 winding_order: WindingOrder::NonZero,
             },
         },
-        Op::EndLayer {
-            layer_id: bg_layer_id.clone(),
-        },
+        Op::EndLayer,
     ]);
 
     // Text layer content
@@ -175,9 +173,7 @@ fn main() {
             font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
-        Op::EndLayer {
-            layer_id: text_layer_id.clone(),
-        },
+        Op::EndLayer,
     ]);
 
     // Graphics layer content
@@ -346,9 +342,7 @@ fn main() {
                 is_closed: false,
             },
         },
-        Op::EndLayer {
-            layer_id: graphics_layer_id.clone(),
-        },
+        Op::EndLayer,
     ]);
 
     // Create a page with our operations

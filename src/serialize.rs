@@ -465,7 +465,7 @@ pub(crate) fn translate_operations(
                     vec![Name("OC".into()), Name(layer_id.0.clone().into())],
                 ));
             }
-            Op::EndLayer { .. } => {
+            Op::EndLayer => {
                 content.push(LoOp::new("EMC", vec![]));
             }
             Op::SaveGraphicsState => {
@@ -607,6 +607,9 @@ pub(crate) fn translate_operations(
             Op::DrawPolygon { polygon } => {
                 content.append(&mut polygon_to_stream_ops(polygon));
             }
+            Op::DrawRectangle { rectangle } => {
+                content.append(&mut rectangle_to_stream_ops(rectangle));
+            }
             Op::SetTransformationMatrix { matrix } => {
                 content.push(LoOp::new(
                     "cm",
@@ -650,16 +653,22 @@ pub(crate) fn translate_operations(
                 content.push(LoOp::new("BMC", vec![Name(tag.clone().into())]));
             }
             Op::BeginMarkedContentWithProperties { tag, properties } => {
-                // NOTE: properties should be a single dictionary, not a vector of dictionaries, only use the first item
-                // TODO API change
-                let props = properties.first().map(|item| item.to_lopdf()).expect("properties can not be empty");
-                content.push(LoOp::new("BDC", vec![Name(tag.clone().into()), props]));
+                content.push(LoOp::new(
+                    "BDC",
+                    vec![Name(tag.clone().into()), properties.to_lopdf()]
+                ));
+            }
+            Op::BeginOptionalContent { layer_id } => {
+                content.push(LoOp::new(
+                    "BDC",
+                    vec![Name("OC".into()), Name(layer_id.0.clone().into())],
+                ));
             }
             Op::DefineMarkedContentPoint { tag, properties } => {
                 let props = Array(properties.iter().map(|item| item.to_lopdf()).collect());
                 content.push(LoOp::new("DP", vec![Name(tag.clone().into()), props]));
             }
-            Op::EndMarkedContent => {
+            Op::EndMarkedContent { .. } | Op::EndMarkedContentWithProperties { .. } | Op::EndOptionalContent { .. } => {
                 content.push(LoOp::new("EMC", vec![]));
             }
             Op::BeginCompatibilitySection => {
@@ -1098,6 +1107,32 @@ fn polygon_to_stream_ops(poly: &Polygon) -> Vec<LoOp> {
             ));
         }
     }
+
+    operations
+}
+
+fn rectangle_to_stream_ops(rectangle: &crate::Rect) -> Vec<LoOp> {
+    let mut operations = Vec::new();
+
+    // x, y, with, height
+    operations.push(LoOp::new(
+        "re",
+        vec![
+            rectangle.x.into(),
+            rectangle.y.into(),
+            rectangle.width.into(),
+            rectangle.height.into()
+        ],
+    ));
+
+    match rectangle.winding_order {
+        Some(crate::WindingOrder::NonZero) => operations.push(LoOp::new("W", vec![])),
+        Some(crate::WindingOrder::EvenOdd) => operations.push(LoOp::new("W*", vec![])),
+        None => {},
+    }
+
+    // close the path
+    operations.push(LoOp::new("n", vec![]));
 
     operations
 }

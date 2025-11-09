@@ -45,9 +45,7 @@ fn test_layer_parsing() {
                 winding_order: printpdf::WindingOrder::NonZero,
             },
         },
-        Op::EndLayer {
-            layer_id: layer_id.clone(),
-        },
+        Op::EndLayer,
     ];
 
     let page = PdfPage::new(Mm(210.0), Mm(297.0), ops);
@@ -86,7 +84,7 @@ fn test_layer_parsing() {
     assert!(has_begin_layer, "Begin layer operation not found");
 
     let has_end_layer = parsed_page.ops.iter().any(|op| {
-        if let Op::EndLayer { layer_id: _ } = op {
+        if let Op::EndLayer = op {
             true
         } else {
             false
@@ -304,9 +302,7 @@ fn test_complex_document_parsing() {
         },
         Op::EndTextSection,
         Op::RestoreGraphicsState,
-        Op::EndLayer {
-            layer_id: layer1_id.clone(),
-        },
+        Op::EndLayer,
     ];
 
     // Page 2: Layer 2 with GS 2
@@ -327,9 +323,7 @@ fn test_complex_document_parsing() {
         },
         Op::EndTextSection,
         Op::RestoreGraphicsState,
-        Op::EndLayer {
-            layer_id: layer2_id.clone(),
-        },
+        Op::EndLayer,
     ];
 
     // Page 3: Both layers with different graphics states
@@ -355,9 +349,7 @@ fn test_complex_document_parsing() {
             },
         },
         Op::RestoreGraphicsState,
-        Op::EndLayer {
-            layer_id: layer1_id.clone(),
-        },
+        Op::EndLayer,
         Op::BeginLayer {
             layer_id: layer2_id.clone(),
         },
@@ -382,9 +374,7 @@ fn test_complex_document_parsing() {
         },
         Op::EndTextSection,
         Op::RestoreGraphicsState,
-        Op::EndLayer {
-            layer_id: layer2_id.clone(),
-        },
+        Op::EndLayer,
     ];
 
     let page1 = PdfPage::new(Mm(210.0), Mm(297.0), ops1);
@@ -471,7 +461,7 @@ fn test_complex_document_parsing() {
             .ops
             .iter()
             .filter(|op| {
-                if let Op::EndLayer { layer_id: _ } = op {
+                if let Op::EndLayer = op {
                     true
                 } else {
                     false

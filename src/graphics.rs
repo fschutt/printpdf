@@ -34,6 +34,8 @@ pub struct Rect {
     pub y: Pt,
     pub width: Pt,
     pub height: Pt,
+    pub mode: Option<PaintMode>,
+    pub winding_order: Option<WindingOrder>,
 }
 
 impl fmt::Debug for Rect {
@@ -67,6 +69,19 @@ impl Rect {
             y: Pt(0.0),
             width,
             height,
+            mode: None,
+            winding_order: None,
+        }
+    }
+
+    pub fn from_xywh(x: Pt, y: Pt, width: Pt, height: Pt) -> Self {
+        Self {
+            x,
+            y,
+            width,
+            height,
+            mode: None,
+            winding_order: None,
         }
     }
 
@@ -75,8 +90,8 @@ impl Rect {
             rings: vec![PolygonRing {
                 points: self.gen_points(),
             }],
-            mode: PaintMode::Fill,
-            winding_order: WindingOrder::NonZero,
+            mode: self.mode.unwrap_or(PaintMode::Fill),
+            winding_order: self.winding_order.unwrap_or(WindingOrder::NonZero),
         }
     }
 

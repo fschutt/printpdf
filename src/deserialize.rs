@@ -13,15 +13,7 @@ use lopdf::{
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    cmap::ToUnicodeCMap,
-    conformance::PdfConformance,
-    date::{parse_pdf_date, OffsetDateTime},
-    BuiltinFont, BuiltinOrExternalFontId, Color, DictItem, ExtendedGraphicsState,
-    ExtendedGraphicsStateId, ExtendedGraphicsStateMap, FontId, LayerInternalId, Line,
-    LineDashPattern, LinePoint, LinkAnnotation, Op, PageAnnotId, PageAnnotMap, PaintMode,
-    ParsedFont, PdfDocument, PdfDocumentInfo, PdfFontMap, PdfLayerMap, PdfMetadata, PdfPage,
-    PdfResources, Point, Polygon, PolygonRing, Pt, RawImage, RenderingIntent, TextItem, TextMatrix,
-    TextRenderingMode, WindingOrder, XObject, XObjectId, XObjectMap,
+    BuiltinFont, BuiltinOrExternalFontId, Color, DictItem, ExtendedGraphicsState, ExtendedGraphicsStateId, ExtendedGraphicsStateMap, FontId, LayerInternalId, Line, LineDashPattern, LinePoint, LinkAnnotation, Op, PageAnnotId, PageAnnotMap, PaintMode, ParsedFont, PdfDocument, PdfDocumentInfo, PdfFontMap, PdfLayerMap, PdfMetadata, PdfPage, PdfResources, Point, Polygon, PolygonRing, Pt, RawImage, Rect, RenderingIntent, TextItem, TextMatrix, TextRenderingMode, WindingOrder, XObject, XObjectId, XObjectMap, cmap::ToUnicodeCMap, conformance::PdfConformance, date::{OffsetDateTime, parse_pdf_date}
 };
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -826,6 +818,38 @@ pub struct PageState {
     pub path_builder: PathBuilder,
 
     pub last_emitted_font_size: Option<(FontId, Pt)>,
+
+    pub rectangle_builder: RectangleBuilder,
+}
+
+/// Builder for constructing PDF paths
+#[derive(Debug, Clone, Default)]
+pub struct RectangleBuilder {
+    rectangle: Option<Rect>,
+}
+
+impl RectangleBuilder {
+    pub fn new(&mut self, x: Pt, y: Pt, width: Pt, height: Pt) {
+        self.rectangle = Some(Rect::from_xywh(x, y, width, height));
+    }
+
+    pub fn set_winding_order(&mut self, winding_order: WindingOrder) {
+        if let Some(ref mut rectangle) = self.rectangle {
+            rectangle.winding_order = Some(winding_order);
+        }
+    }
+
+    pub fn get_ops(&self) -> Vec<Op> {
+        if self.rectangle.is_none() {
+            vec![]
+        } else {
+            vec![Op::DrawRectangle { rectangle: self.rectangle.as_ref().unwrap().clone() }]
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.rectangle = None;
+    }
 }
 
 /// Represents PDF path operations
@@ -1822,8 +1846,6 @@ pub fn parse_op(
         "BT" => {
             // --- Text mode begin
             state.in_text_mode = true;
-            state.current_font = None;
-            state.current_font_size = None;
             out_ops.push(Op::StartTextSection);
         }
         "ET" => {
@@ -1922,25 +1944,33 @@ pub fn parse_op(
                     ));
                     return Ok(Vec::new());
                 };
-                out_ops.push(Op::BeginLayer {
+                out_ops.push(Op::BeginOptionalContent {
                     layer_id: crate::LayerInternalId(layer_nm),
                 });
             } else {
-                let properties = match op.operands[1].as_dict() {
-                    Ok(dict) => vec![DictItem::from_lopdf(&Object::Dictionary(dict.to_owned()))],
+                match op.operands[1].as_dict() {
+                    Ok(dict) => {
+                        out_ops.push(Op::BeginMarkedContentWithProperties {
+                            tag: marked_content_nm.clone(),
+                            properties: DictItem::from_lopdf(&Object::Dictionary(dict.to_owned())),
+                        });
+                    },
                     Err(_err) => {
                         warnings.push(PdfWarnMsg::warning(
                             page,
                             op_id,
                             "BDC properties is not a dictionary".to_string(),
                         ));
-                        vec![]
+                        out_ops.push(Op::Unknown {
+                            key: "BDC".into(),
+                            value: op
+                                .operands
+                                .iter()
+                                .map(|s| DictItem::from_lopdf(s))
+                                .collect(),
+                        });
                     }
-                };
-                out_ops.push(Op::BeginMarkedContentWithProperties {
-                    tag: marked_content_nm.clone(),
-                    properties,
-                });
+                }
             }
             state.current_marked_content.push(marked_content_nm.clone());
         }
@@ -2111,33 +2141,11 @@ pub fn parse_op(
         }
         "re" => {
             if op.operands.len() == 4 {
-                let x = to_f32(&op.operands[0]);
-                let y = to_f32(&op.operands[1]);
-                let w = to_f32(&op.operands[2]);
-                let h = to_f32(&op.operands[3]);
-
-                // Rectangle is a special path: move to (x,y), line to corners, close
-                state.path_builder.move_to(Point { x: Pt(x), y: Pt(y) });
-                state.path_builder.line_to(Point {
-                    x: Pt(x + w),
-                    y: Pt(y),
-                });
-                state.path_builder.line_to(Point {
-                    x: Pt(x + w),
-                    y: Pt(y + h),
-                });
-                state.path_builder.line_to(Point {
-                    x: Pt(x),
-                    y: Pt(y + h),
-                });
-                state.path_builder.close_path();
-
-                // In PDF 're' implicitly strokes but doesn't fill
-                let path = state
-                    .path_builder
-                    .build(PaintMode::Stroke, WindingOrder::NonZero);
-                out_ops.push(path_to_op(&path));
-                state.path_builder.clear();
+                let x = Pt(to_f32(&op.operands[0]));
+                let y = Pt(to_f32(&op.operands[1]));
+                let width = Pt(to_f32(&op.operands[2]));
+                let height = Pt(to_f32(&op.operands[3]));
+                state.rectangle_builder.new(x, y, width, height);
             } else {
                 warnings.push(PdfWarnMsg::error(
                     page,
@@ -2233,6 +2241,8 @@ pub fn parse_op(
         "n" => {
             // End path without filling or stroking
             state.path_builder.clear();
+            out_ops.extend_from_slice(&state.rectangle_builder.get_ops());
+            state.rectangle_builder.clear();
         }
         "W" => {
             // Set clip path using non-zero winding rule
@@ -2243,16 +2253,21 @@ pub fn parse_op(
                 out_ops.push(path_to_op(&path));
             }
             // Note: We don't clear the path here since clipping doesn't consume the path
+            state.rectangle_builder.set_winding_order(WindingOrder::NonZero);
         }
         "W*" => {
             // Set clip path using even-odd winding rule
             let path = state
                 .path_builder
                 .build(PaintMode::Clip, WindingOrder::EvenOdd);
-            if !path.subpaths.is_empty() {
+            if !path.subpaths.is_empty() || out_ops.last().is_some_and(|last_op| match last_op {
+                Op::DrawRectangle { .. } => true,
+                _ => false,
+            }) {
                 out_ops.push(path_to_op(&path));
             }
             // Note: We don't clear the path here since clipping doesn't consume the path
+            state.rectangle_builder.set_winding_order(WindingOrder::EvenOdd);
         }
 
         // --- Painting state operators
@@ -2619,12 +2634,12 @@ fn parse_rect(obj: &Object) -> Result<crate::graphics::Rect, String> {
         let ury = nums[3];
         let width = urx - x;
         let height = ury - y;
-        Ok(crate::graphics::Rect {
-            x: crate::units::Pt(x),
-            y: crate::units::Pt(y),
-            width: crate::units::Pt(width),
-            height: crate::units::Pt(height),
-        })
+        Ok(crate::graphics::Rect::from_xywh(
+            crate::units::Pt(x),
+            crate::units::Pt(y),
+            crate::units::Pt(width),
+            crate::units::Pt(height),
+        ))
     } else {
         Err("Rectangle is not an array".to_string())
     }
@@ -2813,12 +2828,12 @@ mod links_and_bookmarks {
                             if coords.len() != 4 {
                                 return None;
                             }
-                            let rect = Rect {
-                                x: Pt(coords[0]),
-                                y: Pt(coords[1]),
-                                width: Pt(coords[2]),
-                                height: Pt(coords[3]),
-                            };
+                            let rect = Rect::from_xywh(
+                                Pt(coords[0]),
+                                Pt(coords[1]),
+                                Pt(coords[2]),
+                                Pt(coords[3]),
+                            );
 
                             // Extract the action.
                             let action_dict = annot_dict.get(b"A").ok()?.as_dict().ok()?;

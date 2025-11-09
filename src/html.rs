@@ -579,12 +579,12 @@ fn displaylist_handle_rect_paginated(
         if let RectBackground::Color(c) = &b.content {
             // PDF coordinates start at the bottom-left, but our rect has top-left origin
             // Convert Y coordinate to PDF space
-            let rect_obj = crate::graphics::Rect {
-                x: Pt(rect.origin.x),
-                y: Pt(page_height.0 - rect.origin.y - rect.size.height), // Invert Y coordinate
-                width: Pt(rect.size.width),
-                height: Pt(rect.size.height),
-            };
+            let rect_obj = crate::graphics::Rect::from_xywh(
+                Pt(rect.origin.x),
+                Pt(page_height.0 - rect.origin.y - rect.size.height), // Invert Y coordinate
+                Pt(rect.size.width),
+                Pt(rect.size.height),
+            );
 
             newops.push(Op::SetFillColor {
                 col: crate::Color::Rgb(crate::Rgb {
@@ -652,12 +652,12 @@ fn displaylist_handle_rect_paginated(
                 .unwrap_or_default(),
         );
 
-        let rect_obj = crate::graphics::Rect {
-            x: Pt(rect.origin.x),
-            y: Pt(page_height.0 - rect.origin.y - rect.size.height), // Invert Y coordinate
-            width: Pt(rect.size.width),
-            height: Pt(rect.size.height),
-        };
+        let rect_obj = crate::graphics::Rect::from_xywh(
+            Pt(rect.origin.x),
+            Pt(page_height.0 - rect.origin.y - rect.size.height), // Invert Y coordinate
+            Pt(rect.size.width),
+            Pt(rect.size.height),
+        );
 
         newops.push(Op::SetOutlineThickness {
             pt: Pt(width_top.to_pixels(rect.size.height)),
