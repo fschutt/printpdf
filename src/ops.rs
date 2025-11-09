@@ -88,7 +88,7 @@ impl PdfPage {
         self.ops
             .iter()
             .filter_map(|s| match s {
-                Op::BeginLayer { layer_id } | Op::BeginOptionalContent { layer_id } => Some(layer_id.clone()),
+                Op::BeginLayer { layer_id } => Some(layer_id.clone()),
                 _ => None,
             })
             .collect()
