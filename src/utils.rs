@@ -53,7 +53,7 @@ pub(crate) fn random_character_string_32() -> String {
 
 // D:20170505150224+02'00'
 #[cfg(target_family = "wasm")]
-pub(crate) fn to_pdf_time_stamp_metadata(date: &OffsetDateTime) -> String {
+pub(crate) fn to_pdf_time_stamp_metadata(_date: &OffsetDateTime) -> String {
     "D:19700101000000+00'00'".to_string()
 }
 

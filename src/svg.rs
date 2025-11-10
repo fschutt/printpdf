@@ -25,6 +25,9 @@ impl Svg {
         // parses the resulting PDF again, then extracts the first pages PDF content operations.
 
         // Let's first convert the SVG into an independent chunk.
+        #[cfg(target_arch = "wasm32")]
+        let options = usvg::Options::default();
+        #[cfg(not(target_arch = "wasm32"))]
         let mut options = usvg::Options::default();
         #[cfg(not(target_arch = "wasm32"))]
         {
