@@ -30,12 +30,12 @@ fn test_text_with_hole() {
                      nisl, eget aliquam nisl nisl eget nisl.";
 
     let hole = TextHole {
-        rect: Rect {
-            x: Pt(10.0),
-            y: Pt(10.0),
-            width: Pt(20.0),
-            height: Pt(20.0),
-        },
+        rect: Rect::from_xywh(
+            Pt(10.0),
+            Pt(10.0),
+            Pt(20.0),
+            Pt(20.0),
+        ),
     };
 
     let options = TextShapingOptions {

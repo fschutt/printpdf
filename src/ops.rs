@@ -88,7 +88,7 @@ impl PdfPage {
         self.ops
             .iter()
             .filter_map(|s| match s {
-                Op::BeginLayer { layer_id } | Op::EndLayer { layer_id } => Some(layer_id.clone()),
+                Op::BeginLayer { layer_id } => Some(layer_id.clone()),
                 _ => None,
             })
             .collect()
@@ -270,7 +270,7 @@ pub enum Op {
     /// Starts a layer
     BeginLayer { layer_id: LayerInternalId },
     /// Ends a layer (is inserted if missing at the page end)
-    EndLayer { layer_id: LayerInternalId },
+    EndLayer,
     /// Saves the graphics configuration on the stack (line thickness, colors, overprint, etc.)
     SaveGraphicsState,
     /// Pops the last graphics configuration state off the stack
@@ -340,6 +340,8 @@ pub enum Op {
     SetLineOffset { multiplier: f32 },
     /// Draw a line (colors, dashes configured earlier)
     DrawLine { line: Line },
+    /// Draw a rectangle
+    DrawRectangle { rectangle: Rect },
     /// Draw a polygon
     DrawPolygon { polygon: Polygon },
     /// Set the transformation matrix for this page. Make sure to save the old graphics state
@@ -373,8 +375,10 @@ pub enum Op {
     /// Begins a marked content sequence with an accompanying property list.
     BeginMarkedContentWithProperties {
         tag: String,
-        properties: Vec<DictItem>,
+        properties: DictItem,
     },
+    /// Starts an optional content layer
+    BeginOptionalContent { layer_id: LayerInternalId },
     /// Defines a marked content point with properties.
     DefineMarkedContentPoint {
         tag: String,
@@ -382,6 +386,10 @@ pub enum Op {
     },
     /// Ends the current marked-content sequence.
     EndMarkedContent,
+    /// Ends the current marked-content sequence.
+    EndMarkedContentWithProperties,
+    /// Ends the current optional content sequence.
+    EndOptionalContent,
     /// Begins a compatibility section (operators inside are ignored).
     BeginCompatibilitySection,
     /// Ends a compatibility section.

@@ -119,12 +119,12 @@ fn create_example_page(
             x: Pt(20.0),
             y: page_height.into_pt() - Pt(220.0),
         },
-        &Rect {
-            x: Pt(100.0),
-            y: page_height.into_pt() - Pt(250.0), // Position hole with top at y=250 from top
-            width: Pt(80.0),
-            height: Pt(50.0),
-        },
+        &Rect::from_xywh(
+            Pt(100.0),
+            page_height.into_pt() - Pt(250.0), // Position hole with top at y=250 from top
+            Pt(80.0),
+            Pt(50.0),
+        ),
     ));
 
     // Example 5: Multi-column text
@@ -160,12 +160,12 @@ fn create_example_page(
         doc,
         font_id,
         "This text is centered in a box both horizontally and vertically using text measurement.",
-        Rect {
-            x: Pt(50.0),
-            y: page_height.into_pt() - Pt(510.0), // Position rect with top at y=450
-            width: Pt(300.0),
-            height: Pt(60.0),
-        },
+        Rect::from_xywh(
+            Pt(50.0),
+            page_height.into_pt() - Pt(510.0), // Position rect with top at y=450
+            Pt(300.0),
+            Pt(60.0),
+        ),
     ));
 
     // Add a footer
@@ -437,13 +437,13 @@ fn create_text_with_hole(
         "IMAGE",
     ));
 
-    let hole_relative_to_text_origin = Rect {
-        width: hole_rect_relative_to_page.width,
-        height: hole_rect_relative_to_page.height,
-        x: hole_rect_relative_to_page.x - text_position_relative_to_page.x,
-        y: (hole_rect_relative_to_page.y + hole_rect_relative_to_page.height)
+    let hole_relative_to_text_origin = Rect::from_xywh(
+        hole_rect_relative_to_page.x - text_position_relative_to_page.x,
+        (hole_rect_relative_to_page.y + hole_rect_relative_to_page.height)
             - text_position_relative_to_page.y,
-    };
+        hole_rect_relative_to_page.width,
+        hole_rect_relative_to_page.height,
+    );
 
     let options = TextShapingOptions {
         font_size: Pt(12.0),

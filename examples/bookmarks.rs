@@ -92,12 +92,12 @@ fn main() {
         // Create a link annotation to page 2
         Op::LinkAnnotation {
             link: LinkAnnotation::new(
-                Rect {
-                    x: Pt(100.0),
-                    y: Pt(170.0),
-                    width: Pt(200.0),
-                    height: Pt(30.0),
-                },
+                Rect::from_xywh(
+                    Pt(100.0),
+                    Pt(170.0),
+                    Pt(200.0),
+                    Pt(30.0),
+                ),
                 Actions::go_to(Destination::Xyz {
                     page: 2,
                     left: Some(0.0),
@@ -207,12 +207,12 @@ fn main() {
         // External link annotation
         Op::LinkAnnotation {
             link: LinkAnnotation::new(
-                Rect {
-                    x: Pt(100.0),
-                    y: Pt(80.0),
-                    width: Pt(200.0),
-                    height: Pt(30.0),
-                },
+                Rect::from_xywh(
+                    Pt(100.0),
+                    Pt(80.0),
+                    Pt(200.0),
+                    Pt(30.0),
+                ),
                 Actions::uri("https://github.com/fschutt/printpdf".to_string()),
                 None,                                   // default border
                 Some(ColorArray::Rgb([0.0, 0.6, 0.0])), // green highlight
@@ -353,12 +353,12 @@ fn main() {
         // Link to Section 2
         Op::LinkAnnotation {
             link: LinkAnnotation::new(
-                Rect {
-                    x: Pt(100.0),
-                    y: Pt(170.0),
-                    width: Pt(200.0),
-                    height: Pt(30.0),
-                },
+                Rect::from_xywh(
+                    Pt(100.0),
+                    Pt(170.0),
+                    Pt(200.0),
+                    Pt(30.0),
+                ),
                 Actions::go_to(Destination::Xyz {
                     page: 3,
                     left: Some(0.0),
@@ -445,12 +445,12 @@ fn main() {
         // Link back to introduction
         Op::LinkAnnotation {
             link: LinkAnnotation::new(
-                Rect {
-                    x: Pt(100.0),
-                    y: Pt(120.0),
-                    width: Pt(200.0),
-                    height: Pt(30.0),
-                },
+                Rect::from_xywh(
+                    Pt(100.0),
+                    Pt(120.0),
+                    Pt(200.0),
+                    Pt(30.0),
+                ),
                 Actions::go_to(Destination::Xyz {
                     page: 1,
                     left: Some(0.0),
@@ -596,12 +596,12 @@ fn main() {
         // Link back to Section 1
         Op::LinkAnnotation {
             link: LinkAnnotation::new(
-                Rect {
-                    x: Pt(100.0),
-                    y: Pt(170.0),
-                    width: Pt(200.0),
-                    height: Pt(30.0),
-                },
+                Rect::from_xywh(
+                    Pt(100.0),
+                    Pt(170.0),
+                    Pt(200.0),
+                    Pt(30.0),
+                ),
                 Actions::go_to(Destination::Xyz {
                     page: 2,
                     left: Some(0.0),
@@ -686,12 +686,12 @@ fn main() {
         // Link back to Introduction
         Op::LinkAnnotation {
             link: LinkAnnotation::new(
-                Rect {
-                    x: Pt(100.0),
-                    y: Pt(120.0),
-                    width: Pt(200.0),
-                    height: Pt(30.0),
-                },
+                Rect::from_xywh(
+                    Pt(100.0),
+                    Pt(120.0),
+                    Pt(200.0),
+                    Pt(30.0),
+                ),
                 Actions::go_to(Destination::Xyz {
                     page: 1,
                     left: Some(0.0),
