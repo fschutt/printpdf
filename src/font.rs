@@ -1032,12 +1032,18 @@ impl ParsedFont {
                 ff
             }
             Err(e) => {
-                warnings.push(PdfWarnMsg::warning(
+                warnings.push(PdfWarnMsg::info(
                     0,
                     0,
-                    format!("Failed to read font data: {}", e),
+                    format!("Failed to read font data as OpenType: {}", e),
                 ));
-                return None;
+                // Try parsing as standalone CFF table (common in PDFs)
+                warnings.push(PdfWarnMsg::info(
+                    0,
+                    0,
+                    "Attempting to parse as standalone CFF table".to_string(),
+                ));
+                return Self::from_cff_bytes(font_bytes, warnings);
             }
         };
 
@@ -1063,7 +1069,24 @@ impl ParsedFont {
             }
         };
 
-        let font = allsorts_subset_browser::font::Font::new(provider).unwrap();
+        let font = match allsorts_subset_browser::font::Font::new(provider) {
+            Ok(f) => {
+                warnings.push(PdfWarnMsg::info(
+                    0,
+                    0,
+                    "Successfully created allsorts Font".to_string(),
+                ));
+                f
+            }
+            Err(e) => {
+                warnings.push(PdfWarnMsg::warning(
+                    0,
+                    0,
+                    format!("Failed to create allsorts Font: {}", e),
+                ));
+                return None;
+            }
+        };
         let provider = &font.font_table_provider;
 
         let font_name = provider.table_data(tag::NAME).ok().and_then(|name_data| {
@@ -1430,8 +1453,22 @@ impl ParsedFont {
                         ));
                     }
                     result
-                })
-                .unwrap_or(GlyfTable::new(Vec::new()).unwrap());
+                });
+
+            let mut glyf_table = match glyf_table {
+                Some(table) => table,
+                None => match GlyfTable::new(Vec::new()) {
+                    Ok(table) => table,
+                    Err(e) => {
+                        warnings.push(PdfWarnMsg::error(
+                            0,
+                            0,
+                            format!("Failed to create empty GLYF table: {}", e),
+                        ));
+                        return None;
+                    }
+                }
+            };
 
             let mut glyph_count = 0;
             let decoded = glyf_table
@@ -1560,6 +1597,168 @@ impl ParsedFont {
             0,
             "Font parsing completed successfully".to_string(),
         ));
+        Some(font)
+    }
+
+    /// Parse a standalone CFF table (common in embedded PDF fonts)
+    /// This handles cases where the PDF contains raw CFF data without an OpenType wrapper
+    pub fn from_cff_bytes(
+        cff_bytes: &[u8],
+        warnings: &mut Vec<PdfWarnMsg>,
+    ) -> Option<Self> {
+        warnings.push(PdfWarnMsg::info(
+            0,
+            0,
+            "Attempting to parse standalone CFF table".to_string(),
+        ));
+
+        // Try to parse the CFF data directly
+        let scope = ReadScope::new(cff_bytes);
+        let mut cff = match scope.read_dep::<CFF>(()) {
+            Ok(cff) => {
+                warnings.push(PdfWarnMsg::info(
+                    0,
+                    0,
+                    "Successfully parsed standalone CFF data".to_string(),
+                ));
+                cff
+            }
+            Err(e) => {
+                warnings.push(PdfWarnMsg::warning(
+                    0,
+                    0,
+                    format!("Failed to parse standalone CFF data: {}", e),
+                ));
+                return None;
+            }
+        };
+
+        // Get the font from CFF (typically there's only one font in the CFF)
+        if cff.fonts.is_empty() {
+            warnings.push(PdfWarnMsg::warning(
+                0,
+                0,
+                "CFF data contains no fonts".to_string(),
+            ));
+            return None;
+        }
+
+        let cff_font = &cff.fonts[0];
+        
+        // Extract metrics from CFF font dict
+        let units_per_em = 1000; // CFF fonts typically use 1000 units per em
+        let glyph_count = cff_font.char_strings_index.len() as u16;
+        
+        warnings.push(PdfWarnMsg::info(
+            0,
+            0,
+            format!("CFF font has {} glyphs", glyph_count),
+        ));
+
+        // Create minimal font metrics for CFF
+        let font_metrics = FontMetrics {
+            units_per_em,
+            ..FontMetrics::zero()
+        };
+
+        // Create minimal HHEA and MAXP tables
+        let hhea_table = HheaTable {
+            ascender: 0,
+            descender: 0,
+            line_gap: 0,
+            advance_width_max: 0,
+            min_left_side_bearing: 0,
+            min_right_side_bearing: 0,
+            x_max_extent: 0,
+            caret_slope_rise: 0,
+            caret_slope_run: 0,
+            caret_offset: 0,
+            num_h_metrics: glyph_count,
+        };
+
+        let maxp_table = MaxpTable {
+            num_glyphs: glyph_count,
+            version1_sub_table: None,
+        };
+
+        // Parse all glyphs from CFF
+        let mut glyph_records_decoded: BTreeMap<u16, OwnedGlyph> = BTreeMap::new();
+        let mut index_to_cid: BTreeMap<u16, u16> = BTreeMap::new();
+
+        for glyph_index in 0..glyph_count {
+            let mut owned_glyph = OwnedGlyph::new();
+
+            if let Err(e) = cff.visit(glyph_index, &mut owned_glyph) {
+                warnings.push(PdfWarnMsg::warning(
+                    0,
+                    0,
+                    format!("Failed to parse glyph {}: {}", glyph_index, e),
+                ));
+                continue; // Skip this glyph but continue with others
+            }
+
+            // For standalone CFF, we don't have HMTX table, use width from charstring
+            // The horizontal advance is set during the visit() call if available
+            
+            glyph_records_decoded.insert(glyph_index, owned_glyph);
+        }
+
+        // Now map glyph indices to CIDs (after we're done with mutable borrows)
+        for glyph_index in 0..glyph_count {
+            if let Some(cid) = cff.fonts[0].charset.id_for_glyph(glyph_index) {
+                index_to_cid.insert(glyph_index, cid);
+            }
+        }
+
+        warnings.push(PdfWarnMsg::info(
+            0,
+            0,
+            format!("Successfully decoded {} glyphs from standalone CFF", glyph_records_decoded.len()),
+        ));
+
+        // Serialize the CFF for storage
+        let mut buf = allsorts_subset_browser::binary::write::WriteBuffer::new();
+        if let Err(e) = allsorts_subset_browser::cff::CFF::write(&mut buf, &cff) {
+            warnings.push(PdfWarnMsg::warning(
+                0,
+                0,
+                format!("Failed to serialize CFF: {}", e),
+            ));
+            return None;
+        }
+
+        let font_type = FontType::OpenTypeCFF(buf.into_inner());
+
+        let mut font = ParsedFont {
+            font_metrics,
+            num_glyphs: glyph_count,
+            hhea_table: Some(hhea_table),
+            hmtx_data: Vec::new(), // No HMTX data for standalone CFF
+            vmtx_data: Vec::new(),
+            maxp_table: Some(maxp_table),
+            gsub_cache: None,
+            gpos_cache: None,
+            opt_gdef_table: None,
+            cmap_subtable: None, // No CMAP for standalone CFF
+            glyph_records_decoded,
+            original_bytes: cff_bytes.to_vec(),
+            original_index: 0,
+            space_width: None,
+            font_type,
+            font_name: None,
+            index_to_cid,
+        };
+
+        // Try to determine space width
+        let space_width = font.get_space_width_internal();
+        font.space_width = space_width;
+
+        warnings.push(PdfWarnMsg::info(
+            0,
+            0,
+            "Successfully parsed standalone CFF font".to_string(),
+        ));
+
         Some(font)
     }
 
