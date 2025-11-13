@@ -24,7 +24,7 @@ use azul_layout::{
 };
 use serde_derive::{Deserialize, Serialize};
 
-use crate::{Mm, PdfDocument, PdfPage, PdfWarnMsg};
+use crate::{font::ParsedFont, Mm, PdfDocument, PdfPage, PdfWarnMsg};
 
 mod bridge;
 
@@ -69,7 +69,7 @@ fn default_page_height() -> Mm {
 pub fn xml_to_pdf_pages(
     xml: &str,
     options: &XmlRenderOptions,
-) -> Result<(Vec<PdfPage>, BTreeMap<FontHash, Vec<u8>>), Vec<PdfWarnMsg>> {
+) -> Result<(Vec<PdfPage>, BTreeMap<FontHash, ParsedFont>), Vec<PdfWarnMsg>> {
     let mut warnings = Vec::new();
 
     // 1. Parse XML to XmlNode tree
@@ -166,29 +166,74 @@ pub fn xml_to_pdf_pages(
     // This bypasses the intermediate azul PdfOp format to generate
     // WriteCodepoints (glyph IDs) instead of WriteText (text strings)
     let page_size = LogicalSize::new(page_width_pt, page_height_pt);
-    let mut font_id_map = BTreeMap::new();
-    let pdf_ops = bridge::display_list_to_printpdf_ops(&display_list, page_size, &mut font_id_map);
+    let font_manager = &layout_window.font_manager;
+    let pdf_ops = bridge::display_list_to_printpdf_ops(&display_list, page_size, font_manager)
+        .map_err(|e| vec![PdfWarnMsg::warning(0, 0, format!("Failed to convert display list: {}", e))])?;
 
     println!("[html] Generated {} PDF ops", pdf_ops.len());
 
-    // 8. Create PDF page
+    // 8. Extract ParsedFonts from the font manager
+    // Collect all unique FontHash values from the DisplayList
+    let mut font_hashes: std::collections::HashSet<azul_layout::text3::cache::FontHash> = std::collections::HashSet::new();
+    for item in display_list.items.iter() {
+        if let azul_layout::solver3::display_list::DisplayListItem::Text { font_hash, .. } = item {
+            font_hashes.insert(*font_hash);
+        }
+    }
+    
+    println!("[html] Fonts used: {} unique fonts", font_hashes.len());
+    
+    let mut font_data_map = BTreeMap::new();
+    
+    for font_hash in font_hashes.iter() {
+        println!("[html] Processing font: hash={}", font_hash.font_hash);
+        
+        if let Some(font_ref) = layout_window.font_manager.get_font_by_hash(font_hash.font_hash) {
+            // Extract azul's ParsedFont from the FontRef
+            let azul_parsed_font = unsafe {
+                let parsed_ptr = font_ref.get_parsed();
+                let parsed_font = &*(parsed_ptr as *const azul_layout::font::parsed::ParsedFont);
+                parsed_font.clone()
+            };
+            
+            // Convert azul's ParsedFont to bytes using to_bytes(), then parse with printpdf
+            match azul_parsed_font.to_bytes(None) {
+                Ok(font_bytes) => {
+                    if let Some(printpdf_font) = ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
+                        println!("[html]   ✓ Converted font with {} glyphs", printpdf_font.num_glyphs);
+                        font_data_map.insert(font_hash.clone(), printpdf_font);
+                    } else {
+                        warnings.push(PdfWarnMsg::warning(
+                            0,
+                            0,
+                            format!("Could not parse font with hash {} from reconstructed bytes", font_hash.font_hash),
+                        ));
+                    }
+                }
+                Err(e) => {
+                    warnings.push(PdfWarnMsg::warning(
+                        0,
+                        0,
+                        format!("Could not reconstruct font bytes for hash {}: {}", font_hash.font_hash, e),
+                    ));
+                }
+            }
+        } else {
+            warnings.push(PdfWarnMsg::warning(
+                0,
+                0,
+                format!("Could not find font with hash {} in font cache", font_hash.font_hash),
+            ));
+        }
+    }
+
+    println!("[html] Extracted {} ParsedFonts", font_data_map.len());
+
+    // 9. Create PDF page
     let page = PdfPage::new(options.page_width, options.page_height, pdf_ops);
 
-    // 9. Collect font data from font_id_map
-    // TODO: We need to get the actual font bytes here!
-    // For now, return an empty map - fonts come from system via fontconfig
-    let font_data_map = BTreeMap::new();
-
-    if warnings.is_empty() {
-        Ok((vec![page], font_data_map))
-    } else {
-        warnings.push(PdfWarnMsg::info(
-            0,
-            0,
-            "Successfully generated PDF with warnings".to_string(),
-        ));
-        Err(warnings)
-    }
+    // Always return Ok with page and fonts, warnings are logged but don't fail the conversion
+    Ok((vec![page], font_data_map))
 }
 
 /// Add XML/HTML content to an existing PDF document
@@ -198,8 +243,12 @@ pub fn add_xml_to_document(
     options: &XmlRenderOptions,
 ) -> Result<(), Vec<PdfWarnMsg>> {
     match xml_to_pdf_pages(xml, options) {
-        Ok((pages, _font_data)) => {
-            // TODO: Register fonts from font_data in document.resources.fonts
+        Ok((pages, font_data)) => {
+            // Register fonts in the document
+            for (font_hash, parsed_font) in font_data.into_iter() {
+                let font_id = crate::FontId(format!("F{}", font_hash.font_hash));
+                document.resources.fonts.map.insert(font_id, parsed_font);
+            }
             document.pages.extend(pages);
             Ok(())
         }

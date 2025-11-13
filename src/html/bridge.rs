@@ -16,9 +16,8 @@ use azul_core::{
 use azul_css::props::basic::ColorU;
 use azul_layout::{
     solver3::display_list::{DisplayList, DisplayListItem},
-    text3::cache::FontHash,
+    text3::cache::{FontLoaderTrait, FontManager, ParsedFontTrait, UnifiedLayout},
 };
-use std::collections::BTreeMap;
 
 use crate::{Color, Mm, Op, Pt, Rgb, FontId};
 
@@ -35,36 +34,41 @@ fn convert_color(color: &ColorU) -> Color {
 /// Convert a display list directly to printpdf Ops.
 /// This bypasses the intermediate azul PdfOp format to generate
 /// WriteCodepoints (glyph IDs) instead of WriteText (text strings).
-pub fn display_list_to_printpdf_ops(
+pub fn display_list_to_printpdf_ops<T: ParsedFontTrait + 'static, Q: FontLoaderTrait<T>>(
     display_list: &DisplayList,
     page_size: LogicalSize,
-    font_id_map: &mut BTreeMap<FontHash, FontId>,
-) -> Vec<Op> {
+    font_manager: &FontManager<T, Q>,
+) -> Result<Vec<Op>, String> {
     let mut ops = Vec::new();
     let page_height = page_size.height;
+    
+    // Track the current TextLayout for glyph-to-unicode mapping
+    let mut current_text_layout: Option<&azul_layout::text3::cache::UnifiedLayout<T>> = None;
 
     println!("[bridge] Converting DisplayList with {} items", display_list.items.len());
 
     for (idx, item) in display_list.items.iter().enumerate() {
         println!("[bridge] Item {}: {:?}", idx, match item {
+            DisplayListItem::TextLayout { .. } => "TextLayout",
             DisplayListItem::Text { .. } => "Text",
             DisplayListItem::Rect { .. } => "Rect",
             DisplayListItem::Border { .. } => "Border",
             DisplayListItem::Image { .. } => "Image",
             _ => "Other",
         });
-        convert_display_list_item(item, &mut ops, font_id_map, page_height);
+        convert_display_list_item(&mut ops, item, page_height, &mut current_text_layout, font_manager);
     }
 
     println!("[bridge] Generated {} ops", ops.len());
-    ops
+    Ok(ops)
 }
 
-fn convert_display_list_item(
-    item: &DisplayListItem,
+fn convert_display_list_item<'a, T: ParsedFontTrait + 'static, Q: FontLoaderTrait<T>>(
     ops: &mut Vec<Op>,
-    font_id_map: &mut BTreeMap<FontHash, FontId>,
+    item: &'a DisplayListItem,
     page_height: f32,
+    current_text_layout: &mut Option<&'a UnifiedLayout<T>>,
+    font_manager: &FontManager<T, Q>,
 ) {
     match item {
         DisplayListItem::Rect {
@@ -122,6 +126,22 @@ fn convert_display_list_item(
             ops.push(Op::RestoreGraphicsState);
         }
 
+        DisplayListItem::TextLayout {
+            layout,
+            bounds: _,
+            font_hash: _,
+            font_size_px: _,
+            color: _,
+        } => {
+            // Extract the UnifiedLayout from the type-erased Arc<dyn Any>
+            if let Some(unified_layout) = layout.downcast_ref::<azul_layout::text3::cache::UnifiedLayout<T>>() {
+                println!("[bridge] ✓ Found TextLayout with {} items", unified_layout.items.len());
+                *current_text_layout = Some(unified_layout);
+            } else {
+                println!("[bridge] ✗ Failed to downcast TextLayout");
+            }
+        }
+
         DisplayListItem::Text {
             glyphs,
             font_hash,
@@ -138,15 +158,9 @@ fn convert_display_list_item(
             println!("[bridge] Converting text with {} glyphs, font_hash={:?}, font_size={}",
                 glyphs.len(), font_hash, font_size_px);
 
-            // Get or create printpdf font ID for this font
-            let font_id = font_id_map
-                .entry(*font_hash)
-                .or_insert_with(|| {
-                    let id = FontId(format!("F{}", font_hash.font_hash));
-                    println!("[bridge] Created new font ID: {:?} for font_hash {:?}", id, font_hash);
-                    id
-                })
-                .clone();
+            // Create printpdf font ID directly from font_hash
+            let font_id = FontId(format!("F{}", font_hash.font_hash));
+            println!("[bridge] Using font ID: {:?} for font_hash {:?}", font_id, font_hash);
 
             ops.push(Op::StartTextSection);
             ops.push(Op::SetFillColor {
@@ -173,7 +187,7 @@ fn convert_display_list_item(
                 } else {
                     // Render the previous line
                     if !current_line_glyphs.is_empty() {
-                        render_glyph_line(ops, &current_line_glyphs, &font_id, current_y.unwrap());
+                        render_glyph_line(ops, &current_line_glyphs, &font_id, current_y.unwrap(), font_manager, current_text_layout);
                         current_line_glyphs.clear();
                     }
                     // Start new line
@@ -185,7 +199,7 @@ fn convert_display_list_item(
             // Render remaining glyphs
             if !current_line_glyphs.is_empty() {
                 println!("[bridge] Rendering final line with {} glyphs", current_line_glyphs.len());
-                render_glyph_line(ops, &current_line_glyphs, &font_id, current_y.unwrap());
+                render_glyph_line(ops, &current_line_glyphs, &font_id, current_y.unwrap(), font_manager, current_text_layout);
             }
 
             ops.push(Op::EndTextSection);
@@ -279,11 +293,13 @@ fn convert_display_list_item(
 }
 
 /// Helper function to render a line of glyphs using WriteCodepoints
-fn render_glyph_line(
+fn render_glyph_line<T: ParsedFontTrait + 'static, Q: FontLoaderTrait<T>>(
     ops: &mut Vec<Op>,
     glyphs: &[&GlyphInstance],
     font_id: &FontId,
     y_pos: f32,
+    _font_manager: &FontManager<T, Q>,
+    current_text_layout: &Option<&UnifiedLayout<T>>,
 ) {
     if glyphs.is_empty() {
         return;
@@ -297,24 +313,65 @@ fn render_glyph_line(
         pos: crate::graphics::Point::new(Mm(first_x * 0.3527777778), Mm(y_pos * 0.3527777778)),
     });
 
-    // Build glyph array with positioning
-    // We need to generate (glyph_id, unicode_char) pairs for WriteCodepoints
+    // Build glyph-to-unicode mapping from UnifiedLayout
     let mut codepoints: Vec<(u16, char)> = Vec::new();
     
-    for glyph in glyphs {
-        // GlyphInstance.index is the glyph ID (u32)
-        // We need to convert it to u16 for WriteCodepoints
-        let glyph_id = (glyph.index & 0xFFFF) as u16;
+    if let Some(text_layout) = current_text_layout {
+        // Build a map from glyph_id to the cluster's complete text
+        // This handles ligatures correctly: "fi" ligature glyph maps to "fi" text
+        use std::collections::HashMap;
+        use azul_layout::text3::cache::ShapedItem;
         
-        // Use a placeholder character - in a real implementation, we'd need
-        // to look up the Unicode codepoint from the font's cmap table
-        // For now, use the replacement character
-        let unicode_char = '\u{FFFD}'; // Replacement character
+        let mut glyph_to_cluster_text: HashMap<u16, String> = HashMap::new();
         
-        codepoints.push((glyph_id, unicode_char));
+        // Iterate through all positioned items in the layout
+        for positioned_item in &text_layout.items {
+            match &positioned_item.item {
+                ShapedItem::Cluster(cluster) => {
+                    // Map each glyph in the cluster to the cluster's complete text
+                    // For ligatures (e.g., "fi" -> single glyph_id=123), cluster.text = "fi"
+                    // For normal chars (e.g., "a" -> glyph_id=45), cluster.text = "a"
+                    for shaped_glyph in &cluster.glyphs {
+                        glyph_to_cluster_text.insert(shaped_glyph.glyph_id, cluster.text.clone());
+                    }
+                }
+                _ => {} // Ignore other item types
+            }
+        }
+        
+        println!("[bridge] Built glyph-to-cluster-text map with {} entries", glyph_to_cluster_text.len());
+        
+        // Build codepoints for ToUnicode CMap
+        // For ligatures, we map to the FIRST character (PDF spec limitation)
+        for glyph in glyphs {
+            let glyph_id = (glyph.index & 0xFFFF) as u16;
+            
+            if let Some(cluster_text) = glyph_to_cluster_text.get(&glyph_id) {
+                let chars: Vec<char> = cluster_text.chars().collect();
+                
+                if let Some(&first_char) = chars.first() {
+                    codepoints.push((glyph_id, first_char));
+                    
+                    if chars.len() > 1 {
+                        println!("[bridge] Ligature: glyph_id={} maps to '{}'", 
+                                glyph_id, cluster_text);
+                    }
+                } else {
+                    codepoints.push((glyph_id, '\u{FFFD}'));
+                }
+            } else {
+                codepoints.push((glyph_id, '\u{FFFD}'));
+            }
+        }
+    } else {
+        // Fallback: No TextLayout available, use replacement characters
+        for glyph in glyphs {
+            let glyph_id = (glyph.index & 0xFFFF) as u16;
+            codepoints.push((glyph_id, '\u{FFFD}'));
+        }
     }
 
-    println!("[bridge] Generated {} codepoints", codepoints.len());
+    println!("[bridge] Generated {} codepoints for ToUnicode CMap", codepoints.len());
 
     if !codepoints.is_empty() {
         ops.push(Op::WriteCodepoints {

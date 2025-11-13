@@ -385,8 +385,17 @@ impl PdfDocument {
 
         // Render XML to pages
         match crate::html::xml_to_pdf_pages(html, &xml_options) {
-            Ok((pages, _font_data)) => {
-                // TODO: Register fonts from font_data in pdf.resources.fonts
+            Ok((pages, font_data)) => {
+                // Register fonts from font_data in pdf.resources.fonts
+                for (font_hash, parsed_font) in font_data.iter() {
+                    // The font ID matches what the bridge generated
+                    let font_id = FontId(format!("F{}", font_hash.font_hash));
+                    
+                    println!("[from_html] Registering font: {}", font_id.0);
+                    pdf.resources.fonts.map.insert(font_id, parsed_font.clone());
+                }
+                
+                println!("[from_html] Registered {} fonts in PDF resources", font_data.len());
                 pdf.pages.extend(pages);
                 Ok(pdf)
             }
