@@ -60,14 +60,13 @@ pub async fn html_to_document_async(
     input: HtmlToDocumentInput,
 ) -> Result<HtmlToDocumentOutput, String> {
     let mut warnings = Vec::new();
-    let pdf = PdfDocument::from_html_async(
+    let pdf = PdfDocument::from_html(
         &input.html,
         &input.images,
         &input.fonts,
         &input.options,
         &mut warnings,
-    )
-    .await?;
+    )?;
     Ok(HtmlToDocumentOutput { doc: pdf, warnings })
 }
 

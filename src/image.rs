@@ -202,44 +202,6 @@ impl RawImageFormat {
         }
     }
 
-    #[allow(unused)]
-    #[cfg(feature = "html")]
-    fn from_internal(f: &azul_core::app_resources::RawImageFormat) -> Self {
-        use azul_core::app_resources::RawImageFormat;
-        match f {
-            RawImageFormat::R8 => crate::RawImageFormat::R8,
-            RawImageFormat::RG8 => crate::RawImageFormat::RG8,
-            RawImageFormat::RGB8 => crate::RawImageFormat::RGB8,
-            RawImageFormat::RGBA8 => crate::RawImageFormat::RGBA8,
-            RawImageFormat::R16 => crate::RawImageFormat::R16,
-            RawImageFormat::RG16 => crate::RawImageFormat::RG16,
-            RawImageFormat::RGB16 => crate::RawImageFormat::RGB16,
-            RawImageFormat::RGBA16 => crate::RawImageFormat::RGBA16,
-            RawImageFormat::BGR8 => crate::RawImageFormat::BGR8,
-            RawImageFormat::BGRA8 => crate::RawImageFormat::BGRA8,
-            RawImageFormat::RGBF32 => crate::RawImageFormat::RGBF32,
-            RawImageFormat::RGBAF32 => crate::RawImageFormat::RGBAF32,
-        }
-    }
-
-    #[cfg(feature = "html")]
-    fn into_internal(&self) -> azul_core::app_resources::RawImageFormat {
-        match self {
-            RawImageFormat::R8 => azul_core::app_resources::RawImageFormat::R8,
-            RawImageFormat::RG8 => azul_core::app_resources::RawImageFormat::RG8,
-            RawImageFormat::RGB8 => azul_core::app_resources::RawImageFormat::RGB8,
-            RawImageFormat::RGBA8 => azul_core::app_resources::RawImageFormat::RGBA8,
-            RawImageFormat::R16 => azul_core::app_resources::RawImageFormat::R16,
-            RawImageFormat::RG16 => azul_core::app_resources::RawImageFormat::RG16,
-            RawImageFormat::RGB16 => azul_core::app_resources::RawImageFormat::RGB16,
-            RawImageFormat::RGBA16 => azul_core::app_resources::RawImageFormat::RGBA16,
-            RawImageFormat::BGR8 => azul_core::app_resources::RawImageFormat::BGR8,
-            RawImageFormat::BGRA8 => azul_core::app_resources::RawImageFormat::BGRA8,
-            RawImageFormat::RGBF32 => azul_core::app_resources::RawImageFormat::RGBF32,
-            RawImageFormat::RGBAF32 => azul_core::app_resources::RawImageFormat::RGBAF32,
-        }
-    }
-
     pub fn has_alpha(&self) -> bool {
         use RawImageFormat::*;
         matches!(self, RGBA8 | RGBA16 | RGBAF32 | RG8 | RG16)
@@ -827,24 +789,6 @@ impl RawImage {
         }
 
         Err("Could not encode image in any of the requested target formats".to_string())
-    }
-
-    /// Translates to an internal `RawImage`, necessary for the `<img>` component
-    #[cfg(feature = "html")]
-    pub fn to_internal(&self) -> azul_core::app_resources::ImageRef {
-        let invalid = azul_core::app_resources::ImageRef::null_image(
-            self.width,
-            self.height,
-            self.data_format.into_internal(),
-            self.tag.clone(),
-        );
-
-        if self.pixels.is_empty() {
-            invalid
-        } else {
-            azul_core::app_resources::ImageRef::new_rawimage(translate_to_internal_rawimage(self))
-                .unwrap_or(invalid)
-        }
     }
 
     /// Optimizes the image based on the provided options
@@ -1961,26 +1905,6 @@ fn bgra_to_bgr(rgba: Vec<u8>) -> (Vec<u8>, Vec<u8>) {
     }
 
     (rgb, alpha)
-}
-
-#[cfg(feature = "html")]
-pub fn translate_to_internal_rawimage(im: &RawImage) -> azul_core::app_resources::RawImage {
-    azul_core::app_resources::RawImage {
-        pixels: match &im.pixels {
-            RawImageData::U8(vec) => azul_core::app_resources::RawImageData::U8(vec.clone().into()),
-            RawImageData::U16(vec) => {
-                azul_core::app_resources::RawImageData::U16(vec.clone().into())
-            }
-            RawImageData::F32(vec) => {
-                azul_core::app_resources::RawImageData::F32(vec.clone().into())
-            }
-        },
-        width: im.width,
-        height: im.height,
-        premultiplied_alpha: false,
-        data_format: im.data_format.into_internal(),
-        tag: im.tag.clone().into(),
-    }
 }
 
 /// Takes a Vec<u8> of RGBA data and returns two Vec<u8> of RGB and alpha data

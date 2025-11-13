@@ -7,138 +7,141 @@ use azul_core::{
         XmlComponentTrait, XmlNode, XmlTextContent,
     },
 };
-use azul_css::parser::CssApiWrapper;
+use azul_css::props::parse::CssApiWrapper;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{ImageTypeInfo, RawImage, RawImageData, RawImageFormat};
 
-/// Render for a `div` component
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct DivRenderer {
-    node: XmlNode,
-}
-
-impl DivRenderer {
-    pub fn new() -> Self {
-        Self {
-            node: XmlNode::new("div"),
+/// Macro to generate HTML element components
+/// Each HTML tag becomes a component that renders the corresponding DOM node
+macro_rules! html_component {
+    ($name:ident, $tag:expr, $dom_method:ident) => {
+        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        pub struct $name {
+            node: XmlNode,
         }
-    }
-}
 
-impl XmlComponentTrait for DivRenderer {
-    fn get_available_arguments(&self) -> ComponentArguments {
-        ComponentArguments::default()
-    }
-
-    fn render_dom(
-        &self,
-        _: &XmlComponentMap,
-        _: &FilteredComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<StyledDom, RenderDomError> {
-        Ok(Dom::div().style(CssApiWrapper::empty()))
-    }
-
-    fn compile_to_rust_code(
-        &self,
-        _: &XmlComponentMap,
-        _: &ComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<String, CompileError> {
-        Ok("Dom::div()".into())
-    }
-
-    fn get_xml_node(&self) -> XmlNode {
-        self.node.clone()
-    }
-}
-
-/// Render for a `span` component
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct SpanRenderer {
-    node: XmlNode,
-}
-
-impl SpanRenderer {
-    pub fn new() -> Self {
-        Self {
-            node: XmlNode::new("div"),
+        impl $name {
+            pub fn new() -> Self {
+                Self {
+                    node: XmlNode::new($tag),
+                }
+            }
         }
-    }
-}
 
-impl XmlComponentTrait for SpanRenderer {
-    fn get_available_arguments(&self) -> ComponentArguments {
-        ComponentArguments::default()
-    }
+        impl XmlComponentTrait for $name {
+            fn get_available_arguments(&self) -> ComponentArguments {
+                ComponentArguments::default()
+            }
 
-    fn render_dom(
-        &self,
-        _: &XmlComponentMap,
-        _: &FilteredComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<StyledDom, RenderDomError> {
-        Ok(Dom::div().style(CssApiWrapper::empty()))
-    }
+            fn render_dom(
+                &self,
+                _: &XmlComponentMap,
+                _: &FilteredComponentArguments,
+                text: &XmlTextContent,
+            ) -> Result<StyledDom, RenderDomError> {
+                // Create the DOM node
+                let mut dom = Dom::$dom_method();
+                
+                // Add text content if present
+                if let Some(text_str) = text.get_text() {
+                    if !text_str.is_empty() {
+                        dom = dom.with_child(Dom::text(text_str));
+                    }
+                }
+                
+                Ok(dom.style(CssApiWrapper::empty()))
+            }
 
-    fn compile_to_rust_code(
-        &self,
-        _: &XmlComponentMap,
-        _: &ComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<String, CompileError> {
-        Ok("Dom::div()".into())
-    }
+            fn compile_to_rust_code(
+                &self,
+                _: &XmlComponentMap,
+                _: &ComponentArguments,
+                _: &XmlTextContent,
+            ) -> Result<String, CompileError> {
+                Ok(format!("Dom::{}()", stringify!($dom_method)))
+            }
 
-    fn get_xml_node(&self) -> XmlNode {
-        self.node.clone()
-    }
-}
-
-/// Render for a `body` component
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct BodyRenderer {
-    node: XmlNode,
-}
-
-impl BodyRenderer {
-    pub fn new() -> Self {
-        Self {
-            node: XmlNode::new("body"),
+            fn get_xml_node(&self) -> XmlNode {
+                self.node.clone()
+            }
         }
-    }
+    };
 }
 
-impl XmlComponentTrait for BodyRenderer {
-    fn get_available_arguments(&self) -> ComponentArguments {
-        ComponentArguments::default()
-    }
+// Generate components for common HTML elements
+// Block-level elements
+html_component!(DivRenderer, "div", div);
+html_component!(BodyRenderer, "body", body);
+html_component!(HeaderRenderer, "header", header);
+html_component!(FooterRenderer, "footer", footer);
+html_component!(SectionRenderer, "section", section);
+html_component!(ArticleRenderer, "article", article);
+html_component!(AsideRenderer, "aside", aside);
+html_component!(NavRenderer, "nav", nav);
+html_component!(MainRenderer, "main", main);
 
-    fn render_dom(
-        &self,
-        _: &XmlComponentMap,
-        _: &FilteredComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<StyledDom, RenderDomError> {
-        Ok(Dom::body().style(CssApiWrapper::empty()))
-    }
+// Heading elements
+html_component!(H1Renderer, "h1", h1);
+html_component!(H2Renderer, "h2", h2);
+html_component!(H3Renderer, "h3", h3);
+html_component!(H4Renderer, "h4", h4);
+html_component!(H5Renderer, "h5", h5);
+html_component!(H6Renderer, "h6", h6);
 
-    fn compile_to_rust_code(
-        &self,
-        _: &XmlComponentMap,
-        _: &ComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<String, CompileError> {
-        Ok("Dom::body()".into())
-    }
+// Text content elements
+html_component!(PRenderer, "p", p);
+html_component!(SpanRenderer, "span", span);
+html_component!(PreRenderer, "pre", pre);
+html_component!(CodeRenderer, "code", code);
+html_component!(BlockquoteRenderer, "blockquote", blockquote);
 
-    fn get_xml_node(&self) -> XmlNode {
-        self.node.clone()
-    }
-}
+// List elements
+html_component!(UlRenderer, "ul", ul);
+html_component!(OlRenderer, "ol", ol);
+html_component!(LiRenderer, "li", li);
+html_component!(DlRenderer, "dl", dl);
+html_component!(DtRenderer, "dt", dt);
+html_component!(DdRenderer, "dd", dd);
 
-/// Text renderer for p, h1-h6, strong and em elements
+// Table elements
+html_component!(TableRenderer, "table", table);
+html_component!(TheadRenderer, "thead", thead);
+html_component!(TbodyRenderer, "tbody", tbody);
+html_component!(TfootRenderer, "tfoot", tfoot);
+html_component!(TrRenderer, "tr", tr);
+html_component!(ThRenderer, "th", th);
+html_component!(TdRenderer, "td", td);
+
+// Inline elements
+html_component!(ARenderer, "a", a);
+html_component!(StrongRenderer, "strong", strong);
+html_component!(EmRenderer, "em", em);
+html_component!(BRenderer, "b", b);
+html_component!(IRenderer, "i", i);
+html_component!(URenderer, "u", u);
+html_component!(SmallRenderer, "small", small);
+html_component!(MarkRenderer, "mark", mark);
+html_component!(SubRenderer, "sub", sub);
+html_component!(SupRenderer, "sup", sup);
+
+// Form elements
+html_component!(FormRenderer, "form", form);
+html_component!(LabelRenderer, "label", label);
+html_component!(ButtonRenderer, "button", button);
+html_component!(FieldsetRenderer, "fieldset", fieldset);
+html_component!(LegendRenderer, "legend", legend);
+
+// Other elements
+html_component!(BrRenderer, "br", br);
+html_component!(HrRenderer, "hr", hr);
+
+// HTML and head elements (for completeness)
+html_component!(HtmlRenderer, "html", html);
+html_component!(HeadRenderer, "head", head);
+html_component!(TitleRenderer, "title", title);
+
+/// Text renderer - kept for backward compatibility with existing code
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TextRenderer {
     node: XmlNode,
@@ -781,15 +784,106 @@ pub fn printpdf_default_components() -> XmlComponentMap {
         components: Vec::new(),
     };
 
-    // Register base elements
+    // Register structural elements
+    map.register_component(XmlComponent {
+        id: normalize_casing("html"),
+        renderer: Box::new(HtmlRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("head"),
+        renderer: Box::new(HeadRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("title"),
+        renderer: Box::new(TitleRenderer::new()),
+        inherit_vars: true,
+    });
     map.register_component(XmlComponent {
         id: normalize_casing("body"),
         renderer: Box::new(BodyRenderer::new()),
         inherit_vars: true,
     });
+
+    // Register block-level elements
     map.register_component(XmlComponent {
         id: normalize_casing("div"),
         renderer: Box::new(DivRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("header"),
+        renderer: Box::new(HeaderRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("footer"),
+        renderer: Box::new(FooterRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("section"),
+        renderer: Box::new(SectionRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("article"),
+        renderer: Box::new(ArticleRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("aside"),
+        renderer: Box::new(AsideRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("nav"),
+        renderer: Box::new(NavRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("main"),
+        renderer: Box::new(MainRenderer::new()),
+        inherit_vars: true,
+    });
+
+    // Register heading elements (h1-h6)
+    map.register_component(XmlComponent {
+        id: normalize_casing("h1"),
+        renderer: Box::new(H1Renderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("h2"),
+        renderer: Box::new(H2Renderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("h3"),
+        renderer: Box::new(H3Renderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("h4"),
+        renderer: Box::new(H4Renderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("h5"),
+        renderer: Box::new(H5Renderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("h6"),
+        renderer: Box::new(H6Renderer::new()),
+        inherit_vars: true,
+    });
+
+    // Register text content elements
+    map.register_component(XmlComponent {
+        id: normalize_casing("p"),
+        renderer: Box::new(PRenderer::new()),
         inherit_vars: true,
     });
     map.register_component(XmlComponent {
@@ -798,116 +892,180 @@ pub fn printpdf_default_components() -> XmlComponentMap {
         inherit_vars: true,
     });
     map.register_component(XmlComponent {
-        id: normalize_casing("p"),
-        renderer: Box::new(TextRenderer::new()),
+        id: normalize_casing("pre"),
+        renderer: Box::new(PreRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("code"),
+        renderer: Box::new(CodeRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("blockquote"),
+        renderer: Box::new(BlockquoteRenderer::new()),
         inherit_vars: true,
     });
 
-    // Register heading elements (h1-h6)
+    // Register inline formatting elements
     map.register_component(XmlComponent {
-        id: "h1".to_string(),
-        renderer: Box::new(TextRenderer::with_css(
-            "h1",
-            "font-size: 2em; font-weight: bold; margin: 0.67em 0;",
-        )),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: "h2".to_string(),
-        renderer: Box::new(TextRenderer::with_css(
-            "h2",
-            "font-size: 1.5em; font-weight: bold; margin: 0.83em 0;",
-        )),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: "h3".to_string(),
-        renderer: Box::new(TextRenderer::with_css(
-            "h3",
-            "font-size: 1.17em; font-weight: bold; margin: 1em 0;",
-        )),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: "h4".to_string(),
-        renderer: Box::new(TextRenderer::with_css(
-            "h4",
-            "font-size: 1em; font-weight: bold; margin: 1.33em 0;",
-        )),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: "h5".to_string(),
-        renderer: Box::new(TextRenderer::with_css(
-            "h5",
-            "font-size: 0.83em; font-weight: bold; margin: 1.67em 0;",
-        )),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: "h6".to_string(),
-        renderer: Box::new(TextRenderer::with_css(
-            "h6",
-            "font-size: 0.67em; font-weight: bold; margin: 2.33em 0;",
-        )),
-        inherit_vars: true,
-    });
-
-    // Register text formatting elements
-    map.register_component(XmlComponent {
-        id: "strong".to_string(),
+        id: normalize_casing("strong"),
         renderer: Box::new(StrongRenderer::new()),
         inherit_vars: true,
     });
     map.register_component(XmlComponent {
-        id: "em".to_string(),
+        id: normalize_casing("em"),
         renderer: Box::new(EmRenderer::new()),
         inherit_vars: true,
     });
-
-    // Register hr element
     map.register_component(XmlComponent {
-        id: "hr".to_string(),
-        renderer: Box::new(HrRenderer::new()),
-        inherit_vars: true,
-    });
-
-    // Register table elements
-    map.register_component(XmlComponent {
-        id: "table".to_string(),
-        renderer: Box::new(TableRenderer::new()),
+        id: normalize_casing("b"),
+        renderer: Box::new(BRenderer::new()),
         inherit_vars: true,
     });
     map.register_component(XmlComponent {
-        id: "tr".to_string(),
-        renderer: Box::new(TrRenderer::new()),
+        id: normalize_casing("i"),
+        renderer: Box::new(IRenderer::new()),
         inherit_vars: true,
     });
     map.register_component(XmlComponent {
-        id: "th".to_string(),
-        renderer: Box::new(ThRenderer::new()),
+        id: normalize_casing("u"),
+        renderer: Box::new(URenderer::new()),
         inherit_vars: true,
     });
     map.register_component(XmlComponent {
-        id: "td".to_string(),
-        renderer: Box::new(TdRenderer::new()),
+        id: normalize_casing("small"),
+        renderer: Box::new(SmallRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("mark"),
+        renderer: Box::new(MarkRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("sub"),
+        renderer: Box::new(SubRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("sup"),
+        renderer: Box::new(SupRenderer::new()),
         inherit_vars: true,
     });
 
     // Register list elements
     map.register_component(XmlComponent {
-        id: "ul".to_string(),
+        id: normalize_casing("ul"),
         renderer: Box::new(UlRenderer::new()),
         inherit_vars: true,
     });
     map.register_component(XmlComponent {
-        id: "ol".to_string(),
+        id: normalize_casing("ol"),
         renderer: Box::new(OlRenderer::new()),
         inherit_vars: true,
     });
     map.register_component(XmlComponent {
-        id: "li".to_string(),
+        id: normalize_casing("li"),
         renderer: Box::new(LiRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("dl"),
+        renderer: Box::new(DlRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("dt"),
+        renderer: Box::new(DtRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("dd"),
+        renderer: Box::new(DdRenderer::new()),
+        inherit_vars: true,
+    });
+
+    // Register table elements
+    map.register_component(XmlComponent {
+        id: normalize_casing("table"),
+        renderer: Box::new(TableRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("thead"),
+        renderer: Box::new(TheadRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("tbody"),
+        renderer: Box::new(TbodyRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("tfoot"),
+        renderer: Box::new(TfootRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("tr"),
+        renderer: Box::new(TrRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("th"),
+        renderer: Box::new(ThRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("td"),
+        renderer: Box::new(TdRenderer::new()),
+        inherit_vars: true,
+    });
+
+    // Register form elements
+    map.register_component(XmlComponent {
+        id: normalize_casing("form"),
+        renderer: Box::new(FormRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("label"),
+        renderer: Box::new(LabelRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("button"),
+        renderer: Box::new(ButtonRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("fieldset"),
+        renderer: Box::new(FieldsetRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("legend"),
+        renderer: Box::new(LegendRenderer::new()),
+        inherit_vars: true,
+    });
+
+    // Register link elements
+    map.register_component(XmlComponent {
+        id: normalize_casing("a"),
+        renderer: Box::new(ARenderer::new()),
+        inherit_vars: true,
+    });
+
+    // Register other elements
+    map.register_component(XmlComponent {
+        id: normalize_casing("br"),
+        renderer: Box::new(BrRenderer::new()),
+        inherit_vars: true,
+    });
+    map.register_component(XmlComponent {
+        id: normalize_casing("hr"),
+        renderer: Box::new(HrRenderer::new()),
         inherit_vars: true,
     });
 

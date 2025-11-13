@@ -215,12 +215,20 @@ fn test_html_to_document() {
     let mut warnings = Vec::new();
     let output = PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnings)
         .map_err(|e| {
-            println!("HTML to PDF conversion failed or not supported: {e:?}");
-            for w in warnings {
+            println!("HTML to PDF conversion failed: {e:?}");
+            for w in &warnings {
                 println!("WARN: {:?}", w);
             }
         })
         .unwrap();
+
+    // Print warnings even on success
+    if !warnings.is_empty() {
+        println!("Warnings during HTML conversion:");
+        for w in &warnings {
+            println!("  {:?}", w);
+        }
+    }
 
     /*
     let _ = std::fs::write(
@@ -229,5 +237,5 @@ fn test_html_to_document() {
     );
     */
 
-    assert!(!output.pages.is_empty());
+    assert!(!output.pages.is_empty(), "Expected at least one page, but got 0 pages. Warnings: {:?}", warnings);
 }

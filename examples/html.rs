@@ -1,59 +1,94 @@
-use std::collections::BTreeMap;
+extern crate printpdf;
 
 use printpdf::*;
+use std::collections::BTreeMap;
+use std::fs::File;
 
-fn main() -> Result<(), String> {
-    // Create a new PDF document
-    let mut doc = PdfDocument::new("HTML to PDF Example");
+fn main() {
+    println!("Testing HTML to PDF implementation...");
 
-    // Basic HTML content with styles
-    let html = vec![
-        (
-            "default",
-            include_str!("./assets/html/default.html").to_string(),
-        ),
-        /*
-        (
-            "recipe",
-            include_str!("./assets/html/recipe.html").to_string(),
-        ),
-        (
-            "report",
-            include_str!("./assets/html/report.html").to_string(),
-        ),
-        (
-            "synthwave",
-            include_str!("./assets/html/synthwave.html").to_string(),
-        ),
-        */
-    ];
-    // let html_id = "default";
-    // let html_str = "<!doctype html><html><body><p>Hello</p></body></html>";
-    // let html = vec![(html_id, html_str)];
+    // Create simple HTML content with CSS
+    let html = r#"
+        <html>
+            <head>
+                <style>
+                    .title {
+                        font-size: 24px;
+                        color: #333333;
+                        margin-bottom: 10px;
+                    }
+                    .content {
+                        font-size: 14px;
+                        color: #666666;
+                        padding: 20px;
+                    }
+                    .box {
+                        width: 200px;
+                        height: 100px;
+                        background-color: #e0e0e0;
+                        border: 1px solid #999999;
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="title">Hello from Azul!</div>
+                <div class="content">
+                    This is a test of the HTML to PDF converter using azul's 
+                    solver3 layout engine and text3 text shaping.
+                </div>
+                <div class="box"></div>
+            </body>
+        </html>
+    "#;
 
-    // Convert the HTML to PDF pages
+    // Create PDF from HTML
+    let images = BTreeMap::new();
+    let fonts = BTreeMap::new();
+    let options = GeneratePdfOptions::default();
     let mut warnings = Vec::new();
-    let mut pages = Vec::new();
-    for (_id, html) in html.iter() {
-        let newpages = PdfDocument::from_html(
-            &html,
-            &BTreeMap::new(),
-            &BTreeMap::new(),
-            &GeneratePdfOptions::default(),
-            &mut Vec::new(),
-        );
 
-        pages.append(&mut newpages.unwrap_or_default().pages);
+    println!("Parsing HTML and generating PDF...");
+    
+    let doc = match PdfDocument::from_html(html, &images, &fonts, &options, &mut warnings) {
+        Ok(doc) => {
+            println!("✓ Successfully generated PDF");
+            if !warnings.is_empty() {
+                println!("Warnings:");
+                for warn in &warnings {
+                    println!("  - {:?}", warn);
+                }
+            }
+            doc
+        }
+        Err(e) => {
+            eprintln!("✗ Failed to generate PDF: {}", e);
+            return;
+        }
+    };
+
+    // Save to file
+    let output_path = "html_example.pdf";
+    println!("Saving PDF to {}...", output_path);
+    
+    let save_options = PdfSaveOptions::default();
+    let mut save_warnings = Vec::new();
+    let bytes = doc.save(&save_options, &mut save_warnings);
+    
+    if !save_warnings.is_empty() {
+        println!("Save warnings:");
+        for warn in &save_warnings {
+            println!("  - {:?}", warn);
+        }
     }
-
-    // Add the pages to the document
-    doc.with_pages(pages);
-
-    // Save the PDF to a file
-    let bytes = doc.save(&PdfSaveOptions::default(), &mut warnings);
-
-    std::fs::write("./html_example.pdf", bytes).unwrap();
-    println!("Created html_example.pdf");
-
-    Ok(())
+    
+    match File::create(output_path) {
+        Ok(mut file) => {
+            use std::io::Write;
+            match file.write_all(&bytes) {
+                Ok(_) => println!("✓ PDF saved successfully!"),
+                Err(e) => eprintln!("✗ Failed to write PDF: {}", e),
+            }
+        }
+        Err(e) => eprintln!("✗ Failed to create file: {}", e),
+    }
 }

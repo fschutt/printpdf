@@ -52,12 +52,12 @@ pub use svg::*;
 /// Image decoding
 pub mod image;
 pub use image::*;
-/// HTML handling
+/// HTML handling (using azul solver3 and DisplayList)
 #[cfg(feature = "html")]
 pub mod html;
 #[cfg(feature = "html")]
 pub use html::*;
-/// HTML component rendering (h1 - h6, li, ol, etc. - only relevant for --feature html)
+/// HTML component definitions
 #[cfg(feature = "html")]
 pub mod components;
 #[cfg(feature = "html")]
@@ -347,7 +347,7 @@ impl PdfDocument {
         id
     }
 
-    /// Renders HTML to pages
+    /// Renders HTML to pages (new implementation using azul solver3)
     #[cfg(feature = "html")]
     pub fn from_html(
         html: &str,
@@ -356,24 +356,44 @@ impl PdfDocument {
         options: &GeneratePdfOptions,
         warnings: &mut Vec<PdfWarnMsg>,
     ) -> Result<Self, String> {
-        let (xml, mut pdf, opts) = html_to_document_inner(html, images, fonts, options, warnings)?;
-        let pages = crate::html::xml_to_pages(&xml, opts, &mut pdf, warnings)?;
-        pdf.with_pages(pages);
-        Ok(pdf)
-    }
+        use crate::html::XmlRenderOptions;
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
 
-    #[cfg(feature = "html")]
-    pub async fn from_html_async(
-        html: &str,
-        images: &BTreeMap<String, Base64OrRaw>,
-        fonts: &BTreeMap<String, Base64OrRaw>,
-        options: &GeneratePdfOptions,
-        warnings: &mut Vec<PdfWarnMsg>,
-    ) -> Result<Self, String> {
-        let (_xml, mut pdf, opts) = html_to_document_inner(html, images, fonts, options, warnings)?;
-        let pages = crate::html::xml_to_pages_async(html, opts, &mut pdf, warnings).await?;
-        pdf.with_pages(pages);
-        Ok(pdf)
+        let mut pdf = Self::new("PDF Document");
+
+        // Convert to XmlRenderOptions
+        let mut xml_options = XmlRenderOptions::default();
+        xml_options.page_width = Mm(options.page_width.unwrap_or(210.0));
+        xml_options.page_height = Mm(options.page_height.unwrap_or(297.0));
+        
+        // Convert images and fonts
+        for (key, img) in images {
+            let bytes = match img {
+                Base64OrRaw::Raw(b) => b.clone(),
+                Base64OrRaw::B64(s) => STANDARD.decode(s).map_err(|e| format!("Base64 decode error: {}", e))?,
+            };
+            xml_options.images.insert(key.clone(), bytes);
+        }
+        
+        for (key, font) in fonts {
+            let bytes = match font {
+                Base64OrRaw::Raw(b) => b.clone(),
+                Base64OrRaw::B64(s) => STANDARD.decode(s).map_err(|e| format!("Base64 decode error: {}", e))?,
+            };
+            xml_options.fonts.insert(key.clone(), bytes);
+        }
+
+        // Render XML to pages
+        match crate::html::xml_to_pdf_pages(html, &xml_options) {
+            Ok(pages) => {
+                pdf.pages.extend(pages);
+                Ok(pdf)
+            }
+            Err(errs) => {
+                warnings.extend(errs);
+                Ok(pdf)
+            }
+        }
     }
 
     /// Renders a PDF Page into an SVG String. Returns `None` on an invalid page number

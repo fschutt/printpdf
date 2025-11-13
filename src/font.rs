@@ -342,6 +342,10 @@ impl ParsedFont {
     /// # Arguments
     ///
     /// * `self` - The font to use for shaping
+    /// Shape text using azul's text3 API (legacy method - use text3_integration module instead)
+    ///
+    /// # Arguments
+    ///
     /// * `text` - The text to shape
     /// * `options` - Text shaping and layout options
     ///
@@ -351,90 +355,11 @@ impl ParsedFont {
     #[cfg(feature = "text_layout")]
     pub fn shape_text(
         &self,
-        text: &str,
-        options: &TextShapingOptions,
-        font_id: &FontId,
+        _text: &str,
+        _options: &TextShapingOptions,
+        _font_id: &FontId,
     ) -> ShapedText {
-        // Convert holes to azul_layout format
-
-        use azul_core::{
-            ui_solver::ResolvedTextLayoutOptions,
-            window::{LogicalPosition, LogicalRect, LogicalSize},
-        };
-        use azul_css::StyleTextAlign;
-        use azul_layout::text2::layout::{
-            position_words, shape_words, split_text_into_words,
-            word_positions_to_inline_text_layout,
-        };
-
-        use crate::TextAlign;
-
-        let holes = options
-            .holes
-            .iter()
-            .map(|hole| LogicalRect {
-                origin: LogicalPosition {
-                    x: hole.rect.x.0,
-                    y: hole.rect.y.0,
-                },
-                size: LogicalSize {
-                    width: hole.rect.width.0,
-                    height: hole.rect.height.0,
-                },
-            })
-            .collect::<Vec<_>>();
-
-        // Create layout options
-        let resolved_options = ResolvedTextLayoutOptions {
-            font_size_px: options.font_size.0,
-            line_height: options.line_height.map(|lh| lh.0).into(),
-            letter_spacing: options.letter_spacing.into(),
-            word_spacing: options.word_spacing.into(),
-            tab_width: options.tab_width.into(),
-            max_horizontal_width: options.max_width.map(|w| w.0).into(),
-            leading: None.into(),
-            holes: holes.into(),
-            max_vertical_height: None.into(),
-            can_break: true,
-            can_hyphenate: true,
-            hyphenation_character: Some('-' as u32).into(),
-            is_rtl: azul_core::ui_solver::ScriptType::Mixed,
-            text_justify: Some(match options.align {
-                TextAlign::Left => StyleTextAlign::Left,
-                TextAlign::Center => StyleTextAlign::Center,
-                TextAlign::Right => StyleTextAlign::Right,
-                TextAlign::Justify => StyleTextAlign::Justify,
-            })
-            .into(),
-        };
-
-        // Split text into words
-        let words = split_text_into_words(text);
-
-        // Use adapter to convert to azul_layout's ParsedFont type
-        let azul_font = self::azul_convert::convert_to_azul_parsed_font(self);
-
-        // Shape words using azul_layout's shaping
-        let shaped_words = shape_words(&words, &azul_font);
-
-        // Position words
-        let word_positions = position_words(&words, &shaped_words, &resolved_options, &mut None);
-
-        // Create text layout
-        let inline_text_layout = word_positions_to_inline_text_layout(&word_positions);
-
-        // Get inline text with final positioning
-        let inline_text = azul_core::app_resources::get_inline_text(
-            &words,
-            &shaped_words,
-            &word_positions,
-            &inline_text_layout,
-        );
-
-        // Extract shaped text from inline text
-        let st = ShapedText::from_inline_text(font_id, &inline_text, options);
-
-        st
+        unimplemented!("Old shape_text method removed. Use text3_integration module with azul's UnifiedLayout instead.")
     }
 }
 
@@ -2222,188 +2147,37 @@ mod test {
     }
 }
 
+// Azul text3 integration - modern text shaping using azul's layout engine
 #[cfg(feature = "text_layout")]
-mod azul_convert {
-    use std::collections::BTreeMap;
+pub mod text3_integration {
+    use super::*;
+    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+    use azul_layout::text3::{
+        cache::{
+            Direction, FontManager, FontProviderTrait, LayoutError, ParsedFontTrait,
+            ShallowClone, StyleProperties, UnifiedLayout, WritingMode,
+        },
+        glyphs::{get_glyph_runs, GlyphRun},
+    };
+    use rust_fontconfig::FcFontCache;
 
-    pub(super) fn convert_to_azul_parsed_font(
-        font: &crate::font::ParsedFont,
-    ) -> azul_layout::parsedfont::ParsedFont {
-        azul_layout::parsedfont::ParsedFont {
-            font_metrics: convert_font_metrics(&font.font_metrics),
-            num_glyphs: font.num_glyphs,
-            hmtx_data: font.hmtx_data.clone(),
-            mock: None,
-            hhea_table: font.hhea_table.clone().unwrap_or(
-                allsorts_subset_browser::tables::HheaTable {
-                    ascender: 0,
-                    descender: 0,
-                    line_gap: 0,
-                    advance_width_max: 0,
-                    min_left_side_bearing: 0,
-                    min_right_side_bearing: 0,
-                    x_max_extent: 0,
-                    caret_slope_rise: 0,
-                    caret_slope_run: 0,
-                    caret_offset: 0,
-                    num_h_metrics: 0,
-                },
-            ),
-            maxp_table: font.maxp_table.clone().unwrap_or(
-                allsorts_subset_browser::tables::MaxpTable {
-                    num_glyphs: 0,
-                    version1_sub_table: None,
-                },
-            ),
-            gsub_cache: font.gsub_cache.clone(),
-            gpos_cache: font.gpos_cache.clone(),
-            opt_gdef_table: font.opt_gdef_table.clone(),
-            glyph_records_decoded: convert_glyph_records(&font.glyph_records_decoded),
-            space_width: font.space_width,
-            cmap_subtable: font.cmap_subtable.clone(),
-        }
+    /// Shape text using azul's text3 API
+    /// 
+    /// This function provides a modern interface for text shaping and layout
+    /// using azul's unified text layout engine.
+    pub fn shape_text_with_azul<T: ParsedFontTrait>(
+        text: &str,
+        font: &T,
+        font_size_px: f32,
+        max_width: Option<f32>,
+    ) -> Result<UnifiedLayout<T>, LayoutError> {
+        todo!("Implement text shaping with azul text3 API")
     }
 
-    fn convert_font_metrics(metrics: &crate::font::FontMetrics) -> azul_css::FontMetrics {
-        azul_css::FontMetrics {
-            units_per_em: metrics.units_per_em,
-            font_flags: metrics.font_flags,
-            x_min: metrics.x_min,
-            y_min: metrics.y_min,
-            x_max: metrics.x_max,
-            y_max: metrics.y_max,
-            ascender: metrics.ascender,
-            descender: metrics.descender,
-            line_gap: metrics.line_gap,
-            advance_width_max: metrics.advance_width_max,
-            min_left_side_bearing: metrics.min_left_side_bearing,
-            min_right_side_bearing: metrics.min_right_side_bearing,
-            x_max_extent: metrics.x_max_extent,
-            caret_slope_rise: metrics.caret_slope_rise,
-            caret_slope_run: metrics.caret_slope_run,
-            caret_offset: metrics.caret_offset,
-            num_h_metrics: metrics.num_h_metrics,
-            x_avg_char_width: metrics.x_avg_char_width,
-            us_weight_class: metrics.us_weight_class,
-            us_width_class: metrics.us_width_class,
-            fs_type: metrics.fs_type,
-            y_subscript_x_size: metrics.y_subscript_x_size,
-            y_subscript_y_size: metrics.y_subscript_y_size,
-            y_subscript_x_offset: metrics.y_subscript_x_offset,
-            y_subscript_y_offset: metrics.y_subscript_y_offset,
-            y_superscript_x_size: metrics.y_superscript_x_size,
-            y_superscript_y_size: metrics.y_superscript_y_size,
-            y_superscript_x_offset: metrics.y_superscript_x_offset,
-            y_superscript_y_offset: metrics.y_superscript_y_offset,
-            y_strikeout_size: metrics.y_strikeout_size,
-            y_strikeout_position: metrics.y_strikeout_position,
-            s_family_class: metrics.s_family_class,
-            panose: metrics.panose,
-            ul_unicode_range1: metrics.ul_unicode_range1,
-            ul_unicode_range2: metrics.ul_unicode_range2,
-            ul_unicode_range3: metrics.ul_unicode_range3,
-            ul_unicode_range4: metrics.ul_unicode_range4,
-            ach_vend_id: metrics.ach_vend_id,
-            fs_selection: metrics.fs_selection,
-            us_first_char_index: metrics.us_first_char_index,
-            us_last_char_index: metrics.us_last_char_index,
-            s_typo_ascender: metrics.s_typo_ascender.into(),
-            s_typo_descender: metrics.s_typo_descender.into(),
-            s_typo_line_gap: metrics.s_typo_line_gap.into(),
-            us_win_ascent: metrics.us_win_ascent.into(),
-            us_win_descent: metrics.us_win_descent.into(),
-            ul_code_page_range1: metrics.ul_code_page_range1.into(),
-            ul_code_page_range2: metrics.ul_code_page_range2.into(),
-            sx_height: metrics.sx_height.into(),
-            s_cap_height: metrics.s_cap_height.into(),
-            us_default_char: metrics.us_default_char.into(),
-            us_break_char: metrics.us_break_char.into(),
-            us_max_context: metrics.us_max_context.into(),
-            us_lower_optical_point_size: metrics.us_lower_optical_point_size.into(),
-            us_upper_optical_point_size: metrics.us_upper_optical_point_size.into(),
-        }
-    }
-
-    fn convert_glyph_records(
-        records: &BTreeMap<u16, crate::font::OwnedGlyph>,
-    ) -> BTreeMap<u16, azul_layout::parsedfont::OwnedGlyph> {
-        records
-            .iter()
-            .map(|(k, v)| {
-                (
-                    *k,
-                    azul_layout::parsedfont::OwnedGlyph {
-                        phantom_points: None,
-                        unresolved_composite: Vec::new(),
-                        bounding_box: azul_core::app_resources::OwnedGlyphBoundingBox {
-                            max_x: v.bounding_box.max_x,
-                            max_y: v.bounding_box.max_y,
-                            min_x: v.bounding_box.min_x,
-                            min_y: v.bounding_box.min_y,
-                        },
-                        horz_advance: v.horz_advance,
-                        outline: match v.outline.as_ref().map(|o| convert_glyph_outline(o)) {
-                            Some(s) => vec![s],
-                            None => Vec::new(),
-                        },
-                    },
-                )
-            })
-            .collect()
-    }
-
-    fn convert_glyph_outline(
-        outline: &crate::font::GlyphOutline,
-    ) -> azul_core::app_resources::GlyphOutline {
-        azul_core::app_resources::GlyphOutline {
-            operations: convert_glyph_outline_operations(&outline.operations),
-        }
-    }
-
-    fn convert_glyph_outline_operations(
-        ops: &[crate::font::GlyphOutlineOperation],
-    ) -> azul_core::app_resources::GlyphOutlineOperationVec {
-        ops.iter()
-            .map(to_azul_glyph_outline_operation)
-            .collect::<Vec<_>>()
-            .into()
-    }
-
-    /// Convert from printpdf GlyphOutlineOperation to azul_layout GlyphOutlineOperation
-    fn to_azul_glyph_outline_operation(
-        op: &crate::font::GlyphOutlineOperation,
-    ) -> azul_core::app_resources::GlyphOutlineOperation {
-        use azul_core::app_resources::{
-            GlyphOutlineOperation as AzulOp, OutlineCubicTo, OutlineLineTo, OutlineMoveTo,
-            OutlineQuadTo,
-        };
-
-        use crate::font::GlyphOutlineOperation as PdfOp;
-
-        match op {
-            PdfOp::MoveTo(m) => AzulOp::MoveTo(OutlineMoveTo {
-                x: m.x.round() as i16,
-                y: m.y.round() as i16,
-            }),
-            PdfOp::LineTo(l) => AzulOp::LineTo(OutlineLineTo {
-                x: l.x.round() as i16,
-                y: l.y.round() as i16,
-            }),
-            PdfOp::QuadraticCurveTo(q) => AzulOp::QuadraticCurveTo(OutlineQuadTo {
-                ctrl_1_x: q.ctrl_1_x.round() as i16,
-                ctrl_1_y: q.ctrl_1_y.round() as i16,
-                end_x: q.end_x.round() as i16,
-                end_y: q.end_y.round() as i16,
-            }),
-            PdfOp::CubicCurveTo(c) => AzulOp::CubicCurveTo(OutlineCubicTo {
-                ctrl_1_x: c.ctrl_1_x.round() as i16,
-                ctrl_1_y: c.ctrl_1_y.round() as i16,
-                ctrl_2_x: c.ctrl_2_x.round() as i16,
-                ctrl_2_y: c.ctrl_2_y.round() as i16,
-                end_x: c.end_x.round() as i16,
-                end_y: c.end_y.round() as i16,
-            }),
-            PdfOp::ClosePath => AzulOp::ClosePath,
-        }
+    /// Extract glyph runs from a UnifiedLayout for PDF rendering
+    pub fn extract_glyph_runs<T: ParsedFontTrait>(
+        layout: &UnifiedLayout<T>,
+    ) -> Vec<GlyphRun<T>> {
+        get_glyph_runs(layout)
     }
 }
