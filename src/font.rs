@@ -2151,25 +2151,23 @@ mod test {
 #[cfg(feature = "text_layout")]
 pub mod text3_integration {
     use super::*;
-    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
     use azul_layout::text3::{
         cache::{
-            Direction, FontManager, FontProviderTrait, LayoutError, ParsedFontTrait,
-            ShallowClone, StyleProperties, UnifiedLayout, WritingMode,
+            LayoutError, ParsedFontTrait,
+            UnifiedLayout,
         },
         glyphs::{get_glyph_runs, GlyphRun},
     };
-    use rust_fontconfig::FcFontCache;
 
     /// Shape text using azul's text3 API
     /// 
     /// This function provides a modern interface for text shaping and layout
     /// using azul's unified text layout engine.
     pub fn shape_text_with_azul<T: ParsedFontTrait>(
-        text: &str,
-        font: &T,
-        font_size_px: f32,
-        max_width: Option<f32>,
+        _text: &str,
+        _font: &T,
+        _font_size_px: f32,
+        _max_width: Option<f32>,
     ) -> Result<UnifiedLayout<T>, LayoutError> {
         todo!("Implement text shaping with azul text3 API")
     }

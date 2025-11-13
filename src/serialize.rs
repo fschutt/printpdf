@@ -91,7 +91,7 @@ pub fn serialize_pdf<W: Write>(
 ) -> () {
     let mut doc = to_lopdf_doc(pdf, opts, warnings);
     if opts.optimize {
-        doc.compress();
+        // doc.compress();
     }
 
     let _ = doc.save_to(&mut writer);

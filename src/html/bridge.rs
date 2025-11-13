@@ -3,360 +3,323 @@
 //! This module converts the intermediate PDF representation from azul-layout
 //! into printpdf's native Op enum, allowing us to leverage azul's layout engine
 //! while using printpdf's PDF generation.
+//!
+//! IMPORTANT: This module now converts DisplayList directly to printpdf Ops,
+//! bypassing the intermediate azul PdfOp representation. This allows us to
+//! generate WriteCodepoints (glyph IDs) instead of WriteText (text strings),
+//! which is necessary for proper text shaping in complex scripts.
 
-use azul_layout::pdf::{PdfColor, PdfOp as AzulPdfOp, PdfTextMatrix, TextItem as AzulTextItem};
-use crate::{Color, Mm, Op, Pt, Rgb, TextItem as PrintpdfTextItem, TextMatrix as PrintpdfTextMatrix};
+use azul_core::{
+    geom::LogicalSize,
+    ui_solver::GlyphInstance,
+};
+use azul_css::props::basic::ColorU;
+use azul_layout::{
+    solver3::display_list::{DisplayList, DisplayListItem},
+    text3::cache::FontHash,
+};
+use std::collections::BTreeMap;
 
-/// Convert an azul PdfColor to a printpdf Color
-fn convert_color(color: &PdfColor) -> Color {
-    match color {
-        PdfColor::Rgb(c) | PdfColor::Rgba(c) => Color::Rgb(Rgb {
-            r: c.r as f32 / 255.0,
-            g: c.g as f32 / 255.0,
-            b: c.b as f32 / 255.0,
-            icc_profile: None,
-        }),
-        PdfColor::Cmyk { c, m, y, k } => Color::Cmyk(crate::Cmyk {
-            c: *c,
-            m: *m,
-            y: *y,
-            k: *k,
-            icc_profile: None,
-        }),
-        PdfColor::Gray(g) => Color::Greyscale(crate::Greyscale {
-            percent: *g,
-            icc_profile: None,
-        }),
-    }
+use crate::{Color, Mm, Op, Pt, Rgb, FontId};
+
+/// Convert azul ColorU to printpdf Color
+fn convert_color(color: &ColorU) -> Color {
+    Color::Rgb(Rgb {
+        r: color.r as f32 / 255.0,
+        g: color.g as f32 / 255.0,
+        b: color.b as f32 / 255.0,
+        icc_profile: None,
+    })
 }
 
-/// Convert an azul TextMatrix to a printpdf TextMatrix
-fn convert_text_matrix(matrix: &PdfTextMatrix) -> PrintpdfTextMatrix {
-    PrintpdfTextMatrix::Raw([
-        matrix.a,
-        matrix.b,
-        matrix.c,
-        matrix.d,
-        matrix.e,
-        matrix.f,
-    ])
-}
-
-/// Convert azul TextItem to printpdf TextItem
-fn convert_text_item(item: &AzulTextItem) -> PrintpdfTextItem {
-    if item.adjustment == 0.0 {
-        PrintpdfTextItem::Text(item.text.clone())
-    } else {
-        PrintpdfTextItem::Offset(item.adjustment)
-    }
-}
-
-/// Convert a vector of azul PdfOps to printpdf Ops
-///
-/// # Arguments
-/// * `azul_ops` - The azul PDF operations to convert
-/// * `font_id_map` - A map from azul font IDs to printpdf font IDs (populated during conversion)
-///
-/// # Returns
-/// A vector of printpdf Ops that can be added to a PDF page
-pub fn convert_azul_ops_to_printpdf(
-    azul_ops: &[AzulPdfOp],
-    font_id_map: &mut std::collections::BTreeMap<String, crate::FontId>,
+/// Convert a display list directly to printpdf Ops.
+/// This bypasses the intermediate azul PdfOp format to generate
+/// WriteCodepoints (glyph IDs) instead of WriteText (text strings).
+pub fn display_list_to_printpdf_ops(
+    display_list: &DisplayList,
+    page_size: LogicalSize,
+    font_id_map: &mut BTreeMap<FontHash, FontId>,
 ) -> Vec<Op> {
     let mut ops = Vec::new();
+    let page_height = page_size.height;
 
-    for azul_op in azul_ops {
-        match azul_op {
-            AzulPdfOp::BeginPath => {
-                // Path will be built up with subsequent ops
-                // No direct equivalent, handled implicitly
-            }
+    println!("[bridge] Converting DisplayList with {} items", display_list.items.len());
 
-            AzulPdfOp::MoveTo { point } => {
-                // Store for polygon construction
-                // Will be handled when we encounter Fill/Stroke
-            }
-
-            AzulPdfOp::LineTo { point } => {
-                // Store for polygon construction
-            }
-
-            AzulPdfOp::CurveTo { control1, control2, end } => {
-                // Store for path construction
-            }
-
-            AzulPdfOp::ClosePath => {
-                // Marks end of path
-            }
-
-            AzulPdfOp::Stroke => {
-                // Will trigger polygon drawing
-            }
-
-            AzulPdfOp::Fill => {
-                // Will trigger polygon drawing
-            }
-
-            AzulPdfOp::FillAndStroke => {
-                // Will trigger polygon drawing with both fill and stroke
-            }
-
-            AzulPdfOp::SetStrokeColor { color } => {
-                ops.push(Op::SetOutlineColor {
-                    col: convert_color(color),
-                });
-            }
-
-            AzulPdfOp::SetFillColor { color } => {
-                ops.push(Op::SetFillColor {
-                    col: convert_color(color),
-                });
-            }
-
-            AzulPdfOp::SetLineWidth { width } => {
-                ops.push(Op::SetOutlineThickness {
-                    pt: Pt(*width),
-                });
-            }
-
-            AzulPdfOp::SetLineDash { pattern, phase } => {
-                ops.push(Op::SetLineDashPattern {
-                    dash: crate::graphics::LineDashPattern {
-                        dash_1: pattern.get(0).copied().map(|v| v as i64),
-                        gap_1: pattern.get(1).copied().map(|v| v as i64),
-                        dash_2: pattern.get(2).copied().map(|v| v as i64),
-                        gap_2: pattern.get(3).copied().map(|v| v as i64),
-                        dash_3: pattern.get(4).copied().map(|v| v as i64),
-                        gap_3: pattern.get(5).copied().map(|v| v as i64),
-                        offset: *phase as i64,
-                    },
-                });
-            }
-
-            AzulPdfOp::BeginText => {
-                ops.push(Op::StartTextSection);
-            }
-
-            AzulPdfOp::EndText => {
-                ops.push(Op::EndTextSection);
-            }
-
-            AzulPdfOp::SetTextFont { font_id, size } => {
-                // Map azul font ID to printpdf font ID
-                let printpdf_font_id = font_id_map
-                    .entry(font_id.0.clone())
-                    .or_insert_with(|| crate::FontId(font_id.0.clone()))
-                    .clone();
-
-                ops.push(Op::SetFontSize {
-                    size: Pt(*size),
-                    font: printpdf_font_id,
-                });
-            }
-
-            AzulPdfOp::SetTextMatrix { matrix } => {
-                ops.push(Op::SetTextMatrix {
-                    matrix: convert_text_matrix(matrix),
-                });
-            }
-
-            AzulPdfOp::ShowText { text } => {
-                // This shouldn't be used with our implementation
-                // We use ShowPositionedText instead
-            }
-
-            AzulPdfOp::ShowPositionedText { items } => {
-                let printpdf_items: Vec<PrintpdfTextItem> = items
-                    .iter()
-                    .map(convert_text_item)
-                    .collect();
-
-                // We need to know which font to use - this should be set by SetTextFont
-                // For now, we'll need to track the current font
-                // This is a simplification - in reality we'd need state tracking
-            }
-
-            AzulPdfOp::DrawImage { xobject_id, rect } => {
-                // Image drawing
-            }
-
-            AzulPdfOp::SaveState => {
-                ops.push(Op::SaveGraphicsState);
-            }
-
-            AzulPdfOp::RestoreState => {
-                ops.push(Op::RestoreGraphicsState);
-            }
-
-            AzulPdfOp::Transform { matrix } => {
-                // Transform the coordinate system
-            }
-
-            AzulPdfOp::ClipRect { rect } => {
-                // Set clipping region
-            }
-        }
+    for (idx, item) in display_list.items.iter().enumerate() {
+        println!("[bridge] Item {}: {:?}", idx, match item {
+            DisplayListItem::Text { .. } => "Text",
+            DisplayListItem::Rect { .. } => "Rect",
+            DisplayListItem::Border { .. } => "Border",
+            DisplayListItem::Image { .. } => "Image",
+            _ => "Other",
+        });
+        convert_display_list_item(item, &mut ops, font_id_map, page_height);
     }
 
+    println!("[bridge] Generated {} ops", ops.len());
     ops
 }
 
-/// Stateful converter that tracks current path, font, etc.
-pub struct AzulToPrintpdfConverter {
-    current_path: Vec<(f32, f32)>,
-    current_font: Option<crate::FontId>,
-    font_id_map: std::collections::BTreeMap<String, crate::FontId>,
-}
+fn convert_display_list_item(
+    item: &DisplayListItem,
+    ops: &mut Vec<Op>,
+    font_id_map: &mut BTreeMap<FontHash, FontId>,
+    page_height: f32,
+) {
+    match item {
+        DisplayListItem::Rect {
+            bounds,
+            color,
+            border_radius: _,
+        } => {
+            // Convert rectangle to PDF polygon
+            ops.push(Op::SaveGraphicsState);
 
-impl AzulToPrintpdfConverter {
-    pub fn new() -> Self {
-        Self {
-            current_path: Vec::new(),
-            current_font: None,
-            font_id_map: std::collections::BTreeMap::new(),
+            let y = page_height - bounds.origin.y - bounds.size.height;
+
+            // Simple rectangle (ignore border_radius for now)
+            let polygon = crate::graphics::Polygon {
+                rings: vec![crate::graphics::PolygonRing {
+                    points: vec![
+                        crate::graphics::LinePoint {
+                            p: crate::graphics::Point::new(
+                                Mm(bounds.origin.x * 0.3527777778),
+                                Mm(y * 0.3527777778),
+                            ),
+                            bezier: false,
+                        },
+                        crate::graphics::LinePoint {
+                            p: crate::graphics::Point::new(
+                                Mm((bounds.origin.x + bounds.size.width) * 0.3527777778),
+                                Mm(y * 0.3527777778),
+                            ),
+                            bezier: false,
+                        },
+                        crate::graphics::LinePoint {
+                            p: crate::graphics::Point::new(
+                                Mm((bounds.origin.x + bounds.size.width) * 0.3527777778),
+                                Mm((y + bounds.size.height) * 0.3527777778),
+                            ),
+                            bezier: false,
+                        },
+                        crate::graphics::LinePoint {
+                            p: crate::graphics::Point::new(
+                                Mm(bounds.origin.x * 0.3527777778),
+                                Mm((y + bounds.size.height) * 0.3527777778),
+                            ),
+                            bezier: false,
+                        },
+                    ],
+                }],
+                mode: crate::graphics::PaintMode::Fill,
+                winding_order: crate::graphics::WindingOrder::NonZero,
+            };
+
+            ops.push(Op::SetFillColor {
+                col: convert_color(color),
+            });
+            ops.push(Op::DrawPolygon { polygon });
+            ops.push(Op::RestoreGraphicsState);
         }
-    }
 
-    pub fn convert(&mut self, azul_ops: &[AzulPdfOp]) -> Vec<Op> {
-        let mut ops = Vec::new();
+        DisplayListItem::Text {
+            glyphs,
+            font_hash,
+            font_size_px,
+            color,
+            clip_rect: _,
+        } => {
+            // Skip empty text
+            if glyphs.is_empty() {
+                println!("[bridge] Skipping empty text");
+                return;
+            }
 
-        for azul_op in azul_ops {
-            self.convert_single_op(azul_op, &mut ops);
+            println!("[bridge] Converting text with {} glyphs, font_hash={:?}, font_size={}",
+                glyphs.len(), font_hash, font_size_px);
+
+            // Get or create printpdf font ID for this font
+            let font_id = font_id_map
+                .entry(*font_hash)
+                .or_insert_with(|| {
+                    let id = FontId(format!("F{}", font_hash.font_hash));
+                    println!("[bridge] Created new font ID: {:?} for font_hash {:?}", id, font_hash);
+                    id
+                })
+                .clone();
+
+            ops.push(Op::StartTextSection);
+            ops.push(Op::SetFillColor {
+                col: convert_color(color),
+            });
+            ops.push(Op::SetFontSize {
+                size: Pt(*font_size_px),
+                font: font_id.clone(),
+            });
+
+            // Group glyphs by line (same Y position within tolerance)
+            let mut current_line_glyphs: Vec<&GlyphInstance> = Vec::new();
+            let mut current_y = None;
+
+            for glyph in glyphs {
+                let glyph_y = page_height - glyph.point.y;
+                
+                // Check if we're still on the same line (within 0.5pt tolerance)
+                let same_line = current_y.map_or(true, |y: f32| (y - glyph_y).abs() < 0.5);
+                
+                if same_line {
+                    current_line_glyphs.push(glyph);
+                    current_y = Some(glyph_y);
+                } else {
+                    // Render the previous line
+                    if !current_line_glyphs.is_empty() {
+                        render_glyph_line(ops, &current_line_glyphs, &font_id, current_y.unwrap());
+                        current_line_glyphs.clear();
+                    }
+                    // Start new line
+                    current_line_glyphs.push(glyph);
+                    current_y = Some(glyph_y);
+                }
+            }
+
+            // Render remaining glyphs
+            if !current_line_glyphs.is_empty() {
+                println!("[bridge] Rendering final line with {} glyphs", current_line_glyphs.len());
+                render_glyph_line(ops, &current_line_glyphs, &font_id, current_y.unwrap());
+            }
+
+            ops.push(Op::EndTextSection);
         }
 
-        ops
-    }
+        DisplayListItem::Border {
+            bounds,
+            widths,
+            colors,
+            styles: _,
+            border_radius: _,
+        } => {
+            // Simplified border rendering
 
-    fn convert_single_op(&mut self, azul_op: &AzulPdfOp, ops: &mut Vec<Op>) {
-        match azul_op {
-            AzulPdfOp::BeginPath => {
-                self.current_path.clear();
-            }
+            let width = widths
+                .top
+                .and_then(|w| w.get_property().cloned())
+                .map(|w| w.inner.to_pixels(0.0))
+                .unwrap_or(0.0);
 
-            AzulPdfOp::MoveTo { point } => {
-                self.current_path.push((point.x, point.y));
-            }
-
-            AzulPdfOp::LineTo { point } => {
-                self.current_path.push((point.x, point.y));
-            }
-
-            AzulPdfOp::ClosePath => {
-                // Path is closed
-            }
-
-            AzulPdfOp::Fill => {
-                if self.current_path.len() >= 3 {
-                    let polygon = crate::graphics::Polygon {
-                        rings: vec![crate::graphics::PolygonRing {
-                            points: self.current_path
-                                .iter()
-                                .map(|(x, y)| crate::graphics::LinePoint {
-                                    p: crate::graphics::Point::new(Mm(*x * 0.3527777778), Mm(*y * 0.3527777778)),
-                                    bezier: false,
-                                })
-                                .collect(),
-                        }],
-                        mode: crate::graphics::PaintMode::Fill,
-                        winding_order: crate::graphics::WindingOrder::NonZero,
-                    };
-                    ops.push(Op::DrawPolygon { polygon });
-                }
-                self.current_path.clear();
-            }
-
-            AzulPdfOp::Stroke => {
-                if self.current_path.len() >= 2 {
-                    let line = crate::graphics::Line {
-                        points: self.current_path
-                            .iter()
-                            .map(|(x, y)| crate::graphics::LinePoint {
-                                p: crate::graphics::Point::new(Mm(*x * 0.3527777778), Mm(*y * 0.3527777778)),
-                                bezier: false,
-                            })
-                            .collect(),
-                        is_closed: false,
-                    };
-                    ops.push(Op::DrawLine { line });
-                }
-                self.current_path.clear();
-            }
-
-            AzulPdfOp::SetStrokeColor { color } => {
-                ops.push(Op::SetOutlineColor {
-                    col: convert_color(color),
-                });
-            }
-
-            AzulPdfOp::SetFillColor { color } => {
-                ops.push(Op::SetFillColor {
-                    col: convert_color(color),
-                });
-            }
-
-            AzulPdfOp::SetLineWidth { width } => {
-                ops.push(Op::SetOutlineThickness {
-                    pt: Pt(*width),
-                });
-            }
-
-            AzulPdfOp::BeginText => {
-                ops.push(Op::StartTextSection);
-            }
-
-            AzulPdfOp::EndText => {
-                ops.push(Op::EndTextSection);
-            }
-
-            AzulPdfOp::SetTextFont { font_id, size } => {
-                let printpdf_font_id = self.font_id_map
-                    .entry(font_id.0.clone())
-                    .or_insert_with(|| crate::FontId(font_id.0.clone()))
-                    .clone();
-
-                self.current_font = Some(printpdf_font_id.clone());
-
-                ops.push(Op::SetFontSize {
-                    size: Pt(*size),
-                    font: printpdf_font_id,
-                });
-            }
-
-            AzulPdfOp::SetTextMatrix { matrix } => {
-                ops.push(Op::SetTextMatrix {
-                    matrix: convert_text_matrix(matrix),
-                });
-            }
-
-            AzulPdfOp::ShowPositionedText { items } => {
-                if let Some(font) = &self.current_font {
-                    let printpdf_items: Vec<PrintpdfTextItem> = items
-                        .iter()
-                        .map(convert_text_item)
-                        .collect();
-
-                    ops.push(Op::WriteText {
-                        items: printpdf_items,
-                        font: font.clone(),
+            if width > 0.0 {
+                let color = colors
+                    .top
+                    .and_then(|c| c.get_property().cloned())
+                    .map(|c| c.inner)
+                    .unwrap_or(ColorU {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 255,
                     });
-                }
-            }
 
-            AzulPdfOp::SaveState => {
                 ops.push(Op::SaveGraphicsState);
-            }
 
-            AzulPdfOp::RestoreState => {
+                let y = page_height - bounds.origin.y - bounds.size.height;
+
+                let line = crate::graphics::Line {
+                    points: vec![
+                        crate::graphics::LinePoint {
+                            p: crate::graphics::Point::new(
+                                Mm(bounds.origin.x * 0.3527777778),
+                                Mm(y * 0.3527777778),
+                            ),
+                            bezier: false,
+                        },
+                        crate::graphics::LinePoint {
+                            p: crate::graphics::Point::new(
+                                Mm((bounds.origin.x + bounds.size.width) * 0.3527777778),
+                                Mm(y * 0.3527777778),
+                            ),
+                            bezier: false,
+                        },
+                        crate::graphics::LinePoint {
+                            p: crate::graphics::Point::new(
+                                Mm((bounds.origin.x + bounds.size.width) * 0.3527777778),
+                                Mm((y + bounds.size.height) * 0.3527777778),
+                            ),
+                            bezier: false,
+                        },
+                        crate::graphics::LinePoint {
+                            p: crate::graphics::Point::new(
+                                Mm(bounds.origin.x * 0.3527777778),
+                                Mm((y + bounds.size.height) * 0.3527777778),
+                            ),
+                            bezier: false,
+                        },
+                    ],
+                    is_closed: true,
+                };
+
+                ops.push(Op::SetOutlineColor {
+                    col: convert_color(&color),
+                });
+                ops.push(Op::SetOutlineThickness { pt: Pt(width) });
+                ops.push(Op::DrawLine { line });
+
                 ops.push(Op::RestoreGraphicsState);
             }
+        }
 
-            _ => {
-                // Other operations not yet fully implemented
-            }
+        DisplayListItem::Image { bounds: _, key: _ } => {
+            // Image rendering - not yet implemented
+            println!("[bridge] Image rendering not yet implemented");
+        }
+
+        _ => {
+            // Other display list items not yet implemented
+            println!("[bridge] Unsupported display list item");
         }
     }
+}
 
-    pub fn get_font_id_map(&self) -> &std::collections::BTreeMap<String, crate::FontId> {
-        &self.font_id_map
+/// Helper function to render a line of glyphs using WriteCodepoints
+fn render_glyph_line(
+    ops: &mut Vec<Op>,
+    glyphs: &[&GlyphInstance],
+    font_id: &FontId,
+    y_pos: f32,
+) {
+    if glyphs.is_empty() {
+        return;
+    }
+
+    println!("[bridge] Rendering glyph line with {} glyphs at y={}", glyphs.len(), y_pos);
+
+    // Set text position to the start of the line
+    let first_x = glyphs[0].point.x;
+    ops.push(Op::SetTextCursor {
+        pos: crate::graphics::Point::new(Mm(first_x * 0.3527777778), Mm(y_pos * 0.3527777778)),
+    });
+
+    // Build glyph array with positioning
+    // We need to generate (glyph_id, unicode_char) pairs for WriteCodepoints
+    let mut codepoints: Vec<(u16, char)> = Vec::new();
+    
+    for glyph in glyphs {
+        // GlyphInstance.index is the glyph ID (u32)
+        // We need to convert it to u16 for WriteCodepoints
+        let glyph_id = (glyph.index & 0xFFFF) as u16;
+        
+        // Use a placeholder character - in a real implementation, we'd need
+        // to look up the Unicode codepoint from the font's cmap table
+        // For now, use the replacement character
+        let unicode_char = '\u{FFFD}'; // Replacement character
+        
+        codepoints.push((glyph_id, unicode_char));
+    }
+
+    println!("[bridge] Generated {} codepoints", codepoints.len());
+
+    if !codepoints.is_empty() {
+        ops.push(Op::WriteCodepoints {
+            font: font_id.clone(),
+            cp: codepoints,
+        });
     }
 }

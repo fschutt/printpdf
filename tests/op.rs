@@ -49,10 +49,10 @@ fn test_op_graphics_state() {
 fn test_op_layer() {
     let layer_id = LayerInternalId::new();
     assert!(test_op(
-        Op::BeginLayer {
+        Op::BeginOptionalContent {
             layer_id: layer_id.clone()
         },
-        "begin_layer"
+        "begin_optional_content"
     ));
 }
 

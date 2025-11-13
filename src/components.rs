@@ -1,21 +1,20 @@
 use azul_core::{
-    dom::Dom,
+    dom::{Dom, NodeData, NodeType},
     styled_dom::StyledDom,
     xml::{
-        normalize_casing, prepare_string, CompileError, ComponentArgumentTypes, ComponentArguments,
+        normalize_casing, CompileError, ComponentArguments,
         FilteredComponentArguments, RenderDomError, XmlComponent, XmlComponentMap,
         XmlComponentTrait, XmlNode, XmlTextContent,
     },
 };
-use azul_css::props::parse::CssApiWrapper;
-use serde_derive::{Deserialize, Serialize};
 
-use crate::{ImageTypeInfo, RawImage, RawImageData, RawImageFormat};
-
-/// Macro to generate HTML element components
+/// Macro to generate HTML element components with default CSS
 /// Each HTML tag becomes a component that renders the corresponding DOM node
 macro_rules! html_component {
-    ($name:ident, $tag:expr, $dom_method:ident) => {
+    ($name:ident, $tag:expr, $node_type:expr) => {
+        html_component!($name, $tag, $node_type, "");
+    };
+    ($name:ident, $tag:expr, $node_type:expr, $default_css:expr) => {
         #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub struct $name {
             node: XmlNode,
@@ -40,17 +39,35 @@ macro_rules! html_component {
                 _: &FilteredComponentArguments,
                 text: &XmlTextContent,
             ) -> Result<StyledDom, RenderDomError> {
-                // Create the DOM node
-                let mut dom = Dom::$dom_method();
+                // Create the DOM node manually
+                let node_data = NodeData::new($node_type);
+                let mut dom = Dom {
+                    root: node_data,
+                    children: Vec::new().into(),
+                    estimated_total_children: 0,
+                };
                 
                 // Add text content if present
-                if let Some(text_str) = text.get_text() {
+                if let Some(text_str) = text.as_ref() {
                     if !text_str.is_empty() {
-                        dom = dom.with_child(Dom::text(text_str));
+                        let text_node = NodeData::text(text_str.as_str());
+                        let text_dom = Dom {
+                            root: text_node,
+                            children: Vec::new().into(),
+                            estimated_total_children: 0,
+                        };
+                        dom = dom.with_child(text_dom);
                     }
                 }
                 
-                Ok(dom.style(CssApiWrapper::empty()))
+                // Apply default CSS if provided
+                let css = if $default_css.is_empty() {
+                    azul_css::parser2::CssApiWrapper::empty()
+                } else {
+                    azul_css::parser2::CssApiWrapper::from_string($default_css.into())
+                };
+                
+                Ok(dom.style(css))
             }
 
             fn compile_to_rust_code(
@@ -59,7 +76,7 @@ macro_rules! html_component {
                 _: &ComponentArguments,
                 _: &XmlTextContent,
             ) -> Result<String, CompileError> {
-                Ok(format!("Dom::{}()", stringify!($dom_method)))
+                Ok(format!("Dom::new(NodeType::{})", stringify!($node_type)))
             }
 
             fn get_xml_node(&self) -> XmlNode {
@@ -70,672 +87,79 @@ macro_rules! html_component {
 }
 
 // Generate components for common HTML elements
+
+// Structural elements
+html_component!(HtmlRenderer, "html", NodeType::Html);
+html_component!(HeadRenderer, "head", NodeType::Head);
+html_component!(TitleRenderer, "title", NodeType::Title);
+html_component!(BodyRenderer, "body", NodeType::Body);
+
 // Block-level elements
-html_component!(DivRenderer, "div", div);
-html_component!(BodyRenderer, "body", body);
-html_component!(HeaderRenderer, "header", header);
-html_component!(FooterRenderer, "footer", footer);
-html_component!(SectionRenderer, "section", section);
-html_component!(ArticleRenderer, "article", article);
-html_component!(AsideRenderer, "aside", aside);
-html_component!(NavRenderer, "nav", nav);
-html_component!(MainRenderer, "main", main);
+html_component!(DivRenderer, "div", NodeType::Div);
+html_component!(HeaderRenderer, "header", NodeType::Header);
+html_component!(FooterRenderer, "footer", NodeType::Footer);
+html_component!(SectionRenderer, "section", NodeType::Section);
+html_component!(ArticleRenderer, "article", NodeType::Article);
+html_component!(AsideRenderer, "aside", NodeType::Aside);
+html_component!(NavRenderer, "nav", NodeType::Nav);
+html_component!(MainRenderer, "main", NodeType::Main);
 
 // Heading elements
-html_component!(H1Renderer, "h1", h1);
-html_component!(H2Renderer, "h2", h2);
-html_component!(H3Renderer, "h3", h3);
-html_component!(H4Renderer, "h4", h4);
-html_component!(H5Renderer, "h5", h5);
-html_component!(H6Renderer, "h6", h6);
+html_component!(H1Renderer, "h1", NodeType::H1);
+html_component!(H2Renderer, "h2", NodeType::H2);
+html_component!(H3Renderer, "h3", NodeType::H3);
+html_component!(H4Renderer, "h4", NodeType::H4);
+html_component!(H5Renderer, "h5", NodeType::H5);
+html_component!(H6Renderer, "h6", NodeType::H6);
 
 // Text content elements
-html_component!(PRenderer, "p", p);
-html_component!(SpanRenderer, "span", span);
-html_component!(PreRenderer, "pre", pre);
-html_component!(CodeRenderer, "code", code);
-html_component!(BlockquoteRenderer, "blockquote", blockquote);
+html_component!(PRenderer, "p", NodeType::P);
+html_component!(SpanRenderer, "span", NodeType::Span);
+html_component!(PreRenderer, "pre", NodeType::Pre);
+html_component!(CodeRenderer, "code", NodeType::Code);
+html_component!(BlockquoteRenderer, "blockquote", NodeType::BlockQuote);
 
 // List elements
-html_component!(UlRenderer, "ul", ul);
-html_component!(OlRenderer, "ol", ol);
-html_component!(LiRenderer, "li", li);
-html_component!(DlRenderer, "dl", dl);
-html_component!(DtRenderer, "dt", dt);
-html_component!(DdRenderer, "dd", dd);
+html_component!(UlRenderer, "ul", NodeType::Ul);
+html_component!(OlRenderer, "ol", NodeType::Ol);
+html_component!(LiRenderer, "li", NodeType::Li);
+html_component!(DlRenderer, "dl", NodeType::Dl);
+html_component!(DtRenderer, "dt", NodeType::Dt);
+html_component!(DdRenderer, "dd", NodeType::Dd);
 
 // Table elements
-html_component!(TableRenderer, "table", table);
-html_component!(TheadRenderer, "thead", thead);
-html_component!(TbodyRenderer, "tbody", tbody);
-html_component!(TfootRenderer, "tfoot", tfoot);
-html_component!(TrRenderer, "tr", tr);
-html_component!(ThRenderer, "th", th);
-html_component!(TdRenderer, "td", td);
+html_component!(TableRenderer, "table", NodeType::Table);
+html_component!(TheadRenderer, "thead", NodeType::THead);
+html_component!(TbodyRenderer, "tbody", NodeType::TBody);
+html_component!(TfootRenderer, "tfoot", NodeType::TFoot);
+html_component!(TrRenderer, "tr", NodeType::Tr);
+html_component!(ThRenderer, "th", NodeType::Th);
+html_component!(TdRenderer, "td", NodeType::Td);
 
 // Inline elements
-html_component!(ARenderer, "a", a);
-html_component!(StrongRenderer, "strong", strong);
-html_component!(EmRenderer, "em", em);
-html_component!(BRenderer, "b", b);
-html_component!(IRenderer, "i", i);
-html_component!(URenderer, "u", u);
-html_component!(SmallRenderer, "small", small);
-html_component!(MarkRenderer, "mark", mark);
-html_component!(SubRenderer, "sub", sub);
-html_component!(SupRenderer, "sup", sup);
+html_component!(ARenderer, "a", NodeType::A);
+html_component!(StrongRenderer, "strong", NodeType::Strong);
+html_component!(EmRenderer, "em", NodeType::Em);
+html_component!(BRenderer, "b", NodeType::B);
+html_component!(IRenderer, "i", NodeType::I);
+html_component!(URenderer, "u", NodeType::U);
+html_component!(SmallRenderer, "small", NodeType::Small);
+html_component!(MarkRenderer, "mark", NodeType::Mark);
+html_component!(SubRenderer, "sub", NodeType::Sub);
+html_component!(SupRenderer, "sup", NodeType::Sup);
 
 // Form elements
-html_component!(FormRenderer, "form", form);
-html_component!(LabelRenderer, "label", label);
-html_component!(ButtonRenderer, "button", button);
-html_component!(FieldsetRenderer, "fieldset", fieldset);
-html_component!(LegendRenderer, "legend", legend);
+html_component!(FormRenderer, "form", NodeType::Form);
+html_component!(LabelRenderer, "label", NodeType::Label);
+html_component!(ButtonRenderer, "button", NodeType::Button);
 
 // Other elements
-html_component!(BrRenderer, "br", br);
-html_component!(HrRenderer, "hr", hr);
+html_component!(BrRenderer, "br", NodeType::Br);
+html_component!(HrRenderer, "hr", NodeType::Hr);
 
-// HTML and head elements (for completeness)
-html_component!(HtmlRenderer, "html", html);
-html_component!(HeadRenderer, "head", head);
-html_component!(TitleRenderer, "title", title);
-
-/// Text renderer - kept for backward compatibility with existing code
+/// Image component for rendering images (not yet fully implemented)
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TextRenderer {
-    node: XmlNode,
-    css: String,
-}
-
-impl TextRenderer {
-    pub fn new() -> Self {
-        Self {
-            node: XmlNode::new("p"),
-            css: String::new(),
-        }
-    }
-
-    pub fn with_css(node_type: &str, css: &str) -> Self {
-        Self {
-            node: XmlNode::new(node_type),
-            css: css.to_string(),
-        }
-    }
-}
-
-impl XmlComponentTrait for TextRenderer {
-    fn get_available_arguments(&self) -> ComponentArguments {
-        ComponentArguments {
-            args: ComponentArgumentTypes::default(),
-            accepts_text: true,
-        }
-    }
-
-    fn render_dom(
-        &self,
-        _: &XmlComponentMap,
-        _: &FilteredComponentArguments,
-        content: &XmlTextContent,
-    ) -> Result<StyledDom, RenderDomError> {
-        let content = content
-            .as_ref()
-            .map(|s| prepare_string(&s))
-            .unwrap_or_default();
-
-        if self.css.is_empty() {
-            Ok(Dom::text(content).style(CssApiWrapper::empty()))
-        } else {
-            Ok(Dom::text(content).style(CssApiWrapper::from_string(self.css.clone().into())))
-        }
-    }
-
-    fn compile_to_rust_code(
-        &self,
-        _: &XmlComponentMap,
-        _: &ComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<String, CompileError> {
-        Ok(String::from("Dom::text(text)"))
-    }
-
-    fn get_xml_node(&self) -> XmlNode {
-        self.node.clone()
-    }
-}
-
-/// Renderer for horizontal rule (hr) element
-pub struct HrRenderer {
-    node: XmlNode,
-}
-
-impl HrRenderer {
-    pub fn new() -> Self {
-        Self {
-            node: XmlNode::new("hr"),
-        }
-    }
-}
-
-impl XmlComponentTrait for HrRenderer {
-    fn get_available_arguments(&self) -> ComponentArguments {
-        ComponentArguments::default()
-    }
-
-    fn render_dom(
-        &self,
-        _: &XmlComponentMap,
-        _: &FilteredComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<StyledDom, RenderDomError> {
-        Ok(Dom::div().style(CssApiWrapper::from_string(
-            "border: none; height: 1px; background-color: #ccc; margin: 10px 0; width: 100%;"
-                .into(),
-        )))
-    }
-
-    fn compile_to_rust_code(
-        &self,
-        _: &XmlComponentMap,
-        _: &ComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<String, CompileError> {
-        Ok(String::from("Dom::div()"))
-    }
-
-    fn get_xml_node(&self) -> XmlNode {
-        self.node.clone()
-    }
-}
-
-/// Renderer for table element
-pub struct TableRenderer {
-    node: XmlNode,
-}
-
-impl TableRenderer {
-    pub fn new() -> Self {
-        Self {
-            node: XmlNode::new("table"),
-        }
-    }
-}
-
-impl XmlComponentTrait for TableRenderer {
-    fn get_available_arguments(&self) -> ComponentArguments {
-        ComponentArguments::default()
-    }
-
-    fn render_dom(
-        &self,
-        _: &XmlComponentMap,
-        _: &FilteredComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<StyledDom, RenderDomError> {
-        Ok(Dom::div().style(CssApiWrapper::from_string(
-            "display: flex; flex-direction: column; border: 1px solid #ccc; width: 100%;".into(),
-        )))
-    }
-
-    fn compile_to_rust_code(
-        &self,
-        _: &XmlComponentMap,
-        _: &ComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<String, CompileError> {
-        Ok(String::from("Dom::div()"))
-    }
-
-    fn get_xml_node(&self) -> XmlNode {
-        self.node.clone()
-    }
-}
-
-/// Renderer for table row (tr) element
-pub struct TrRenderer {
-    node: XmlNode,
-}
-
-impl TrRenderer {
-    pub fn new() -> Self {
-        Self {
-            node: XmlNode::new("tr"),
-        }
-    }
-}
-
-impl XmlComponentTrait for TrRenderer {
-    fn get_available_arguments(&self) -> ComponentArguments {
-        ComponentArguments::default()
-    }
-
-    fn render_dom(
-        &self,
-        _: &XmlComponentMap,
-        _: &FilteredComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<StyledDom, RenderDomError> {
-        Ok(Dom::div().style(CssApiWrapper::from_string(
-            "display: flex; flex-direction: row; width: 100%;".into(),
-        )))
-    }
-
-    fn compile_to_rust_code(
-        &self,
-        _: &XmlComponentMap,
-        _: &ComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<String, CompileError> {
-        Ok(String::from("Dom::div()"))
-    }
-
-    fn get_xml_node(&self) -> XmlNode {
-        self.node.clone()
-    }
-}
-
-/// Renderer for table header (th) element
-pub struct ThRenderer {
-    node: XmlNode,
-}
-
-impl ThRenderer {
-    pub fn new() -> Self {
-        Self {
-            node: XmlNode::new("th"),
-        }
-    }
-}
-
-impl XmlComponentTrait for ThRenderer {
-    fn get_available_arguments(&self) -> ComponentArguments {
-        ComponentArguments {
-            args: ComponentArgumentTypes::default(),
-            accepts_text: true,
-        }
-    }
-
-    fn render_dom(
-        &self,
-        _: &XmlComponentMap,
-        _: &FilteredComponentArguments,
-        content: &XmlTextContent,
-    ) -> Result<StyledDom, RenderDomError> {
-        let content = content
-            .as_ref()
-            .map(|s| prepare_string(&s))
-            .unwrap_or_default();
-
-        let css =
-            "padding: 8px; border: 1px solid #ccc; font-weight: bold; text-align: left; flex: 1;";
-        let mut dom = Dom::div().style(CssApiWrapper::from_string(css.into()));
-
-        if !content.is_empty() {
-            dom.append_child(Dom::text(content).style(CssApiWrapper::empty()));
-        }
-
-        Ok(dom)
-    }
-
-    fn compile_to_rust_code(
-        &self,
-        _: &XmlComponentMap,
-        _: &ComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<String, CompileError> {
-        Ok(String::from("Dom::div()"))
-    }
-
-    fn get_xml_node(&self) -> XmlNode {
-        self.node.clone()
-    }
-}
-
-/// Renderer for table data (td) element
-pub struct TdRenderer {
-    node: XmlNode,
-}
-
-impl TdRenderer {
-    pub fn new() -> Self {
-        Self {
-            node: XmlNode::new("td"),
-        }
-    }
-}
-
-impl XmlComponentTrait for TdRenderer {
-    fn get_available_arguments(&self) -> ComponentArguments {
-        ComponentArguments {
-            args: ComponentArgumentTypes::default(),
-            accepts_text: true,
-        }
-    }
-
-    fn render_dom(
-        &self,
-        _: &XmlComponentMap,
-        _: &FilteredComponentArguments,
-        content: &XmlTextContent,
-    ) -> Result<StyledDom, RenderDomError> {
-        let content = content
-            .as_ref()
-            .map(|s| prepare_string(&s))
-            .unwrap_or_default();
-
-        let css = "padding: 8px; border: 1px solid #ccc; flex: 1;";
-        let mut dom = Dom::div().style(CssApiWrapper::from_string(css.into()));
-
-        if !content.is_empty() {
-            dom.append_child(Dom::text(content).style(CssApiWrapper::empty()));
-        }
-
-        Ok(dom)
-    }
-
-    fn compile_to_rust_code(
-        &self,
-        _: &XmlComponentMap,
-        _: &ComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<String, CompileError> {
-        Ok(String::from("Dom::div()"))
-    }
-
-    fn get_xml_node(&self) -> XmlNode {
-        self.node.clone()
-    }
-}
-
-/// Renderer for unordered list (ul) element
-pub struct UlRenderer {
-    node: XmlNode,
-}
-
-impl UlRenderer {
-    pub fn new() -> Self {
-        Self {
-            node: XmlNode::new("ul"),
-        }
-    }
-}
-
-impl XmlComponentTrait for UlRenderer {
-    fn get_available_arguments(&self) -> ComponentArguments {
-        ComponentArguments::default()
-    }
-
-    fn render_dom(
-        &self,
-        _: &XmlComponentMap,
-        _: &FilteredComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<StyledDom, RenderDomError> {
-        Ok(Dom::div().style(CssApiWrapper::from_string(
-            "display: flex; flex-direction: column; padding-left: 20px; margin: 16px 0;".into(),
-        )))
-    }
-
-    fn compile_to_rust_code(
-        &self,
-        _: &XmlComponentMap,
-        _: &ComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<String, CompileError> {
-        Ok(String::from("Dom::div()"))
-    }
-
-    fn get_xml_node(&self) -> XmlNode {
-        self.node.clone()
-    }
-}
-
-/// Renderer for ordered list (ol) element
-pub struct OlRenderer {
-    node: XmlNode,
-}
-
-impl OlRenderer {
-    pub fn new() -> Self {
-        Self {
-            node: XmlNode::new("ol"),
-        }
-    }
-}
-
-impl XmlComponentTrait for OlRenderer {
-    fn get_available_arguments(&self) -> ComponentArguments {
-        ComponentArguments::default()
-    }
-
-    fn render_dom(
-        &self,
-        _: &XmlComponentMap,
-        _: &FilteredComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<StyledDom, RenderDomError> {
-        Ok(Dom::div().style(CssApiWrapper::from_string(
-            "display: flex; flex-direction: column; padding-left: 20px; margin: 16px 0;".into(),
-        )))
-    }
-
-    fn compile_to_rust_code(
-        &self,
-        _: &XmlComponentMap,
-        _: &ComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<String, CompileError> {
-        Ok(String::from("Dom::div()"))
-    }
-
-    fn get_xml_node(&self) -> XmlNode {
-        self.node.clone()
-    }
-}
-
-/// Type of list for list items
-pub enum ListType {
-    Unordered,
-    Ordered,
-}
-
-/// Renderer for list item (li) element
-pub struct LiRenderer {
-    node: XmlNode,
-    list_type: ListType,
-}
-
-impl LiRenderer {
-    pub fn new() -> Self {
-        Self {
-            node: XmlNode::new("li"),
-            list_type: ListType::Unordered,
-        }
-    }
-
-    pub fn with_list_type(list_type: ListType) -> Self {
-        Self {
-            node: XmlNode::new("li"),
-            list_type,
-        }
-    }
-}
-
-impl XmlComponentTrait for LiRenderer {
-    fn get_available_arguments(&self) -> ComponentArguments {
-        ComponentArguments {
-            args: ComponentArgumentTypes::default(),
-            accepts_text: true,
-        }
-    }
-
-    fn render_dom(
-        &self,
-        _: &XmlComponentMap,
-        _: &FilteredComponentArguments,
-        content: &XmlTextContent,
-    ) -> Result<StyledDom, RenderDomError> {
-        let content = content
-            .as_ref()
-            .map(|s| prepare_string(&s))
-            .unwrap_or_default();
-
-        // Main container div for the list item (with flexbox row)
-        let mut item_container = Dom::div().style(CssApiWrapper::from_string(
-            "display: flex; flex-direction: row; align-items: flex-start; margin: 4px 0;".into(),
-        ));
-
-        // Bullet point div
-        let bullet_text = match self.list_type {
-            ListType::Unordered => "•",
-            ListType::Ordered => "1.", // This would ideally be a counter in real CSS
-        };
-
-        let bullet_div =
-            Dom::div()
-                .with_child(Dom::text(bullet_text))
-                .style(CssApiWrapper::from_string(
-                    "width: 20px; flex-shrink: 0; text-align: center; margin-right: 5px;".into(),
-                ));
-
-        // Content div
-        let mut content_div = Dom::div().style(CssApiWrapper::from_string("flex-grow: 1;".into()));
-
-        if !content.is_empty() {
-            content_div.append_child(Dom::text(content).style(CssApiWrapper::empty()));
-        }
-
-        // Add the bullet and content divs to the container
-        item_container.append_child(bullet_div);
-        item_container.append_child(content_div);
-
-        Ok(item_container)
-    }
-
-    fn compile_to_rust_code(
-        &self,
-        _: &XmlComponentMap,
-        _: &ComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<String, CompileError> {
-        Ok(String::from("Dom::div()"))
-    }
-
-    fn get_xml_node(&self) -> XmlNode {
-        self.node.clone()
-    }
-}
-
-/// Renderer for strong (bold text) element
-pub struct StrongRenderer {
-    node: XmlNode,
-}
-
-impl StrongRenderer {
-    pub fn new() -> Self {
-        Self {
-            node: XmlNode::new("strong"),
-        }
-    }
-}
-
-impl XmlComponentTrait for StrongRenderer {
-    fn get_available_arguments(&self) -> ComponentArguments {
-        ComponentArguments {
-            args: ComponentArgumentTypes::default(),
-            accepts_text: true,
-        }
-    }
-
-    fn render_dom(
-        &self,
-        _: &XmlComponentMap,
-        _: &FilteredComponentArguments,
-        content: &XmlTextContent,
-    ) -> Result<StyledDom, RenderDomError> {
-        let content = content
-            .as_ref()
-            .map(|s| prepare_string(&s))
-            .unwrap_or_default();
-
-        Ok(Dom::text(content).style(CssApiWrapper::from_string("font-weight: bold;".into())))
-    }
-
-    fn compile_to_rust_code(
-        &self,
-        _: &XmlComponentMap,
-        _: &ComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<String, CompileError> {
-        Ok(String::from("Dom::text(text)"))
-    }
-
-    fn get_xml_node(&self) -> XmlNode {
-        self.node.clone()
-    }
-}
-
-/// Renderer for em (italic text) element
-pub struct EmRenderer {
-    node: XmlNode,
-}
-
-impl EmRenderer {
-    pub fn new() -> Self {
-        Self {
-            node: XmlNode::new("em"),
-        }
-    }
-}
-
-impl XmlComponentTrait for EmRenderer {
-    fn get_available_arguments(&self) -> ComponentArguments {
-        ComponentArguments {
-            args: ComponentArgumentTypes::default(),
-            accepts_text: true,
-        }
-    }
-
-    fn render_dom(
-        &self,
-        _: &XmlComponentMap,
-        _: &FilteredComponentArguments,
-        content: &XmlTextContent,
-    ) -> Result<StyledDom, RenderDomError> {
-        let content = content
-            .as_ref()
-            .map(|s| prepare_string(&s))
-            .unwrap_or_default();
-
-        Ok(Dom::text(content).style(CssApiWrapper::from_string("font-style: italic;".into())))
-    }
-
-    fn compile_to_rust_code(
-        &self,
-        _: &XmlComponentMap,
-        _: &ComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<String, CompileError> {
-        Ok(String::from("Dom::text(text)"))
-    }
-
-    fn get_xml_node(&self) -> XmlNode {
-        self.node.clone()
-    }
-}
-
-/// Render for an `img` component
 pub struct ImgComponent {}
-
-#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ImageInfo {
-    pub original_id: String,
-    pub xobject_id: String,
-    pub image_type: ImageTypeInfo,
-    pub width: usize,
-    pub height: usize,
-}
 
 impl XmlComponentTrait for ImgComponent {
     fn get_available_arguments(&self) -> ComponentArguments {
@@ -751,34 +175,28 @@ impl XmlComponentTrait for ImgComponent {
     fn render_dom(
         &self,
         _: &XmlComponentMap,
-        arguments: &FilteredComponentArguments,
+        _arguments: &FilteredComponentArguments,
         _: &XmlTextContent,
     ) -> Result<StyledDom, RenderDomError> {
-        let im_info = arguments
-            .values
-            .get("src")
-            .map(|s| s.as_bytes().to_vec())
-            .unwrap_or_default();
+        // For now, just return an empty div - image rendering needs proper ImageRef support
+        Ok(Dom::div().style(azul_css::parser2::CssApiWrapper::empty()))
+    }
 
-        let image_info = serde_json::from_slice::<ImageInfo>(&im_info)
-            .ok()
-            .unwrap_or_default();
-        let data_format = RawImageFormat::RGB8;
+    fn compile_to_rust_code(
+        &self,
+        _: &XmlComponentMap,
+        _: &ComponentArguments,
+        _: &XmlTextContent,
+    ) -> Result<String, CompileError> {
+        Ok("Dom::div() /* Image not yet supported */".to_string())
+    }
 
-        let image = RawImage {
-            width: image_info.width,
-            height: image_info.height,
-            data_format,
-            pixels: RawImageData::empty(data_format),
-            tag: im_info,
-        };
-
-        let im = Dom::image(image.to_internal()).style(CssApiWrapper::empty());
-
-        Ok(im)
+    fn get_xml_node(&self) -> XmlNode {
+        XmlNode::new("img")
     }
 }
 
+/// Creates and returns a component map with all default HTML components registered
 pub fn printpdf_default_components() -> XmlComponentMap {
     let mut map = XmlComponentMap {
         components: Vec::new(),
@@ -1037,16 +455,6 @@ pub fn printpdf_default_components() -> XmlComponentMap {
     map.register_component(XmlComponent {
         id: normalize_casing("button"),
         renderer: Box::new(ButtonRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("fieldset"),
-        renderer: Box::new(FieldsetRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("legend"),
-        renderer: Box::new(LegendRenderer::new()),
         inherit_vars: true,
     });
 

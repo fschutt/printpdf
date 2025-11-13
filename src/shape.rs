@@ -4,7 +4,7 @@
 //! allowing for complex text layout with precise positioning, line breaks,
 //! and text flow around "holes" (like images or other non-text content).
 
-use crate::{FontId, Op, Point, Pt, Rect, TextItem};
+use crate::{FontId, Op, Point, Pt, Rect};
 
 /// Represents a "hole" in the text layout where text won't flow
 #[derive(Debug, Clone)]
@@ -139,6 +139,7 @@ pub struct ShapedText {
 impl ShapedText {
     /// Legacy method - removed. Use azul's text3 API directly instead.
     #[cfg(feature = "text_layout")]
+    #[allow(dead_code)]
     pub(crate) fn from_inline_text(
         _font_id: &FontId,
         _inline_text: &(),  // Type doesn't exist anymore
@@ -164,9 +165,9 @@ impl ShapedText {
     /// Convert this ShapedText to PDF operations
     pub fn to_pdf_ops(
         &self,
-        page_height: Pt,
-        font_id: &FontId,
-        color: crate::Color,
+        _page_height: Pt,
+        _font_id: &FontId,
+        _color: crate::Color,
     ) -> Vec<Op> {
         todo!("Implement PDF operations generation from ShapedText")
     }

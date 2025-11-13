@@ -440,7 +440,7 @@ fn form_xobject_to_stream(f: &FormXObject, doc: &mut lopdf::Document) -> lopdf::
     }
 
     let mut stream = lopdf::Stream::new(dict, f.bytes.clone()).with_compression(true);
-    let _ = stream.compress();
+    // let _ = stream.compress();
     stream
 }
 

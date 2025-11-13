@@ -12,12 +12,12 @@ use azul_core::{
     dom::DomId,
     geom::LogicalSize,
     resources::RendererResources,
-    xml::{str_to_dom, DynamicXmlComponent, XmlComponentMap},
+    xml::{str_to_dom, DynamicXmlComponent},
 };
 use azul_layout::{
     callbacks::ExternalSystemCallbacks,
     font::loading::build_font_cache,
-    pdf::display_list_to_pdf_ops,
+    text3::cache::FontHash,
     window_state::FullWindowState,
     xml::parse_xml_string,
     LayoutWindow,
@@ -65,11 +65,11 @@ fn default_page_height() -> Mm {
     Mm(297.0) // A4 height
 }
 
-/// Convert XML/HTML string to PDF pages
+/// Convert XML/HTML content to PDF pages, returning pages and font map
 pub fn xml_to_pdf_pages(
     xml: &str,
     options: &XmlRenderOptions,
-) -> Result<Vec<PdfPage>, Vec<PdfWarnMsg>> {
+) -> Result<(Vec<PdfPage>, BTreeMap<FontHash, Vec<u8>>), Vec<PdfWarnMsg>> {
     let mut warnings = Vec::new();
 
     // 1. Parse XML to XmlNode tree
@@ -160,19 +160,27 @@ pub fn xml_to_pdf_pages(
     
     let display_list = layout_result.display_list;
 
-    // 7. Convert DisplayList to PDF operations
+    println!("[html] DisplayList has {} items", display_list.items.len());
+
+    // 7. Convert DisplayList directly to printpdf operations
+    // This bypasses the intermediate azul PdfOp format to generate
+    // WriteCodepoints (glyph IDs) instead of WriteText (text strings)
     let page_size = LogicalSize::new(page_width_pt, page_height_pt);
-    let pdf_page_render = display_list_to_pdf_ops(&display_list, page_size);
+    let mut font_id_map = BTreeMap::new();
+    let pdf_ops = bridge::display_list_to_printpdf_ops(&display_list, page_size, &mut font_id_map);
 
-    // 8. Convert azul PDF ops to printpdf ops
-    let mut converter = bridge::AzulToPrintpdfConverter::new();
-    let pdf_ops = converter.convert(&pdf_page_render.ops);
+    println!("[html] Generated {} PDF ops", pdf_ops.len());
 
-    // 9. Create PDF page
+    // 8. Create PDF page
     let page = PdfPage::new(options.page_width, options.page_height, pdf_ops);
 
+    // 9. Collect font data from font_id_map
+    // TODO: We need to get the actual font bytes here!
+    // For now, return an empty map - fonts come from system via fontconfig
+    let font_data_map = BTreeMap::new();
+
     if warnings.is_empty() {
-        Ok(vec![page])
+        Ok((vec![page], font_data_map))
     } else {
         warnings.push(PdfWarnMsg::info(
             0,
@@ -190,7 +198,8 @@ pub fn add_xml_to_document(
     options: &XmlRenderOptions,
 ) -> Result<(), Vec<PdfWarnMsg>> {
     match xml_to_pdf_pages(xml, options) {
-        Ok(pages) => {
+        Ok((pages, _font_data)) => {
+            // TODO: Register fonts from font_data in document.resources.fonts
             document.pages.extend(pages);
             Ok(())
         }

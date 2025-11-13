@@ -385,7 +385,8 @@ impl PdfDocument {
 
         // Render XML to pages
         match crate::html::xml_to_pdf_pages(html, &xml_options) {
-            Ok(pages) => {
+            Ok((pages, _font_data)) => {
+                // TODO: Register fonts from font_data in pdf.resources.fonts
                 pdf.pages.extend(pages);
                 Ok(pdf)
             }
