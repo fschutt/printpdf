@@ -65,7 +65,7 @@ pub enum BuiltinFont {
 
 impl Default for BuiltinFont {
     fn default() -> Self {
-        Self::Helvetica // actually not TimesRoman, unlike HTML!
+        Self::TimesRoman // HTML default is serif (Times New Roman)
     }
 }
 

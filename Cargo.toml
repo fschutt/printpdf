@@ -95,6 +95,10 @@ name = "html"
 required-features = ["html"]
 
 [[example]]
+name = "css_shapes"
+required-features = ["html"]
+
+[[example]]
 name = "image"
 required-features = ["png"]
 

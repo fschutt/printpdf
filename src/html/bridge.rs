@@ -10,7 +10,7 @@
 //! which is necessary for proper text shaping in complex scripts.
 
 use azul_core::{
-    geom::LogicalSize,
+    geom::{LogicalRect, LogicalSize},
     ui_solver::GlyphInstance,
 };
 use azul_css::props::basic::ColorU;
@@ -43,7 +43,7 @@ pub fn display_list_to_printpdf_ops<T: ParsedFontTrait + 'static, Q: FontLoaderT
     let page_height = page_size.height;
     
     // Track the current TextLayout for glyph-to-unicode mapping
-    let mut current_text_layout: Option<&azul_layout::text3::cache::UnifiedLayout<T>> = None;
+    let mut current_text_layout: Option<(&azul_layout::text3::cache::UnifiedLayout<T>, LogicalRect)> = None;
 
     println!("[bridge] Converting DisplayList with {} items", display_list.items.len());
 
@@ -67,7 +67,7 @@ fn convert_display_list_item<'a, T: ParsedFontTrait + 'static, Q: FontLoaderTrai
     ops: &mut Vec<Op>,
     item: &'a DisplayListItem,
     page_height: f32,
-    current_text_layout: &mut Option<&'a UnifiedLayout<T>>,
+    current_text_layout: &mut Option<(&'a UnifiedLayout<T>, LogicalRect)>,
     font_manager: &FontManager<T, Q>,
 ) {
     match item {
@@ -128,15 +128,15 @@ fn convert_display_list_item<'a, T: ParsedFontTrait + 'static, Q: FontLoaderTrai
 
         DisplayListItem::TextLayout {
             layout,
-            bounds: _,
+            bounds,
             font_hash: _,
             font_size_px: _,
             color: _,
         } => {
             // Extract the UnifiedLayout from the type-erased Arc<dyn Any>
             if let Some(unified_layout) = layout.downcast_ref::<azul_layout::text3::cache::UnifiedLayout<T>>() {
-                println!("[bridge] ✓ Found TextLayout with {} items", unified_layout.items.len());
-                *current_text_layout = Some(unified_layout);
+                println!("[bridge] ✓ Found TextLayout with {} items, bounds={:?}", unified_layout.items.len(), bounds);
+                *current_text_layout = Some((unified_layout, *bounds));
             } else {
                 println!("[bridge] ✗ Failed to downcast TextLayout");
             }
@@ -158,6 +158,12 @@ fn convert_display_list_item<'a, T: ParsedFontTrait + 'static, Q: FontLoaderTrai
             println!("[bridge] Converting text with {} glyphs, font_hash={:?}, font_size={}",
                 glyphs.len(), font_hash, font_size_px);
 
+            // DEBUG: Print first few glyph positions
+            for (i, g) in glyphs.iter().enumerate().take(5) {
+                println!("[bridge]   Glyph {}: index={}, point=({}, {})", 
+                    i, g.index, g.point.x, g.point.y);
+            }
+
             // Create printpdf font ID directly from font_hash
             let font_id = FontId(format!("F{}", font_hash.font_hash));
             println!("[bridge] Using font ID: {:?} for font_hash {:?}", font_id, font_hash);
@@ -176,7 +182,8 @@ fn convert_display_list_item<'a, T: ParsedFontTrait + 'static, Q: FontLoaderTrai
             let mut current_y = None;
 
             for glyph in glyphs {
-                let glyph_y = page_height - glyph.point.y;
+                // glyph.point.y is relative to the container, keep it that way
+                let glyph_y = glyph.point.y;
                 
                 // Check if we're still on the same line (within 0.5pt tolerance)
                 let same_line = current_y.map_or(true, |y: f32| (y - glyph_y).abs() < 0.5);
@@ -187,7 +194,7 @@ fn convert_display_list_item<'a, T: ParsedFontTrait + 'static, Q: FontLoaderTrai
                 } else {
                     // Render the previous line
                     if !current_line_glyphs.is_empty() {
-                        render_glyph_line(ops, &current_line_glyphs, &font_id, current_y.unwrap(), font_manager, current_text_layout);
+                        render_glyph_line(ops, &current_line_glyphs, &font_id, current_y.unwrap(), page_height, font_manager, current_text_layout);
                         current_line_glyphs.clear();
                     }
                     // Start new line
@@ -199,7 +206,7 @@ fn convert_display_list_item<'a, T: ParsedFontTrait + 'static, Q: FontLoaderTrai
             // Render remaining glyphs
             if !current_line_glyphs.is_empty() {
                 println!("[bridge] Rendering final line with {} glyphs", current_line_glyphs.len());
-                render_glyph_line(ops, &current_line_glyphs, &font_id, current_y.unwrap(), font_manager, current_text_layout);
+                render_glyph_line(ops, &current_line_glyphs, &font_id, current_y.unwrap(), page_height, font_manager, current_text_layout);
             }
 
             ops.push(Op::EndTextSection);
@@ -298,8 +305,9 @@ fn render_glyph_line<T: ParsedFontTrait + 'static, Q: FontLoaderTrait<T>>(
     glyphs: &[&GlyphInstance],
     font_id: &FontId,
     y_pos: f32,
+    page_height: f32,
     _font_manager: &FontManager<T, Q>,
-    current_text_layout: &Option<&UnifiedLayout<T>>,
+    current_text_layout: &Option<(&UnifiedLayout<T>, LogicalRect)>,
 ) {
     if glyphs.is_empty() {
         return;
@@ -307,16 +315,33 @@ fn render_glyph_line<T: ParsedFontTrait + 'static, Q: FontLoaderTrait<T>>(
 
     println!("[bridge] Rendering glyph line with {} glyphs at y={}", glyphs.len(), y_pos);
 
+    // Get the container bounds from TextLayout
+    let container_bounds = current_text_layout.as_ref().map(|(_, bounds)| *bounds);
+    
     // Set text position to the start of the line
+    // Glyphs have positions RELATIVE to their container, so we add container.origin
     let first_x = glyphs[0].point.x;
+    let (absolute_x, absolute_y) = if let Some(bounds) = container_bounds {
+        println!("[bridge] Using container bounds: origin=({}, {})", bounds.origin.x, bounds.origin.y);
+        // y_pos is glyph.point.y (relative to container)
+        // Add container origin to get absolute position, then convert to PDF coordinates
+        let absolute_x = bounds.origin.x + first_x;
+        let absolute_y_layout = bounds.origin.y + y_pos;
+        let absolute_y_pdf = page_height - absolute_y_layout;
+        (absolute_x, absolute_y_pdf)
+    } else {
+        println!("[bridge] WARNING: No container bounds, using glyph-relative position");
+        (first_x, page_height - y_pos)
+    };
+    
     ops.push(Op::SetTextCursor {
-        pos: crate::graphics::Point::new(Mm(first_x * 0.3527777778), Mm(y_pos * 0.3527777778)),
+        pos: crate::graphics::Point::new(Mm(absolute_x * 0.3527777778), Mm(absolute_y * 0.3527777778)),
     });
 
     // Build glyph-to-unicode mapping from UnifiedLayout
     let mut codepoints: Vec<(u16, char)> = Vec::new();
     
-    if let Some(text_layout) = current_text_layout {
+    if let Some((text_layout, _bounds)) = current_text_layout {
         // Build a map from glyph_id to the cluster's complete text
         // This handles ligatures correctly: "fi" ligature glyph maps to "fi" text
         use std::collections::HashMap;
