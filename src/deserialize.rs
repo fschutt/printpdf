@@ -13,7 +13,7 @@ use lopdf::{
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    BuiltinFont, BuiltinOrExternalFontId, Color, DictItem, ExtendedGraphicsState, ExtendedGraphicsStateId, ExtendedGraphicsStateMap, FontId, LayerInternalId, Line, LineDashPattern, LinePoint, LinkAnnotation, Op, PageAnnotId, PageAnnotMap, PaintMode, ParsedFont, PdfDocument, PdfDocumentInfo, PdfFontMap, PdfLayerMap, PdfMetadata, PdfPage, PdfResources, Point, Polygon, PolygonRing, Pt, RawImage, Rect, RenderingIntent, TextItem, TextMatrix, TextRenderingMode, WindingOrder, XObject, XObjectId, XObjectMap, cmap::ToUnicodeCMap, conformance::PdfConformance, date::{OffsetDateTime, parse_pdf_date}
+    BuiltinFont, BuiltinOrExternalFontId, Color, DictItem, ExtendedGraphicsState, ExtendedGraphicsStateId, ExtendedGraphicsStateMap, FontId, LayerInternalId, Line, LineDashPattern, LinePoint, LinkAnnotation, Op, PageAnnotId, PageAnnotMap, PaintMode, ParsedFont, ParsedSubsetFont, PdfDocument, PdfDocumentInfo, PdfFontMap, PdfLayerMap, PdfMetadata, PdfPage, PdfResources, PdfSubsetFontMap, Point, Polygon, PolygonRing, Pt, RawImage, Rect, RenderingIntent, TextItem, TextMatrix, TextRenderingMode, WindingOrder, XObject, XObjectId, XObjectMap, cmap::ToUnicodeCMap, conformance::PdfConformance, date::{OffsetDateTime, parse_pdf_date}
 };
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -241,9 +241,13 @@ fn parse_pdf_from_bytes_end(
     // Extract ExtGStates from resources
     let extgstates = extract_extgstates(&doc, &objs_to_search_for_resources, warnings);
 
-    let fonts = fonts
-        .into_iter()
+    let parsedfonts = fonts
+        .iter()
         .filter_map(|(id, pf)| Some((FontId(id.get_id().to_string()), pf.as_parsed_font()?)))
+        .collect();
+    let subsetfonts = fonts
+        .iter()
+        .filter_map(|(id, pf)| Some((FontId(id.get_id().to_string()), pf.as_parsedsubset_font()?)))
         .collect();
 
     // Build the final PdfDocument.
@@ -253,7 +257,8 @@ fn parse_pdf_from_bytes_end(
             xmp: None,
         },
         resources: PdfResources {
-            fonts: PdfFontMap { map: fonts },
+            fonts: PdfFontMap { map: parsedfonts },
+            subsetfonts: PdfSubsetFontMap { map: subsetfonts },
             xobjects: XObjectMap { map: xobjects },
             extgstates: ExtendedGraphicsStateMap { map: extgstates },
             layers: PdfLayerMap {
@@ -280,19 +285,28 @@ fn parse_pdf_from_bytes_end(
 pub enum ParsedOrBuiltinFont {
     P(ParsedFont, Option<ToUnicodeCMap>),
     B(BuiltinFont),
+    PS(ParsedSubsetFont, Option<ToUnicodeCMap>),
 }
 
 impl ParsedOrBuiltinFont {
-    fn as_parsed_font(self) -> Option<ParsedFont> {
+    fn as_parsed_font(&self) -> Option<ParsedFont> {
         match self {
-            ParsedOrBuiltinFont::P(p, _) => Some(p),
-            ParsedOrBuiltinFont::B(_) => None,
+            ParsedOrBuiltinFont::P(p, _) => Some(p.clone()),
+            ParsedOrBuiltinFont::B(_) | ParsedOrBuiltinFont::PS( .. ) => None,
+        }
+    }
+
+    fn as_parsedsubset_font(&self) -> Option<ParsedSubsetFont> {
+        match self {
+            ParsedOrBuiltinFont::P( .. ) | ParsedOrBuiltinFont::B( .. ) => None,
+            ParsedOrBuiltinFont::PS(p, _) => Some(p.clone()),
         }
     }
 
     fn cmap(&self) -> Option<&ToUnicodeCMap> {
         match self {
-            ParsedOrBuiltinFont::P(_, cmap) => cmap.as_ref(),
+            ParsedOrBuiltinFont::P(_, cmap)
+            | ParsedOrBuiltinFont::PS(_, cmap) => cmap.as_ref(),
             ParsedOrBuiltinFont::B(_) => None,
         }
     }
@@ -3365,9 +3379,7 @@ mod parsefont {
 
     use super::ParsedOrBuiltinFont;
     use crate::{
-        cmap::ToUnicodeCMap,
-        deserialize::{get_dict_or_resolve_ref, PdfWarnMsg},
-        BuiltinFont, FontId, ParsedFont,
+        BuiltinFont, FontId, ParsedFont, ParsedSubsetFont, ParsedSubsetFontCIDSystemInfo, ParsedSubsetFontCustomEncoding, ParsedSubsetFontDescendantFont, ParsedSubsetFontDescriptorProperties, ParsedSubsetFontProperties, cmap::ToUnicodeCMap, deserialize::{PdfWarnMsg, get_dict_or_resolve_ref}
     };
 
     /// Main function to parse fonts from PDF resources
@@ -3413,13 +3425,163 @@ mod parsefont {
 
             // Handle different font types
             if &font_type == b"Type0" {
-                if let Some(parsed_font) =
-                    process_type0_font(doc, font_dict, &font_id, warnings, page_num)
-                {
-                    fonts_map.insert(
-                        font_id,
-                        ParsedOrBuiltinFont::P(parsed_font, to_unicode_cmap),
-                    );
+                match process_type0_font(doc, font_dict, &font_id, warnings, page_num) {
+                    Some(ParsedOrBuiltinFont::P(parsed_font, _)) => {
+                        fonts_map.insert(
+                            font_id,
+                            ParsedOrBuiltinFont::P(parsed_font, to_unicode_cmap)
+                        );
+                    },
+                    Some(ParsedOrBuiltinFont::PS(mut parsed_font, _)) => {
+                        // remember the original ToUnicode map, needed during serialize
+                        parsed_font.cmap = to_unicode_cmap.clone();
+                        // remember the font properties
+                        let encoding: Option<String>;
+                        let custom_encoding: Option<ParsedSubsetFontCustomEncoding>;
+                        match font_dict.get(b"Encoding") {
+                            Ok(Object::Name(enc)) => {
+                                // standard encoding
+                                encoding = Some(String::from_utf8_lossy(enc).to_string());
+                                custom_encoding = None;
+                            },
+                            Ok(Object::Dictionary(dict)) => {
+                                // custom encoding
+                                encoding = None;
+                                let base_encoding = match dict.get(b"BaseEncoding") {
+                                    Ok(Object::Name(enc)) => Some(String::from_utf8_lossy(enc).to_string()),
+                                    _ => None,
+                                };
+                                let differences = match dict.get(b"Differences") {
+                                    Ok(Object::Array(differences)) => Some(differences.clone()),
+                                    _ => None,
+                                };
+                                custom_encoding = Some(ParsedSubsetFontCustomEncoding {
+                                    base_encoding,
+                                    differences,
+                                });
+                            },
+                            Ok(Object::Reference(r)) => {
+                                // custom encoding
+                                encoding = None;
+                                if let Ok(encoding_dict) = doc.get_object(*r).and_then(|obj| obj.as_dict()) {
+                                    let base_encoding = match encoding_dict.get(b"BaseEncoding") {
+                                        Ok(Object::Name(enc)) => Some(String::from_utf8_lossy(enc).to_string()),
+                                        _ => None,
+                                    };
+                                    let differences = match encoding_dict.get(b"Differences") {
+                                        Ok(Object::Array(differences)) => Some(differences.clone()),
+                                        _ => None,
+                                    };
+                                    custom_encoding = Some(ParsedSubsetFontCustomEncoding {
+                                        base_encoding,
+                                        differences,
+                                    });
+                                } else {
+                                    custom_encoding = None;
+                                }
+                            },
+                            _ => {
+                                encoding = None;
+                                custom_encoding = None;
+                            },
+                        }
+                        let base_font = match font_dict.get(b"BaseFont") {
+                            Ok(Object::Name(base_font)) => Some(String::from_utf8_lossy(base_font).to_string()),
+                            _ => None,
+                        };
+                        let descendant_fonts = if font_dict.has(b"DescendantFonts") {
+                            match get_descendant_font_dict(doc, font_dict, &font_id, warnings, page_num) {
+                                Some(descendant_font_dict) => {
+                                    let base_font = match descendant_font_dict.get(b"BaseFont") {
+                                        Ok(Object::Name(base_font)) => Some(String::from_utf8_lossy(base_font).to_string()),
+                                        _ => None,
+                                    };
+                                    let subtype = match descendant_font_dict.get(b"SubType") {
+                                        Ok(Object::Name(subtype)) => Some(String::from_utf8_lossy(subtype).to_string()),
+                                        _ => None,
+                                    };
+                                    let cid_to_gid_map = match descendant_font_dict.get(b"CIDToGIDMap") {
+                                        Ok(Object::Name(cid_to_gid_map)) => Some(String::from_utf8_lossy(cid_to_gid_map).to_string()),
+                                        _ => None,
+                                    };
+                                    let dw = match descendant_font_dict.get(b"DW") {
+                                        Ok(Object::Integer(dw)) => Some(*dw),
+                                        _ => None,
+                                    };
+                                    let cid_system_info = match descendant_font_dict.get(b"CIDSystemInfo") {
+                                        Ok(Object::Dictionary(cidsysteminfo_dict)) => {
+                                            let ordering = match cidsysteminfo_dict.get(b"Ordering") {
+                                                Ok(Object::String(ordering, _)) => Some(String::from_utf8_lossy(ordering).to_string()),
+                                                _ => None,
+                                            };
+                                            let registry = match cidsysteminfo_dict.get(b"Registry") {
+                                                Ok(Object::String(registry, _)) => Some(String::from_utf8_lossy(registry).to_string()),
+                                                _ => None,
+                                            };
+                                            let supplement = match cidsysteminfo_dict.get(b"Supplement") {
+                                                Ok(Object::Integer(supplement)) => Some(*supplement),
+                                                _ => None,
+                                            };
+                                            Some(ParsedSubsetFontCIDSystemInfo {
+                                                ordering,
+                                                registry,
+                                                supplement,
+                                            })
+                                        },
+                                        Ok(Object::Reference(id)) => {
+                                            if let Ok(cidsysteminfo_dict) = doc.get_dictionary(*id) {
+                                                let ordering = match cidsysteminfo_dict.get(b"Ordering") {
+                                                    Ok(Object::String(ordering, _)) => Some(String::from_utf8_lossy(ordering).to_string()),
+                                                    _ => None,
+                                                };
+                                                let registry = match cidsysteminfo_dict.get(b"Registry") {
+                                                    Ok(Object::String(registry, _)) => Some(String::from_utf8_lossy(registry).to_string()),
+                                                    _ => None,
+                                                };
+                                                let supplement = match cidsysteminfo_dict.get(b"Supplement") {
+                                                    Ok(Object::Integer(supplement)) => Some(*supplement),
+                                                    _ => None,
+                                                };
+                                                Some(ParsedSubsetFontCIDSystemInfo {
+                                                    ordering,
+                                                    registry,
+                                                    supplement,
+                                                })
+                                            } else {
+                                                None
+                                            }
+                                        }
+                                        _ => None,
+                                    };
+                                    Some(vec![ParsedSubsetFontDescendantFont {
+                                        base_font,
+                                        subtype,
+                                        dw,
+                                        cid_to_gid_map,
+                                        cid_system_info,
+                                    }])
+                                },
+                                None => None,
+                            }
+                        } else {
+                            None
+                        };
+                        let font_properties = ParsedSubsetFontProperties {
+                            encoding,
+                            custom_encoding,
+                            first_char: None,
+                            last_char: None,
+                            widths: None,
+                            base_font,
+                            descendant_fonts,
+                        };
+                        parsed_font.font_properties = font_properties;
+                        fonts_map.insert(
+                            font_id,
+                            ParsedOrBuiltinFont::PS(parsed_font, to_unicode_cmap)
+                        );
+                    },
+                    _ => {},
                 }
             } else {
                 match process_standard_font(doc, font_dict, &font_id, warnings, page_num) {
@@ -3433,6 +3595,86 @@ mod parsefont {
                         fonts_map.insert(
                             font_id,
                             ParsedOrBuiltinFont::P(parsed_font, to_unicode_cmap)
+                        );
+                    },
+                    Some(ParsedOrBuiltinFont::PS(mut parsed_font, _)) => {
+                        // remember the original ToUnicode map, needed during serialize
+                        parsed_font.cmap = to_unicode_cmap.clone();
+                        // remember the font properties
+                        let encoding: Option<String>;
+                        let custom_encoding: Option<ParsedSubsetFontCustomEncoding>;
+                        match font_dict.get(b"Encoding") {
+                            Ok(Object::Name(enc)) => {
+                                // standard encoding
+                                encoding = Some(String::from_utf8_lossy(enc).to_string());
+                                custom_encoding = None;
+                            },
+                            Ok(Object::Dictionary(dict)) => {
+                                // custom encoding
+                                encoding = None;
+                                let base_encoding = match dict.get(b"BaseEncoding") {
+                                    Ok(Object::Name(enc)) => Some(String::from_utf8_lossy(enc).to_string()),
+                                    _ => None,
+                                };
+                                let differences = match dict.get(b"Differences") {
+                                    Ok(Object::Array(differences)) => Some(differences.clone()),
+                                    _ => None,
+                                };
+                                custom_encoding = Some(ParsedSubsetFontCustomEncoding {
+                                    base_encoding,
+                                    differences,
+                                });
+                            },
+                            Ok(Object::Reference(r)) => {
+                                // custom encoding
+                                encoding = None;
+                                if let Ok(encoding_dict) = doc.get_object(*r).and_then(|obj| obj.as_dict()) {
+                                    let base_encoding = match encoding_dict.get(b"BaseEncoding") {
+                                        Ok(Object::Name(enc)) => Some(String::from_utf8_lossy(enc).to_string()),
+                                        _ => None,
+                                    };
+                                    let differences = match encoding_dict.get(b"Differences") {
+                                        Ok(Object::Array(differences)) => Some(differences.clone()),
+                                        _ => None,
+                                    };
+                                    custom_encoding = Some(ParsedSubsetFontCustomEncoding {
+                                        base_encoding,
+                                        differences,
+                                    });
+                                } else {
+                                    custom_encoding = None;
+                                }
+                            },
+                            _ => {
+                                encoding = None;
+                                custom_encoding = None;
+                            },
+                        }
+                        let first_char = match font_dict.get(b"FirstChar") {
+                            Ok(Object::Integer(val)) => Some(*val),
+                            _ => None,
+                        };
+                        let last_char = match font_dict.get(b"LastChar") {
+                            Ok(Object::Integer(val)) => Some(*val),
+                            _ => None,
+                        };
+                        let widths = match font_dict.get(b"Widths") {
+                            Ok(Object::Array(widths)) => Some(widths.clone()),
+                            _ => None,
+                        };
+                        let font_properties = ParsedSubsetFontProperties {
+                            encoding,
+                            custom_encoding,
+                            first_char,
+                            last_char,
+                            widths,
+                            base_font: None,
+                            descendant_fonts: None,
+                        };
+                        parsed_font.font_properties = font_properties;
+                        fonts_map.insert(
+                            font_id,
+                            ParsedOrBuiltinFont::PS(parsed_font, to_unicode_cmap)
                         );
                     },
                     None => {}
@@ -3541,7 +3783,7 @@ mod parsefont {
         font_id: &FontId,
         warnings: &mut Vec<PdfWarnMsg>,
         page_num: usize,
-    ) -> Option<ParsedFont> {
+    ) -> Option<ParsedOrBuiltinFont> {
         // Get the descendant font dictionary
         let descendant_font_dict =
             get_descendant_font_dict(doc, font_dict, font_id, warnings, page_num)?;
@@ -3584,7 +3826,38 @@ mod parsefont {
                     }
                 }
             },
-            Ok(Object::Reference(id)) => doc.get_dictionary(*id).ok(),
+            Ok(Object::Reference(id)) => {
+                match doc.get_object(*id) {
+                    Ok(Object::Array(arr)) if !arr.is_empty() => {
+                        // Get first descendant font
+                        match arr[0].as_dict().ok().or_else(|| {
+                            if let Ok(id) = arr[0].as_reference() {
+                                doc.get_dictionary(id).ok()
+                            } else {
+                                None
+                            }
+                        }) {
+                            Some(d) => Some(d),
+                            None => {
+                                warnings.push(PdfWarnMsg::warning(
+                                    page_num,
+                                    0,
+                                    format!("Cannot resolve descendant font for {}", font_id.0),
+                                ));
+                                None
+                            }
+                        }
+                    },
+                    _ => {
+                        warnings.push(PdfWarnMsg::warning(
+                            page_num,
+                            0,
+                            format!("Cannot resolve descendant font for {}", font_id.0),
+                        ));
+                        None
+                    }
+                }
+            },
             _ => {
                 warnings.push(PdfWarnMsg::warning(
                     page_num,
@@ -3628,15 +3901,32 @@ mod parsefont {
         }
     }
 
+    /// Get the font file stream
+    fn get_font_file_dictionary<'a>(
+        doc: &'a Document,
+        font_file_ref: &'a Object,
+        _warnings: &mut Vec<PdfWarnMsg>,
+    ) -> Option<&'a Dictionary> {
+        // Get font stream
+        match font_file_ref {
+            Object::Stream(s) => Some(&s.dict),
+            Object::Reference(r) => match doc.get_object(*r) {
+                Ok(Object::Stream(s)) => Some(&s.dict),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     /// Process font data (extract, decompress, parse) and handle ToUnicode CMap
     fn process_font_data(
         doc: &Document,
-        _font_dict: &Dictionary,
+        font_dict: &Dictionary,
         font_descriptor: &Dictionary,
         font_id: &FontId,
         warnings: &mut Vec<PdfWarnMsg>,
         page_num: usize,
-    ) -> Option<ParsedFont> {
+    ) -> Option<ParsedOrBuiltinFont> {
         // Try each font file type
         for font_file_key in &[b"FontFile", b"FontFile2" as &[u8], b"FontFile3"] {
             if let Ok(font_file_ref) = font_descriptor.get(font_file_key) {
@@ -3653,9 +3943,198 @@ mod parsefont {
                     ),
                 ));
 
-                // Parse the font
+                // subsetted fonts have six upper case characters followed by a + sign
+                if let Some(font_name) = match font_dict.get(b"BaseFont") {
+                    Ok(Object::Name(font_name)) => Some(String::from_utf8_lossy(font_name).to_string()),
+                    _ => None,
+                } {
+                    let is_subsetted: bool;
+                    if font_name.len() > 7 && font_name.chars().nth(6) == Some('+') {
+                        is_subsetted = font_name.chars().take(6).all(|c| c.is_ascii_uppercase())
+                    } else {
+                        is_subsetted = false
+                    }
+
+                    if is_subsetted {
+                        // check if this is an embedded CID TrueType font
+                        if font_file_key == b"FontFile2" {
+                            if let Some(mut parsedsubset_font) = ParsedSubsetFont::ttf_from_bytes(&font_data, 0, warnings) {
+                                parsedsubset_font.font_name = Some(font_name);
+                                // remember the font descriptor properties
+                                let charset = match font_descriptor.get(b"CharSet") {
+                                    Ok(Object::String(charset, _)) => Some(String::from_utf8_lossy(charset).to_string()),
+                                    _ => None,
+                                };
+                                let font_family = match font_descriptor.get(b"FontFamily") {
+                                    Ok(Object::String(font_family, _)) => Some(String::from_utf8_lossy(font_family).to_string()),
+                                    _ => None,
+                                };
+                                let font_stretch = match font_descriptor.get(b"FontStretch") {
+                                    Ok(Object::Name(font_stretch)) => Some(String::from_utf8_lossy(font_stretch).to_string()),
+                                    _ => None,
+                                };
+                                let ascent = match font_descriptor.get(b"Ascent") {
+                                    Ok(Object::Integer(ascent)) => Some(*ascent),
+                                    _ => None,
+                                };
+                                let descent = match font_descriptor.get(b"Descent") {
+                                    Ok(Object::Integer(descent)) => Some(*descent),
+                                    _ => None,
+                                };
+                                let cap_height = match font_descriptor.get(b"CapHeight") {
+                                    Ok(Object::Integer(cap_height)) => Some(*cap_height),
+                                    _ => None,
+                                };
+                                let flags = match font_descriptor.get(b"Flags") {
+                                    Ok(Object::Integer(flags)) => Some(*flags),
+                                    _ => None,
+                                };
+                                let italic_angle = match font_descriptor.get(b"ItalicAngle") {
+                                    Ok(Object::Integer(italic_angle)) => Some(*italic_angle),
+                                    _ => None,
+                                };
+                                let font_weight = match font_descriptor.get(b"FontWeight") {
+                                    Ok(Object::Integer(font_weight)) => Some(*font_weight),
+                                    _ => None,
+                                };
+                                let stemv = match font_descriptor.get(b"StemV") {
+                                    Ok(Object::Integer(stemv)) => Some(*stemv),
+                                    _ => None,
+                                };
+                                let xheight = match font_descriptor.get(b"XHeight") {
+                                    Ok(Object::Integer(xheight)) => Some(*xheight),
+                                    _ => None,
+                                };
+                                let font_bbox = match font_descriptor.get(b"FontBBox") {
+                                    Ok(Object::Array(font_bbox)) => Some(font_bbox.clone()),
+                                    _ => None,
+                                };
+                                let cid_set = match font_descriptor.get(b"CIDSet") {
+                                    Ok(Object::Reference(id)) => match doc.get_object(*id) {
+                                        Ok(Object::Stream(stream)) => Some(stream.decompressed_content().unwrap().clone()),
+                                        _ => None,
+                                    },
+                                    _ => None,
+                                };
+                                let font_descriptor_properties = ParsedSubsetFontDescriptorProperties {
+                                    charset,
+                                    font_family,
+                                    font_stretch,
+                                    ascent,
+                                    descent,
+                                    cap_height,
+                                    flags,
+                                    italic_angle,
+                                    font_weight,
+                                    stemv,
+                                    xheight,
+                                    font_bbox,
+                                    cid_set,
+                                };
+                                parsedsubset_font.font_descriptor_properties = font_descriptor_properties;
+                                return Some(ParsedOrBuiltinFont::PS(parsedsubset_font, None));
+                            } else {
+                                warnings.push(PdfWarnMsg::error(
+                                    page_num,
+                                    0,
+                                    format!("Failed to parse font data for {}", font_id.0),
+                                ));
+                            }
+                        }
+                        // check if this is a CFF (compressed font format)
+                        if font_file_key == b"FontFile3" {
+                            if let Some(font_file_ref_dict) = get_font_file_dictionary(doc, font_file_ref, warnings) {
+                                if let Ok(subtype) = font_file_ref_dict.get(b"Subtype") {
+                                    match subtype {
+                                        Object::Name(items) => {
+                                            if items == b"Type1C" {
+                                                if let Some(mut parsedsubset_font) = ParsedSubsetFont::cff_from_bytes(&font_data, 0, warnings) {
+                                                    // remember the font descriptor properties
+                                                    let charset = match font_descriptor.get(b"CharSet") {
+                                                        Ok(Object::String(charset, _)) => Some(String::from_utf8_lossy(charset).to_string()),
+                                                        _ => None,
+                                                    };
+                                                    let font_family = match font_descriptor.get(b"FontFamily") {
+                                                        Ok(Object::String(font_family, _)) => Some(String::from_utf8_lossy(font_family).to_string()),
+                                                        _ => None,
+                                                    };
+                                                    let font_stretch = match font_descriptor.get(b"FontStretch") {
+                                                        Ok(Object::Name(font_stretch)) => Some(String::from_utf8_lossy(font_stretch).to_string()),
+                                                        _ => None,
+                                                    };
+                                                    let ascent = match font_descriptor.get(b"Ascent") {
+                                                        Ok(Object::Integer(ascent)) => Some(*ascent),
+                                                        _ => None,
+                                                    };
+                                                    let descent = match font_descriptor.get(b"Descent") {
+                                                        Ok(Object::Integer(descent)) => Some(*descent),
+                                                        _ => None,
+                                                    };
+                                                    let cap_height = match font_descriptor.get(b"CapHeight") {
+                                                        Ok(Object::Integer(cap_height)) => Some(*cap_height),
+                                                        _ => None,
+                                                    };
+                                                    let flags = match font_descriptor.get(b"Flags") {
+                                                        Ok(Object::Integer(flags)) => Some(*flags),
+                                                        _ => None,
+                                                    };
+                                                    let italic_angle = match font_descriptor.get(b"ItalicAngle") {
+                                                        Ok(Object::Integer(italic_angle)) => Some(*italic_angle),
+                                                        _ => None,
+                                                    };
+                                                    let font_weight = match font_descriptor.get(b"FontWeight") {
+                                                        Ok(Object::Integer(font_weight)) => Some(*font_weight),
+                                                        _ => None,
+                                                    };
+                                                    let stemv = match font_descriptor.get(b"StemV") {
+                                                        Ok(Object::Integer(stemv)) => Some(*stemv),
+                                                        _ => None,
+                                                    };
+                                                    let xheight = match font_descriptor.get(b"XHeight") {
+                                                        Ok(Object::Integer(xheight)) => Some(*xheight),
+                                                        _ => None,
+                                                    };
+                                                    let font_bbox = match font_descriptor.get(b"FontBBox") {
+                                                        Ok(Object::Array(font_bbox)) => Some(font_bbox.clone()),
+                                                        _ => None,
+                                                    };
+                                                    let font_descriptor_properties = ParsedSubsetFontDescriptorProperties {
+                                                        charset,
+                                                        font_family,
+                                                        font_stretch,
+                                                        ascent,
+                                                        descent,
+                                                        cap_height,
+                                                        flags,
+                                                        italic_angle,
+                                                        font_weight,
+                                                        stemv,
+                                                        xheight,
+                                                        font_bbox,
+                                                        cid_set: None,
+                                                    };
+                                                    parsedsubset_font.font_descriptor_properties = font_descriptor_properties;
+                                                    return Some(ParsedOrBuiltinFont::PS(parsedsubset_font, None));
+                                                } else {
+                                                    warnings.push(PdfWarnMsg::error(
+                                                        page_num,
+                                                        0,
+                                                        format!("Failed to parse font data for {}", font_id.0),
+                                                    ));
+                                                }
+                                            }
+                                        },
+                                        _ => {}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Parse the font (not subsetted, should be a full font)
                 if let Some(parsed_font) = ParsedFont::from_bytes(&font_data, 0, warnings) {
-                    return Some(parsed_font);
+                    return Some(ParsedOrBuiltinFont::P(parsed_font, None));
                 } else {
                     warnings.push(PdfWarnMsg::error(
                         page_num,
@@ -3698,7 +4177,7 @@ mod parsefont {
         font_id: &FontId,
         warnings: &mut Vec<PdfWarnMsg>,
         page_num: usize,
-    ) -> Option<ParsedFont> {
+    ) -> Option<ParsedOrBuiltinFont> {
         // Get the font descriptor
         let font_descriptor =
             get_font_descriptor(doc, font_dict, font_id, warnings, page_num)?;
@@ -3727,7 +4206,7 @@ mod parsefont {
             None => {
                 match process_type1_font(doc, font_dict, font_id, warnings, page_num) {
                     Some(parsed_font) => {
-                        Some(ParsedOrBuiltinFont::P(parsed_font, None))
+                        Some(parsed_font)
                     },
                     None => {
                         warnings.push(PdfWarnMsg::warning(

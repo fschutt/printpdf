@@ -59,6 +59,7 @@ impl From<u8> for TextItem {
 /// (In a full implementation, this would use the actual mapping defined in the PDF.)
 pub trait CMap {
     fn map_bytes(&self, bytes: &[u8]) -> String;
+    fn map_bytes_u16be(&self, bytes: &[u8]) -> String;
 }
 
 /// Decode a PDF string (literal or hexadecimal) into a Rust UTF‑8 String.
@@ -71,6 +72,9 @@ pub fn decode_pdf_string(obj: &Object, to_unicode: Option<&impl CMap>) -> String
                 // Here you should process escape sequences (\, \(, \), octal codes, etc.).
                 // For simplicity, we assume the provided bytes are already unescaped.
                 if let Some(cmap) = to_unicode {
+                    // Literal strings are using single byte characters for simple fonts
+                    // and single or multiple byte characters for composite fonts.
+                    // Note: composite font mapping is not implemented yet (see https://www.verypdf.com/document/pdf-format-reference/pg_0470.htm)
                     cmap.map_bytes(bytes)
                 } else {
                     String::from_utf8_lossy(bytes).into_owned()
@@ -90,8 +94,9 @@ pub fn decode_pdf_string(obj: &Object, to_unicode: Option<&impl CMap>) -> String
                     String::from_utf16(&utf16_iter.collect::<Vec<_>>()).unwrap_or_default()
                 } else {
                     // Without BOM, use the ToUnicode mapping if available, or fallback.
+                    // hex strings use double byte characters
                     if let Some(cmap) = to_unicode {
-                        cmap.map_bytes(bytes)
+                        cmap.map_bytes_u16be(bytes)
                     } else {
                         String::from_utf8_lossy(bytes).into_owned()
                     }

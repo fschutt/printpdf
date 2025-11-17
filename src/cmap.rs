@@ -6,7 +6,7 @@ use lopdf::{Dictionary, Document, Object};
 use crate::text::CMap;
 
 /// The mapping from a CID to one or more Unicode code points.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ToUnicodeCMap {
     pub mappings: BTreeMap<u32, Vec<u32>>,
 }
@@ -91,7 +91,7 @@ impl ToUnicodeCMap {
     }
 
     /// Generates a CMap string representation suitable for embedding in a PDF.
-    pub fn to_cmap_string(&self, font_name: &str) -> String {
+    pub fn to_cmap_string(&self, font_name: &str, single_byte_cids: bool) -> String {
         // Header section
         let mut result = format!(
             "/CIDInit /ProcSet findresource begin\n\n12 dict begin\n\nbegincmap\n\n%!PS-Adobe-3.0 \
@@ -125,7 +125,20 @@ impl ToUnicodeCMap {
             for chunk in entries.chunks(100) {
                 result.push_str(&format!("{} beginbfchar\n", chunk.len()));
                 for &(cid, unicode) in chunk {
-                    result.push_str(&format!("<{:04X}> <{:04X}>\n", cid, unicode));
+                    // force 2 byte representation for unicode values <= 0xFFFF, 4 byte otherwise
+                    if unicode <= 0xFFFF {
+                        if single_byte_cids {
+                            result.push_str(&format!("<{:02X}> <{:04X}>\n", cid, unicode));
+                        } else {
+                            result.push_str(&format!("<{:04X}> <{:04X}>\n", cid, unicode));
+                        }
+                    } else {
+                        if single_byte_cids {
+                            result.push_str(&format!("<{:02X}> <{:08X}>\n", cid, unicode));
+                        } else {
+                            result.push_str(&format!("<{:04X}> <{:08X}>\n", cid, unicode));
+                        }
+                    }
                 }
                 result.push_str("endbfchar\n");
             }
@@ -158,7 +171,27 @@ fn parse_hex_token(token: &str) -> Result<u32, String> {
 
 /// Implement the CMap trait on our ToUnicodeCMap.
 impl CMap for ToUnicodeCMap {
+    /// map single byte characters to their unicode representation
     fn map_bytes(&self, bytes: &[u8]) -> String {
+        // For simplicity, assume that the byte sequence represents single characters, each 1 byte long.
+        let mut result = String::new();
+        let mut i = 0;
+        while i < bytes.len() {
+            let cid = bytes[i] as u32;
+            if let Some(unis) = self.mappings.get(&cid) {
+                for &u in unis {
+                    if let Some(ch) = std::char::from_u32(u) {
+                        result.push(ch);
+                    }
+                }
+            }
+            i += 1;
+        }
+        result
+    }
+
+    /// map double byte characters to their unicode representation
+    fn map_bytes_u16be(&self, bytes: &[u8]) -> String {
         // For simplicity, assume that the byte sequence represents CIDs in big-endian,
         // and that each CID is 2 bytes long.
         let mut result = String::new();

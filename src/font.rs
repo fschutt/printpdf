@@ -304,6 +304,8 @@ impl BuiltinFont {
 pub enum FontType {
     OpenTypeCFF(Vec<u8>),
     OpenTypeCFF2,
+    ParsedEmbeddedType0(Vec<u8>),
+    ParsedEmbeddedType1C(Vec<u8>),
     #[default]
     TrueType,
 }
@@ -438,6 +440,68 @@ impl ParsedFont {
     }
 }
 
+#[derive(Clone, Default)]
+pub struct ParsedSubsetFontCustomEncoding {
+    pub base_encoding: Option<String>,
+    pub differences: Option<Vec<lopdf::Object>>,
+}
+
+#[derive(Clone, Default)]
+pub struct ParsedSubsetFontCIDSystemInfo {
+    pub ordering: Option<String>,
+    pub registry: Option<String>,
+    pub supplement: Option<i64>,
+}
+
+#[derive(Clone, Default)]
+pub struct ParsedSubsetFontDescendantFont {
+    pub base_font: Option<String>,
+    pub subtype: Option<String>,
+    pub dw: Option<i64>,
+    pub cid_to_gid_map: Option<String>,
+    pub cid_system_info: Option<ParsedSubsetFontCIDSystemInfo>,
+}
+
+#[derive(Clone, Default)]
+pub struct ParsedSubsetFontProperties {
+    pub encoding: Option<String>,
+    pub custom_encoding: Option<ParsedSubsetFontCustomEncoding>,
+    pub first_char: Option<i64>,
+    pub last_char: Option<i64>,
+    pub widths: Option<Vec<lopdf::Object>>,
+    pub base_font: Option<String>,
+    pub descendant_fonts: Option<Vec<ParsedSubsetFontDescendantFont>>,
+}
+
+#[derive(Clone, Default)]
+pub struct ParsedSubsetFontDescriptorProperties {
+    pub charset: Option<String>,
+    pub font_family: Option<String>,
+    pub font_stretch: Option<String>,
+    pub ascent: Option<i64>,
+    pub descent: Option<i64>,
+    pub cap_height: Option<i64>,
+    pub flags: Option<i64>,
+    pub italic_angle: Option<i64>,
+    pub font_weight: Option<i64>,
+    pub stemv: Option<i64>,
+    pub xheight: Option<i64>,
+    pub font_bbox: Option<Vec<lopdf::Object>>,
+    pub cid_set: Option<Vec<u8>>,
+}
+
+/// In contrast to ParsedFont this font was embedded as a subset font and therefore cannot be used to shape new text elements.
+/// When serializing the PDF this font is re-embedded as is, keeping the parsed text elements intact.
+#[derive(Clone, Default)]
+pub struct ParsedSubsetFont {
+    pub original_bytes: Vec<u8>,
+    pub font_type: FontType,
+    pub font_name: Option<String>,
+    pub cmap: Option<ToUnicodeCMap>,
+    pub font_properties: ParsedSubsetFontProperties,
+    pub font_descriptor_properties: ParsedSubsetFontDescriptorProperties,
+}
+
 pub trait PrepFont {
     fn lgi(&self, codepoint: u32) -> Option<u32>;
 
@@ -506,6 +570,19 @@ impl fmt::Debug for ParsedFont {
             .field("glyph_records_decoded", &self.glyph_records_decoded)
             .field("space_width", &self.space_width)
             .field("cmap_subtable", &self.cmap_subtable)
+            .finish()
+    }
+}
+
+impl PartialEq for ParsedSubsetFont {
+    fn eq(&self, other: &Self) -> bool {
+            self.original_bytes.len() == other.original_bytes.len()
+    }
+}
+
+impl fmt::Debug for ParsedSubsetFont {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ParsedSubsetFont")
             .finish()
     }
 }
@@ -692,7 +769,7 @@ impl ParsedFont {
 
         // Create the CMap and generate its string representation
         let cmap = ToUnicodeCMap { mappings };
-        cmap.to_cmap_string(&font_id.0)
+        cmap.to_cmap_string(&font_id.0, false)
     }
 
     pub(crate) fn generate_gid_to_cid_map(&self, glyph_ids: &[(u16, char)]) -> Vec<(u16, u16)> {
@@ -1611,6 +1688,66 @@ impl ParsedFont {
             Ok(c) => c,
             _ => None,
         }
+    }
+}
+
+impl ParsedSubsetFont {
+    pub fn ttf_from_bytes(
+        font_bytes: &[u8],
+        _font_index: usize,
+        warnings: &mut Vec<PdfWarnMsg>,
+    ) -> Option<Self> {
+        warnings.push(PdfWarnMsg::info(
+            0,
+            0,
+            "Successfully read embedded TrueType font data".to_string(),
+        ));
+        let parsedsubset_font = ParsedSubsetFont{
+            original_bytes: font_bytes.to_vec(),
+            font_type: FontType::ParsedEmbeddedType0(font_bytes.to_vec()),
+            font_name: None,
+            cmap: None,
+            font_properties: ParsedSubsetFontProperties::default(),
+            font_descriptor_properties: ParsedSubsetFontDescriptorProperties::default(),
+        };
+        Some(parsedsubset_font)
+    }
+
+    pub fn cff_from_bytes(
+        font_bytes: &[u8],
+        _font_index: usize,
+        warnings: &mut Vec<PdfWarnMsg>,
+    ) -> Option<Self> {
+        let scope = allsorts_subset_browser::binary::read::ReadScope::new(font_bytes);
+        let cff = match scope.read::<allsorts_subset_browser::cff::CFF<'_>>() {
+            Ok(cff) => {
+                warnings.push(PdfWarnMsg::info(
+                    0,
+                    0,
+                    "Successfully read embedded CFF font data".to_string(),
+                ));
+                cff
+            }
+            Err(e) => {
+                warnings.push(PdfWarnMsg::warning(
+                    0,
+                    0,
+                    format!("Failed to read embedded CFF font data: {}", e),
+                ));
+                return None;
+            }
+        };
+        let font_name = cff.name_index.iter().next()
+            .and_then(|val| Some(String::from_utf8_lossy(val).to_string()));
+        let parsedsubset_font = ParsedSubsetFont{
+            original_bytes: font_bytes.to_vec(),
+            font_type: FontType::ParsedEmbeddedType1C(font_bytes.to_vec()),
+            font_name,
+            cmap: None,
+            font_properties: ParsedSubsetFontProperties::default(),
+            font_descriptor_properties: ParsedSubsetFontDescriptorProperties::default(),
+        };
+        Some(parsedsubset_font)
     }
 }
 

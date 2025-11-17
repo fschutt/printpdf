@@ -449,6 +449,9 @@ pub struct PdfResources {
     /// Fonts found in the PDF file, indexed by the sha256 of their contents
     #[serde(default)]
     pub fonts: PdfFontMap,
+    /// Fonts found embedded as subset fonts in the PDF file, indexed by the sha256 of their contents
+    #[serde(skip)]
+    pub subsetfonts: PdfSubsetFontMap,
     /// XObjects (forms, images, embedded PDF contents, etc.)
     #[serde(default)]
     pub xobjects: XObjectMap,
@@ -485,6 +488,11 @@ pub struct PdfLayerMap {
 #[serde(transparent)]
 pub struct PdfFontMap {
     pub map: BTreeMap<FontId, ParsedFont>,
+}
+
+#[derive(Debug, PartialEq, Default, Clone)]
+pub struct PdfSubsetFontMap {
+    pub map: BTreeMap<FontId, ParsedSubsetFont>,
 }
 
 #[derive(Debug, PartialEq, Default, Clone)]
