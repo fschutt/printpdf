@@ -1413,14 +1413,24 @@ fn add_subsetfont_to_pdf(
         ("Type", Name("Font".into())),
         ("Subtype", Name(sub_type.into())),
         ("BaseFont", Name(face_name.clone().into_bytes())),
-        (
+    ];
+    if let Some(ref cmap_bytes) = prepared.original.cmap_bytes {
+        font_vec.push((
             "ToUnicode",
             Reference(doc.add_object(LoStream::new(
                 LoDictionary::new(),
-                prepared.original.cmap.as_ref().unwrap().to_cmap_string(&face_name, use_single_byte_for_cmap).as_bytes().to_vec(),
-            ))),
-        ),
-    ];
+                cmap_bytes.clone(),
+            )))
+        ));
+    } else if let Some(ref cmap) = prepared.original.cmap {
+        font_vec.push((
+            "ToUnicode",
+            Reference(doc.add_object(LoStream::new(
+                LoDictionary::new(),
+                cmap.to_cmap_string(&face_name, use_single_byte_for_cmap).as_bytes().to_vec(),
+            )))
+        ));
+    }
     if let Some(ref encoding) = prepared.original.font_properties.encoding {
         font_vec.push(( "Encoding", Name(encoding.clone().into_bytes())));
     }
@@ -1522,7 +1532,7 @@ fn add_subsetfont_to_pdf(
                     descendant_fonts_vec.push(( "BaseFont", Name(base_font.clone().into_bytes())));
                 }
                 if let Some(ref subtype) = descendant_fonts[0].subtype {
-                    descendant_fonts_vec.push(( "SubType", Name(subtype.clone().into_bytes())));
+                    descendant_fonts_vec.push(( "Subtype", Name(subtype.clone().into_bytes())));
                 }
                 if let Some(ref cid_to_gid_map) = descendant_fonts[0].cid_to_gid_map {
                     descendant_fonts_vec.push(( "CIDToGIDMap", Name(cid_to_gid_map.clone().into_bytes())));

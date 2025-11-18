@@ -498,6 +498,7 @@ pub struct ParsedSubsetFont {
     pub font_type: FontType,
     pub font_name: Option<String>,
     pub cmap: Option<ToUnicodeCMap>,
+    pub cmap_bytes: Option<Vec<u8>>,
     pub font_properties: ParsedSubsetFontProperties,
     pub font_descriptor_properties: ParsedSubsetFontDescriptorProperties,
 }
@@ -1707,6 +1708,7 @@ impl ParsedSubsetFont {
             font_type: FontType::ParsedEmbeddedType0(font_bytes.to_vec()),
             font_name: None,
             cmap: None,
+            cmap_bytes: None,
             font_properties: ParsedSubsetFontProperties::default(),
             font_descriptor_properties: ParsedSubsetFontDescriptorProperties::default(),
         };
@@ -1744,6 +1746,7 @@ impl ParsedSubsetFont {
             font_type: FontType::ParsedEmbeddedType1C(font_bytes.to_vec()),
             font_name,
             cmap: None,
+            cmap_bytes: None,
             font_properties: ParsedSubsetFontProperties::default(),
             font_descriptor_properties: ParsedSubsetFontDescriptorProperties::default(),
         };

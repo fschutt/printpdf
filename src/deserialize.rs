@@ -3421,7 +3421,7 @@ mod parsefont {
             };
 
             // Extract ToUnicode CMap directly from the font dictionary (common to all font types)
-            let to_unicode_cmap = extract_to_unicode_cmap(doc, font_dict, warnings, page_num);
+            let (to_unicode_cmap, to_unicode_cmap_bytes) = extract_to_unicode_cmap(doc, font_dict, warnings, page_num);
 
             // Handle different font types
             if &font_type == b"Type0" {
@@ -3434,6 +3434,7 @@ mod parsefont {
                     },
                     Some(ParsedOrBuiltinFont::PS(mut parsed_font, _)) => {
                         // remember the original ToUnicode map, needed during serialize
+                        parsed_font.cmap_bytes = to_unicode_cmap_bytes.clone();
                         parsed_font.cmap = to_unicode_cmap.clone();
                         // remember the font properties
                         let encoding: Option<String>;
@@ -3496,7 +3497,7 @@ mod parsefont {
                                         Ok(Object::Name(base_font)) => Some(String::from_utf8_lossy(base_font).to_string()),
                                         _ => None,
                                     };
-                                    let subtype = match descendant_font_dict.get(b"SubType") {
+                                    let subtype = match descendant_font_dict.get(b"Subtype") {
                                         Ok(Object::Name(subtype)) => Some(String::from_utf8_lossy(subtype).to_string()),
                                         _ => None,
                                     };
@@ -3599,6 +3600,7 @@ mod parsefont {
                     },
                     Some(ParsedOrBuiltinFont::PS(mut parsed_font, _)) => {
                         // remember the original ToUnicode map, needed during serialize
+                        parsed_font.cmap_bytes = to_unicode_cmap_bytes.clone();
                         parsed_font.cmap = to_unicode_cmap.clone();
                         // remember the font properties
                         let encoding: Option<String>;
@@ -3691,7 +3693,7 @@ mod parsefont {
         font_dict: &Dictionary,
         warnings: &mut Vec<PdfWarnMsg>,
         page_num: usize,
-    ) -> Option<ToUnicodeCMap> {
+    ) -> (Option<ToUnicodeCMap>, Option<Vec<u8>>) {
         // Check if font dictionary has a ToUnicode entry
         if let Ok(to_unicode_ref) = font_dict.get(b"ToUnicode") {
             // Get the ToUnicode stream
@@ -3712,11 +3714,11 @@ mod parsefont {
                 };
 
                 // Convert to string
-                if let Ok(cmap_str) = String::from_utf8(content) {
+                if let Ok(cmap_str) = String::from_utf8(content.clone()) {
                     // Parse using ToUnicodeCMap::parse
                     match ToUnicodeCMap::parse(&cmap_str) {
                         Ok(cmap) => {
-                            return Some(cmap);
+                            return (Some(cmap), Some(content));
                         }
                         Err(e) => {
                             warnings.push(PdfWarnMsg::warning(
@@ -3730,7 +3732,7 @@ mod parsefont {
             }
         }
 
-        None
+        (None, None)
     }
 
     /// Get fonts dictionary from PDF resources
