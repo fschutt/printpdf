@@ -1,117 +1,43 @@
-
 <!DOCTYPE html>
 <html>
 <head>
-    <title>HTML to PDF Conversion</title>
+    <title>Simple Table Test</title>
     <style>
         body {
             font-family: 'Helvetica', sans-serif;
             margin: 20px;
-            color: #333;
-        }
-        h1 {
-            color: #004080;
-            border-bottom: 1px solid #ccc;
-            padding-bottom: 5px;
-        }
-        p {
-            margin: 10px 0;
-            line-height: 1.5;
-        }
-        .highlight {
-            background-color: #ffffcc;
-            padding: 5px;
-            border-radius: 3px;
-        }
-        ul {
-            margin: 15px 0;
-        }
-        li {
-            margin: 5px 0;
         }
         table {
             border-collapse: collapse;
             width: 100%;
-            margin: 20px 0;
         }
         th, td {
             border: 1px solid #ddd;
             padding: 8px;
-            text-align: left;
         }
         th {
             background-color: #f2f2f2;
         }
-        .footer {
-            margin-top: 30px;
-            font-size: 0.8em;
-            text-align: center;
-            color: #666;
-        }
     </style>
 </head>
 <body>
-    <h1>HTML to PDF Conversion Example</h1>
+    <h1>Table Test</h1>
     
-    <p>This document demonstrates converting HTML to PDF using the <span class="highlight">printpdf</span> library. 
-    HTML conversion allows you to leverage familiar web styling techniques for PDF generation.</p>
-    
-    <h2>Features Demonstrated</h2>
-    
-    <ul>
-        <li>Basic text formatting with paragraphs and headings</li>
-        <li>Custom styling with CSS</li>
-        <li>Lists (ordered and unordered)</li>
-        <li>Tables with borders and styling</li>
-        <li>Image embedding</li>
-    </ul>
-    
-    <h2>Sample Table</h2>
+    <p>Simple paragraph test.</p>
     
     <table>
         <tr>
-            <th>Feature</th>
-            <th>Description</th>
-            <th>Supported</th>
+            <th>Header 1</th>
+            <th>Header 2</th>
         </tr>
         <tr>
-            <td>Text Styling</td>
-            <td>Basic text formatting with fonts, sizes, and styles</td>
-            <td>Yes</td>
+            <td>Cell 1</td>
+            <td>Cell 2</td>
         </tr>
         <tr>
-            <td>Tables</td>
-            <td>Data presentation with rows and columns</td>
-            <td>Yes</td>
-        </tr>
-        <tr>
-            <td>Lists</td>
-            <td>Ordered and unordered lists</td>
-            <td>Yes</td>
-        </tr>
-        <tr>
-            <td>Images</td>
-            <td>Embedding images in documents</td>
-            <td>Yes</td>
-        </tr>
-        <tr>
-            <td>Advanced Layouts</td>
-            <td>Complex multi-column layouts and positioning</td>
-            <td>Partial</td>
+            <td>Cell 3</td>
+            <td>Cell 4</td>
         </tr>
     </table>
-    
-    <h2>Ordered List Example</h2>
-    
-    <ol>
-        <li>First, create your HTML content</li>
-        <li>Configure the HTML conversion options</li>
-        <li>Call the converter function</li>
-        <li>Save the resulting PDF document</li>
-    </ol>
-    
-    <div class="footer">
-        Generated with printpdf HTML conversion - Page 1
-    </div>
 </body>
 </html>

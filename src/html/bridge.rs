@@ -13,7 +13,7 @@ use azul_core::{
     geom::{LogicalRect, LogicalSize},
     ui_solver::GlyphInstance,
 };
-use azul_css::props::basic::ColorU;
+use azul_css::props::basic::{pixel::DEFAULT_FONT_SIZE, ColorU};
 use azul_layout::{
     solver3::display_list::{DisplayList, DisplayListItem},
     text3::cache::{FontLoaderTrait, FontManager, ParsedFontTrait, UnifiedLayout},
@@ -48,14 +48,28 @@ pub fn display_list_to_printpdf_ops<T: ParsedFontTrait + 'static, Q: FontLoaderT
     println!("[bridge] Converting DisplayList with {} items", display_list.items.len());
 
     for (idx, item) in display_list.items.iter().enumerate() {
-        println!("[bridge] Item {}: {:?}", idx, match item {
+        let item_type = match item {
             DisplayListItem::TextLayout { .. } => "TextLayout",
             DisplayListItem::Text { .. } => "Text",
             DisplayListItem::Rect { .. } => "Rect",
             DisplayListItem::Border { .. } => "Border",
             DisplayListItem::Image { .. } => "Image",
-            _ => "Other",
-        });
+            DisplayListItem::SelectionRect { .. } => "SelectionRect",
+            DisplayListItem::CursorRect { .. } => "CursorRect",
+            DisplayListItem::Underline { .. } => "Underline",
+            DisplayListItem::Strikethrough { .. } => "Strikethrough",
+            DisplayListItem::Overline { .. } => "Overline",
+            DisplayListItem::ScrollBar { .. } => "ScrollBar",
+            DisplayListItem::IFrame { .. } => "IFrame",
+            DisplayListItem::PushStackingContext { .. } => "PushStackingContext",
+            DisplayListItem::PopStackingContext => "PopStackingContext",
+            DisplayListItem::PushClip { .. } => "PushClip",
+            DisplayListItem::PopClip => "PopClip",
+            DisplayListItem::PushScrollFrame { .. } => "PushScrollFrame",
+            DisplayListItem::PopScrollFrame => "PopScrollFrame",
+            DisplayListItem::HitTestArea { .. } => "HitTestArea",
+        };
+        println!("[bridge] Item {}: {}", idx, item_type);
         convert_display_list_item(&mut ops, item, page_height, &mut current_text_layout, font_manager);
     }
 
@@ -224,7 +238,7 @@ fn convert_display_list_item<'a, T: ParsedFontTrait + 'static, Q: FontLoaderTrai
             let width = widths
                 .top
                 .and_then(|w| w.get_property().cloned())
-                .map(|w| w.inner.to_pixels(0.0))
+                .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE))
                 .unwrap_or(0.0);
 
             if width > 0.0 {

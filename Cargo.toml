@@ -99,6 +99,26 @@ name = "css_shapes"
 required-features = ["html"]
 
 [[example]]
+name = "html_full"
+required-features = ["html"]
+
+[[example]]
+name = "margin_collapse"
+path = "examples/margin_collapse.rs"
+
+[[example]]
+name = "margin_collapse_inline"
+path = "examples/margin_collapse_inline.rs"
+
+[[example]]
+name = "margin_collapse_border_test"
+path = "examples/margin_collapse_border_test.rs"
+
+[[example]]
+name = "margin_collapse_comprehensive"
+path = "examples/margin_collapse_comprehensive.rs"
+
+[[example]]
 name = "image"
 required-features = ["png"]
 

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Margin Collapsing Test</title>
+    <style>
+        body {
+            font-family: 'Helvetica', sans-serif;
+            margin: 20px;
+            background-color: #f0f0f0;
+        }
+        h1 {
+            margin-top: 10px;
+            margin-bottom: 30px;
+            background-color: #ffcccc;
+        }
+        p {
+            margin-top: 20px;
+            margin-bottom: 20px;
+            background-color: #ccffcc;
+        }
+        .box {
+            background-color: #ccccff;
+            margin: 40px 0;
+        }
+    </style>
+</head>
+<body>
+    <!-- Test 1: Body-H1 top margin collapse -->
+    <!-- Expected: body margin (20px) should collapse with h1 margin-top (10px) → 20px -->
+    <!-- Bug: Margins are added → 30px -->
+    <h1>Test Heading 1</h1>
+    
+    <!-- Test 2: H1-P margin collapse -->
+    <!-- Expected: h1 margin-bottom (30px) should collapse with p margin-top (20px) → 30px -->
+    <!-- Bug: Margins are added → 50px -->
+    <p>First paragraph after heading.</p>
+    
+    <!-- Test 3: P-P sibling margin collapse -->
+    <!-- Expected: p margin-bottom (20px) should collapse with next p margin-top (20px) → 20px -->
+    <!-- Bug: Margins are added → 40px -->
+    <p>Second paragraph.</p>
+    
+    <p>Third paragraph.</p>
+    
+    <!-- Test 4: Large margin wins -->
+    <!-- Expected: p margin-bottom (20px) should collapse with div margin-top (40px) → 40px -->
+    <div class="box">Box content</div>
+    
+    <p>Paragraph after box.</p>
+</body>
+</html>

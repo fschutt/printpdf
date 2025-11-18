@@ -72,8 +72,19 @@ pub fn xml_to_pdf_pages(
 ) -> Result<(Vec<PdfPage>, BTreeMap<FontHash, ParsedFont>), Vec<PdfWarnMsg>> {
     let mut warnings = Vec::new();
 
-    // 1. Parse XML to XmlNode tree
-    let root_nodes = match parse_xml_string(xml) {
+    // Type-safe preprocessing: RawHtml -> PreprocessedHtml
+    let preprocessed = RawHtml::new(xml).preprocess();
+    let inlined_xml = preprocessed.as_str();
+    
+    // Debug: Print preprocessed HTML with inlined styles
+    println!("[PREPROCESSED_HTML] Length: {}", inlined_xml.len());
+    println!("[PREPROCESSED_HTML] First 1000 chars:\n{}", &inlined_xml[..inlined_xml.len().min(1000)]);
+    if inlined_xml.len() > 1000 {
+        println!("[PREPROCESSED_HTML] ... (truncated {} chars)", inlined_xml.len() - 1000);
+    }
+    
+    // Parse XML to XmlNode tree
+    let root_nodes = match parse_xml_string(inlined_xml) {
         Ok(nodes) => nodes,
         Err(e) => {
             warnings.push(PdfWarnMsg::error(
@@ -85,7 +96,7 @@ pub fn xml_to_pdf_pages(
         }
     };
 
-    // 2. Convert XML nodes to StyledDom with registered HTML components
+    // Convert XML nodes to StyledDom with registered HTML components
     let mut component_map = crate::components::printpdf_default_components();
     let page_width_pt = options.page_width.0 * 2.83465; // mm to pt
     
@@ -105,7 +116,7 @@ pub fn xml_to_pdf_pages(
         }
     };
 
-    // 3. Create LayoutWindow and solve layout
+    // Create LayoutWindow and solve layout
     let fc_cache = build_font_cache();
     let mut layout_window = match LayoutWindow::new(fc_cache) {
         Ok(window) => window,
@@ -119,12 +130,12 @@ pub fn xml_to_pdf_pages(
         }
     };
 
-    // 4. Prepare window state with page dimensions
+    // Prepare window state with page dimensions
     let page_height_pt = options.page_height.0 * 2.83465; // mm to pt
     let mut window_state = FullWindowState::default();
     window_state.size.dimensions = LogicalSize::new(page_width_pt, page_height_pt);
 
-    // 5. Perform layout
+    // Perform layout
     let renderer_resources = RendererResources::default();
     let external_callbacks = ExternalSystemCallbacks::rust_internal();
     let mut debug_messages = Some(Vec::new());
@@ -143,9 +154,8 @@ pub fn xml_to_pdf_pages(
         ));
         return Err(warnings);
     }
-
-    // 6. Extract the display list from the layout result
-    // We need to take ownership, so we remove it from the layout results
+    
+    // Extract the display list from the layout result
     let layout_result = match layout_window.layout_results.remove(&DomId::ROOT_ID) {
         Some(result) => result,
         None => {
@@ -160,20 +170,13 @@ pub fn xml_to_pdf_pages(
     
     let display_list = layout_result.display_list;
 
-    println!("[html] DisplayList has {} items", display_list.items.len());
-
-    // 7. Convert DisplayList directly to printpdf operations
-    // This bypasses the intermediate azul PdfOp format to generate
-    // WriteCodepoints (glyph IDs) instead of WriteText (text strings)
+    // Convert DisplayList directly to printpdf operations
     let page_size = LogicalSize::new(page_width_pt, page_height_pt);
     let font_manager = &layout_window.font_manager;
     let pdf_ops = bridge::display_list_to_printpdf_ops(&display_list, page_size, font_manager)
         .map_err(|e| vec![PdfWarnMsg::warning(0, 0, format!("Failed to convert display list: {}", e))])?;
 
-    println!("[html] Generated {} PDF ops", pdf_ops.len());
-
-    // 8. Extract ParsedFonts from the font manager
-    // Collect all unique FontHash values from the DisplayList
+    // Extract ParsedFonts from the font manager
     let mut font_hashes: std::collections::HashSet<azul_layout::text3::cache::FontHash> = std::collections::HashSet::new();
     for item in display_list.items.iter() {
         if let azul_layout::solver3::display_list::DisplayListItem::Text { font_hash, .. } = item {
@@ -181,12 +184,9 @@ pub fn xml_to_pdf_pages(
         }
     }
     
-    println!("[html] Fonts used: {} unique fonts", font_hashes.len());
-    
     let mut font_data_map = BTreeMap::new();
     
     for font_hash in font_hashes.iter() {
-        println!("[html] Processing font: hash={}", font_hash.font_hash);
         
         if let Some(font_ref) = layout_window.font_manager.get_font_by_hash(font_hash.font_hash) {
             // Extract azul's ParsedFont from the FontRef
@@ -200,7 +200,6 @@ pub fn xml_to_pdf_pages(
             match azul_parsed_font.to_bytes(None) {
                 Ok(font_bytes) => {
                     if let Some(printpdf_font) = ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
-                        println!("[html]   ✓ Converted font with {} glyphs", printpdf_font.num_glyphs);
                         font_data_map.insert(font_hash.clone(), printpdf_font);
                     } else {
                         warnings.push(PdfWarnMsg::warning(
@@ -227,9 +226,7 @@ pub fn xml_to_pdf_pages(
         }
     }
 
-    println!("[html] Extracted {} ParsedFonts", font_data_map.len());
-
-    // 9. Create PDF page
+    // Create PDF page
     let page = PdfPage::new(options.page_width, options.page_height, pdf_ops);
 
     // Always return Ok with page and fonts, warnings are logged but don't fail the conversion
@@ -253,6 +250,33 @@ pub fn add_xml_to_document(
             Ok(())
         }
         Err(warnings) => Err(warnings),
+    }
+}
+
+/// Raw HTML input (not yet processed)
+#[derive(Debug, Clone)]
+pub struct RawHtml(String);
+
+impl RawHtml {
+    pub fn new(html: impl Into<String>) -> Self {
+        Self(html.into())
+    }
+    
+    /// Process raw HTML into preprocessed HTML with CSS inlined
+    pub fn preprocess(self) -> PreprocessedHtml {
+        let cleaned = clean_html_elements(&self.0);
+        let inlined = inline_css_in_xml(&cleaned);
+        PreprocessedHtml(inlined)
+    }
+}
+
+/// HTML with CSS rules inlined as style="" attributes (ready for XML parsing)
+#[derive(Debug, Clone)]
+pub struct PreprocessedHtml(String);
+
+impl PreprocessedHtml {
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
@@ -354,9 +378,6 @@ fn inline_css_in_xml(xml: &str) -> String {
 fn apply_css_rule_to_xml(xml: &str, rule: &CssRule) -> String {
     let mut result = xml.to_string();
     
-    // Handle simple selectors only (element, .class, #id)
-    let selector = rule.selector.trim();
-    
     // Build the style string to add
     let mut style_additions = String::new();
     for (prop, val) in &rule.declarations {
@@ -366,17 +387,22 @@ fn apply_css_rule_to_xml(xml: &str, rule: &CssRule) -> String {
         style_additions.push_str(&format!("{}:{}", prop, val));
     }
     
-    if selector.starts_with('.') {
-        // Class selector
-        let class_name = &selector[1..];
-        result = add_style_to_class(&result, class_name, &style_additions);
-    } else if selector.starts_with('#') {
-        // ID selector
-        let id_name = &selector[1..];
-        result = add_style_to_id(&result, id_name, &style_additions);
-    } else {
-        // Element selector
-        result = add_style_to_element(&result, selector, &style_additions);
+    // Split selector by comma to handle multiple selectors (e.g., "th, td")
+    for selector in rule.selector.split(',') {
+        let selector = selector.trim();
+        
+        if selector.starts_with('.') {
+            // Class selector
+            let class_name = &selector[1..];
+            result = add_style_to_class(&result, class_name, &style_additions);
+        } else if selector.starts_with('#') {
+            // ID selector
+            let id_name = &selector[1..];
+            result = add_style_to_id(&result, id_name, &style_additions);
+        } else {
+            // Element selector
+            result = add_style_to_element(&result, selector, &style_additions);
+        }
     }
     
     result
@@ -665,17 +691,12 @@ fn clean_html_elements(xml: &str) -> String {
 }
 
 /// Process HTML content for rendering: inline CSS, extract config, clean elements
+/// This function is now deprecated - use RawHtml::new().preprocess() instead
+#[deprecated(since = "0.8.0", note = "Use RawHtml::new().preprocess() for type-safe preprocessing")]
 pub fn process_html_for_rendering(html: &str) -> (String, HtmlExtractedConfig) {
-    // 1. Extract configuration
     let config = extract_html_config(html);
-    
-    // 2. Clean non-renderable elements
-    let cleaned = clean_html_elements(html);
-    
-    // 3. Inline CSS
-    let inlined = inline_css_in_xml(&cleaned);
-    
-    (inlined, config)
+    let preprocessed = RawHtml::new(html).preprocess();
+    (preprocessed.0, config)
 }
 
 #[cfg(test)]
