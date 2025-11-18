@@ -13,12 +13,7 @@ use lopdf::{
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    color::IccProfile,
-    font::{FontType, SubsetFont},
-    Actions, BuiltinFont, Color, ColorArray, Destination, FontId, IccProfileType,
-    ImageOptimizationOptions, Line, LinkAnnotation, Op, PaintMode, ParsedFont, PdfDocument,
-    PdfDocumentInfo, PdfPage, PdfResources, PdfWarnMsg, Polygon, PrepFont, TextItem, XObject,
-    XObjectId,
+    Actions, BuiltinFont, Color, ColorArray, Destination, FontId, IccProfileType, ImageOptimizationOptions, Line, LinkAnnotation, Op, PaintMode, ParsedFont, ParsedSubsetFont, PdfDocument, PdfDocumentInfo, PdfPage, PdfResources, PdfWarnMsg, Polygon, PrepFont, TextItem, XObject, XObjectId, color::IccProfile, font::{FontType, SubsetFont}
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
@@ -213,6 +208,13 @@ pub fn to_lopdf_doc(
         global_font_dict.set(font_id.0.clone(), Reference(font_dict_id));
     }
 
+    let prepared_subsetfonts = prepare_subsetfonts(&pdf.resources, &pdf.pages, warnings);
+    for (font_id, prepared) in prepared_subsetfonts.iter() {
+        let font_dict = add_subsetfont_to_pdf(&mut doc, font_id, prepared);
+        let font_dict_id = doc.add_object(font_dict);
+        global_font_dict.set(font_id.0.clone(), Reference(font_dict_id));
+    }
+
     for internal_font in get_used_internal_fonts(&pdf.pages) {
         let font_dict = builtin_font_to_dict(&internal_font);
         let font_dict_id = doc.add_object(font_dict);
@@ -288,6 +290,7 @@ pub fn to_lopdf_doc(
             let layer_stream = translate_operations(
                 &page.ops,
                 &prepared_fonts,
+                &prepared_subsetfonts,
                 &pdf.resources.xobjects.map,
                 opts.secure,
                 warnings,
@@ -433,6 +436,7 @@ fn builtin_font_to_dict(font: &BuiltinFont) -> LoDictionary {
 pub(crate) fn translate_operations(
     ops: &[Op],
     fonts: &BTreeMap<FontId, PreparedFont>,
+    subsetfonts: &BTreeMap<FontId, PreparedSubsetFont>,
     xobjects: &BTreeMap<XObjectId, XObject>,
     secure: bool,
     warnings: &mut Vec<PdfWarnMsg>,
@@ -484,11 +488,14 @@ pub(crate) fn translate_operations(
                 content.push(LoOp::new("ET", vec![]));
             }
             Op::WriteTextBuiltinFont { items, font } => {
-                encode_text_items_to_pdf::<PreparedFont>(items, None, Some(font), &mut content);
+                encode_text_items_to_pdf::<PreparedFont>(items, None, None, Some(font), &mut content);
             }
             Op::WriteText { items, font } => {
                 if let Some(prepared_font) = fonts.get(font) {
-                    encode_text_items_to_pdf(items, Some(prepared_font), None, &mut content);
+                    encode_text_items_to_pdf(items, Some(prepared_font), None, None, &mut content);
+                }
+                if let Some(prepared_subsetfont) = subsetfonts.get(font) {
+                    encode_text_items_to_pdf::<PreparedFont>(items, None, Some(prepared_subsetfont), None, &mut content);
                 }
             }
             Op::WriteCodepoints { font, cp } => {
@@ -723,6 +730,7 @@ pub(crate) fn translate_operations(
 fn encode_text_items_to_pdf<T: PrepFont>(
     items: &[TextItem],
     prepared_font: Option<&T>,
+    prepared_subsetfont: Option<&PreparedSubsetFont>,
     builtin_font: Option<&BuiltinFont>,
     content: &mut Vec<LoOp>,
 ) {
@@ -748,6 +756,52 @@ fn encode_text_items_to_pdf<T: PrepFont>(
                                     .to_be_bytes()
                             })
                             .collect()
+                    } else {
+                        // This branch is for reference/comparison but not used
+                        // It would try to use lopdf::Document::encode_text if it supported
+                        // UnicodeMapEncoding
+                        vec![]
+                    };
+
+                    // Custom fonts must use hexadecimal encoding in PDF
+                    tj_array.push(LoString(bytes, Hexadecimal));
+                } else if let Some(font) = prepared_subsetfont {
+                    // For embedded subset fonts, convert each character to its subset glyph ID
+                    let bytes = if true {
+                        match font.original.font_type {
+                            FontType::ParsedEmbeddedType0( .. ) => {
+                                // Type0 embedded subset fonts use two bytes per character
+                                text.chars()
+                                    .flat_map(|c| {
+                                        font.original.cmap.as_ref().unwrap().mappings
+                                            .iter()
+                                            .find(|(_, unicodechar)| {
+                                                let c = c as u32;
+                                                unicodechar.contains(&c)
+                                            })
+                                            .map(|(cid, _)| *cid as u16)
+                                            .unwrap_or(0)
+                                            .to_be_bytes()
+                                    })
+                                    .collect()
+                            },
+                            FontType::ParsedEmbeddedType1C( .. ) => {
+                                // Type1C embedded subset fonts use one byte per character
+                                text.chars()
+                                    .map(|c| {
+                                        font.original.cmap.as_ref().unwrap().mappings
+                                            .iter()
+                                            .find(|(_, unicodechar)| {
+                                                let c = c as u32;
+                                                unicodechar.contains(&c)
+                                            })
+                                            .map(|(cid, _)| *cid as u8)
+                                            .unwrap_or(0)
+                                    })
+                                    .collect()
+                            },
+                            _ => unimplemented!(),
+                        }
                     } else {
                         // This branch is for reference/comparison but not used
                         // It would try to use lopdf::Document::encode_text if it supported
@@ -903,6 +957,10 @@ impl PrepFont for PreparedFont {
     fn index_to_cid(&self, index: u16) -> Option<u16> {
         self.original.index_to_cid(index)
     }
+}
+
+pub(crate) struct PreparedSubsetFont {
+    original: ParsedSubsetFont,
 }
 
 const DEFAULT_CHARACTER_WIDTH: i64 = 1000;
@@ -1161,6 +1219,25 @@ pub(crate) fn prepare_fonts(
     fonts_in_pdf
 }
 
+pub(crate) fn prepare_subsetfonts(
+    resources: &PdfResources,
+    _pages: &[PdfPage],
+    _warnings: &mut Vec<PdfWarnMsg>,
+) -> BTreeMap<FontId, PreparedSubsetFont> {
+    let mut fonts_in_pdf = BTreeMap::new();
+
+    for (font_id, font) in resources.subsetfonts.map.iter() {
+        let prepared_font = PreparedSubsetFont{
+            original: font.clone(),
+        };
+
+        fonts_in_pdf.insert(font_id.clone(), prepared_font);
+    }
+
+    fonts_in_pdf
+}
+
+
 fn add_font_to_pdf(
     doc: &mut lopdf::Document,
     font_id: &FontId,
@@ -1172,7 +1249,9 @@ fn add_font_to_pdf(
         .clone()
         .unwrap_or(font_id.0.clone());
 
-    let face_name = format!("{}+{}", font_id.0.clone().get(0..6).unwrap(), font_name);
+    // font ids are US-Ascii only, so `chars()` will always be on a character boundary
+    // this will make the font as subsetted
+    let face_name = format!("{}+{}", font_id.0.clone().chars().take(6).collect::<String>(), font_name);
 
     let vertical = prepared.vertical_writing;
 
@@ -1203,6 +1282,9 @@ fn add_font_to_pdf(
                 "CIDFontType2",
                 ("FontFile2", Reference(doc.add_object(font_stream))),
             )
+        }
+        _ => {
+            unimplemented!()
         }
     };
 
@@ -1282,6 +1364,221 @@ fn add_font_to_pdf(
     ])
 }
 
+fn add_subsetfont_to_pdf(
+    doc: &mut lopdf::Document,
+    font_id: &FontId,
+    prepared: &PreparedSubsetFont,
+) -> LoDictionary {
+    let font_name = prepared
+        .original
+        .font_name
+        .clone()
+        .unwrap_or(font_id.0.clone());
+
+    // previously embedded subset fonts found during parsing already have the correct face_name
+    let face_name = font_name.clone();
+
+    let use_single_byte_for_cmap: bool;
+    let (sub_type, font_tuple) = match &prepared.original.font_type {
+        FontType::ParsedEmbeddedType0(buf) => {
+            // WARNING: Font stream MAY NOT be compressed
+            let font_stream = LoStream::new(
+                LoDictionary::new(),
+                buf.clone(),
+            )
+            .with_compression(false);
+            use_single_byte_for_cmap = false;
+            (
+                "Type0",
+                ("FontFile2", Reference(doc.add_object(font_stream))),
+            )
+        },
+        FontType::ParsedEmbeddedType1C(buf) => {
+            // WARNING: Font stream MAY NOT be compressed
+            let font_stream = LoStream::new(
+                LoDictionary::from_iter(vec![("Subtype", Name("Type1C".into()))]),
+                buf.clone(),
+            )
+            .with_compression(false);
+            use_single_byte_for_cmap = true;
+            (
+                "Type1",
+                ("FontFile3", Reference(doc.add_object(font_stream))),
+            )
+        },
+        _ => unimplemented!()
+    };
+
+    let mut font_vec = vec![
+        ("Type", Name("Font".into())),
+        ("Subtype", Name(sub_type.into())),
+        ("BaseFont", Name(face_name.clone().into_bytes())),
+    ];
+    if let Some(ref cmap_bytes) = prepared.original.cmap_bytes {
+        font_vec.push((
+            "ToUnicode",
+            Reference(doc.add_object(LoStream::new(
+                LoDictionary::new(),
+                cmap_bytes.clone(),
+            )))
+        ));
+    } else if let Some(ref cmap) = prepared.original.cmap {
+        font_vec.push((
+            "ToUnicode",
+            Reference(doc.add_object(LoStream::new(
+                LoDictionary::new(),
+                cmap.to_cmap_string(&face_name, use_single_byte_for_cmap).as_bytes().to_vec(),
+            )))
+        ));
+    }
+    if let Some(ref encoding) = prepared.original.font_properties.encoding {
+        font_vec.push(( "Encoding", Name(encoding.clone().into_bytes())));
+    }
+    if let Some(ref custom_encoding) = prepared.original.font_properties.custom_encoding {
+        let mut custom_encoding_vec = vec![
+            ("Type", Name("Encoding".into())),
+        ];
+        if let Some(ref base_encoding) = custom_encoding.base_encoding {
+            custom_encoding_vec.push(( "BaseEncoding", Name(base_encoding.clone().into_bytes())));
+        }
+        if let Some(ref differences) = custom_encoding.differences {
+            custom_encoding_vec.push((
+                "Differences",
+                Array(differences.clone()),
+            ));
+        }
+        font_vec.push((
+            "Encoding",
+            Reference(
+                doc.add_object(LoDictionary::from_iter(custom_encoding_vec)),
+            ),
+        ));
+    }
+    if let Some(first_char) = prepared.original.font_properties.first_char {
+        font_vec.push(( "FirstChar", Integer(first_char)));
+    }
+    if let Some(last_char) = prepared.original.font_properties.last_char {
+        font_vec.push(( "LastChar", Integer(last_char)));
+    }
+    if let Some(ref widths) = prepared.original.font_properties.widths {
+        font_vec.push((
+            "Widths",
+            Array(widths.clone()),
+        ));
+    }
+
+    let mut font_descriptor_vec = vec![
+        ("Type", Name("FontDescriptor".into())),
+        ("FontName", Name(font_name.clone().into_bytes())),
+        font_tuple,
+    ];
+    if let Some(ref stemv) = prepared.original.font_descriptor_properties.charset {
+        font_descriptor_vec.push(( "CharSet", LoString(stemv.clone().into_bytes(), Literal)));
+    }
+    if let Some(ref font_family) = prepared.original.font_descriptor_properties.font_family {
+        font_descriptor_vec.push(( "FontFamily", LoString(font_family.clone().into_bytes(), Literal)));
+    }
+    if let Some(ref font_stretch) = prepared.original.font_descriptor_properties.font_stretch {
+        font_descriptor_vec.push(( "FontStretch", Name(font_stretch.clone().into_bytes())));
+    }
+    if let Some(cap_height) = prepared.original.font_descriptor_properties.cap_height {
+        font_descriptor_vec.push(( "CapHeight", Integer(cap_height)));
+    }
+    if let Some(ascent) = prepared.original.font_descriptor_properties.ascent {
+        font_descriptor_vec.push(( "Ascent", Integer(ascent)));
+    }
+    if let Some(descent) = prepared.original.font_descriptor_properties.descent {
+        font_descriptor_vec.push(( "Descent", Integer(descent)));
+    }
+    if let Some(italic_angle) = prepared.original.font_descriptor_properties.italic_angle {
+        font_descriptor_vec.push(( "ItalicAngle", Integer(italic_angle)));
+    }
+    if let Some(flags) = prepared.original.font_descriptor_properties.flags {
+        font_descriptor_vec.push(( "Flags", Integer(flags)));
+    }
+    if let Some(font_weight) = prepared.original.font_descriptor_properties.font_weight {
+        font_descriptor_vec.push(( "FontWeight", Integer(font_weight)));
+    }
+    if let Some(stemv) = prepared.original.font_descriptor_properties.stemv {
+        font_descriptor_vec.push(( "StemV", Integer(stemv)));
+    }
+    if let Some(xheight) = prepared.original.font_descriptor_properties.xheight {
+        font_descriptor_vec.push(( "XHeight", Integer(xheight)));
+    }
+    if let Some(ref font_bbox) = prepared.original.font_descriptor_properties.font_bbox {
+        font_descriptor_vec.push(( "FontBBox", Array(font_bbox.clone())));
+    }
+    if let Some(ref cid_set) = prepared.original.font_descriptor_properties.cid_set {
+        font_descriptor_vec.push((
+            "CIDSet",
+            Reference(doc.add_object(LoStream::new(lopdf::Dictionary::new(), cid_set.clone())))
+        ));
+    }
+
+    if sub_type == "Type1" {
+        font_vec.push((
+            "FontDescriptor",
+            Reference(
+                doc.add_object(LoDictionary::from_iter(font_descriptor_vec)),
+            ),
+        ));
+    } else if sub_type == "Type0" {
+        if let Some(ref descendant_fonts) = prepared.original.font_properties.descendant_fonts {
+            if !descendant_fonts.is_empty() {
+                let mut descendant_fonts_vec = vec![
+                    ("Type", Name("Font".into())),
+                ];
+                if let Some(ref base_font) = descendant_fonts[0].base_font {
+                    descendant_fonts_vec.push(( "BaseFont", Name(base_font.clone().into_bytes())));
+                }
+                if let Some(ref subtype) = descendant_fonts[0].subtype {
+                    descendant_fonts_vec.push(( "Subtype", Name(subtype.clone().into_bytes())));
+                }
+                if let Some(ref cid_to_gid_map) = descendant_fonts[0].cid_to_gid_map {
+                    descendant_fonts_vec.push(( "CIDToGIDMap", Name(cid_to_gid_map.clone().into_bytes())));
+                }
+                if let Some(ref dw) = descendant_fonts[0].dw {
+                    descendant_fonts_vec.push(( "DW", Integer(*dw)));
+                }
+
+                if let Some(ref cid_system_info) = descendant_fonts[0].cid_system_info {
+                    let mut cid_system_info_vec = vec![];
+                    if let Some(ref ordering) = cid_system_info.ordering {
+                        cid_system_info_vec.push(( "Ordering", LoString(ordering.clone().into_bytes(), Literal)));
+                    }
+                    if let Some(ref registry) = cid_system_info.registry {
+                        cid_system_info_vec.push(( "Registry", LoString(registry.clone().into_bytes(), Literal)));
+                    }
+                    if let Some(ref supplement) = cid_system_info.supplement {
+                        cid_system_info_vec.push(( "DW", Integer(*supplement)));
+                    }
+                    descendant_fonts_vec.push((
+                        "CIDSystemInfo",
+                        Reference(
+                            doc.add_object(LoDictionary::from_iter(cid_system_info_vec)),
+                        ),
+                    ));
+                }
+
+                descendant_fonts_vec.push((
+                    "FontDescriptor",
+                    Reference(
+                        doc.add_object(LoDictionary::from_iter(font_descriptor_vec)),
+                    ),
+                ));
+                font_vec.push((
+                    "DescendantFonts",
+                    Array(vec![Reference(
+                        doc.add_object(LoDictionary::from_iter(descendant_fonts_vec)),
+                    )]),
+                ));
+            }
+        }
+    }
+
+    LoDictionary::from_iter(font_vec)
+}
+
 fn docinfo_to_dict(m: &PdfDocumentInfo) -> LoDictionary {
     let trapping = if m.trapped { "True" } else { "False" };
     let gts_pdfx_version = m.conformance.get_identifier_string();
@@ -1292,7 +1589,7 @@ fn docinfo_to_dict(m: &PdfDocumentInfo) -> LoDictionary {
     let creation_date = LoString(info_create_date.into_bytes(), Literal);
     let identifier = LoString(m.identifier.as_bytes().to_vec(), Literal);
 
-    LoDictionary::from_iter(vec![
+    let mut dict_vec = vec![
         ("Trapped", trapping.into()),
         ("CreationDate", creation_date),
         ("ModDate", LoString(info_mod_date.into_bytes(), Literal)),
@@ -1300,14 +1597,27 @@ fn docinfo_to_dict(m: &PdfDocumentInfo) -> LoDictionary {
             "GTS_PDFXVersion",
             LoString(gts_pdfx_version.into(), Literal),
         ),
-        ("Title", encode_text_to_utf16be(&m.document_title)),
-        ("Author", encode_text_to_utf16be(&m.author)),
-        ("Creator", encode_text_to_utf16be(&m.creator)),
-        ("Producer", encode_text_to_utf16be(&m.producer)),
-        ("Subject", encode_text_to_utf16be(&m.subject)),
         ("Identifier", identifier),
-        ("Keywords", encode_text_to_utf16be(&m.keywords.join(","))),
-    ])
+    ];
+    if !m.document_title.is_empty() {
+        dict_vec.push(("Title", encode_text_to_utf16be(&m.document_title)));
+    }
+    if !m.author.is_empty() {
+        dict_vec.push(("Author", encode_text_to_utf16be(&m.author)));
+    }
+    if !m.creator.is_empty() {
+        dict_vec.push(("Creator", encode_text_to_utf16be(&m.creator)));
+    }
+    if !m.producer.is_empty() {
+        dict_vec.push(("Producer", encode_text_to_utf16be(&m.producer)));
+    }
+    if !m.subject.is_empty() {
+        dict_vec.push(("Subject", encode_text_to_utf16be(&m.subject)));
+    }
+    if !m.keywords.is_empty() {
+        dict_vec.push(("Keywords", encode_text_to_utf16be(&m.keywords.join(","))));
+    }
+    LoDictionary::from_iter(dict_vec)
 }
 
 fn icc_to_stream(val: &IccProfile) -> LoStream {
