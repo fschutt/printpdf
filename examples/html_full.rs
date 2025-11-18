@@ -8,9 +8,9 @@ fn main() {
     println!("=== HTML to PDF Full Example ===\n");
 
     // Load HTML from file
-    println!("Loading HTML from examples/assets/html/default.html...");
+    println!("Loading HTML from examples/assets/html/default_backup.html...");
     
-    let html = include_str!("assets/html/default.html");
+    let html = include_str!("assets/html/default_backup.html");
 
     // Create PDF from HTML
     let images = BTreeMap::new();
@@ -70,12 +70,15 @@ fn main() {
                     println!("✓ Layout calculation completed");
                     println!("✓ PDF rendering successful");
                     println!("\nFeatures tested:");
-                    println!("  • Headings (h1, h2)");
-                    println!("  • Paragraphs with styling");
-                    println!("  • Unordered lists (ul/li)");
-                    println!("  • Ordered lists (ol/li)");
-                    println!("  • Tables (table/tr/th/td)");
-                    println!("  • CSS borders and backgrounds");
+                    println!("  • Headings (h1, h2) with borders");
+                    println!("  • Paragraphs with line-height and styling");
+                    println!("  • Inline spans with background colors (.highlight)");
+                    println!("  • Unordered lists (ul/li) with margins");
+                    println!("  • Ordered lists (ol/li) - numbered items");
+                    println!("  • Complex tables with headers (th) and data cells (td)");
+                    println!("  • CSS borders, backgrounds, and border-radius");
+                    println!("  • Text alignment and padding");
+                    println!("  • Footer styling with different font sizes");
                     println!("\nOpen {} to verify the results!", output_path);
                 }
                 Err(e) => eprintln!("✗ Failed to write PDF: {}", e),

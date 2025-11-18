@@ -36,9 +36,9 @@ xmlparser = { version = "0.13.6", default-features = false, optional = true }
 web-sys = { version = "0.3.77", optional = true, default-features = false, features = ["ImageData", "Window", "Document", "Blob", "CanvasRenderingContext2d", "HtmlCanvasElement", "HtmlImageElement", "ImageBitmap", "BlobPropertyBag"]}
 wasm-bindgen-futures = { version = "0.4.50", optional = true, default-features = false }
 kuchiki = { version = "0.8.1", optional = true }
-azul-css = { path = "../azul/css", default-features = false, features = ["parser"], optional = true }
-azul-core = { path = "../azul/core", default-features = false, features = ["std"], optional = true }
-azul-layout = { path = "../azul/layout", default-features = false, features = ["std", "text_layout", "font_loading", "xml", "pdf"], optional = true }
+azul-css = { git = "https://github.com/fschutt/azul.git", rev = "8aa27531689041e2ef5b19e42b1561d6f0b40a84", default-features = false, features = ["parser"], optional = true }
+azul-core = { git = "https://github.com/fschutt/azul.git", rev = "8aa27531689041e2ef5b19e42b1561d6f0b40a84", default-features = false, features = ["std"], optional = true }
+azul-layout = { git = "https://github.com/fschutt/azul.git", rev = "8aa27531689041e2ef5b19e42b1561d6f0b40a84", default-features = false, features = ["std", "text_layout", "font_loading", "xml", "pdf"], optional = true }
 weezl = "0.1.8"
 
 [target.'cfg(target_family = "wasm")'.dependencies]
