@@ -13,9 +13,9 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(280.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(24.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(24.0) },
         Op::SetFillColor {
@@ -26,16 +26,15 @@ fn main() {
                 icc_profile: None,
             }),
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "Bookmarks and Annotations Example".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(12.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(12.0) },
         Op::SetFillColor {
@@ -46,47 +45,41 @@ fn main() {
                 icc_profile: None,
             }),
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "This document demonstrates bookmarks and annotations in PDFs.".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "Use the bookmarks panel in your PDF viewer to navigate through sections."
                     .to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
         Op::AddLineBreak,
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("This document contains:".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "1. Document-level bookmarks (in the bookmarks panel)".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "2. Link annotations (clickable areas within pages)".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
         Op::AddLineBreak,
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "Below is a link that navigates to Section 1:".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
         // Create a link annotation to page 2
@@ -161,9 +154,9 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(35.0), Mm(60.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(14.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(14.0) },
         Op::SetFillColor {
@@ -174,9 +167,8 @@ fn main() {
                 icc_profile: None,
             }),
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("Go to Section 1: Documentation".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
         // External link example
@@ -184,9 +176,9 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(40.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(12.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(12.0) },
         Op::SetFillColor {
@@ -197,11 +189,10 @@ fn main() {
                 icc_profile: None,
             }),
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "This is an external link to a website:".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
         // External link annotation
@@ -271,9 +262,9 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(35.0), Mm(30.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(14.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(14.0) },
         Op::SetFillColor {
@@ -284,9 +275,8 @@ fn main() {
                 icc_profile: None,
             }),
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("Visit printpdf GitHub".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
     ];
@@ -297,9 +287,9 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(280.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(24.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(24.0) },
         Op::SetFillColor {
@@ -310,14 +300,13 @@ fn main() {
                 icc_profile: None,
             }),
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("Section 1: Documentation".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(12.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(12.0) },
         Op::SetFillColor {
@@ -328,26 +317,23 @@ fn main() {
                 icc_profile: None,
             }),
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "This page demonstrates document navigation.".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "You arrived here by clicking a link on the previous page.".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
         Op::AddLineBreak,
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "Below are links to navigate to other sections:".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
         // Link to Section 2
@@ -422,9 +408,9 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(35.0), Mm(60.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(14.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(14.0) },
         Op::SetFillColor {
@@ -435,11 +421,10 @@ fn main() {
                 icc_profile: None,
             }),
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "Go to Section 2: Advanced Usage".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
         // Link back to introduction
@@ -514,9 +499,9 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(35.0), Mm(45.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(14.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(14.0) },
         Op::SetFillColor {
@@ -527,9 +512,8 @@ fn main() {
                 icc_profile: None,
             }),
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("Back to Introduction".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
     ];
@@ -540,9 +524,9 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(280.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(24.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(24.0) },
         Op::SetFillColor {
@@ -553,14 +537,13 @@ fn main() {
                 icc_profile: None,
             }),
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("Section 2: Advanced Usage".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(12.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(12.0) },
         Op::SetFillColor {
@@ -571,26 +554,23 @@ fn main() {
                 icc_profile: None,
             }),
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "This is the final section of our document.".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "You arrived here by clicking a link on the previous page.".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "The use of bookmarks and link annotations enhances PDF navigation and usability."
                     .to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
         // Link back to Section 1
@@ -665,9 +645,9 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(35.0), Mm(60.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(14.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(14.0) },
         Op::SetFillColor {
@@ -678,9 +658,8 @@ fn main() {
                 icc_profile: None,
             }),
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("Back to Section 1".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
         // Link back to Introduction
@@ -755,9 +734,9 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(35.0), Mm(45.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(14.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(14.0) },
         Op::SetFillColor {
@@ -768,9 +747,8 @@ fn main() {
                 icc_profile: None,
             }),
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("Back to Introduction".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
     ];

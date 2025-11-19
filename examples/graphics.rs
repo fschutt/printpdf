@@ -13,9 +13,9 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(280.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(24.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(24.0) },
         Op::SetFillColor {
@@ -26,9 +26,8 @@ fn main() {
                 icc_profile: None,
             }),
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("PDF Shapes and Graphics".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
     ]);
@@ -40,14 +39,13 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(260.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(12.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(12.0) },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("1. Filled Rectangle".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
         // Draw the rectangle
@@ -106,14 +104,13 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(230.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(12.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(12.0) },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("2. Outlined Rectangle".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
         // Set outline properties
@@ -174,16 +171,15 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(200.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(12.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(12.0) },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "3. Filled and Outlined Rectangle".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
         // Set fill and outline properties
@@ -252,14 +248,13 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(170.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(12.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(12.0) },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("4. Triangle".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
         // Set fill and outline properties
@@ -321,14 +316,13 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(140.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(12.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(12.0) },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("5. Complex Shape".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
         // Set fill and outline properties
@@ -439,16 +433,15 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(110.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(12.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(12.0) },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "6. Lines with Different Dash Patterns".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
         // Draw a solid line
@@ -590,16 +583,15 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(80.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(12.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(12.0) },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "7. Polygon with Even-Odd Winding Rule".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
         // Set fill and outline properties
@@ -730,16 +722,15 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(50.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(12.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(12.0) },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "8. Lines with Different Caps and Joins".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
         // Draw lines with butt caps and miter joins

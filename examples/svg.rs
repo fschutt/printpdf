@@ -46,16 +46,15 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(40.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(12.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(12.0) },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "This PDF demonstrates embedding SVGs as vector graphics".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
     ]);

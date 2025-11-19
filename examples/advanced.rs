@@ -13,11 +13,11 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(280.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::HelveticaBold),
             size: Pt(24.0),
-            font: BuiltinFont::Helvetica,
         },
-        Op::SetLineHeight { lh: Pt(24.0) },
+        Op::SetLineHeight { lh: Pt(28.0) },
         Op::SetFillColor {
             col: Color::Rgb(Rgb {
                 r: 0.0,
@@ -26,11 +26,10 @@ fn main() {
                 icc_profile: None,
             }),
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "Advanced Text Positioning and Styling".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
     ]);
@@ -42,36 +41,32 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(260.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(12.0),
-            font: BuiltinFont::Helvetica,
         },
-        Op::SetLineHeight { lh: Pt(12.0) },
-        Op::WriteTextBuiltinFont {
+        Op::SetLineHeight { lh: Pt(14.0) },
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "1. Normal text without spacing:".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("CHARACTERSPACING".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
         Op::AddLineBreak,
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "Text with added character spacing:".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
         // Set character spacing to 2.0 points
         Op::SetCharacterSpacing { multiplier: 2.0 },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("CHARACTERSPACING".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         // Reset character spacing
         Op::SetCharacterSpacing { multiplier: 0.0 },
@@ -86,14 +81,13 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(230.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(12.0),
-            font: BuiltinFont::Helvetica,
         },
-        Op::SetLineHeight { lh: Pt(12.0) },
-        Op::WriteTextBuiltinFont {
+        Op::SetLineHeight { lh: Pt(14.0) },
+        Op::ShowText {
             items: vec![TextItem::Text("2. Rotated text:".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
         Op::RestoreGraphicsState,
@@ -102,7 +96,7 @@ fn main() {
     // Draw rotated text at different angles
     ops.extend(
         (0..=7)
-            .map(|i| {
+            .flat_map(|i| {
                 let angle = i as f32 * 45.0; // Rotate by 0°, 45°, 90°, 135°, 180°, 225°, 270°, 315°
                 vec![
                     Op::SaveGraphicsState,
@@ -117,11 +111,11 @@ fn main() {
                             angle,
                         ),
                     },
-                    Op::SetFontSizeBuiltinFont {
+                    Op::SetFont {
+                        font: PdfFontHandle::Builtin(BuiltinFont::TimesRoman),
                         size: Pt(10.0),
-                        font: BuiltinFont::TimesRoman,
                     },
-                    Op::SetLineHeight { lh: Pt(10.0) },
+                    Op::SetLineHeight { lh: Pt(12.0) },
                     Op::SetFillColor {
                         col: Color::Rgb(Rgb {
                             r: 0.0,
@@ -130,15 +124,13 @@ fn main() {
                             icc_profile: None,
                         }),
                     },
-                    Op::WriteTextBuiltinFont {
+                    Op::ShowText {
                         items: vec![TextItem::Text(format!("{}deg", angle))],
-                        font: BuiltinFont::TimesRoman,
                     },
                     Op::EndTextSection,
                     Op::RestoreGraphicsState,
                 ]
             })
-            .flatten()
             .collect::<Vec<_>>()
             .iter()
             .cloned(),
@@ -151,14 +143,13 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(190.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(12.0),
-            font: BuiltinFont::Helvetica,
         },
-        Op::SetLineHeight { lh: Pt(12.0) },
-        Op::WriteTextBuiltinFont {
+        Op::SetLineHeight { lh: Pt(14.0) },
+        Op::ShowText {
             items: vec![TextItem::Text("3. Text on a curved path:".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
         Op::RestoreGraphicsState,
@@ -188,11 +179,11 @@ fn main() {
             Op::SetTextMatrix {
                 matrix: TextMatrix::TranslateRotate(Pt(x), Pt(y), angle + 90.0),
             },
-            Op::SetFontSizeBuiltinFont {
+            Op::SetFont {
+                font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
                 size: Pt(12.0),
-                font: BuiltinFont::Helvetica,
             },
-            Op::SetLineHeight { lh: Pt(12.0) },
+            Op::SetLineHeight { lh: Pt(14.0) },
             Op::SetFillColor {
                 col: Color::Rgb(Rgb {
                     r: i as f32 / text.len() as f32,
@@ -201,9 +192,8 @@ fn main() {
                     icc_profile: None,
                 }),
             },
-            Op::WriteTextBuiltinFont {
+            Op::ShowText {
                 items: vec![TextItem::Text(c.to_string())],
-                font: BuiltinFont::Helvetica,
             },
             Op::EndTextSection,
             Op::RestoreGraphicsState,
@@ -217,26 +207,24 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(150.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(12.0),
-            font: BuiltinFont::Helvetica,
         },
-        Op::SetLineHeight { lh: Pt(12.0) },
-        Op::WriteTextBuiltinFont {
+        Op::SetLineHeight { lh: Pt(14.0) },
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "4. Kerned text with manual adjustments:".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
         // Normal text without kerning
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("AV AWAY WAVE To Va".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
-        // The same text with manual kerning adjustments
-        Op::WriteTextBuiltinFont {
+        // The same text with manual kerning adjustments using TJ operator
+        Op::ShowText {
             items: vec![
                 TextItem::Text("A".to_string()),
                 TextItem::Offset(-30.0), // Move closer to V
@@ -266,7 +254,6 @@ fn main() {
                 TextItem::Offset(-40.0), // Move closer to a
                 TextItem::Text("a".to_string()),
             ],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
         Op::RestoreGraphicsState,
@@ -279,11 +266,11 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(130.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(12.0),
-            font: BuiltinFont::Helvetica,
         },
-        Op::SetLineHeight { lh: Pt(12.0) },
+        Op::SetLineHeight { lh: Pt(14.0) },
         Op::SetFillColor {
             col: Color::Rgb(Rgb {
                 r: 0.0,
@@ -292,11 +279,10 @@ fn main() {
                 icc_profile: None,
             }),
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "5. Text with different rendering modes:".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
         // Fill mode (default)
@@ -311,9 +297,8 @@ fn main() {
                 icc_profile: None,
             }),
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("Fill mode".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
         // Stroke mode
@@ -329,9 +314,8 @@ fn main() {
             }),
         },
         Op::SetOutlineThickness { pt: Pt(0.5) },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("Stroke mode".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
         // Fill and stroke mode
@@ -354,9 +338,8 @@ fn main() {
                 icc_profile: None,
             }),
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("Fill and stroke mode".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
         Op::RestoreGraphicsState,
@@ -369,11 +352,11 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(100.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(12.0),
-            font: BuiltinFont::Helvetica,
         },
-        Op::SetLineHeight { lh: Pt(12.0) },
+        Op::SetLineHeight { lh: Pt(14.0) },
         Op::SetFillColor {
             col: Color::Rgb(Rgb {
                 r: 0.0,
@@ -385,32 +368,28 @@ fn main() {
         Op::SetTextRenderingMode {
             mode: TextRenderingMode::Fill,
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "6. Text with horizontal scaling:".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
         // Normal text (100% scaling)
         Op::SetHorizontalScaling { percent: 100.0 },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("Normal text (100% scaling)".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
         // Condensed text (75% scaling)
         Op::SetHorizontalScaling { percent: 75.0 },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("Condensed text (75% scaling)".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
         // Expanded text (150% scaling)
         Op::SetHorizontalScaling { percent: 150.0 },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("Expanded text (150% scaling)".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
         Op::RestoreGraphicsState,
@@ -423,42 +402,38 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(80.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(12.0),
-            font: BuiltinFont::Helvetica,
         },
-        Op::SetLineHeight { lh: Pt(12.0) },
+        Op::SetLineHeight { lh: Pt(14.0) },
         Op::SetHorizontalScaling { percent: 100.0 }, // Reset scaling
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("7. Text with word spacing:".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
         // Normal word spacing
         Op::SetWordSpacing { pt: Pt(0.0) },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "This is text with normal word spacing.".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
         // Extra word spacing
         Op::SetWordSpacing { pt: Pt(10.0) },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "This is text with extra word spacing.".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
         // Even more word spacing
         Op::SetWordSpacing { pt: Pt(20.0) },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "This is text with even more word spacing.".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
         Op::RestoreGraphicsState,
@@ -471,49 +446,92 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(60.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(12.0),
-            font: BuiltinFont::Helvetica,
         },
-        Op::SetLineHeight { lh: Pt(12.0) },
+        Op::SetLineHeight { lh: Pt(14.0) },
         Op::SetWordSpacing { pt: Pt(0.0) }, // Reset word spacing
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "8. Mixed fonts in a single line:".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
-        // Create a mixed-font text line by manually positioning each segment
-        // Normal text in Helvetica
-        Op::SetFontSizeBuiltinFont {
+        // Create a mixed-font text line by changing fonts between text segments
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(12.0),
-            font: BuiltinFont::Helvetica,
         },
-        Op::SetLineHeight { lh: Pt(12.0) },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("This is in ".to_string())],
-            font: BuiltinFont::Helvetica,
         },
-        // Position for Times Roman segment
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::TimesRoman),
             size: Pt(12.0),
-            font: BuiltinFont::TimesRoman,
         },
-        Op::SetLineHeight { lh: Pt(12.0) },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("Times Roman".to_string())],
-            font: BuiltinFont::TimesRoman,
         },
-        // Position for Courier segment
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Courier),
             size: Pt(12.0),
-            font: BuiltinFont::Courier,
         },
-        Op::SetLineHeight { lh: Pt(12.0) },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(" and this is in Courier".to_string())],
-            font: BuiltinFont::Courier,
+        },
+        Op::EndTextSection,
+        Op::RestoreGraphicsState,
+    ]);
+
+    // 9. Example of positioned glyphs with azul text3 integration  
+    // This demonstrates the complete workflow: azul UnifiedLayout → Vec<Op>
+    ops.extend_from_slice(&[
+        Op::SaveGraphicsState,
+        Op::StartTextSection,
+        Op::SetTextCursor {
+            pos: Point::new(Mm(20.0), Mm(40.0)),
+        },
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
+            size: Pt(12.0),
+        },
+        Op::SetLineHeight { lh: Pt(14.0) },
+        Op::ShowText {
+            items: vec![TextItem::Text(
+                "9. Azul Text3 Integration for Complex Scripts:".to_string(),
+            )],
+        },
+        Op::AddLineBreak,
+        Op::ShowText {
+            items: vec![TextItem::Text(
+                "✓ TextMatrix provides absolute positioning".to_string(),
+            )],
+        },
+        Op::AddLineBreak,
+        Op::ShowText {
+            items: vec![TextItem::Text(
+                "✓ TextItem::GlyphIds preserves exact glyph positioning".to_string(),
+            )],
+        },
+        Op::AddLineBreak,
+        Op::ShowText {
+            items: vec![TextItem::Text(
+                "✓ Perfect for Arabic/Indic script shaping via azul-layout".to_string(),
+            )],
+        },
+        Op::AddLineBreak,
+        Op::AddLineBreak,
+        Op::ShowText {
+            items: vec![TextItem::Text(
+                "Architecture: ParsedFont → UnifiedLayout → Vec<Op>".to_string(),
+            )],
+        },
+        Op::AddLineBreak,
+        Op::ShowText {
+            items: vec![TextItem::Text(
+                "See printpdf::html::from_html() for full implementation".to_string(),
+            )],
         },
         Op::EndTextSection,
         Op::RestoreGraphicsState,

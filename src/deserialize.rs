@@ -13,7 +13,7 @@ use lopdf::{
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    BuiltinFont, BuiltinOrExternalFontId, Color, DictItem, ExtendedGraphicsState, ExtendedGraphicsStateId, ExtendedGraphicsStateMap, FontId, LayerInternalId, Line, LineDashPattern, LinePoint, LinkAnnotation, Op, PageAnnotId, PageAnnotMap, PaintMode, ParsedFont, PdfDocument, PdfDocumentInfo, PdfFontMap, PdfLayerMap, PdfMetadata, PdfPage, PdfResources, Point, Polygon, PolygonRing, Pt, RawImage, Rect, RenderingIntent, TextItem, TextMatrix, TextRenderingMode, WindingOrder, XObject, XObjectId, XObjectMap, cmap::ToUnicodeCMap, conformance::PdfConformance, date::{OffsetDateTime, parse_pdf_date}
+    BuiltinFont, BuiltinOrExternalFontId, Color, DictItem, ExtendedGraphicsState, ExtendedGraphicsStateId, ExtendedGraphicsStateMap, FontId, LayerInternalId, Line, LineDashPattern, LinePoint, LinkAnnotation, Op, PageAnnotId, PageAnnotMap, PaintMode, ParsedFont, PdfDocument, PdfDocumentInfo, PdfFontMap, PdfLayerMap, PdfMetadata, PdfPage, PdfResources, Point, Polygon, PolygonRing, Pt, RawImage, Rect, RenderingIntent, TextMatrix, TextRenderingMode, WindingOrder, XObject, XObjectId, XObjectMap, cmap::ToUnicodeCMap, conformance::PdfConformance, date::{OffsetDateTime, parse_pdf_date}
 };
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -229,7 +229,7 @@ fn parse_pdf_from_bytes_end(
             .as_dict()
             .map_err(|e| format!("Page object is not a dictionary: {}", e))?;
 
-        let pdf_page = parse_page(i, page_obj, &doc, &fonts, &xobjects, warnings)?;
+        let pdf_page = parse_page(i, page_obj, &doc, &xobjects, warnings)?;
 
         pages.push(pdf_page);
     }
@@ -243,7 +243,11 @@ fn parse_pdf_from_bytes_end(
 
     let fonts = fonts
         .into_iter()
-        .filter_map(|(id, pf)| Some((FontId(id.get_id().to_string()), pf.as_parsed_font()?)))
+        .filter_map(|(id, pf)| {
+            let parsed_font = pf.as_parsed_font()?;
+            let pdf_font = crate::font::PdfFont::new(parsed_font);
+            Some((FontId(id.get_id().to_string()), pdf_font))
+        })
         .collect();
 
     // Build the final PdfDocument.
@@ -708,7 +712,6 @@ fn parse_page(
     num: usize,
     page: &LopdfDictionary,
     doc: &LopdfDocument,
-    fonts: &BTreeMap<BuiltinOrExternalFontId, ParsedOrBuiltinFont>,
     xobjects: &BTreeMap<XObjectId, XObject>,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> Result<PdfPage, String> {
@@ -785,7 +788,7 @@ fn parse_page(
     let mut page_state = PageState::default();
     let mut printpdf_ops = Vec::new();
     for (op_id, op) in ops.iter().enumerate() {
-        let parsed_op = parse_op(num, op_id, &op, &mut page_state, fonts, xobjects, warnings)?;
+        let parsed_op = parse_op(num, op_id, &op, &mut page_state, xobjects, warnings)?;
         printpdf_ops.extend(parsed_op.into_iter());
     }
 
@@ -808,6 +811,9 @@ pub struct PageState {
     pub current_font: Option<crate::BuiltinOrExternalFontId>,
 
     pub current_font_size: Option<crate::units::Pt>,
+
+    /// Current font resource name (e.g., "F5") - tracked only to emit warnings if text appears without Tf
+    pub current_font_resource: Option<String>,
 
     /// Current transformation matrix stack. Each entry is a 6-float array [a b c d e f].
     pub transform_stack: Vec<[f32; 6]>,
@@ -1312,7 +1318,6 @@ pub fn parse_op(
     op_id: usize,
     op: &lopdf::content::Operation,
     state: &mut PageState,
-    fonts: &BTreeMap<BuiltinOrExternalFontId, ParsedOrBuiltinFont>,
     _xobjects: &BTreeMap<XObjectId, XObject>,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> Result<Vec<Op>, String> {
@@ -1597,33 +1602,23 @@ pub fn parse_op(
                     "Warning: 'TJ' with no operands".to_string(),
                 ));
             } else if let Some(arr) = op.operands.get(0).and_then(|o| o.as_array().ok()) {
-                // Get the pre-parsed CMap from the font
-                let to_unicode_cmap = if let Some(fid) = &state.current_font {
-                    fonts.get(fid).and_then(|font| font.cmap())
-                } else {
-                    None
-                };
-
-                // Decode the TJ array using the pre-parsed CMap
-                let text_items = crate::text::decode_tj_operands(arr, to_unicode_cmap);
-
-                let default_font = BuiltinOrExternalFontId::Builtin(BuiltinFont::default());
-                let cur_font = state.current_font.as_ref().unwrap_or(&default_font);
-
-                match cur_font {
-                    BuiltinOrExternalFontId::Builtin(b) => {
-                        out_ops.push(Op::WriteTextBuiltinFont {
-                            items: text_items,
-                            font: b.clone(),
-                        });
-                    }
-                    BuiltinOrExternalFontId::External(id) => {
-                        out_ops.push(Op::WriteText {
-                            items: text_items,
-                            font: id.clone(),
-                        });
-                    }
+                // Warn if no font was set via Tf operator
+                if state.current_font_resource.is_none() {
+                    warnings.push(PdfWarnMsg::warning(
+                        page,
+                        op_id,
+                        "Warning: 'TJ' without prior 'Tf' (font setup). Renderer will use default font.".to_string(),
+                    ));
                 }
+
+                // Use raw glyph IDs instead of decoding to Unicode
+                // This is more efficient and preserves the original PDF structure
+                let text_items = crate::text::decode_tj_operands_as_glyph_ids(arr);
+
+                // Emit new ShowText operation (1:1 PDF mapping)
+                out_ops.push(Op::ShowText {
+                    items: text_items,
+                });
             } else {
                 warnings.push(PdfWarnMsg::error(
                     page,
@@ -1648,40 +1643,23 @@ pub fn parse_op(
                     op_id,
                     "Warning: 'Tj' with no operands".to_string(),
                 ));
-            } else if let lopdf::Object::String(bytes, format) = &op.operands[0] {
-                // Get the pre-parsed CMap from the font
-                let to_unicode_cmap = if let Some(fid) = &state.current_font {
-                    fonts.get(fid).and_then(|font| font.cmap())
-                } else {
-                    None
-                };
-
-                // Create a temporary lopdf::Object for decoding
-                let string_obj = lopdf::Object::String(bytes.clone(), *format);
-
-                // Decode the PDF string using the pre-parsed CMap
-                let text_str = crate::text::decode_pdf_string(&string_obj, to_unicode_cmap);
-
-                // Create a single TextItem with no kerning
-                let text_items = vec![TextItem::Text(text_str)];
-
-                let default_font = BuiltinOrExternalFontId::Builtin(BuiltinFont::default());
-                let cur_font = state.current_font.as_ref().unwrap_or(&default_font);
-
-                match cur_font {
-                    BuiltinOrExternalFontId::Builtin(b) => {
-                        out_ops.push(Op::WriteTextBuiltinFont {
-                            items: text_items,
-                            font: b.clone(),
-                        });
-                    }
-                    BuiltinOrExternalFontId::External(id) => {
-                        out_ops.push(Op::WriteText {
-                            items: text_items,
-                            font: id.clone(),
-                        });
-                    }
+            } else if let lopdf::Object::String(bytes, _format) = &op.operands[0] {
+                // Warn if no font was set via Tf operator
+                if state.current_font_resource.is_none() {
+                    warnings.push(PdfWarnMsg::warning(
+                        page,
+                        op_id,
+                        "Warning: 'Tj' without prior 'Tf' (font setup). Renderer will use default font.".to_string(),
+                    ));
                 }
+
+                // Use raw glyph IDs instead of decoding to Unicode
+                let text_items = crate::text::decode_tj_string_as_glyph_ids(bytes);
+
+                // Emit new ShowText operation (1:1 PDF mapping)
+                out_ops.push(Op::ShowText {
+                    items: text_items,
+                });
             } else {
                 warnings.push(PdfWarnMsg::error(
                     page,
@@ -1859,26 +1837,24 @@ pub fn parse_op(
             if op.operands.len() == 2 {
                 if let Some(font_name) = as_name(&op.operands[0]) {
                     state.current_font = Some(BuiltinOrExternalFontId::from_str(&font_name));
+                    state.current_font_resource = Some(font_name.clone());
                 }
                 let size_val = to_f32(&op.operands[1]);
                 state.current_font_size = Some(crate::units::Pt(size_val));
 
-                // produce a corresponding printpdf op:
-                if let (Some(fid), Some(sz)) = (&state.current_font, &state.current_font_size) {
-                    match fid {
-                        BuiltinOrExternalFontId::Builtin(builtin_font) => {
-                            out_ops.push(Op::SetFontSizeBuiltinFont {
-                                size: *sz,
-                                font: builtin_font.clone(),
-                            });
-                        }
-                        BuiltinOrExternalFontId::External(font_id) => {
-                            out_ops.push(Op::SetFontSize {
-                                size: *sz,
-                                font: font_id.clone(),
-                            });
-                        }
-                    }
+                // Emit new SetFont operation (1:1 PDF mapping)
+                if let (Some(font_resource), Some(sz)) = (&state.current_font_resource, &state.current_font_size) {
+                    // Parse font_resource to determine if it's builtin or external
+                    let font_handle = if let Some(builtin) = BuiltinFont::from_id(font_resource) {
+                        crate::ops::PdfFontHandle::Builtin(builtin)
+                    } else {
+                        crate::ops::PdfFontHandle::External(crate::FontId(font_resource.clone()))
+                    };
+                    
+                    out_ops.push(Op::SetFont {
+                        font: font_handle,
+                        size: *sz,
+                    });
                 }
             } else {
                 warnings.push(PdfWarnMsg::error(
@@ -3654,7 +3630,12 @@ mod parsefont {
                 ));
 
                 // Parse the font
-                if let Some(parsed_font) = ParsedFont::from_bytes(&font_data, 0, warnings) {
+                let mut font_warnings = Vec::new();
+                if let Some(parsed_font) = ParsedFont::from_bytes(&font_data, 0, &mut font_warnings) {
+                    // Convert FontParseWarnings to PdfWarnMsg if needed
+                    for fw in font_warnings {
+                        warnings.push(PdfWarnMsg::warning(page_num, 0, fw.message));
+                    }
                     return Some(parsed_font);
                 } else {
                     warnings.push(PdfWarnMsg::error(

@@ -1,4 +1,4 @@
-use printpdf::{Mm, Op, ParsedFont, PdfDocument, PdfPage, PdfSaveOptions, Pt, TextItem};
+use printpdf::{Mm, Op, ParsedFont, PdfDocument, PdfPage, PdfSaveOptions, PdfFontHandle, Pt, TextItem};
 
 const ROBOTO_TTF: &[u8] = include_bytes!("./assets/fonts/RobotoMedium.ttf");
 
@@ -12,14 +12,12 @@ fn main() {
             Mm(210.0),
             vec![
                 Op::StartTextSection,
-                Op::SetFontSize {
-                    // <- todo: mandatory set font size ???
-                    font: font_id.clone(),
+                Op::SetFont {
+                    font: PdfFontHandle::External(font_id.clone()),
                     size: Pt(20.0),
                 },
                 Op::SetLineHeight { lh: Pt(20.0) },
-                Op::WriteText {
-                    font: font_id,
+                Op::ShowText {
                     items: vec![TextItem::Text("Привет, как дела?".to_string())],
                 },
                 Op::EndTextSection,

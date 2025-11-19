@@ -17,9 +17,9 @@ fn main() {
         Op::SetTextMatrix {
             matrix: TextMatrix::TranslateRotate(Pt(-150.0), Pt(0.0), 0.0),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::TimesBold),
             size: Pt(30.0),
-            font: BuiltinFont::TimesBold,
         },
         Op::SetLineHeight { lh: Pt(30.0) },
         Op::SetFillColor {
@@ -30,14 +30,13 @@ fn main() {
                 icc_profile: None,
             }),
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("Multi-page PDF Example".to_string())],
-            font: BuiltinFont::TimesBold,
         },
         Op::AddLineBreak,
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::TimesRoman),
             size: Pt(16.0),
-            font: BuiltinFont::TimesRoman,
         },
         Op::SetLineHeight { lh: Pt(16.0) },
         Op::SetFillColor {
@@ -48,9 +47,8 @@ fn main() {
                 icc_profile: None,
             }),
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("Page 1: Cover Page".to_string())],
-            font: BuiltinFont::TimesRoman,
         },
         Op::EndTextSection,
     ];
@@ -61,9 +59,9 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(280.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(24.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(24.0) },
         Op::SetFillColor {
@@ -74,14 +72,13 @@ fn main() {
                 icc_profile: None,
             }),
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("Page 2: Content Page".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(12.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(12.0) },
         Op::SetFillColor {
@@ -92,18 +89,16 @@ fn main() {
                 icc_profile: None,
             }),
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "This is the second page of our multi-page PDF document.".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "It demonstrates how to create multiple pages with different content.".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
     ];
@@ -114,9 +109,9 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(280.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(24.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(24.0) },
         Op::SetFillColor {
@@ -127,9 +122,8 @@ fn main() {
                 icc_profile: None,
             }),
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("Page 3: Graphics Page".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
         // Draw a rectangle

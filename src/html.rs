@@ -26,7 +26,7 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::{font::ParsedFont, Mm, PdfDocument, PdfPage, PdfWarnMsg};
 
-mod bridge;
+pub mod bridge;
 
 /// Options for rendering XML/HTML to PDF
 #[derive(Debug, Serialize, Deserialize)]
@@ -199,7 +199,8 @@ pub fn xml_to_pdf_pages(
             // Convert azul's ParsedFont to bytes using to_bytes(), then parse with printpdf
             match azul_parsed_font.to_bytes(None) {
                 Ok(font_bytes) => {
-                    if let Some(printpdf_font) = ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
+                    let mut font_warnings = Vec::new();
+                    if let Some(printpdf_font) = ParsedFont::from_bytes(&font_bytes, 0, &mut font_warnings) {
                         font_data_map.insert(font_hash.clone(), printpdf_font);
                     } else {
                         warnings.push(PdfWarnMsg::warning(
@@ -244,7 +245,8 @@ pub fn add_xml_to_document(
             // Register fonts in the document
             for (font_hash, parsed_font) in font_data.into_iter() {
                 let font_id = crate::FontId(format!("F{}", font_hash.font_hash));
-                document.resources.fonts.map.insert(font_id, parsed_font);
+                let pdf_font = crate::font::PdfFont::new(parsed_font);
+                document.resources.fonts.map.insert(font_id, pdf_font);
             }
             document.pages.extend(pages);
             Ok(())

@@ -21,9 +21,9 @@ fn main() {
             pos: Point::new(Mm(20.0), Mm(270.0)),
         },
         // Set a built-in font (Helvetica) with its size
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(24.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(24.0) },
         // Set text color to blue
@@ -36,16 +36,15 @@ fn main() {
             }),
         },
         // Write text with the built-in font
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("Hello from Helvetica!".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         // Add a line break to move down
         Op::AddLineBreak,
         // Change to Times Roman font
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::TimesRoman),
             size: Pt(18.0),
-            font: BuiltinFont::TimesRoman,
         },
         Op::SetLineHeight { lh: Pt(18.0) },
         // Change color to dark red
@@ -58,16 +57,15 @@ fn main() {
             }),
         },
         // Write text with Times Roman
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("This is Times Roman font".to_string())],
-            font: BuiltinFont::TimesRoman,
         },
         // Add another line break
         Op::AddLineBreak,
         // Use our custom Roboto font
-        Op::SetFontSize {
+        Op::SetFont {
+            font: PdfFontHandle::External(roboto_id.clone()),
             size: Pt(14.0),
-            font: roboto_id.clone(),
         },
         Op::SetLineHeight { lh: Pt(14.0) },
         // Change color to dark green
@@ -80,9 +78,8 @@ fn main() {
             }),
         },
         // Write text with the custom font
-        Op::WriteText {
+        Op::ShowText {
             items: vec![TextItem::Text("This text uses the Roboto font".to_string())],
-            font: roboto_id.clone(),
         },
         // End the text section
         Op::EndTextSection,

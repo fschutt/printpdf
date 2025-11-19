@@ -57,6 +57,14 @@ pub use image::*;
 pub mod html;
 #[cfg(feature = "html")]
 pub use html::*;
+
+/// Public API for text shaping using azul text3
+#[cfg(feature = "html")]
+pub mod text_shaping {
+    pub use azul_layout::text3::cache::{FontManager, UnifiedLayout, ParsedFontTrait};
+    pub use azul_css::props::basic::ColorU;
+    pub use crate::html::bridge::render_unified_layout_public;
+}
 /// HTML component definitions
 #[cfg(feature = "html")]
 pub mod components;
@@ -246,22 +254,6 @@ pub struct PdfDocument {
 }
 
 impl PdfDocument {
-    /// Looks up a text and shapes it without coordinate transformation.
-    ///
-    /// Only returns `None` on an invalid `FontId`.
-    #[cfg(feature = "text_layout")]
-    pub fn shape_text(
-        &self,
-        text: &str,
-        font_id: &FontId,
-        options: &TextShapingOptions,
-    ) -> Option<ShapedText> {
-        let font = self.resources.fonts.map.get(font_id)?;
-
-        let shaped_text = font.shape_text(text, options, font_id);
-
-        Some(shaped_text)
-    }
 
     pub fn new(name: &str) -> Self {
         Self {
@@ -307,10 +299,21 @@ impl PdfDocument {
         id
     }
 
+    /// Add a font from a parsed font.
     pub fn add_font(&mut self, font: &ParsedFont) -> FontId {
         let id = FontId::new();
-        self.resources.fonts.map.insert(id.clone(), font.clone());
+        let pdf_font = crate::font::PdfFont::new(font.clone());
+        self.resources.fonts.map.insert(id.clone(), pdf_font);
         id
+    }
+
+    /// Extract text from all pages in the document
+    /// This method properly handles both TextItem::Text and TextItem::GlyphIds
+    pub fn extract_text(&self) -> Vec<Vec<String>> {
+        self.pages
+            .iter()
+            .map(|page| page.extract_text(&self.resources))
+            .collect()
     }
 
     /// Adds an image to the internal resources
@@ -392,7 +395,8 @@ impl PdfDocument {
                     let font_id = FontId(format!("F{}", font_hash.font_hash));
                     
                     println!("[from_html] Registering font: {}", font_id.0);
-                    pdf.resources.fonts.map.insert(font_id, parsed_font.clone());
+                    let pdf_font = crate::font::PdfFont::new(parsed_font.clone());
+                    pdf.resources.fonts.map.insert(font_id, pdf_font);
                 }
                 
                 println!("[from_html] Registered {} fonts in PDF resources", font_data.len());
@@ -490,21 +494,6 @@ pub struct PdfResources {
     pub layers: PdfLayerMap,
 }
 
-// Add methods to PdfResources
-impl PdfResources {
-    /// Shape text using a font from the document's resources
-    #[cfg(feature = "text_layout")]
-    pub fn shape_text(
-        &self,
-        text: &str,
-        font_id: &FontId,
-        options: &TextShapingOptions,
-    ) -> Option<ShapedText> {
-        let font = self.fonts.map.get(font_id)?;
-        Some(font.shape_text(text, options, font_id))
-    }
-}
-
 #[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct PdfLayerMap {
@@ -514,7 +503,7 @@ pub struct PdfLayerMap {
 #[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct PdfFontMap {
-    pub map: BTreeMap<FontId, ParsedFont>,
+    pub map: BTreeMap<FontId, crate::font::PdfFont>,
 }
 
 #[derive(Debug, PartialEq, Default, Clone)]

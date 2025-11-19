@@ -1,7 +1,7 @@
 // tests/op_tests.rs
 
 use printpdf::{
-    BuiltinFont, Color, CurTransMat, LayerInternalId, Line, LineCapStyle, LineDashPattern,
+    Color, CurTransMat, LayerInternalId, Line, LineCapStyle, LineDashPattern,
     LineJoinStyle, LinePoint, Mm, Op, PaintMode, PdfDocument, PdfPage, PdfParseOptions,
     PdfSaveOptions, Point, Polygon, PolygonRing, Pt, Rgb, TextItem, TextMatrix, WindingOrder,
 };
@@ -64,13 +64,100 @@ fn test_op_text_section() {
 
 #[test]
 fn test_op_write_text() {
-    assert!(test_op(
-        Op::WriteTextBuiltinFont {
-            items: vec![TextItem::Text("Hello, World!".to_string())],
-            font: BuiltinFont::Helvetica,
-        },
-        "write_text"
-    ));
+    // Test that text operations with proper font setup roundtrip correctly
+    let mut doc = PdfDocument::new("test_write_text");
+    let page = PdfPage::new(
+        Mm(210.0),
+        Mm(297.0),
+        vec![
+            Op::StartTextSection,
+            Op::SetFont {
+                font: printpdf::ops::PdfFontHandle::Builtin(printpdf::BuiltinFont::Helvetica),
+                size: Pt(12.0),
+            },
+            Op::ShowText {
+                items: vec![TextItem::Text("Hello, World!".to_string())],
+            },
+            Op::EndTextSection,
+        ],
+    );
+    doc.pages.push(page);
+
+    let mut warnings = Vec::new();
+    let bytes = doc.save(&PdfSaveOptions::default(), &mut warnings);
+
+    match PdfDocument::parse(&bytes, &PdfParseOptions::default(), &mut Vec::new()) {
+        Ok(dd) => {
+            if dd.pages.is_empty() || dd.pages[0].ops.is_empty() {
+                panic!("empty pages");
+            }
+            
+            // The parsed ops should now emit new SetFont and ShowText operations
+            pretty_assertions::assert_eq!(dd.pages[0].ops.len(), 4);
+            
+            // Check each operation type and content
+            assert!(matches!(dd.pages[0].ops[0], Op::StartTextSection));
+            // Deserialization now emits SetFont instead of SetFontSizeBuiltinFont
+            assert!(matches!(
+                &dd.pages[0].ops[1],
+                Op::SetFont { font: printpdf::ops::PdfFontHandle::Builtin(printpdf::BuiltinFont::Helvetica), size } if *size == Pt(12.0)
+            ));
+            // Deserialization now emits ShowText instead of WriteTextBuiltinFont
+            assert!(matches!(
+                &dd.pages[0].ops[2],
+                Op::ShowText { items } if items.len() == 1
+            ));
+            assert!(matches!(dd.pages[0].ops[3], Op::EndTextSection));
+        }
+        Err(e) => {
+            panic!("{}", e);
+        }
+    }
+}
+
+#[test]
+fn test_op_write_text_without_font_setup() {
+    // Test that text operations without font setup in text mode still work
+    // (font was set before BT, or implicitly uses last font)
+    let mut doc = PdfDocument::new("test_write_text_no_font");
+    let page = PdfPage::new(
+        Mm(210.0),
+        Mm(297.0),
+        vec![
+            // Note: In new API, ShowText without SetFont will serialize but may produce empty/invalid text
+            // This tests the edge case where font is implicit from context
+            Op::StartTextSection,
+            Op::ShowText {
+                items: vec![TextItem::Text("Hello, World!".to_string())],
+            },
+            Op::EndTextSection,
+        ],
+    );
+    doc.pages.push(page);
+
+    let mut warnings = Vec::new();
+    let bytes = doc.save(&PdfSaveOptions::default(), &mut warnings);
+
+    // Parse the PDF back
+    let mut parse_warnings = Vec::new();
+    match PdfDocument::parse(&bytes, &PdfParseOptions::default(), &mut parse_warnings) {
+        Ok(dd) => {
+            // Should have warnings about missing Tf operator
+            assert!(!parse_warnings.is_empty(), "Expected warnings about missing font setup");
+            
+            if dd.pages.is_empty() || dd.pages[0].ops.is_empty() {
+                panic!("empty pages");
+            }
+            
+            // Should still parse the text section markers
+            assert!(dd.pages[0].ops.len() >= 2);
+            assert!(matches!(dd.pages[0].ops[0], Op::StartTextSection));
+            // ShowText may be empty or present depending on serialization behavior
+        }
+        Err(e) => {
+            panic!("{}", e);
+        }
+    }
 }
 
 #[test]

@@ -23,12 +23,11 @@ fn test_custom_font_roundtrip() {
             Mm(210.0),
             vec![
                 Op::StartTextSection,
-                Op::SetFontSize {
-                    font: font_id.clone(),
+                Op::SetFont {
+                    font: printpdf::ops::PdfFontHandle::External(font_id.clone()),
                     size: Pt(20.0),
                 },
-                Op::WriteText {
-                    font: font_id,
+                Op::ShowText {
                     items: vec![TextItem::Text(russian_text.to_string())],
                 },
                 Op::EndTextSection,
@@ -54,27 +53,12 @@ fn test_custom_font_roundtrip() {
     assert!(!parsed_pdf.pages.is_empty(), "No pages in the parsed PDF");
     let page = &parsed_pdf.pages[0];
 
-    // Find WriteText operations
-    let text_ops = page
-        .ops
-        .iter()
-        .filter_map(|op| match op {
-            Op::WriteText { items, .. } => Some(
-                items
-                    .iter()
-                    .filter_map(|item| match item {
-                        TextItem::Text(s) => Some(s.clone()),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>()
-                    .join(""),
-            ),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
+    // Extract text from the page (this handles both TextItem::Text and TextItem::GlyphIds)
+    let text_chunks = page.extract_text(&parsed_pdf.resources);
+    assert!(!text_chunks.is_empty(), "No text extracted from the page");
 
-    // Check that we found a WriteText operation with the correct text
-    assert!(!text_ops.is_empty(), "No WriteText operations found");
+    // Join all text chunks
+    let extracted_text = text_chunks.join("");
 
     // When fonts are subsetted, the text might be encoded using the subset glyph IDs
     // or it might remain as the original text depending on the PDF parser implementation
@@ -84,10 +68,10 @@ fn test_custom_font_roundtrip() {
     
     // Accept either the original text or the subsetted version
     assert!(
-        text_ops[0] == RUSSIAN_ORIGINAL || text_ops[0] == RUSSIAN_SUBSETTED,
+        extracted_text == RUSSIAN_ORIGINAL || extracted_text == RUSSIAN_SUBSETTED,
         "Text should be either the original '{}' or subsetted '{:?}', but got '{:?}'",
         RUSSIAN_ORIGINAL,
         RUSSIAN_SUBSETTED,
-        text_ops[0]
+        extracted_text
     );
 }

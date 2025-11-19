@@ -6,12 +6,12 @@
 //!
 //! IMPORTANT: This module now converts DisplayList directly to printpdf Ops,
 //! bypassing the intermediate azul PdfOp representation. This allows us to
-//! generate WriteCodepoints (glyph IDs) instead of WriteText (text strings),
+//! Important: This module uses positioned glyphs from azul's layout engine to
+//! generate ShowText operations (with SetFont for font/size), which map 1:1 to PDF operators.
 //! which is necessary for proper text shaping in complex scripts.
 
 use azul_core::{
-    geom::{LogicalRect, LogicalSize},
-    ui_solver::GlyphInstance,
+    geom::{LogicalRect, LogicalSize, LogicalPosition},
 };
 use azul_css::props::basic::{pixel::DEFAULT_FONT_SIZE, ColorU};
 use azul_layout::{
@@ -33,7 +33,7 @@ fn convert_color(color: &ColorU) -> Color {
 
 /// Convert a display list directly to printpdf Ops.
 /// This bypasses the intermediate azul PdfOp format to generate
-/// WriteCodepoints (glyph IDs) instead of WriteText (text strings).
+/// WriteCodepoints has been replaced with ShowText (use SetFont first to set the font).
 pub fn display_list_to_printpdf_ops<T: ParsedFontTrait + 'static, Q: FontLoaderTrait<T>>(
     display_list: &DisplayList,
     page_size: LogicalSize,
@@ -71,6 +71,12 @@ pub fn display_list_to_printpdf_ops<T: ParsedFontTrait + 'static, Q: FontLoaderT
         };
         println!("[bridge] Item {}: {}", idx, item_type);
         convert_display_list_item(&mut ops, item, page_height, &mut current_text_layout, font_manager);
+    }
+
+    // Process any remaining TextLayout that was collected (should be rare now)
+    if let Some((layout, bounds)) = current_text_layout {
+        println!("[bridge] Processing final TextLayout with {} items at bounds {:?} (this should be rare)", layout.items.len(), bounds);
+        // Note: This will likely be redundant since TextLayouts are processed immediately now
     }
 
     println!("[bridge] Generated {} ops", ops.len());
@@ -145,85 +151,29 @@ fn convert_display_list_item<'a, T: ParsedFontTrait + 'static, Q: FontLoaderTrai
             bounds,
             font_hash: _,
             font_size_px: _,
-            color: _,
+            color,
         } => {
             // Extract the UnifiedLayout from the type-erased Arc<dyn Any>
             if let Some(unified_layout) = layout.downcast_ref::<azul_layout::text3::cache::UnifiedLayout<T>>() {
                 println!("[bridge] ✓ Found TextLayout with {} items, bounds={:?}", unified_layout.items.len(), bounds);
+                
+                // Process this TextLayout immediately instead of just storing it
+                render_unified_layout_impl(ops, unified_layout, bounds, *color, page_height, font_manager);
+                
+                // Also update the current text layout for any subsequent processing
                 *current_text_layout = Some((unified_layout, *bounds));
             } else {
                 println!("[bridge] ✗ Failed to downcast TextLayout");
             }
         }
 
-        DisplayListItem::Text {
-            glyphs,
-            font_hash,
-            font_size_px,
-            color,
-            clip_rect: _,
-        } => {
-            // Skip empty text
-            if glyphs.is_empty() {
-                println!("[bridge] Skipping empty text");
-                return;
+        DisplayListItem::Text { glyphs, .. } => {
+            // IGNORE: Text items are for visual renderers, not PDF generation
+            // The azul-layout code pushes TextLayout items BEFORE Text items
+            // We only process the TextLayout items which contain the full UnifiedLayout
+            if !glyphs.is_empty() {
+                println!("[bridge] IGNORING Text item with {} glyphs - use TextLayout instead", glyphs.len());
             }
-
-            println!("[bridge] Converting text with {} glyphs, font_hash={:?}, font_size={}",
-                glyphs.len(), font_hash, font_size_px);
-
-            // DEBUG: Print first few glyph positions
-            for (i, g) in glyphs.iter().enumerate().take(5) {
-                println!("[bridge]   Glyph {}: index={}, point=({}, {})", 
-                    i, g.index, g.point.x, g.point.y);
-            }
-
-            // Create printpdf font ID directly from font_hash
-            let font_id = FontId(format!("F{}", font_hash.font_hash));
-            println!("[bridge] Using font ID: {:?} for font_hash {:?}", font_id, font_hash);
-
-            ops.push(Op::StartTextSection);
-            ops.push(Op::SetFillColor {
-                col: convert_color(color),
-            });
-            ops.push(Op::SetFontSize {
-                size: Pt(*font_size_px),
-                font: font_id.clone(),
-            });
-
-            // Group glyphs by line (same Y position within tolerance)
-            let mut current_line_glyphs: Vec<&GlyphInstance> = Vec::new();
-            let mut current_y = None;
-
-            for glyph in glyphs {
-                // glyph.point.y is relative to the container, keep it that way
-                let glyph_y = glyph.point.y;
-                
-                // Check if we're still on the same line (within 0.5pt tolerance)
-                let same_line = current_y.map_or(true, |y: f32| (y - glyph_y).abs() < 0.5);
-                
-                if same_line {
-                    current_line_glyphs.push(glyph);
-                    current_y = Some(glyph_y);
-                } else {
-                    // Render the previous line
-                    if !current_line_glyphs.is_empty() {
-                        render_glyph_line(ops, &current_line_glyphs, &font_id, current_y.unwrap(), page_height, font_manager, current_text_layout);
-                        current_line_glyphs.clear();
-                    }
-                    // Start new line
-                    current_line_glyphs.push(glyph);
-                    current_y = Some(glyph_y);
-                }
-            }
-
-            // Render remaining glyphs
-            if !current_line_glyphs.is_empty() {
-                println!("[bridge] Rendering final line with {} glyphs", current_line_glyphs.len());
-                render_glyph_line(ops, &current_line_glyphs, &font_id, current_y.unwrap(), page_height, font_manager, current_text_layout);
-            }
-
-            ops.push(Op::EndTextSection);
         }
 
         DisplayListItem::Border {
@@ -313,109 +263,160 @@ fn convert_display_list_item<'a, T: ParsedFontTrait + 'static, Q: FontLoaderTrai
     }
 }
 
-/// Helper function to render a line of glyphs using WriteCodepoints
-fn render_glyph_line<T: ParsedFontTrait + 'static, Q: FontLoaderTrait<T>>(
+/// Render an entire UnifiedLayout to PDF operations
+fn render_unified_layout<T: ParsedFontTrait + 'static, Q: FontLoaderTrait<T>>(
     ops: &mut Vec<Op>,
-    glyphs: &[&GlyphInstance],
-    font_id: &FontId,
-    y_pos: f32,
+    layout: &UnifiedLayout<T>,
+    bounds: &LogicalRect,
+    color: ColorU,
     page_height: f32,
     _font_manager: &FontManager<T, Q>,
-    current_text_layout: &Option<(&UnifiedLayout<T>, LogicalRect)>,
 ) {
-    if glyphs.is_empty() {
-        return;
-    }
+    render_unified_layout_impl(ops, layout, bounds, color, page_height, _font_manager);
+}
 
-    println!("[bridge] Rendering glyph line with {} glyphs at y={}", glyphs.len(), y_pos);
-
-    // Get the container bounds from TextLayout
-    let container_bounds = current_text_layout.as_ref().map(|(_, bounds)| *bounds);
-    
-    // Set text position to the start of the line
-    // Glyphs have positions RELATIVE to their container, so we add container.origin
-    let first_x = glyphs[0].point.x;
-    let (absolute_x, absolute_y) = if let Some(bounds) = container_bounds {
-        println!("[bridge] Using container bounds: origin=({}, {})", bounds.origin.x, bounds.origin.y);
-        // y_pos is glyph.point.y (relative to container)
-        // Add container origin to get absolute position, then convert to PDF coordinates
-        let absolute_x = bounds.origin.x + first_x;
-        let absolute_y_layout = bounds.origin.y + y_pos;
-        let absolute_y_pdf = page_height - absolute_y_layout;
-        (absolute_x, absolute_y_pdf)
-    } else {
-        println!("[bridge] WARNING: No container bounds, using glyph-relative position");
-        (first_x, page_height - y_pos)
+/// Public API for rendering UnifiedLayout to PDF operations
+pub fn render_unified_layout_public<T: ParsedFontTrait + 'static, Q: FontLoaderTrait<T>>(
+    layout: &UnifiedLayout<T>,
+    bounds_width: f32,
+    bounds_height: f32, 
+    color: ColorU,
+    page_height: f32,
+    _font_manager: &FontManager<T, Q>,
+) -> Vec<Op> {
+    let mut ops = Vec::new();
+    let bounds = LogicalRect { 
+        origin: LogicalPosition::new(0.0, 0.0),
+        size: LogicalSize::new(bounds_width, bounds_height),
     };
+    render_unified_layout_impl(&mut ops, layout, &bounds, color, page_height, _font_manager);
+    ops
+}
+
+/// Implementation function for rendering UnifiedLayout to PDF operations
+fn render_unified_layout_impl<T: ParsedFontTrait + 'static, Q: FontLoaderTrait<T>>(
+    ops: &mut Vec<Op>,
+    layout: &UnifiedLayout<T>,
+    bounds: &LogicalRect,
+    color: ColorU,
+    page_height: f32,
+    _font_manager: &FontManager<T, Q>,
+) {
+    use azul_layout::text3::cache::ShapedItem;
+    use std::collections::HashMap;
     
-    ops.push(Op::SetTextCursor {
-        pos: crate::graphics::Point::new(Mm(absolute_x * 0.3527777778), Mm(absolute_y * 0.3527777778)),
+    println!(
+        "[bridge] Rendering unified layout with {} items, bounds={:?}", 
+        layout.items.len(), 
+        bounds
+    );
+
+    // Build a comprehensive map from glyph_id to cluster text for the entire layout
+    let mut glyph_to_cluster_text: HashMap<u16, String> = HashMap::new();
+    let mut font_hashes_used = std::collections::BTreeSet::new();
+    
+    // First pass: collect all glyph-to-text mappings and font hashes
+    for positioned_item in &layout.items {
+        match &positioned_item.item {
+            ShapedItem::Cluster(cluster) => {
+                for shaped_glyph in &cluster.glyphs {
+                    // Store the cluster text for this glyph
+                    glyph_to_cluster_text.insert(shaped_glyph.glyph_id, cluster.text.clone());
+                    font_hashes_used.insert(shaped_glyph.font.get_hash());
+                }
+            }
+            ShapedItem::CombinedBlock { glyphs, .. } => {
+                for shaped_glyph in glyphs {
+                    // For combined blocks, we might not have cluster text
+                    // Use a placeholder or the glyph's corresponding character
+                    glyph_to_cluster_text.insert(shaped_glyph.glyph_id, "?".to_string());
+                    font_hashes_used.insert(shaped_glyph.font.get_hash());
+                }
+            }
+            _ => {
+                // Ignore other item types (non-text)
+            }
+        }
+    }
+    
+    println!(
+        "[bridge] Built glyph-to-cluster-text map with {} entries, {} fonts used", 
+        glyph_to_cluster_text.len(),
+        font_hashes_used.len()
+    );
+
+    ops.push(Op::StartTextSection);
+    ops.push(Op::SetFillColor {
+        col: convert_color(&color),
     });
 
-    // Build glyph-to-unicode mapping from UnifiedLayout
-    let mut codepoints: Vec<(u16, char)> = Vec::new();
+    // Store the text layout origin for absolute positioning
+    let text_origin_x = bounds.origin.x;
+    let text_origin_y = bounds.origin.y;
+
+    // Process all text items using absolute positioning with TextMatrix (Tm operator)
+    let mut current_font_hash: Option<u64> = None;
     
-    if let Some((text_layout, _bounds)) = current_text_layout {
-        // Build a map from glyph_id to the cluster's complete text
-        // This handles ligatures correctly: "fi" ligature glyph maps to "fi" text
-        use std::collections::HashMap;
-        use azul_layout::text3::cache::ShapedItem;
-        
-        let mut glyph_to_cluster_text: HashMap<u16, String> = HashMap::new();
-        
-        // Iterate through all positioned items in the layout
-        for positioned_item in &text_layout.items {
-            match &positioned_item.item {
-                ShapedItem::Cluster(cluster) => {
-                    // Map each glyph in the cluster to the cluster's complete text
-                    // For ligatures (e.g., "fi" -> single glyph_id=123), cluster.text = "fi"
-                    // For normal chars (e.g., "a" -> glyph_id=45), cluster.text = "a"
-                    for shaped_glyph in &cluster.glyphs {
-                        glyph_to_cluster_text.insert(shaped_glyph.glyph_id, cluster.text.clone());
-                    }
+    for positioned_item in &layout.items {
+        match &positioned_item.item {
+            ShapedItem::Cluster(cluster) => {
+                if cluster.glyphs.is_empty() {
+                    continue;
                 }
-                _ => {} // Ignore other item types
-            }
-        }
-        
-        println!("[bridge] Built glyph-to-cluster-text map with {} entries", glyph_to_cluster_text.len());
-        
-        // Build codepoints for ToUnicode CMap
-        // For ligatures, we map to the FIRST character (PDF spec limitation)
-        for glyph in glyphs {
-            let glyph_id = (glyph.index & 0xFFFF) as u16;
-            
-            if let Some(cluster_text) = glyph_to_cluster_text.get(&glyph_id) {
-                let chars: Vec<char> = cluster_text.chars().collect();
                 
-                if let Some(&first_char) = chars.first() {
-                    codepoints.push((glyph_id, first_char));
+                let font_hash = cluster.glyphs[0].font.get_hash();
+                
+                // Set font if it changed
+                if current_font_hash != Some(font_hash) {
+                    let font_id = FontId(format!("F{}", font_hash));
+                    let font_size = cluster.glyphs[0].style.font_size_px;
                     
-                    if chars.len() > 1 {
-                        println!("[bridge] Ligature: glyph_id={} maps to '{}'", 
-                                glyph_id, cluster_text);
-                    }
-                } else {
-                    codepoints.push((glyph_id, '\u{FFFD}'));
+                    ops.push(Op::SetFont {
+                        font: crate::ops::PdfFontHandle::External(font_id.clone()),
+                        size: Pt(font_size),
+                    });
+                    current_font_hash = Some(font_hash);
                 }
-            } else {
-                codepoints.push((glyph_id, '\u{FFFD}'));
+                
+                // Convert cluster glyphs to codepoints with CID information
+                let mut codepoints: Vec<crate::text::Codepoint> = Vec::new();
+                
+                for shaped_glyph in &cluster.glyphs {
+                    let cid = glyph_to_cluster_text.get(&shaped_glyph.glyph_id).cloned();
+                    codepoints.push(crate::text::Codepoint {
+                        gid: shaped_glyph.glyph_id,
+                        offset: 0.0, // Layout engine handles positioning
+                        cid,
+                    });
+                }
+                
+                // Calculate absolute position relative to text origin
+                let absolute_x = text_origin_x + positioned_item.position.x;
+                let absolute_y_layout = text_origin_y + positioned_item.position.y;
+                let absolute_y_pdf = page_height - absolute_y_layout;
+                
+                // Use TextMatrix (Tm operator) for absolute positioning
+                // This sets the text matrix to position + identity transform
+                ops.push(Op::SetTextMatrix {
+                    matrix: crate::matrix::TextMatrix::Raw([
+                        1.0, // a: Scale X (no scaling)
+                        0.0, // b: Skew X 
+                        0.0, // c: Skew Y
+                        1.0, // d: Scale Y (no scaling)
+                        absolute_x * 0.3527777778, // e: Translate X (px to points)
+                        absolute_y_pdf * 0.3527777778, // f: Translate Y (px to points, flipped)
+                    ]),
+                });
+                
+                ops.push(Op::ShowText {
+                    items: vec![crate::text::TextItem::GlyphIds(codepoints)],
+                });
+            }
+            _ => {
+                // Handle other shaped item types if needed
             }
         }
-    } else {
-        // Fallback: No TextLayout available, use replacement characters
-        for glyph in glyphs {
-            let glyph_id = (glyph.index & 0xFFFF) as u16;
-            codepoints.push((glyph_id, '\u{FFFD}'));
-        }
     }
 
-    println!("[bridge] Generated {} codepoints for ToUnicode CMap", codepoints.len());
-
-    if !codepoints.is_empty() {
-        ops.push(Op::WriteCodepoints {
-            font: font_id.clone(),
-            cp: codepoints,
-        });
-    }
+    ops.push(Op::EndTextSection);
 }

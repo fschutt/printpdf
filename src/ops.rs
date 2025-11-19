@@ -3,6 +3,7 @@ use serde_derive::{Deserialize, Serialize};
 pub use crate::text::TextItem;
 use crate::{
     color::Color,
+    font::ParsedFont,
     graphics::{
         Line, LineCapStyle, LineDashPattern, LineJoinStyle, Point, Polygon, Rect, TextRenderingMode,
     },
@@ -11,6 +12,26 @@ use crate::{
     BuiltinFont, DictItem, ExtendedGraphicsStateId, FontId, LayerInternalId, LinkAnnotation,
     PdfResources, PdfToSvgOptions, PdfWarnMsg, RenderingIntent, XObjectId, XObjectTransform,
 };
+
+/// Font resource reference - either a builtin PDF font or an external font
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", tag = "type", content = "data")]
+pub enum PdfFontHandle {
+    /// Builtin PDF font (F1-F14)
+    Builtin(BuiltinFont),
+    /// External font loaded from file
+    External(FontId),
+}
+
+impl PdfFontHandle {
+    /// Get the PDF resource name for this font
+    pub fn get_resource_name(&self) -> String {
+        match self {
+            PdfFontHandle::Builtin(bf) => bf.get_pdf_id().to_string(),
+            PdfFontHandle::External(fid) => fid.0.clone(),
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -73,15 +94,10 @@ impl PdfPage {
     }
 
     pub fn get_external_font_ids(&self) -> Vec<FontId> {
-        self.ops
-            .iter()
-            .filter_map(|s| match s {
-                Op::WriteText { font, .. } => Some(font.clone()),
-                Op::WriteCodepoints { font, .. } => Some(font.clone()),
-                Op::WriteCodepointsWithKerning { font, .. } => Some(font.clone()),
-                _ => None,
-            })
-            .collect()
+        // Note: With the new API, fonts are set via SetFont operation
+        // This function now returns an empty vec as external fonts are referenced by resource name
+        // To get font usage, parse SetFont operations and resolve resource names
+        Vec::new()
     }
 
     pub fn get_layers(&self) -> Vec<LayerInternalId> {
@@ -96,10 +112,9 @@ impl PdfPage {
 
     /// Extracts text from a PDF page.
     ///
-    /// This function processes text-related operations (WriteText, WriteTextBuiltinFont,
-    /// WriteCodepoints, WriteCodepointsWithKerning) to extract text content from the page.
-    ///
-    /// For codepoints, it uses the character mapping directly from the operations.
+    /// This function processes text-related operations (ShowText) to extract text content.
+    /// It properly handles both TextItem::Text and TextItem::GlyphIds by using the
+    /// current font's cmap to convert glyph IDs to Unicode characters.
     ///
     /// Note: This implementation doesn't fully handle complex text positioning or
     /// layout features such as columns or tables.
@@ -109,7 +124,7 @@ impl PdfPage {
     ///
     /// # Returns
     /// A vector of text chunks extracted from text sections
-    pub fn extract_text(&self, _resources: &PdfResources) -> Vec<String> {
+    pub fn extract_text(&self, resources: &PdfResources) -> Vec<String> {
         let mut text_chunks = Vec::new();
         let mut current_chunk = String::new();
         let mut in_text_section = false;
@@ -117,6 +132,7 @@ impl PdfPage {
             x: Pt(0.0),
             y: Pt(0.0),
         };
+        let mut current_font: Option<&ParsedFont> = None;
 
         for op in &self.ops {
             match op {
@@ -130,6 +146,12 @@ impl PdfPage {
                         current_chunk = String::new();
                     }
                 }
+                Op::SetFont { font, size: _ } => {
+                    // Track the current font for glyph ID decoding
+                    if let crate::ops::PdfFontHandle::External(font_id) = font {
+                        current_font = resources.fonts.map.get(font_id).map(|pf| &pf.parsed_font);
+                    }
+                }
                 Op::SetTextMatrix { .. } => {
                     current_chunk.push_str("\r\n");
                 }
@@ -141,7 +163,7 @@ impl PdfPage {
                     }
                     cur_text_cursor = *pos;
                 }
-                Op::WriteText { items, font: _ } if in_text_section => {
+                Op::ShowText { items } if in_text_section => {
                     for item in items {
                         match item {
                             TextItem::Offset(o) => {
@@ -150,32 +172,25 @@ impl PdfPage {
                                 }
                             }
                             TextItem::Text(t) => current_chunk.push_str(t),
-                        }
-                    }
-                }
-                Op::WriteTextBuiltinFont { items, font: _ } if in_text_section => {
-                    for item in items {
-                        match item {
-                            TextItem::Offset(o) => {
-                                if *o < -100.0 {
-                                    current_chunk.push(' ');
+                            TextItem::GlyphIds(glyphs) => {
+                                // Convert glyph IDs to Unicode using the current font's cmap
+                                if let Some(font) = current_font {
+                                    for codepoint in glyphs {
+                                        // Check if we have unicode mapping for this glyph ID
+                                        let unicode_codepoint = codepoint.cid
+                                            .as_ref()
+                                            .and_then(|s| s.chars().next())
+                                            .or_else(|| Self::glyph_id_to_char(font, codepoint.gid))
+                                            .unwrap_or('\u{FFFD}');
+                                        current_chunk.push(unicode_codepoint);
+                                    }
+                                } else {
+                                    // No font set, use placeholder
+                                    current_chunk.push_str("[glyphs]");
                                 }
                             }
-                            TextItem::Text(t) => current_chunk.push_str(t),
                         }
                     }
-                }
-                Op::WriteCodepoints { font: _, cp } if in_text_section => {
-                    for (_, _ch) in cp {
-                        // current_chunk.push(*ch);
-                    }
-                    // current_chunk.push(' ');
-                }
-                Op::WriteCodepointsWithKerning { font: _, cpk } if in_text_section => {
-                    for (_, _, _ch) in cpk {
-                        // current_chunk.push(*ch);
-                    }
-                    // current_chunk.push(' ');
                 }
                 Op::AddLineBreak if in_text_section => {
                     current_chunk.push_str("\r\n");
@@ -203,6 +218,21 @@ impl PdfPage {
 
         text_chunks.retain(|chunk| !chunk.is_empty());
         text_chunks
+    }
+
+    /// Helper function to convert glyph ID to character using font's cmap
+    fn glyph_id_to_char(font: &ParsedFont, gid: u16) -> Option<char> {
+        // Try to find a character that maps to this glyph ID
+        // This is a reverse lookup through the cmap
+        // For efficiency, we only check common Unicode ranges
+        for codepoint in 0..0x10000u32 {
+            if let Some(mapped_gid) = font.lookup_glyph_index(codepoint) {
+                if mapped_gid == gid {
+                    return char::from_u32(codepoint);
+                }
+            }
+        }
+        None
     }
 }
 
@@ -277,44 +307,24 @@ pub enum Op {
     RestoreGraphicsState,
     /// Loads a specific graphics state (necessary for describing extended graphics)
     LoadGraphicsState { gs: ExtendedGraphicsStateId },
-    /// Starts a section of text
+    /// `BT` - Starts a section of text
     StartTextSection,
-    /// Ends a text section (inserted by default at the page end)
+    /// `ET` - Ends a text section (inserted by default at the page end)
     EndTextSection,
-    /// Writes text, only valid between `StartTextSection` and `EndTextSection`
-    WriteText { items: Vec<TextItem>, font: FontId },
-    /// Writes text using a builtin font.
-    WriteTextBuiltinFont {
-        items: Vec<TextItem>,
-        font: BuiltinFont,
-    },
-    /// Add text to the file at the current position by specifying font codepoints for an
-    /// ExternalFont
-    ///
-    /// NOTE: the `char` defines which codepoint this value is being mapped to (otherwise the
-    /// user would not be able to copy-paste text from the PDF)
-    WriteCodepoints { font: FontId, cp: Vec<(u16, char)> },
-    /// Add text to the file at the current position by specifying font codepoints with additional
-    /// kerning offset
-    ///
-    /// NOTE: the `char` defines which codepoint this value is being mapped to (otherwise the
-    /// user would not be able to copy-paste text from the PDF)
-    WriteCodepointsWithKerning {
-        font: FontId,
-        cpk: Vec<(i64, u16, char)>,
-    },
+    
+    // --- New 1:1 PDF operations (preferred) ---
+    /// `Tf` operator: Set font and size
+    /// This maps 1:1 to PDF and should be used instead of SetFontSize/SetFontSizeBuiltinFont
+    SetFont { font: PdfFontHandle, size: Pt },
+    /// `Tj`/`TJ` operators: Show text at current position
+    /// Font must be set first with SetFont. This maps 1:1 to PDF.
+    ShowText { items: Vec<TextItem> },
     /// `T*` Adds a line break to the text, depends on the line height
     AddLineBreak,
-    /// Sets the line height for the text
+    /// `TL` - Sets the line height for the text
     SetLineHeight { lh: Pt },
     /// `Tw`: Sets the word spacing in point (default: 100.0)
     SetWordSpacing { pt: Pt },
-    /// Sets the font size for a given font, only valid between
-    /// `StartTextSection` and `EndTextSection`
-    SetFontSize { size: Pt, font: FontId },
-    /// Sets the font size for a `BuiltinFont`, only valid between
-    /// `StartTextSection` and `EndTextSection`
-    SetFontSizeBuiltinFont { size: Pt, font: BuiltinFont },
     /// Positions the text cursor in the page from the bottom left corner (can be manipulated
     /// further with `SetTextMatrix`)
     SetTextCursor { pos: Point },

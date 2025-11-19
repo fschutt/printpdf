@@ -97,9 +97,9 @@ fn main() {
         Op::SetTextCursor {
             pos: Point::new(Mm(20.0), Mm(270.0)),
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(24.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(24.0) },
         Op::SetFillColor {
@@ -110,14 +110,13 @@ fn main() {
                 icc_profile: None,
             }),
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("PDF Layers Example".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::Helvetica),
             size: Pt(12.0),
-            font: BuiltinFont::Helvetica,
         },
         Op::SetLineHeight { lh: Pt(12.0) },
         Op::SetFillColor {
@@ -128,49 +127,43 @@ fn main() {
                 icc_profile: None,
             }),
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "This PDF demonstrates the use of layers (also called Optional Content Groups)."
                     .to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "The content is organized in three separate layers:".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "1. Background - light gray background".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "2. Text Content - the text you're reading now".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "3. Graphics - shapes and visual elements".to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::AddLineBreak,
         Op::AddLineBreak,
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text(
                 "In a PDF viewer that supports layers, you can toggle these on and off."
                     .to_string(),
             )],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
         Op::EndLayer,

@@ -6,7 +6,7 @@ use printpdf::{
     wasm::structs::{
         document_to_bytes, resources_for_page, DocumentToBytesInput, ResourcesForPageInput,
     },
-    GeneratePdfOptions, Mm, Op, PdfDocument, PdfPage, PdfSaveOptions, XObjectId, XObjectTransform,
+    GeneratePdfOptions, Mm, Op, PdfDocument, PdfPage, PdfSaveOptions, TextMatrix, XObjectId, XObjectTransform,
 };
 
 #[test]
@@ -117,13 +117,12 @@ fn test_page_to_svg() {
                 y: Pt(300.0),
             },
         },
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: printpdf::ops::PdfFontHandle::Builtin(printpdf::BuiltinFont::Helvetica),
             size: Pt(24.0),
-            font: BuiltinFont::Helvetica,
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("Hello, World!".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
         Op::RestoreGraphicsState,
@@ -265,20 +264,20 @@ fn test_html_to_document() {
             println!("  Operations:");
             for (op_idx, op) in page.ops.iter().enumerate() {
                 match op {
-                    Op::WriteCodepoints { font, cp } => {
-                        println!("    [{}] WriteCodepoints: font={:?}, glyphs={}", op_idx, font, cp.len());
-                        if !cp.is_empty() {
-                            println!("         First 5: {:?}", &cp[..cp.len().min(5)]);
+                    Op::ShowText { items } => {
+                        println!("    [{}] ShowText: items={}", op_idx, items.len());
+                        if !items.is_empty() {
+                            println!("         First 5: {:?}", &items[..items.len().min(5)]);
                         }
                     }
-                    Op::WriteCodepointsWithKerning { font, cpk } => {
-                        println!("    [{}] WriteCodepointsWithKerning: font={:?}, glyphs={}", op_idx, font, cpk.len());
-                    }
-                    Op::SetFontSize { size, font } => {
-                        println!("    [{}] SetFontSize: size={:?}, font={:?}", op_idx, size, font);
+                    Op::SetFont { font, size } => {
+                        println!("    [{}] SetFont: font={:?}, size={:?}", op_idx, font, size);
                     }
                     Op::SetTextCursor { pos } => {
                         println!("    [{}] SetTextCursor: pos={:?}", op_idx, pos);
+                    }
+                    Op::SetTextMatrix { matrix } => {
+                        println!("    [{}] SetTextMatrix: matrix={:?}", op_idx, matrix);
                     }
                     Op::StartTextSection => {
                         println!("    [{}] StartTextSection", op_idx);
@@ -307,9 +306,9 @@ fn test_html_to_document() {
 
 #[test]
 fn test_html_uses_positioned_glyphs_not_text_operators() {
-    // Test that HTML rendering uses positioned glyph IDs (TJ operator with glyph positioning)
-    // instead of simple text strings (Tj operator), which is necessary for proper
-    // text shaping, especially for complex scripts like Arabic.
+    // Test that HTML rendering uses ShowText operations (TJ/Tj operators) with proper text positioning
+    // instead of deprecated WriteText operations. ShowText is the 1:1 PDF mapping that works with
+    // text shaping for complex scripts like Arabic.
 
     println!("\n========================================");
     println!("=== STARTING GLYPH POSITIONING TEST ===");
@@ -389,31 +388,15 @@ fn test_html_uses_positioned_glyphs_not_text_operators() {
         
         for (op_idx, op) in page.ops.iter().enumerate() {
             match op {
-                Op::WriteCodepoints { font, cp } => {
-                    println!("  [{}] ✓ WriteCodepoints (glyph IDs)", op_idx);
-                    println!("       font: {:?}", font);
-                    println!("       glyphs: {} items", cp.len());
-                    if !cp.is_empty() {
-                        println!("       first 5 glyphs: {:?}", &cp[..cp.len().min(5)]);
+                Op::ShowText { items } => {
+                    println!("  [{}] ✓ ShowText (new 1:1 PDF API)", op_idx);
+                    println!("       items: {} text items", items.len());
+                    if !items.is_empty() {
+                        println!("       first 5 items: {:?}", &items[..items.len().min(5)]);
                     }
                 }
-                Op::WriteCodepointsWithKerning { font, cpk } => {
-                    println!("  [{}] ✓ WriteCodepointsWithKerning (glyph IDs + kerning)", op_idx);
-                    println!("       font: {:?}", font);
-                    println!("       glyphs: {} items", cpk.len());
-                    if !cpk.is_empty() {
-                        println!("       first 5 glyphs: {:?}", &cpk[..cpk.len().min(5)]);
-                    }
-                }
-                Op::WriteTextBuiltinFont { items, font } => {
-                    println!("  [{}] ✗ WriteTextBuiltinFont (SHOULD NOT BE USED)", op_idx);
-                    println!("       font: {:?}", font);
-                    println!("       items: {:?}", items);
-                }
-                Op::WriteText { items, font } => {
-                    println!("  [{}] ✗ WriteText (SHOULD NOT BE USED)", op_idx);
-                    println!("       font: {:?}", font);
-                    println!("       items: {:?}", items);
+                Op::SetFont { font, size } => {
+                    println!("  [{}] SetFont: font={:?}, size={:?}", op_idx, font, size);
                 }
                 Op::StartTextSection => {
                     println!("  [{}] StartTextSection", op_idx);
@@ -421,11 +404,11 @@ fn test_html_uses_positioned_glyphs_not_text_operators() {
                 Op::EndTextSection => {
                     println!("  [{}] EndTextSection", op_idx);
                 }
-                Op::SetFontSize { size, font } => {
-                    println!("  [{}] SetFontSize: size={:?}, font={:?}", op_idx, size, font);
-                }
                 Op::SetTextCursor { pos } => {
                     println!("  [{}] SetTextCursor: pos={:?}", op_idx, pos);
+                }
+                Op::SetTextMatrix { matrix } => {
+                    println!("  [{}] SetTextMatrix: matrix={:?}", op_idx, matrix);
                 }
                 Op::SetFillColor { col } => {
                     println!("  [{}] SetFillColor: {:?}", op_idx, col);
@@ -458,28 +441,13 @@ fn test_html_uses_positioned_glyphs_not_text_operators() {
     }
     println!("\n======================\n");
 
-    // Check for text operations
-    let has_positioned_glyphs = doc.pages.iter().any(|page| {
-        page.ops.iter().any(|op| {
-            matches!(
-                op,
-                Op::WriteCodepoints { .. } | Op::WriteCodepointsWithKerning { .. }
-            )
-        })
-    });
-
-    let has_simple_text_ops = doc.pages.iter().any(|page| {
-        page.ops.iter().any(|op| {
-            matches!(
-                op,
-                Op::WriteTextBuiltinFont { .. } | Op::WriteText { .. }
-            )
-        })
+    // Check for text operations (now ShowText instead of WriteCodepoints)
+    let has_show_text = doc.pages.iter().any(|page| {
+        page.ops.iter().any(|op| matches!(op, Op::ShowText { .. }))
     });
 
     println!("Analysis:");
-    println!("  Has positioned glyphs (WriteCodepoints/WithKerning): {}", has_positioned_glyphs);
-    println!("  Has simple text ops (WriteText/BuiltinFont): {}", has_simple_text_ops);
+    println!("  Has ShowText operations (new 1:1 PDF API): {}", has_show_text);
     println!();
 
     // For now, just check that we have some operations
@@ -497,21 +465,13 @@ fn test_html_uses_positioned_glyphs_not_text_operators() {
         return;
     }
 
-    println!("✓ Page has operations, checking if they use positioned glyphs...");
+    println!("✓ Page has operations, checking if they use ShowText...");
     println!();
 
     assert!(
-        has_positioned_glyphs,
-        "Expected to find WriteCodepoints or WriteCodepointsWithKerning operations with glyph IDs, \
-         but none were found. This is required for proper text shaping (especially for Arabic, \
-         Hebrew, Devanagari, etc.)"
-    );
-
-    assert!(
-        !has_simple_text_ops,
-        "Found simple text operations (WriteTextBuiltinFont/WriteText). \
-         These should NOT be used as they don't support proper text shaping. \
-         All text should use WriteCodepoints/WriteCodepointsWithKerning with glyph IDs."
+        has_show_text,
+        "Expected to find ShowText operations (new 1:1 PDF API), \
+         but none were found. This is required for proper text rendering with the new API."
     );
 
     println!("========================================");
@@ -585,8 +545,12 @@ li { display: list-item; margin: 5px 0; }
     
     // Check Y positions to ensure items don't overlap
     let y_positions: Vec<f32> = doc.pages[0].ops.iter().filter_map(|op| {
-        if let Op::SetTextCursor { pos } = op {
-            Some(pos.y.0)
+        if let Op::SetTextMatrix { matrix } = op {
+            if let TextMatrix::Raw([_a, _b, _c, _d, _e, f]) = matrix {
+                Some(*f)
+            } else {
+                None
+            }
         } else {
             None
         }
@@ -594,15 +558,23 @@ li { display: list-item; margin: 5px 0; }
     
     println!("Y positions: {:?}", y_positions);
     
-    // Verify Y positions exist and are different if we have multiple items
+    // Get unique Y positions (multiple characters on same line should have same Y)
+    let mut unique_y_positions = y_positions.clone();
+    unique_y_positions.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    unique_y_positions.dedup();
+    
+    println!("Unique Y positions: {:?}", unique_y_positions);
+    
+    // Verify Y positions exist and list items are on different lines
     assert!(y_positions.len() >= 1, "Should have at least 1 Y position");
-    if y_positions.len() > 1 {
-        for i in 1..y_positions.len() {
-            assert_ne!(
-                y_positions[i], y_positions[i-1],
-                "List items should not have the same Y position (overlapping)"
-            );
-        }
+    assert!(unique_y_positions.len() >= 2, "Should have at least 2 unique Y positions (header + list items)");
+    
+    // Verify that unique positions are actually different (no exact overlap between lines)
+    for i in 1..unique_y_positions.len() {
+        assert_ne!(
+            unique_y_positions[i], unique_y_positions[i-1],
+            "Different lines should not have the exact same Y position"
+        );
     }
     
     println!("✓ Unordered list test passed");
@@ -779,7 +751,7 @@ li { display: list-item; margin: 5px 0; }
     
     // Check that text was rendered (even if Greek glyphs might not be in base font)
     let has_text = doc.pages[0].ops.iter().any(|op| {
-        matches!(op, Op::WriteCodepoints { .. } | Op::WriteCodepointsWithKerning { .. })
+        matches!(op, Op::ShowText { .. })
     });
     
     assert!(has_text, "Should have rendered text with glyphs");

@@ -136,8 +136,7 @@ impl ExternalStream {
                 op_id,
                 &op,
                 &mut page_state,
-                &mut BTreeMap::new(),
-                &mut BTreeMap::new(),
+                &BTreeMap::new(),
                 &mut Vec::new(),
             )?;
             printpdf_ops.extend(parsed_op.into_iter());
@@ -439,7 +438,7 @@ fn form_xobject_to_stream(f: &FormXObject, doc: &mut lopdf::Document) -> lopdf::
         dict.set("StructParent", Integer(*sp));
     }
 
-    let mut stream = lopdf::Stream::new(dict, f.bytes.clone()).with_compression(true);
+    let stream = lopdf::Stream::new(dict, f.bytes.clone()).with_compression(true);
     // let _ = stream.compress();
     stream
 }

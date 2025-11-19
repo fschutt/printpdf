@@ -1,6 +1,26 @@
-/// PDF Text decoding / encoding and ToUnicode handling
 use lopdf::{Object, StringFormat};
 use serde_derive::{Deserialize, Serialize};
+
+/// Represents a positioned glyph with optional CID mapping
+#[derive(Debug, Clone, PartialEq, PartialOrd, Deserialize, Serialize)]
+pub struct Codepoint {
+    /// Glyph ID in the font
+    pub gid: u16,
+    /// Horizontal offset in thousandths of an em
+    pub offset: f32,
+    /// Optional CID for CID-keyed fonts (used for ToUnicode mapping)
+    pub cid: Option<String>,
+}
+
+impl Codepoint {
+    pub fn new(gid: u16, offset: f32) -> Self {
+        Self { gid, offset, cid: None }
+    }
+    
+    pub fn with_cid(gid: u16, offset: f32, cid: String) -> Self {
+        Self { gid, offset, cid: Some(cid) }
+    }
+}
 
 /// Represents a text segment (decoded as a UTF-8 String) or a spacing adjustment
 #[derive(Debug, Clone, PartialEq, PartialOrd, Deserialize, Serialize)]
@@ -10,6 +30,9 @@ pub enum TextItem {
     Text(String),
     /// A spacing adjustment, in thousandths of an em
     Offset(f32),
+    /// Positioned glyph IDs with horizontal offsets and optional CID mapping
+    /// This avoids the need to convert GIDs to strings during parsing
+    GlyphIds(Vec<Codepoint>),
 }
 
 impl From<String> for TextItem {
@@ -128,6 +151,89 @@ pub fn decode_tj_operands(operands: &[Object], to_unicode: Option<&impl CMap>) -
     items
 }
 
+/// Given the operands of a TJ operator, extract raw glyph IDs without decoding to Unicode.
+/// This is more efficient for round-trip PDF editing where text extraction is not needed.
+/// Returns TextItem::GlyphIds instead of TextItem::Text.
+pub fn decode_tj_operands_as_glyph_ids(operands: &[Object]) -> Vec<TextItem> {
+    let mut items = Vec::new();
+    let mut current_glyphs = Vec::new();
+    
+    for obj in operands {
+        match obj {
+            Object::String(bytes, _) => {
+                // Extract glyph IDs from the byte string
+                // For CID fonts, each glyph is typically 2 bytes (big-endian u16)
+                // For simple fonts, each byte is a glyph ID
+                if bytes.len() >= 2 && bytes.len() % 2 == 0 {
+                    // Assume CID font (2 bytes per glyph)
+                    for chunk in bytes.chunks(2) {
+                        if chunk.len() == 2 {
+                            let gid = u16::from_be_bytes([chunk[0], chunk[1]]);
+                            current_glyphs.push(Codepoint::new(gid, 0.0));
+                        }
+                    }
+                } else {
+                    // Simple font (1 byte per glyph)
+                    for &byte in bytes {
+                        current_glyphs.push(Codepoint::new(byte as u16, 0.0));
+                    }
+                }
+            }
+            Object::Integer(i) => {
+                // Offset in thousandths of an em
+                if !current_glyphs.is_empty() {
+                    // Flush current glyphs before adding offset
+                    items.push(TextItem::GlyphIds(std::mem::take(&mut current_glyphs)));
+                }
+                items.push(TextItem::Offset(*i as f32));
+            }
+            Object::Real(r) => {
+                if !current_glyphs.is_empty() {
+                    items.push(TextItem::GlyphIds(std::mem::take(&mut current_glyphs)));
+                }
+                items.push(TextItem::Offset(*r as f32));
+            }
+            _ => {
+                // Ignore unsupported types
+            }
+        }
+    }
+    
+    // Flush remaining glyphs
+    if !current_glyphs.is_empty() {
+        items.push(TextItem::GlyphIds(current_glyphs));
+    }
+    
+    items
+}
+
+/// Decode Tj operator string as raw glyph IDs
+pub fn decode_tj_string_as_glyph_ids(bytes: &[u8]) -> Vec<TextItem> {
+    let mut glyphs = Vec::new();
+    
+    // Extract glyph IDs from the byte string
+    if bytes.len() >= 2 && bytes.len() % 2 == 0 {
+        // Assume CID font (2 bytes per glyph)
+        for chunk in bytes.chunks(2) {
+            if chunk.len() == 2 {
+                let gid = u16::from_be_bytes([chunk[0], chunk[1]]);
+                glyphs.push(Codepoint::new(gid, 0.0));
+            }
+        }
+    } else {
+        // Simple font (1 byte per glyph)
+        for &byte in bytes {
+            glyphs.push(Codepoint::new(byte as u16, 0.0));
+        }
+    }
+    
+    if glyphs.is_empty() {
+        vec![]
+    } else {
+        vec![TextItem::GlyphIds(glyphs)]
+    }
+}
+
 /// Encode a Rust string as a PDF literal string.
 /// It surrounds the string with parentheses and escapes special characters.
 pub fn encode_pdf_string_literal(s: &str) -> String {
@@ -179,7 +285,7 @@ pub fn encode_pdf_string_minimal(s: &str) -> String {
 
 /// Encodes a vector of TextItem into a vector of lopdf::Object suitable for a TJ operator.
 /// Text segments are encoded as PDF strings (choosing the minimal encoding),
-/// and spacing offsets as numbers.
+/// spacing offsets as numbers, and glyph IDs as hex strings.
 pub fn encode_text_items(items: &[TextItem]) -> Vec<Object> {
     let mut objs = Vec::new();
     for item in items {
@@ -206,6 +312,17 @@ pub fn encode_text_items(items: &[TextItem]) -> Vec<Object> {
             }
             TextItem::Offset(n) => {
                 objs.push(Object::Integer(*n as i64));
+            }
+            TextItem::GlyphIds(glyphs) => {
+                // Encode glyph IDs as hex string (2 bytes per glyph ID)
+                // Interleaved with offsets
+                for codepoint in glyphs {
+                    let bytes = codepoint.gid.to_be_bytes().to_vec();
+                    objs.push(Object::String(bytes, StringFormat::Hexadecimal));
+                    if codepoint.offset != 0.0 {
+                        objs.push(Object::Integer(codepoint.offset as i64));
+                    }
+                }
             }
         }
     }

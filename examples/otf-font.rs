@@ -35,13 +35,12 @@ fn main() {
         .map(|text| {
             {
                 vec![
-                    Op::SetFontSize {
+                    Op::SetFont {
+                        font: PdfFontHandle::External(font_id.clone()),
                         size: Pt(16.0),
-                        font: font_id.clone(),
                     },
-                    Op::WriteText {
+                    Op::ShowText {
                         items: vec![TextItem::Text(text.to_string())],
-                        font: font_id.clone(),
                     },
                     Op::AddLineBreak,
                 ]

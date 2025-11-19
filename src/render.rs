@@ -4,7 +4,7 @@ use base64::Engine;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    ops::PdfPage, serialize::prepare_fonts, Actions, BlackGenerationExtraFunction,
+    ops::PdfPage, Actions, BlackGenerationExtraFunction,
     BlackGenerationFunction, BlendMode, BuiltinFont, BuiltinOrExternalFontId, ChangedField, Color,
     CurTransMat, Destination, ExtendedGraphicsState, FontId, HalftoneType, Line, LineCapStyle,
     LineDashPattern, LineJoinStyle, OutputImageFormat, OverprintMode, PaintMode, PdfResources,
@@ -518,7 +518,7 @@ fn render_to_svg_internal(
     svg.push('\n');
 
     // Handle fonts
-    let fonts = prepare_fonts(resources, &[page.clone()], warnings);
+    let fonts = crate::serialize::prepare_fonts_for_serialization(resources, &[page.clone()], warnings);
     if !fonts.is_empty() {
         // Embed fonts via a <style> block
         svg.push_str("<style>\n");
@@ -526,7 +526,7 @@ fn render_to_svg_internal(
         for (font_id, font) in fonts.iter() {
             svg.push_str(&format!(
                 r#"@font-face {{ font-family: "{}"; src: url("data:font/otf;charset=utf-8;base64,{}"); }}"#,
-                font_id.0, base64::prelude::BASE64_STANDARD.encode(&font.subset.bytes),
+                font_id.0, base64::prelude::BASE64_STANDARD.encode(&font.subset_font_bytes),
             ));
         }
         svg.push_str("</style>\n");
@@ -598,11 +598,41 @@ fn render_to_svg_internal(
             Op::SetWordSpacing { pt } => {
                 gst.set_word_spacing(*pt);
             }
-            Op::SetFontSize { size, font } => {
-                gst.set_font_size(font, *size);
+            Op::SetFont { font, size } => {
+                // Use PdfFontHandle enum to set font
+                match font {
+                    crate::ops::PdfFontHandle::Builtin(builtin) => {
+                        gst.set_font_size_builtin(builtin, *size);
+                    }
+                    crate::ops::PdfFontHandle::External(font_id) => {
+                        gst.set_font_size(font_id, *size);
+                    }
+                }
             }
-            Op::SetFontSizeBuiltinFont { size, font } => {
-                gst.set_font_size_builtin(font, *size);
+            Op::ShowText { items } => {
+                // ShowText requires that font was set previously via SetFont
+                // The renderer tracks current font in GraphicsState
+                if in_text_section {
+                    if let Some(current_font) = gst.get_current_font() {
+                        let text_svg = render_text_items_to_svg(
+                            items,
+                            &current_font,
+                            &gst,
+                            height,
+                        );
+                        svg.push_str(&text_svg);
+                    } else {
+                        // No font set - use default and emit warning if configured
+                        let default_font = BuiltinOrExternalFontId::Builtin(BuiltinFont::default());
+                        let text_svg = render_text_items_to_svg(
+                            items,
+                            &default_font,
+                            &gst,
+                            height,
+                        );
+                        svg.push_str(&text_svg);
+                    }
+                }
             }
 
             // Content structure
@@ -696,65 +726,6 @@ fn render_to_svg_internal(
             }
             Op::EndTextSection => {
                 in_text_section = false;
-            }
-            Op::WriteText { items, font } => {
-                if in_text_section {
-                    let text_svg = render_text_items_to_svg(
-                        items,
-                        &BuiltinOrExternalFontId::External(font.clone()),
-                        &gst,
-                        height,
-                    );
-                    svg.push_str(&text_svg);
-                }
-            }
-            Op::WriteTextBuiltinFont { items, font } => {
-                if in_text_section {
-                    let text_svg = render_text_items_to_svg(
-                        items,
-                        &BuiltinOrExternalFontId::Builtin(*font),
-                        &gst,
-                        height,
-                    );
-                    svg.push_str(&text_svg);
-                }
-            }
-            Op::WriteCodepoints { font, cp } => {
-                if in_text_section {
-                    // Convert codepoints to TextItems
-                    let items: Vec<TextItem> = cp
-                        .iter()
-                        .map(|(_, ch)| TextItem::Text(ch.to_string()))
-                        .collect();
-
-                    let text_svg = render_text_items_to_svg(
-                        &items,
-                        &BuiltinOrExternalFontId::External(font.clone()),
-                        &gst,
-                        height,
-                    );
-                    svg.push_str(&text_svg);
-                }
-            }
-            Op::WriteCodepointsWithKerning { font, cpk } => {
-                if in_text_section {
-                    // Convert codepoints with kerning to TextItems
-                    let mut items = Vec::new();
-                    for (kerning, _, ch) in cpk {
-                        if *kerning != 0 {
-                            items.push(TextItem::Offset(*kerning as f32));
-                        }
-                        items.push(TextItem::Text(ch.to_string()));
-                    }
-
-                    let text_svg = render_text_items_to_svg(
-                        &items,
-                        &BuiltinOrExternalFontId::External(font.clone()),
-                        &gst,
-                        height,
-                    );
-                    svg.push_str(&text_svg);
-                }
             }
             Op::AddLineBreak => {
                 // For line breaks, we adjust the text cursor using the current leading
@@ -1101,6 +1072,11 @@ fn render_text_items_to_svg(
                 } else {
                     processed_text.push_str(&escaped);
                 }
+            }
+            TextItem::GlyphIds(glyphs) => {
+                // Render glyph IDs as placeholder
+                // TODO: Convert GIDs to unicode using font mapping
+                processed_text.push_str(&format!("[{} glyphs]", glyphs.len()));
             }
             TextItem::Offset(offset) => {
                 // Convert from thousandths of an em to points

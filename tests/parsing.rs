@@ -75,20 +75,14 @@ fn test_layer_parsing() {
     // Check layer operations were preserved
     let parsed_page = &parsed_doc.pages[0];
     let has_begin_layer = parsed_page.ops.iter().any(|op| {
-        if let Op::BeginLayer { layer_id: _ } = op {
-            true
-        } else {
-            false
-        }
+        // Deserialization emits BeginOptionalContent (more explicit) instead of BeginLayer
+        matches!(op, Op::BeginLayer { .. } | Op::BeginOptionalContent { .. })
     });
     assert!(has_begin_layer, "Begin layer operation not found");
 
     let has_end_layer = parsed_page.ops.iter().any(|op| {
-        if let Op::EndLayer = op {
-            true
-        } else {
-            false
-        }
+        // Deserialization emits EndMarkedContent for EMC operator
+        matches!(op, Op::EndLayer | Op::EndOptionalContent | Op::EndMarkedContent)
     });
     assert!(has_end_layer, "End layer operation not found");
 }
@@ -292,13 +286,12 @@ fn test_complex_document_parsing() {
         Op::SaveGraphicsState,
         Op::LoadGraphicsState { gs: gs1_id.clone() },
         Op::StartTextSection,
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: printpdf::ops::PdfFontHandle::Builtin(printpdf::BuiltinFont::Helvetica),
             size: Pt(12.0),
-            font: BuiltinFont::Helvetica,
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("Page 1 Content".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
         Op::RestoreGraphicsState,
@@ -313,13 +306,12 @@ fn test_complex_document_parsing() {
         Op::SaveGraphicsState,
         Op::LoadGraphicsState { gs: gs2_id.clone() },
         Op::StartTextSection,
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: printpdf::ops::PdfFontHandle::Builtin(printpdf::BuiltinFont::Helvetica),
             size: Pt(14.0),
-            font: BuiltinFont::Helvetica,
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("Page 2 Content".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
         Op::RestoreGraphicsState,
@@ -364,13 +356,12 @@ fn test_complex_document_parsing() {
             }),
         },
         Op::StartTextSection,
-        Op::SetFontSizeBuiltinFont {
+        Op::SetFont {
+            font: printpdf::ops::PdfFontHandle::Builtin(printpdf::BuiltinFont::Helvetica),
             size: Pt(16.0),
-            font: BuiltinFont::Helvetica,
         },
-        Op::WriteTextBuiltinFont {
+        Op::ShowText {
             items: vec![TextItem::Text("Page 3 Content".to_string())],
-            font: BuiltinFont::Helvetica,
         },
         Op::EndTextSection,
         Op::RestoreGraphicsState,
@@ -449,11 +440,8 @@ fn test_complex_document_parsing() {
             .ops
             .iter()
             .filter(|op| {
-                if let Op::BeginLayer { layer_id: _ } = op {
-                    true
-                } else {
-                    false
-                }
+                // Deserialization emits BeginOptionalContent instead of BeginLayer
+                matches!(op, Op::BeginLayer { .. } | Op::BeginOptionalContent { .. })
             })
             .count();
 
@@ -461,11 +449,8 @@ fn test_complex_document_parsing() {
             .ops
             .iter()
             .filter(|op| {
-                if let Op::EndLayer = op {
-                    true
-                } else {
-                    false
-                }
+                // Deserialization emits EndMarkedContent for EMC operator
+                matches!(op, Op::EndLayer | Op::EndOptionalContent | Op::EndMarkedContent)
             })
             .count();
 
@@ -556,13 +541,12 @@ fn test_extgstate_font_parsing() {
         Op::SaveGraphicsState,
         Op::LoadGraphicsState { gs: gs_id.clone() },
         Op::StartTextSection,
-        Op::SetFontSize {
-            size: Pt(12.0),
-            font: font_id.clone(),
+        Op::SetFont {
+            font: printpdf::ops::PdfFontHandle::External(font_id.clone()),
+            size: Pt(14.0),
         },
-        Op::WriteText {
+        Op::ShowText {
             items: vec![TextItem::Text("Testing Font in ExtGState".to_string())],
-            font: font_id.clone(),
         },
         Op::EndTextSection,
         Op::RestoreGraphicsState,
@@ -588,11 +572,8 @@ fn test_extgstate_font_parsing() {
     // Verify the operations on the page
     let parsed_page = &parsed_doc.pages[0];
 
-    // Check for text operations that use the font
-    let has_font_ops = parsed_page.ops.iter().any(|op| match op {
-        Op::WriteText { items: _, font: _ } => true,
-        _ => false,
-    });
+    // Check for text operations (now ShowText after deserialization)
+    let has_font_ops = parsed_page.ops.iter().any(|op| matches!(op, Op::ShowText { .. }));
 
     assert!(has_font_ops, "Text operations with font not found");
 }
