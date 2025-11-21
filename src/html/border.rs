@@ -276,6 +276,185 @@ pub fn extract_border_radii(border_radius: &StyleBorderRadius) -> BorderRadii {
     }
 }
 
+/// Generate a rounded rectangle path with bezier curves for corners
+/// 
+/// The magic number 0.5522847498 is the kappa constant for drawing circles with cubic bezier curves
+/// It represents (4/3) * tan(π/8), which gives the best approximation of a circle using 4 cubic beziers
+pub fn create_rounded_rect_path_public(
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    radii: &BorderRadii,
+    page_height: f32,
+) -> Vec<crate::graphics::LinePoint> {
+    create_rounded_rect_path(x, y, width, height, radii, page_height)
+}
+
+/// Internal implementation of rounded rectangle path generation
+fn create_rounded_rect_path(
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    radii: &BorderRadii,
+    page_height: f32,
+) -> Vec<crate::graphics::LinePoint> {
+    const KAPPA: f32 = 0.5522847498;
+    
+    // Convert to PDF coordinates (bottom-left origin)
+    let y_pdf = page_height - y - height;
+    
+    // Extract corner radii
+    let tl_x = radii.top_left.0.min(width / 2.0).max(0.0);
+    let tl_y = radii.top_left.1.min(height / 2.0).max(0.0);
+    let tr_x = radii.top_right.0.min(width / 2.0).max(0.0);
+    let tr_y = radii.top_right.1.min(height / 2.0).max(0.0);
+    let br_x = radii.bottom_right.0.min(width / 2.0).max(0.0);
+    let br_y = radii.bottom_right.1.min(height / 2.0).max(0.0);
+    let bl_x = radii.bottom_left.0.min(width / 2.0).max(0.0);
+    let bl_y = radii.bottom_left.1.min(height / 2.0).max(0.0);
+    
+    let mut points = Vec::new();
+    
+    // Start at top-left corner (after radius)
+    let start_x = x + tl_x;
+    let start_y = y_pdf + height;
+    points.push(crate::graphics::LinePoint {
+        p: crate::graphics::Point::new(Mm(start_x * 0.3527777778), Mm(start_y * 0.3527777778)),
+        bezier: false,
+    });
+    
+    // Top edge to top-right corner
+    let top_right_start_x = x + width - tr_x;
+    points.push(crate::graphics::LinePoint {
+        p: crate::graphics::Point::new(Mm(top_right_start_x * 0.3527777778), Mm((y_pdf + height) * 0.3527777778)),
+        bezier: false,
+    });
+    
+    // Top-right corner curve (clockwise)
+    if tr_x > 0.0 || tr_y > 0.0 {
+        let cp1_x = top_right_start_x + tr_x * KAPPA;
+        let cp1_y = y_pdf + height;
+        let cp2_x = x + width;
+        let cp2_y = y_pdf + height - tr_y * (1.0 - KAPPA);
+        let end_x = x + width;
+        let end_y = y_pdf + height - tr_y;
+        
+        points.push(crate::graphics::LinePoint {
+            p: crate::graphics::Point::new(Mm(cp1_x * 0.3527777778), Mm(cp1_y * 0.3527777778)),
+            bezier: true,
+        });
+        points.push(crate::graphics::LinePoint {
+            p: crate::graphics::Point::new(Mm(cp2_x * 0.3527777778), Mm(cp2_y * 0.3527777778)),
+            bezier: true,
+        });
+        points.push(crate::graphics::LinePoint {
+            p: crate::graphics::Point::new(Mm(end_x * 0.3527777778), Mm(end_y * 0.3527777778)),
+            bezier: false,
+        });
+    }
+    
+    // Right edge to bottom-right corner
+    let bottom_right_start_y = y_pdf + br_y;
+    points.push(crate::graphics::LinePoint {
+        p: crate::graphics::Point::new(Mm((x + width) * 0.3527777778), Mm(bottom_right_start_y * 0.3527777778)),
+        bezier: false,
+    });
+    
+    // Bottom-right corner curve
+    if br_x > 0.0 || br_y > 0.0 {
+        let cp1_x = x + width;
+        let cp1_y = y_pdf + br_y * KAPPA;
+        let cp2_x = x + width - br_x * (1.0 - KAPPA);
+        let cp2_y = y_pdf;
+        let end_x = x + width - br_x;
+        let end_y = y_pdf;
+        
+        points.push(crate::graphics::LinePoint {
+            p: crate::graphics::Point::new(Mm(cp1_x * 0.3527777778), Mm(cp1_y * 0.3527777778)),
+            bezier: true,
+        });
+        points.push(crate::graphics::LinePoint {
+            p: crate::graphics::Point::new(Mm(cp2_x * 0.3527777778), Mm(cp2_y * 0.3527777778)),
+            bezier: true,
+        });
+        points.push(crate::graphics::LinePoint {
+            p: crate::graphics::Point::new(Mm(end_x * 0.3527777778), Mm(end_y * 0.3527777778)),
+            bezier: false,
+        });
+    }
+    
+    // Bottom edge to bottom-left corner
+    let bottom_left_start_x = x + bl_x;
+    points.push(crate::graphics::LinePoint {
+        p: crate::graphics::Point::new(Mm(bottom_left_start_x * 0.3527777778), Mm(y_pdf * 0.3527777778)),
+        bezier: false,
+    });
+    
+    // Bottom-left corner curve
+    if bl_x > 0.0 || bl_y > 0.0 {
+        let cp1_x = x + bl_x * KAPPA;
+        let cp1_y = y_pdf;
+        let cp2_x = x;
+        let cp2_y = y_pdf + bl_y * (1.0 - KAPPA);
+        let end_x = x;
+        let end_y = y_pdf + bl_y;
+        
+        points.push(crate::graphics::LinePoint {
+            p: crate::graphics::Point::new(Mm(cp1_x * 0.3527777778), Mm(cp1_y * 0.3527777778)),
+            bezier: true,
+        });
+        points.push(crate::graphics::LinePoint {
+            p: crate::graphics::Point::new(Mm(cp2_x * 0.3527777778), Mm(cp2_y * 0.3527777778)),
+            bezier: true,
+        });
+        points.push(crate::graphics::LinePoint {
+            p: crate::graphics::Point::new(Mm(end_x * 0.3527777778), Mm(end_y * 0.3527777778)),
+            bezier: false,
+        });
+    }
+    
+    // Left edge back to start
+    points.push(crate::graphics::LinePoint {
+        p: crate::graphics::Point::new(Mm(x * 0.3527777778), Mm((y_pdf + height - tl_y) * 0.3527777778)),
+        bezier: false,
+    });
+    
+    // Top-left corner curve
+    if tl_x > 0.0 || tl_y > 0.0 {
+        let cp1_x = x;
+        let cp1_y = y_pdf + height - tl_y * KAPPA;
+        let cp2_x = x + tl_x * (1.0 - KAPPA);
+        let cp2_y = y_pdf + height;
+        let end_x = x + tl_x;
+        let end_y = y_pdf + height;
+        
+        points.push(crate::graphics::LinePoint {
+            p: crate::graphics::Point::new(Mm(cp1_x * 0.3527777778), Mm(cp1_y * 0.3527777778)),
+            bezier: true,
+        });
+        points.push(crate::graphics::LinePoint {
+            p: crate::graphics::Point::new(Mm(cp2_x * 0.3527777778), Mm(cp2_y * 0.3527777778)),
+            bezier: true,
+        });
+        points.push(crate::graphics::LinePoint {
+            p: crate::graphics::Point::new(Mm(end_x * 0.3527777778), Mm(end_y * 0.3527777778)),
+            bezier: false,
+        });
+    }
+    
+    points
+}
+
+/// Check if any radius is non-zero
+fn has_border_radius(radii: &BorderRadii) -> bool {
+    radii.top_left.0 > 0.0 || radii.top_left.1 > 0.0
+        || radii.top_right.0 > 0.0 || radii.top_right.1 > 0.0
+        || radii.bottom_right.0 > 0.0 || radii.bottom_right.1 > 0.0
+        || radii.bottom_left.0 > 0.0 || radii.bottom_left.1 > 0.0
+}
+
 /// Render all four borders with full support for border-radius and styles
 /// 
 /// NOTE: This function expects bounds in CSS coordinates (top-left origin).
@@ -291,13 +470,11 @@ pub fn render_border(ops: &mut Vec<Op>, config: &BorderConfig) {
     let all_same = widths.top == widths.right && widths.top == widths.bottom && widths.top == widths.left
         && colors.top == colors.right && colors.top == colors.bottom && colors.top == colors.left
         && styles.top == styles.right && styles.top == styles.bottom && styles.top == styles.left
-        && styles.top == BorderStyleType::Solid
-        && radii.top_left == (0.0, 0.0) && radii.top_right == (0.0, 0.0) 
-        && radii.bottom_right == (0.0, 0.0) && radii.bottom_left == (0.0, 0.0);
+        && styles.top == BorderStyleType::Solid;
 
     if all_same && widths.top > 0.0 && colors.top.a > 0 {
-        // Optimized path: render as a single stroked rectangle
-        render_unified_border(ops, bounds, widths.top, colors.top, config.page_height);
+        // Optimized path: render as a single stroked rectangle (with or without border-radius)
+        render_unified_border(ops, bounds, widths.top, colors.top, radii, config.page_height);
         return;
     }
 
@@ -322,50 +499,101 @@ fn render_unified_border(
     bounds: &LogicalRect,
     width: f32,
     color: ColorU,
+    radii: &BorderRadii,
     page_height: f32,
 ) {
     ops.push(Op::SaveGraphicsState);
     
-    // Convert to PDF coordinate space (bottom-left origin)
-    let y = page_height - bounds.origin.y - bounds.size.height;
-    
-    // Adjust for stroke centering: the stroke is centered on the path,
-    // so we need to inset by half the width to keep the border inside
-    let half_width = width / 2.0;
-    let x = bounds.origin.x + half_width;
-    let y_adj = y + half_width;
-    let w = bounds.size.width - width;
-    let h = bounds.size.height - width;
-    
-    // Create a closed rectangle path
-    let polygon = crate::graphics::Polygon {
-        rings: vec![crate::graphics::PolygonRing {
-            points: vec![
-                crate::graphics::LinePoint {
-                    p: crate::graphics::Point::new(Mm(x * 0.3527777778), Mm(y_adj * 0.3527777778)),
-                    bezier: false,
-                },
-                crate::graphics::LinePoint {
-                    p: crate::graphics::Point::new(Mm((x + w) * 0.3527777778), Mm(y_adj * 0.3527777778)),
-                    bezier: false,
-                },
-                crate::graphics::LinePoint {
-                    p: crate::graphics::Point::new(Mm((x + w) * 0.3527777778), Mm((y_adj + h) * 0.3527777778)),
-                    bezier: false,
-                },
-                crate::graphics::LinePoint {
-                    p: crate::graphics::Point::new(Mm(x * 0.3527777778), Mm((y_adj + h) * 0.3527777778)),
-                    bezier: false,
-                },
-            ],
-        }],
-        mode: crate::graphics::PaintMode::Stroke,
-        winding_order: crate::graphics::WindingOrder::NonZero,
-    };
-    
+    // Set color and width
     ops.push(Op::SetOutlineColor { col: convert_color(&color) });
     ops.push(Op::SetOutlineThickness { pt: Pt(width) });
-    ops.push(Op::DrawPolygon { polygon });
+    
+    // Check if we have border radius
+    if has_border_radius(radii) {
+        // Adjust bounds for stroke centering: the stroke is centered on the path,
+        // so we need to inset by half the width to keep the border inside
+        let half_width = width / 2.0;
+        let adj_x = bounds.origin.x + half_width;
+        let adj_y = bounds.origin.y + half_width;
+        let adj_width = bounds.size.width - width;
+        let adj_height = bounds.size.height - width;
+        
+        // Also adjust radii to account for the inset
+        let adj_radii = BorderRadii {
+            top_left: (
+                (radii.top_left.0 - half_width).max(0.0),
+                (radii.top_left.1 - half_width).max(0.0)
+            ),
+            top_right: (
+                (radii.top_right.0 - half_width).max(0.0),
+                (radii.top_right.1 - half_width).max(0.0)
+            ),
+            bottom_right: (
+                (radii.bottom_right.0 - half_width).max(0.0),
+                (radii.bottom_right.1 - half_width).max(0.0)
+            ),
+            bottom_left: (
+                (radii.bottom_left.0 - half_width).max(0.0),
+                (radii.bottom_left.1 - half_width).max(0.0)
+            ),
+        };
+        
+        let points = create_rounded_rect_path(
+            adj_x,
+            adj_y,
+            adj_width,
+            adj_height,
+            &adj_radii,
+            page_height,
+        );
+        
+        let polygon = crate::graphics::Polygon {
+            rings: vec![crate::graphics::PolygonRing { points }],
+            mode: crate::graphics::PaintMode::Stroke,
+            winding_order: crate::graphics::WindingOrder::NonZero,
+        };
+        
+        ops.push(Op::DrawPolygon { polygon });
+    } else {
+        // Simple rectangle without border radius
+        // Convert to PDF coordinate space (bottom-left origin)
+        let y = page_height - bounds.origin.y - bounds.size.height;
+        
+        // Adjust for stroke centering
+        let half_width = width / 2.0;
+        let x = bounds.origin.x + half_width;
+        let y_adj = y + half_width;
+        let w = bounds.size.width - width;
+        let h = bounds.size.height - width;
+        
+        let polygon = crate::graphics::Polygon {
+            rings: vec![crate::graphics::PolygonRing {
+                points: vec![
+                    crate::graphics::LinePoint {
+                        p: crate::graphics::Point::new(Mm(x * 0.3527777778), Mm(y_adj * 0.3527777778)),
+                        bezier: false,
+                    },
+                    crate::graphics::LinePoint {
+                        p: crate::graphics::Point::new(Mm((x + w) * 0.3527777778), Mm(y_adj * 0.3527777778)),
+                        bezier: false,
+                    },
+                    crate::graphics::LinePoint {
+                        p: crate::graphics::Point::new(Mm((x + w) * 0.3527777778), Mm((y_adj + h) * 0.3527777778)),
+                        bezier: false,
+                    },
+                    crate::graphics::LinePoint {
+                        p: crate::graphics::Point::new(Mm(x * 0.3527777778), Mm((y_adj + h) * 0.3527777778)),
+                        bezier: false,
+                    },
+                ],
+            }],
+            mode: crate::graphics::PaintMode::Stroke,
+            winding_order: crate::graphics::WindingOrder::NonZero,
+        };
+        
+        ops.push(Op::DrawPolygon { polygon });
+    }
+    
     ops.push(Op::RestoreGraphicsState);
 }
 

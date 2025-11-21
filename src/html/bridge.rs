@@ -101,7 +101,7 @@ fn convert_display_list_item<'a, T: ParsedFontTrait + 'static, Q: FontLoaderTrai
         DisplayListItem::Rect {
             bounds,
             color,
-            border_radius: _,
+            border_radius,
         } => {
             println!("[bridge] Rect: bounds={:?}, color={:?}", bounds, color);
             
@@ -114,50 +114,88 @@ fn convert_display_list_item<'a, T: ParsedFontTrait + 'static, Q: FontLoaderTrai
             // Convert rectangle to PDF polygon
             ops.push(Op::SaveGraphicsState);
 
-            let y = page_height - bounds.origin.y - bounds.size.height;
-
-            // Simple rectangle (ignore border_radius for now)
-            let polygon = crate::graphics::Polygon {
-                rings: vec![crate::graphics::PolygonRing {
-                    points: vec![
-                        crate::graphics::LinePoint {
-                            p: crate::graphics::Point::new(
-                                Mm(bounds.origin.x * 0.3527777778),
-                                Mm(y * 0.3527777778),
-                            ),
-                            bezier: false,
-                        },
-                        crate::graphics::LinePoint {
-                            p: crate::graphics::Point::new(
-                                Mm((bounds.origin.x + bounds.size.width) * 0.3527777778),
-                                Mm(y * 0.3527777778),
-                            ),
-                            bezier: false,
-                        },
-                        crate::graphics::LinePoint {
-                            p: crate::graphics::Point::new(
-                                Mm((bounds.origin.x + bounds.size.width) * 0.3527777778),
-                                Mm((y + bounds.size.height) * 0.3527777778),
-                            ),
-                            bezier: false,
-                        },
-                        crate::graphics::LinePoint {
-                            p: crate::graphics::Point::new(
-                                Mm(bounds.origin.x * 0.3527777778),
-                                Mm((y + bounds.size.height) * 0.3527777778),
-                            ),
-                            bezier: false,
-                        },
-                    ],
-                }],
-                mode: crate::graphics::PaintMode::Fill,
-                winding_order: crate::graphics::WindingOrder::NonZero,
+            // Convert DisplayList BorderRadius to border module BorderRadii
+            let radii = crate::html::border::BorderRadii {
+                top_left: (border_radius.top_left, border_radius.top_left),
+                top_right: (border_radius.top_right, border_radius.top_right),
+                bottom_right: (border_radius.bottom_right, border_radius.bottom_right),
+                bottom_left: (border_radius.bottom_left, border_radius.bottom_left),
             };
+            
+            // Check if we have border radius
+            let has_radius = radii.top_left.0 > 0.0 || radii.top_left.1 > 0.0
+                || radii.top_right.0 > 0.0 || radii.top_right.1 > 0.0
+                || radii.bottom_right.0 > 0.0 || radii.bottom_right.1 > 0.0
+                || radii.bottom_left.0 > 0.0 || radii.bottom_left.1 > 0.0;
+            
+            if has_radius {
+                // Use rounded rectangle path for filling
+                let points = crate::html::border::create_rounded_rect_path_public(
+                    bounds.origin.x,
+                    bounds.origin.y,
+                    bounds.size.width,
+                    bounds.size.height,
+                    &radii,
+                    page_height,
+                );
+                
+                let polygon = crate::graphics::Polygon {
+                    rings: vec![crate::graphics::PolygonRing { points }],
+                    mode: crate::graphics::PaintMode::Fill,
+                    winding_order: crate::graphics::WindingOrder::NonZero,
+                };
+                
+                ops.push(Op::SetFillColor {
+                    col: convert_color(color),
+                });
+                ops.push(Op::DrawPolygon { polygon });
+            } else {
+                // Simple rectangle without border radius
+                let y = page_height - bounds.origin.y - bounds.size.height;
+                
+                let polygon = crate::graphics::Polygon {
+                    rings: vec![crate::graphics::PolygonRing {
+                        points: vec![
+                            crate::graphics::LinePoint {
+                                p: crate::graphics::Point::new(
+                                    Mm(bounds.origin.x * 0.3527777778),
+                                    Mm(y * 0.3527777778),
+                                ),
+                                bezier: false,
+                            },
+                            crate::graphics::LinePoint {
+                                p: crate::graphics::Point::new(
+                                    Mm((bounds.origin.x + bounds.size.width) * 0.3527777778),
+                                    Mm(y * 0.3527777778),
+                                ),
+                                bezier: false,
+                            },
+                            crate::graphics::LinePoint {
+                                p: crate::graphics::Point::new(
+                                    Mm((bounds.origin.x + bounds.size.width) * 0.3527777778),
+                                    Mm((y + bounds.size.height) * 0.3527777778),
+                                ),
+                                bezier: false,
+                            },
+                            crate::graphics::LinePoint {
+                                p: crate::graphics::Point::new(
+                                    Mm(bounds.origin.x * 0.3527777778),
+                                    Mm((y + bounds.size.height) * 0.3527777778),
+                                ),
+                                bezier: false,
+                            },
+                        ],
+                    }],
+                    mode: crate::graphics::PaintMode::Fill,
+                    winding_order: crate::graphics::WindingOrder::NonZero,
+                };
 
-            ops.push(Op::SetFillColor {
-                col: convert_color(color),
-            });
-            ops.push(Op::DrawPolygon { polygon });
+                ops.push(Op::SetFillColor {
+                    col: convert_color(color),
+                });
+                ops.push(Op::DrawPolygon { polygon });
+            }
+            
             ops.push(Op::RestoreGraphicsState);
         }
 
