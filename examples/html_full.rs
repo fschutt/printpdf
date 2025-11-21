@@ -8,9 +8,9 @@ fn main() {
     println!("=== HTML to PDF Full Example ===\n");
 
     // Load HTML from file
-    println!("Loading HTML from examples/assets/html/default_backup.html...");
+    println!("Loading HTML from examples/assets/html/tests/absolute-non-replaced-height-001.xht...");
     
-    let html = include_str!("assets/html/default_backup.html");
+    let html = include_str!("assets/html/tests/absolute-non-replaced-height-001.xht");
 
     // Create PDF from HTML
     let images = BTreeMap::new();
