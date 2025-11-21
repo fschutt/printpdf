@@ -170,6 +170,29 @@ pub fn xml_to_pdf_pages(
     
     let display_list = layout_result.display_list;
 
+    // Debug: Print display list information
+    println!("\n========================================");
+    println!("=== DISPLAY LIST DEBUG ===");
+    println!("========================================");
+    println!("Display list has {} items", display_list.items.len());
+    for (idx, item) in display_list.items.iter().enumerate() {
+        match item {
+            azul_layout::solver3::display_list::DisplayListItem::TextLayout { bounds, .. } => {
+                println!("  [{}] TextLayout: bounds={:?}", idx, bounds);
+            }
+            azul_layout::solver3::display_list::DisplayListItem::Text { glyphs, .. } => {
+                println!("  [{}] Text: {} glyphs", idx, glyphs.len());
+            }
+            azul_layout::solver3::display_list::DisplayListItem::Rect { bounds, .. } => {
+                println!("  [{}] Rect: bounds={:?}", idx, bounds);
+            }
+            _ => {
+                println!("  [{}] Other item", idx);
+            }
+        }
+    }
+    println!("========================================\n");
+
     // Convert DisplayList directly to printpdf operations
     let page_size = LogicalSize::new(page_width_pt, page_height_pt);
     let font_manager = &layout_window.font_manager;

@@ -42,6 +42,8 @@ pub fn display_list_to_printpdf_ops<T: ParsedFontTrait + 'static, Q: FontLoaderT
     let mut ops = Vec::new();
     let page_height = page_size.height;
     
+    println!("[bridge] page_size from display_list: {}x{}", page_size.width, page_size.height);
+    
     // Track the current TextLayout for glyph-to-unicode mapping
     let mut current_text_layout: Option<(&azul_layout::text3::cache::UnifiedLayout<T>, LogicalRect)> = None;
 
@@ -302,8 +304,7 @@ fn render_unified_layout_impl<T: ParsedFontTrait + 'static, Q: FontLoaderTrait<T
     page_height: f32,
     _font_manager: &FontManager<T, Q>,
 ) {
-    use azul_layout::text3::cache::ShapedItem;
-    use std::collections::HashMap;
+    use azul_layout::text3::glyphs::get_glyph_runs_pdf;
     
     println!(
         "[bridge] Rendering unified layout with {} items, bounds={:?}", 
@@ -311,112 +312,129 @@ fn render_unified_layout_impl<T: ParsedFontTrait + 'static, Q: FontLoaderTrait<T
         bounds
     );
 
-    // Build a comprehensive map from glyph_id to cluster text for the entire layout
-    let mut glyph_to_cluster_text: HashMap<u16, String> = HashMap::new();
-    let mut font_hashes_used = std::collections::BTreeSet::new();
-    
-    // First pass: collect all glyph-to-text mappings and font hashes
-    for positioned_item in &layout.items {
-        match &positioned_item.item {
-            ShapedItem::Cluster(cluster) => {
-                for shaped_glyph in &cluster.glyphs {
-                    // Store the cluster text for this glyph
-                    glyph_to_cluster_text.insert(shaped_glyph.glyph_id, cluster.text.clone());
-                    font_hashes_used.insert(shaped_glyph.font.get_hash());
-                }
-            }
-            ShapedItem::CombinedBlock { glyphs, .. } => {
-                for shaped_glyph in glyphs {
-                    // For combined blocks, we might not have cluster text
-                    // Use a placeholder or the glyph's corresponding character
-                    glyph_to_cluster_text.insert(shaped_glyph.glyph_id, "?".to_string());
-                    font_hashes_used.insert(shaped_glyph.font.get_hash());
-                }
-            }
-            _ => {
-                // Ignore other item types (non-text)
-            }
-        }
-    }
+    // Get PDF-optimized glyph runs (grouped by font/color/style/line)
+    let glyph_runs = get_glyph_runs_pdf(layout);
     
     println!(
-        "[bridge] Built glyph-to-cluster-text map with {} entries, {} fonts used", 
-        glyph_to_cluster_text.len(),
-        font_hashes_used.len()
+        "[bridge] Generated {} glyph runs from layout", 
+        glyph_runs.len()
     );
 
-    ops.push(Op::StartTextSection);
-    ops.push(Op::SetFillColor {
-        col: convert_color(&color),
-    });
-
-    // Store the text layout origin for absolute positioning
-    let text_origin_x = bounds.origin.x;
-    let text_origin_y = bounds.origin.y;
-
-    // Process all text items using absolute positioning with TextMatrix (Tm operator)
-    let mut current_font_hash: Option<u64> = None;
-    
-    for positioned_item in &layout.items {
-        match &positioned_item.item {
-            ShapedItem::Cluster(cluster) => {
-                if cluster.glyphs.is_empty() {
-                    continue;
-                }
-                
-                let font_hash = cluster.glyphs[0].font.get_hash();
-                
-                // Set font if it changed
-                if current_font_hash != Some(font_hash) {
-                    let font_id = FontId(format!("F{}", font_hash));
-                    let font_size = cluster.glyphs[0].style.font_size_px;
-                    
-                    ops.push(Op::SetFont {
-                        font: crate::ops::PdfFontHandle::External(font_id.clone()),
-                        size: Pt(font_size),
-                    });
-                    current_font_hash = Some(font_hash);
-                }
-                
-                // Convert cluster glyphs to codepoints with CID information
-                let mut codepoints: Vec<crate::text::Codepoint> = Vec::new();
-                
-                for shaped_glyph in &cluster.glyphs {
-                    let cid = glyph_to_cluster_text.get(&shaped_glyph.glyph_id).cloned();
-                    codepoints.push(crate::text::Codepoint {
-                        gid: shaped_glyph.glyph_id,
-                        offset: 0.0, // Layout engine handles positioning
-                        cid,
-                    });
-                }
-                
-                // Calculate absolute position relative to text origin
-                let absolute_x = text_origin_x + positioned_item.position.x;
-                let absolute_y_layout = text_origin_y + positioned_item.position.y;
-                let absolute_y_pdf = page_height - absolute_y_layout;
-                
-                // Use TextMatrix (Tm operator) for absolute positioning
-                // This sets the text matrix to position + identity transform
-                ops.push(Op::SetTextMatrix {
-                    matrix: crate::matrix::TextMatrix::Raw([
-                        1.0, // a: Scale X (no scaling)
-                        0.0, // b: Skew X 
-                        0.0, // c: Skew Y
-                        1.0, // d: Scale Y (no scaling)
-                        absolute_x * 0.3527777778, // e: Translate X (px to points)
-                        absolute_y_pdf * 0.3527777778, // f: Translate Y (px to points, flipped)
-                    ]),
-                });
-                
-                ops.push(Op::ShowText {
-                    items: vec![crate::text::TextItem::GlyphIds(codepoints)],
-                });
-            }
-            _ => {
-                // Handle other shaped item types if needed
-            }
-        }
+    if glyph_runs.is_empty() {
+        return;
     }
 
-    ops.push(Op::EndTextSection);
+    // Track current state to avoid redundant operations
+    let mut current_font_hash: Option<u64> = None;
+    let mut current_font_size: Option<f32> = None;
+    let mut current_color: Option<ColorU> = None;
+
+    // Process each glyph run - each run will have its own text section
+    for (run_idx, run) in glyph_runs.iter().enumerate() {
+        if run.glyphs.is_empty() {
+            continue;
+        }
+
+        // Save graphics state for this run to ensure runs don't affect each other
+        ops.push(Op::SaveGraphicsState);
+        ops.push(Op::StartTextSection);
+
+        println!(
+            "[bridge] Run {}: {} glyphs, baseline_start=({}, {}), first_glyph=({}, {}), bounds.origin=({}, {})",
+            run_idx,
+            run.glyphs.len(),
+            run.baseline_start.x,
+            run.baseline_start.y,
+            run.glyphs.first().map(|g| g.position.x).unwrap_or(0.0),
+            run.glyphs.first().map(|g| g.position.y).unwrap_or(0.0),
+            bounds.origin.x,
+            bounds.origin.y,
+        );
+
+        // Set color if it changed
+        if current_color != Some(run.color) {
+            ops.push(Op::SetFillColor {
+                col: convert_color(&run.color),
+            });
+            current_color = Some(run.color);
+        }
+
+        // Set font if it changed
+        if current_font_hash != Some(run.font_hash) || current_font_size != Some(run.font_size_px) {
+            let font_id = FontId(format!("F{}", run.font_hash));
+            
+            ops.push(Op::SetFont {
+                font: crate::ops::PdfFontHandle::External(font_id.clone()),
+                size: Pt(run.font_size_px),
+            });
+            
+            current_font_hash = Some(run.font_hash);
+            current_font_size = Some(run.font_size_px);
+        }
+
+        // IMPORTANT: Unit conversion notes
+        // 
+        // The azul-layout DisplayList uses LogicalSize with coordinates in CSS pixels at 72 DPI.
+        // This is the web standard where 1 CSS pixel = 1/96 inch at 96 DPI reference resolution,
+        // BUT azul normalizes to 72 DPI (1 CSS px = 1 PDF pt).
+        //
+        // Page dimensions from GeneratePdfOptions are in millimeters (Mm), which get converted
+        // to points when creating the LogicalSize: 210mm × (72/25.4) = 595.28pt
+        //
+        // Therefore:
+        // - page_height: f32 = 595.28 (in points, from LogicalSize.height)
+        // - bounds.origin.{x,y}: f32 = layout coordinates (in points)
+        // - glyph.position.{x,y}: f32 = glyph coordinates relative to bounds (in points)
+        //
+        // All coordinates are ALREADY in PDF points (72 DPI), so no conversion is needed.
+        // The TextMatrix values should be passed directly as raw floats in point units.
+
+        // Position each glyph absolutely using SetTextMatrix + ShowText
+        // This gives us complete control over positioning for RTL, vertical text, etc.
+        // and avoids relying on PDF's font metrics for cursor advancement
+        for glyph in &run.glyphs {
+            // Calculate absolute position for this glyph
+            // All values are in points (72 DPI) - no conversion needed
+            let glyph_x_pt = bounds.origin.x + glyph.position.x;
+            let glyph_y_pt = bounds.origin.y + glyph.position.y;
+            
+            // Convert from HTML coordinate system to PDF coordinate system
+            // HTML: origin at top-left, Y increases downward
+            // PDF: origin at bottom-left, Y increases upward
+            // Therefore: PDF_Y = page_height - HTML_Y
+            let pdf_x = glyph_x_pt;
+            let pdf_y = page_height - glyph_y_pt;
+
+            // Set the text matrix to position this specific glyph
+            // The matrix values are in PDF user space units (points)
+            ops.push(Op::SetTextMatrix {
+                matrix: crate::matrix::TextMatrix::Raw([
+                    1.0,    // a: Horizontal scaling (1.0 = no scaling)
+                    0.0,    // b: Horizontal skewing
+                    0.0,    // c: Vertical skewing
+                    1.0,    // d: Vertical scaling (1.0 = no scaling)
+                    pdf_x,  // e: Horizontal translation (in points)
+                    pdf_y,  // f: Vertical translation (in points)
+                ]),
+            });
+
+            // Render just this one glyph
+            ops.push(Op::ShowText {
+                items: vec![crate::text::TextItem::GlyphIds(vec![
+                    crate::text::Codepoint {
+                        gid: glyph.glyph_id,
+                        offset: 0.0,
+                        cid: Some(glyph.cluster_text.clone()),
+                    }
+                ])],
+            });
+        }
+
+        // End text section and restore graphics state after this run
+        ops.push(Op::EndTextSection);
+        ops.push(Op::RestoreGraphicsState);
+
+        // TODO: Handle text decorations (underline, strikethrough, overline)
+        // This would require drawing lines at appropriate positions relative to the baseline
+    }
 }

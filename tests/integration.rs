@@ -240,18 +240,27 @@ fn test_html_to_document() {
         .unwrap();
 
     // Print warnings even on success
+    println!("\n=== Warnings during HTML conversion ===");
     if !warnings.is_empty() {
-        println!("\n=== Warnings during HTML conversion ===");
         for (i, w) in warnings.iter().enumerate() {
             println!("  [{}] {:?}", i, w);
         }
-        println!("========================================\n");
     } else {
-        println!("No warnings during conversion\n");
+        println!("No warnings during conversion");
     }
+    println!("========================================\n");
 
     println!("Generated document:");
     println!("  Number of pages: {}", output.pages.len());
+    
+    // Print ALL PDF operations for the first page
+    if !output.pages.is_empty() {
+        println!("\n=== ALL PDF OPERATIONS FOR PAGE 0 ===");
+        for (idx, op) in output.pages[0].ops.iter().enumerate() {
+            println!("  [{}] {:?}", idx, op);
+        }
+        println!("========================================\n");
+    }
     
     // Print page operations
     for (page_idx, page) in output.pages.iter().enumerate() {
@@ -295,10 +304,20 @@ fn test_html_to_document() {
 
     let _ = std::fs::write(
         "./htmltest.pdf",
-        output.save(&PdfSaveOptions::default(), &mut Vec::new()),
+        output.save(&PdfSaveOptions::default(), &mut warnings),
     );
 
-    println!("\n✓ PDF written to ./htmltest.pdf");
+    println!("\n=== Warnings during PDF save ===");
+    if !warnings.is_empty() {
+        for (i, w) in warnings.iter().enumerate() {
+            println!("  [{}] {:?}", i, w);
+        }
+    } else {
+        println!("No warnings during save");
+    }
+    println!("========================================\n");
+
+    println!("✓ PDF written to ./htmltest.pdf");
     println!("========================================\n");
 
     assert!(!output.pages.is_empty(), "Expected at least one page, but got 0 pages. Warnings: {:?}", warnings);
