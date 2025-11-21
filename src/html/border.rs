@@ -287,6 +287,20 @@ pub fn render_border(ops: &mut Vec<Op>, config: &BorderConfig) {
     let radii = &config.radii;
     let bounds = &config.bounds;
 
+    // Check if all sides are identical (common case optimization)
+    let all_same = widths.top == widths.right && widths.top == widths.bottom && widths.top == widths.left
+        && colors.top == colors.right && colors.top == colors.bottom && colors.top == colors.left
+        && styles.top == styles.right && styles.top == styles.bottom && styles.top == styles.left
+        && styles.top == BorderStyleType::Solid
+        && radii.top_left == (0.0, 0.0) && radii.top_right == (0.0, 0.0) 
+        && radii.bottom_right == (0.0, 0.0) && radii.bottom_left == (0.0, 0.0);
+
+    if all_same && widths.top > 0.0 && colors.top.a > 0 {
+        // Optimized path: render as a single stroked rectangle
+        render_unified_border(ops, bounds, widths.top, colors.top, config.page_height);
+        return;
+    }
+
     // Render each side individually
     if widths.top > 0.0 && styles.top != BorderStyleType::None && colors.top.a > 0 {
         render_border_side(ops, BorderSide::Top, bounds, widths, colors, styles, radii, config.page_height);
@@ -300,6 +314,59 @@ pub fn render_border(ops: &mut Vec<Op>, config: &BorderConfig) {
     if widths.left > 0.0 && styles.left != BorderStyleType::None && colors.left.a > 0 {
         render_border_side(ops, BorderSide::Left, bounds, widths, colors, styles, radii, config.page_height);
     }
+}
+
+/// Render a border as a single stroked rectangle (optimization for uniform borders)
+fn render_unified_border(
+    ops: &mut Vec<Op>,
+    bounds: &LogicalRect,
+    width: f32,
+    color: ColorU,
+    page_height: f32,
+) {
+    ops.push(Op::SaveGraphicsState);
+    
+    // Convert to PDF coordinate space (bottom-left origin)
+    let y = page_height - bounds.origin.y - bounds.size.height;
+    
+    // Adjust for stroke centering: the stroke is centered on the path,
+    // so we need to inset by half the width to keep the border inside
+    let half_width = width / 2.0;
+    let x = bounds.origin.x + half_width;
+    let y_adj = y + half_width;
+    let w = bounds.size.width - width;
+    let h = bounds.size.height - width;
+    
+    // Create a closed rectangle path
+    let polygon = crate::graphics::Polygon {
+        rings: vec![crate::graphics::PolygonRing {
+            points: vec![
+                crate::graphics::LinePoint {
+                    p: crate::graphics::Point::new(Mm(x * 0.3527777778), Mm(y_adj * 0.3527777778)),
+                    bezier: false,
+                },
+                crate::graphics::LinePoint {
+                    p: crate::graphics::Point::new(Mm((x + w) * 0.3527777778), Mm(y_adj * 0.3527777778)),
+                    bezier: false,
+                },
+                crate::graphics::LinePoint {
+                    p: crate::graphics::Point::new(Mm((x + w) * 0.3527777778), Mm((y_adj + h) * 0.3527777778)),
+                    bezier: false,
+                },
+                crate::graphics::LinePoint {
+                    p: crate::graphics::Point::new(Mm(x * 0.3527777778), Mm((y_adj + h) * 0.3527777778)),
+                    bezier: false,
+                },
+            ],
+        }],
+        mode: crate::graphics::PaintMode::Stroke,
+        winding_order: crate::graphics::WindingOrder::NonZero,
+    };
+    
+    ops.push(Op::SetOutlineColor { col: convert_color(&color) });
+    ops.push(Op::SetOutlineThickness { pt: Pt(width) });
+    ops.push(Op::DrawPolygon { polygon });
+    ops.push(Op::RestoreGraphicsState);
 }
 
 /// Render a single border side
