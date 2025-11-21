@@ -335,10 +335,6 @@ fn render_unified_layout_impl<T: ParsedFontTrait + 'static, Q: FontLoaderTrait<T
             continue;
         }
 
-        // Save graphics state for this run to ensure runs don't affect each other
-        ops.push(Op::SaveGraphicsState);
-        ops.push(Op::StartTextSection);
-
         println!(
             "[bridge] Run {}: {} glyphs, baseline_start=({}, {}), first_glyph=({}, {}), bounds.origin=({}, {})",
             run_idx,
@@ -351,7 +347,7 @@ fn render_unified_layout_impl<T: ParsedFontTrait + 'static, Q: FontLoaderTrait<T
             bounds.origin.y,
         );
 
-        // Set color if it changed
+        // Set color if it changed (BEFORE text section)
         if current_color != Some(run.color) {
             ops.push(Op::SetFillColor {
                 col: convert_color(&run.color),
@@ -359,18 +355,18 @@ fn render_unified_layout_impl<T: ParsedFontTrait + 'static, Q: FontLoaderTrait<T
             current_color = Some(run.color);
         }
 
-        // Set font if it changed
-        if current_font_hash != Some(run.font_hash) || current_font_size != Some(run.font_size_px) {
-            let font_id = FontId(format!("F{}", run.font_hash));
-            
-            ops.push(Op::SetFont {
-                font: crate::ops::PdfFontHandle::External(font_id.clone()),
-                size: Pt(run.font_size_px),
-            });
-            
-            current_font_hash = Some(run.font_hash);
-            current_font_size = Some(run.font_size_px);
-        }
+        // Set font if it changed OR if we're starting a new text section (BEFORE text section)
+        // Note: Font must be set inside each text section (BT...ET), so we set it every time
+        let font_id = FontId(format!("F{}", run.font_hash));
+        ops.push(Op::SetFont {
+            font: crate::ops::PdfFontHandle::External(font_id.clone()),
+            size: Pt(run.font_size_px),
+        });
+        current_font_hash = Some(run.font_hash);
+        current_font_size = Some(run.font_size_px);
+
+        // Start text section AFTER setting font and color
+        ops.push(Op::StartTextSection);
 
         // IMPORTANT: Unit conversion notes
         // 
@@ -430,9 +426,8 @@ fn render_unified_layout_impl<T: ParsedFontTrait + 'static, Q: FontLoaderTrait<T
             });
         }
 
-        // End text section and restore graphics state after this run
+        // End text section after this run
         ops.push(Op::EndTextSection);
-        ops.push(Op::RestoreGraphicsState);
 
         // TODO: Handle text decorations (underline, strikethrough, overline)
         // This would require drawing lines at appropriate positions relative to the baseline
