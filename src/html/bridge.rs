@@ -21,6 +21,11 @@ use azul_layout::{
 
 use crate::{Color, Mm, Op, Pt, Rgb, FontId};
 
+use super::border::{
+    BorderConfig, extract_border_widths, extract_border_colors, 
+    extract_border_styles, extract_border_radii, render_border,
+};
+
 /// Convert azul ColorU to printpdf Color
 fn convert_color(color: &ColorU) -> Color {
     Color::Rgb(Rgb {
@@ -98,6 +103,14 @@ fn convert_display_list_item<'a, T: ParsedFontTrait + 'static, Q: FontLoaderTrai
             color,
             border_radius: _,
         } => {
+            println!("[bridge] Rect: bounds={:?}, color={:?}", bounds, color);
+            
+            // Skip rectangles with zero size (layout artifacts from empty inline elements)
+            if bounds.size.width == 0.0 || bounds.size.height == 0.0 {
+                println!("[bridge] Skipping zero-size rectangle");
+                return;
+            }
+            
             // Convert rectangle to PDF polygon
             ops.push(Op::SaveGraphicsState);
 
@@ -182,75 +195,24 @@ fn convert_display_list_item<'a, T: ParsedFontTrait + 'static, Q: FontLoaderTrai
             bounds,
             widths,
             colors,
-            styles: _,
-            border_radius: _,
+            styles,
+            border_radius,
         } => {
-            // Simplified border rendering
-
-            let width = widths
-                .top
-                .and_then(|w| w.get_property().cloned())
-                .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE))
-                .unwrap_or(0.0);
-
-            if width > 0.0 {
-                let color = colors
-                    .top
-                    .and_then(|c| c.get_property().cloned())
-                    .map(|c| c.inner)
-                    .unwrap_or(ColorU {
-                        r: 0,
-                        g: 0,
-                        b: 0,
-                        a: 255,
-                    });
-
-                ops.push(Op::SaveGraphicsState);
-
-                let y = page_height - bounds.origin.y - bounds.size.height;
-
-                let line = crate::graphics::Line {
-                    points: vec![
-                        crate::graphics::LinePoint {
-                            p: crate::graphics::Point::new(
-                                Mm(bounds.origin.x * 0.3527777778),
-                                Mm(y * 0.3527777778),
-                            ),
-                            bezier: false,
-                        },
-                        crate::graphics::LinePoint {
-                            p: crate::graphics::Point::new(
-                                Mm((bounds.origin.x + bounds.size.width) * 0.3527777778),
-                                Mm(y * 0.3527777778),
-                            ),
-                            bezier: false,
-                        },
-                        crate::graphics::LinePoint {
-                            p: crate::graphics::Point::new(
-                                Mm((bounds.origin.x + bounds.size.width) * 0.3527777778),
-                                Mm((y + bounds.size.height) * 0.3527777778),
-                            ),
-                            bezier: false,
-                        },
-                        crate::graphics::LinePoint {
-                            p: crate::graphics::Point::new(
-                                Mm(bounds.origin.x * 0.3527777778),
-                                Mm((y + bounds.size.height) * 0.3527777778),
-                            ),
-                            bezier: false,
-                        },
-                    ],
-                    is_closed: true,
-                };
-
-                ops.push(Op::SetOutlineColor {
-                    col: convert_color(&color),
-                });
-                ops.push(Op::SetOutlineThickness { pt: Pt(width) });
-                ops.push(Op::DrawLine { line });
-
-                ops.push(Op::RestoreGraphicsState);
-            }
+            // Use comprehensive border rendering with full support for:
+            // - All four sides rendered individually
+            // - Border-radius with proper corner curves
+            // - Border styles (solid, dashed, dotted, double, etc.)
+            
+            let config = BorderConfig {
+                bounds: *bounds,
+                widths: extract_border_widths(widths),
+                colors: extract_border_colors(colors),
+                styles: extract_border_styles(styles),
+                radii: extract_border_radii(border_radius),
+                page_height,
+            };
+            
+            render_border(ops, &config);
         }
 
         DisplayListItem::Image { bounds: _, key: _ } => {
