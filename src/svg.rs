@@ -35,7 +35,7 @@ impl Svg {
         }
 
         let dpi = 300.0;
-        let tree = usvg::Tree::from_str(svg_string, &options)
+        let tree = usvg::Tree::from_str(svg_string, &usvg::Options { dpi, ..options })
             .map_err(|err| format!("usvg parse: {err}"))?;
 
         let mut co = ConversionOptions::default();
