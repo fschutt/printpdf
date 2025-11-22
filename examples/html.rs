@@ -7,8 +7,14 @@ use std::fs::File;
 fn main() {
     println!("Testing HTML to PDF implementation...");
 
-    // Create simple HTML content with CSS
-    let html = r#"
+    // Get HTML file from command line args
+    let args: Vec<String> = std::env::args().collect();
+    let html = if args.len() >= 2 {
+        println!("Reading HTML from file: {}", args[1]);
+        std::fs::read_to_string(&args[1]).expect("Failed to read HTML file")
+    } else {
+        // Default HTML content
+        r#"
         <html>
             <head>
                 <style>
@@ -39,7 +45,8 @@ fn main() {
                 <div class="box"></div>
             </body>
         </html>
-    "#;
+        "#.to_string()
+    };
 
     // Create PDF from HTML
     let images = BTreeMap::new();
@@ -49,7 +56,7 @@ fn main() {
 
     println!("Parsing HTML and generating PDF...");
     
-    let doc = match PdfDocument::from_html(html, &images, &fonts, &options, &mut warnings) {
+    let doc = match PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnings) {
         Ok(doc) => {
             println!("✓ Successfully generated PDF");
             if !warnings.is_empty() {
@@ -67,7 +74,11 @@ fn main() {
     };
 
     // Save to file
-    let output_path = "html_example.pdf";
+    let output_path = if args.len() >= 3 {
+        args[2].clone()
+    } else {
+        "html_example.pdf".to_string()
+    };
     println!("Saving PDF to {}...", output_path);
     
     let save_options = PdfSaveOptions::default();
@@ -81,7 +92,7 @@ fn main() {
         }
     }
     
-    match File::create(output_path) {
+    match File::create(&output_path) {
         Ok(mut file) => {
             use std::io::Write;
             match file.write_all(&bytes) {

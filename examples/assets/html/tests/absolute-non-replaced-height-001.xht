@@ -1,40 +1,62 @@
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
     <head>
-        <title>CSS Test: Absolutely positioned, non-replaced elements, static position of fixed element</title>
-        <link rel="author" title="Microsoft" href="http://www.microsoft.com/" />
-        <link rel="help" href="http://www.w3.org/TR/CSS21/visudet.html#abs-non-replaced-height" />
-        <meta name="flags" content="" />
-        <meta name="assert" content="The calculation of static position is based on initial containing block when there is a fixed positioned element." />
-        <style type="text/css">* { margin: 0; padding: 0 }
-            html, body, p
-            {
-                margin: 0;
-                padding: 0;
+        <title>CSS Test: Float and Clear</title>
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            
+            body {
+                padding: 10px;
             }
-            #div1
-            {
-                border: solid black;
-                border-radius: 20px;
-                height: 2in;
-                position: absolute;
-                top: 1in;
-                width: 3in;
+            
+            .container {
+                border: 2px solid black;
+                padding: 10px;
+                width: 400px;
             }
-            div div
-            {
+            
+            .float-left {
+                float: left;
+                width: 100px;
+                height: 100px;
+                background: red;
+                border: 2px solid darkred;
+                margin: 5px;
+            }
+            
+            .float-right {
+                float: right;
+                width: 100px;
+                height: 100px;
                 background: blue;
-                border-radius: 15px;
-                height: 1in;
-                position: fixed;
-                width: 1in;
+                border: 2px solid darkblue;
+                margin: 5px;
+            }
+            
+            .clear-both {
+                clear: both;
+                background: green;
+                height: 50px;
+                border: 2px solid darkgreen;
+                margin: 5px;
+            }
+            
+            .normal-box {
+                background: yellow;
+                height: 80px;
+                border: 2px solid orange;
+                margin: 5px;
             }
         </style>
     </head>
     <body>
-        <p>Test passes the a filled blue square touches the upper-left corner of the black box.</p>
-        <div id="div1">
-            <div></div>
+        <h1>Float and Clear Test</h1>
+        
+        <div class="container">
+            <div class="float-left">Float Left</div>
+            <div class="float-right">Float Right</div>
+            <div class="normal-box">Normal Box (should wrap around floats)</div>
+            <div class="clear-both">Clear Both (should be below floats)</div>
         </div>
     </body>
 </html>

@@ -1,7 +1,5 @@
 ## printpdf vs. other PDF libraries
 
-When choosing a PDF library for your Rust project, it's important to understand the strengths of different options:
-
 ### printpdf vs. lopdf
 
 - **printpdf**: Provides a higher-level API for both reading and writing PDFs with strong support for graphics, text rendering, and page layout.

@@ -7,10 +7,20 @@ use std::fs::File;
 fn main() {
     println!("=== HTML to PDF Full Example ===\n");
 
-    // Load HTML from file
-    println!("Loading HTML from examples/assets/html/tests/absolute-non-replaced-height-001.xht...");
-    
-    let html = include_str!("assets/html/tests/absolute-non-replaced-height-001.xht");
+    // Load HTML from file or command line argument
+    let html = if let Some(path) = std::env::args().nth(1) {
+        println!("Loading HTML from {}...", path);
+        match std::fs::read_to_string(&path) {
+            Ok(content) => content,
+            Err(e) => {
+                eprintln!("✗ Failed to read file {}: {}", path, e);
+                return;
+            }
+        }
+    } else {
+        println!("Loading HTML from examples/assets/html/tests/flexbox-flex-grow-shrink-001.xht...");
+        include_str!("assets/html/tests/flexbox-flex-grow-shrink-001.xht").to_string()
+    };
 
     // Create PDF from HTML
     let images = BTreeMap::new();
