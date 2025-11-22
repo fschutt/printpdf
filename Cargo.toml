@@ -103,10 +103,6 @@ name = "html_full"
 required-features = ["html"]
 
 [[example]]
-name = "html_inline_debug"
-required-features = ["html"]
-
-[[example]]
 name = "margin_collapse"
 path = "examples/margin_collapse.rs"
 
