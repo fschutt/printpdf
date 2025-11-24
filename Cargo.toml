@@ -105,18 +105,32 @@ required-features = ["html"]
 [[example]]
 name = "margin_collapse"
 path = "examples/margin_collapse.rs"
+required-features = ["html"]
 
 [[example]]
 name = "margin_collapse_inline"
 path = "examples/margin_collapse_inline.rs"
+required-features = ["html"]
 
 [[example]]
 name = "margin_collapse_border_test"
 path = "examples/margin_collapse_border_test.rs"
+required-features = ["html"]
 
 [[example]]
 name = "margin_collapse_comprehensive"
 path = "examples/margin_collapse_comprehensive.rs"
+required-features = ["html"]
+
+[[example]]
+name = "debug_text_node_inheritance"
+path = "examples/debug_text_node_inheritance.rs"
+required-features = ["html"]
+
+[[example]]
+name = "html_full_debug"
+path = "examples/html_full_debug.rs"
+required-features = ["html"]
 
 [[example]]
 name = "image"

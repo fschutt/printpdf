@@ -16,6 +16,115 @@ pub use azul_layout::{
     PrepFont,
 };
 
+// Stub types when text_layout is disabled
+#[cfg(not(feature = "text_layout"))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ParsedFont {
+    pub original_bytes: Vec<u8>,
+    pub font_index: u32,
+    pub font_name: Option<String>,
+    /// Manual Unicode codepoint -> glyph ID mapping
+    /// Used when text_layout is disabled to provide character to glyph mapping
+    pub codepoint_to_glyph: BTreeMap<u32, u16>,
+    /// Manual glyph widths mapping (glyph_id -> width in font units)
+    /// Used when text_layout is disabled to provide font metrics
+    pub glyph_widths: BTreeMap<u16, u16>,
+    /// Manual units per em value (typically 1000 or 2048)
+    pub units_per_em: u16,
+    /// Manual font metrics
+    pub font_metrics: FontMetrics,
+}
+
+#[cfg(not(feature = "text_layout"))]
+impl ParsedFont {
+    pub fn from_bytes(bytes: &[u8], index: u32, _warnings: &mut Vec<String>) -> Option<Self> {
+        Some(ParsedFont {
+            original_bytes: bytes.to_vec(),
+            font_index: index,
+            font_name: None,
+            codepoint_to_glyph: BTreeMap::new(),
+            glyph_widths: BTreeMap::new(),
+            units_per_em: 1000, // Default value
+            font_metrics: FontMetrics {
+                ascent: 800,
+                descent: -200,
+            },
+        })
+    }
+    
+    /// Create a ParsedFont with manual glyph mappings and widths
+    pub fn with_glyph_data(
+        bytes: Vec<u8>,
+        index: u32,
+        font_name: Option<String>,
+        codepoint_to_glyph: BTreeMap<u32, u16>,
+        glyph_widths: BTreeMap<u16, u16>,
+        units_per_em: u16,
+        font_metrics: FontMetrics,
+    ) -> Self {
+        ParsedFont {
+            original_bytes: bytes,
+            font_index: index,
+            font_name,
+            codepoint_to_glyph,
+            glyph_widths,
+            units_per_em,
+            font_metrics,
+        }
+    }
+    
+    /// Set Unicode codepoint to glyph ID mapping
+    pub fn set_codepoint_mapping(&mut self, codepoint: u32, gid: u16) {
+        self.codepoint_to_glyph.insert(codepoint, gid);
+    }
+    
+    /// Set glyph width for a specific glyph ID
+    pub fn set_glyph_width(&mut self, gid: u16, width: u16) {
+        self.glyph_widths.insert(gid, width);
+    }
+    
+    /// Get glyph width for a specific glyph ID
+    pub fn get_glyph_width(&self, gid: u16) -> Option<u16> {
+        self.glyph_widths.get(&gid).copied()
+    }
+    
+    /// Lookup glyph index for a Unicode codepoint
+    pub fn lookup_glyph_index(&self, codepoint: u32) -> Option<u16> {
+        self.codepoint_to_glyph.get(&codepoint).copied()
+    }
+    
+    /// Returns None without panicking - reverse lookup is not available without text_layout feature
+    pub fn get_glyph_primary_char(&self, _gid: u16) -> Option<char> {
+        None
+    }
+}
+
+#[cfg(not(feature = "text_layout"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FontType {
+    TrueType,
+    OpenTypeCFF(()),
+}
+
+#[cfg(not(feature = "text_layout"))]
+pub type FontParseWarning = String;
+
+#[cfg(not(feature = "text_layout"))]
+pub type PdfFontParseWarning = String;
+
+#[cfg(not(feature = "text_layout"))]
+pub type PrepFont = ();
+
+#[cfg(not(feature = "text_layout"))]
+pub type OwnedGlyph = ();
+
+#[cfg(not(feature = "text_layout"))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FontMetrics {
+    pub ascent: i16,
+    pub descent: i16,
+}
+
 /// Result of subsetting a font
 #[derive(Debug, Clone)]
 pub struct SubsetFont {
@@ -61,7 +170,7 @@ impl Default for PrintpdfFontMeta {
 /// Combined font data for PDF generation
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PdfFont {
-    /// The actual font data from azul-layout
+    /// The actual font data
     pub parsed_font: ParsedFont,
     /// PDF-specific metadata
     pub meta: PrintpdfFontMeta,
@@ -86,7 +195,7 @@ pub enum Font {
     /// Represents one of the 14 built-in fonts (Arial, Helvetica, etc.)
     BuiltinFont(BuiltinFont),
     /// Represents a font loaded from an external file
-    /// Contains both the azul ParsedFont and PDF-specific metadata
+    /// Contains both the ParsedFont and PDF-specific metadata
     ExternalFont(ParsedFont, PrintpdfFontMeta),
 }
 
@@ -388,6 +497,7 @@ impl Font {
     }
 }
 
+#[cfg(feature = "text_layout")]
 pub fn subset_font(font: &ParsedFont, glyph_ids: &BTreeMap<u16, char>) -> Result<SubsetFont, String> {
     use allsorts::{binary::read::ReadScope, font_data::FontData, subset::CmapTarget};
     
@@ -422,6 +532,16 @@ pub fn subset_font(font: &ParsedFont, glyph_ids: &BTreeMap<u16, char>) -> Result
     })
 }
 
+#[cfg(not(feature = "text_layout"))]
+pub fn subset_font(font: &ParsedFont, _glyph_ids: &BTreeMap<u16, char>) -> Result<SubsetFont, String> {
+    Ok(SubsetFont {
+        // Without text_layout, just return the original font bytes without subsetting
+        bytes: font.original_bytes.clone(),
+        // Empty mapping - user provides glyph info via Codepoint
+        glyph_mapping: BTreeMap::new(),
+    })
+}
+
 // PDF-specific helper functions for ParsedFont
 
 pub fn generate_cmap_string(_font: &ParsedFont, font_id: &FontId, glyph_ids: &[(u16, char)]) -> String {
@@ -434,6 +554,7 @@ pub fn generate_cmap_string(_font: &ParsedFont, font_id: &FontId, glyph_ids: &[(
     cmap.to_cmap_string(&font_id.0)
 }
 
+#[cfg(feature = "text_layout")]
 pub fn generate_gid_to_cid_map(font: &ParsedFont, glyph_ids: &[(u16, char)]) -> Vec<(u16, u16)> {
     glyph_ids
         .iter()
@@ -441,10 +562,12 @@ pub fn generate_gid_to_cid_map(font: &ParsedFont, glyph_ids: &[(u16, char)]) -> 
         .collect()
 }
 
+#[cfg(feature = "text_layout")]
 fn get_glyph_width(font: &ParsedFont, gid: u16) -> Option<u16> {
     font.glyph_records_decoded.get(&gid).map(|g| g.horz_advance)
 }
 
+#[cfg(feature = "text_layout")]
 pub fn get_normalized_widths_ttf(font: &ParsedFont, glyph_ids: &[(u16, char)]) -> Vec<lopdf::Object> {
     let mut widths_list = Vec::new();
     let mut current_low_gid = 0;
@@ -486,6 +609,7 @@ pub fn get_normalized_widths_ttf(font: &ParsedFont, glyph_ids: &[(u16, char)]) -
     widths_list
 }
 
+#[cfg(feature = "text_layout")]
 pub fn get_normalized_widths_cff(font: &ParsedFont, gid_to_cid_map: &[(u16, u16)]) -> Vec<lopdf::Object> {
     let percentage_font_scaling = 1000.0 / (font.pdf_font_metrics.units_per_em as f32);
 
@@ -500,22 +624,7 @@ pub fn get_normalized_widths_cff(font: &ParsedFont, gid_to_cid_map: &[(u16, u16)
         .collect()
 }
 
-
-// PrepFont trait is now imported from azul-layout
-
-// ParsedFont Serialize, Deserialize, PartialEq, and Debug are now implemented in azul-layout
-
-const FONT_B64_START: &str = "data:font/ttf;base64,";
-
-
-
-// GlyphOutlineOperation, OutlineMoveTo, OutlineLineTo, OutlineQuadTo, OutlineCubicTo, GlyphOutline, and OwnedGlyphBoundingBox are now imported from azul-layout
-
-// OwnedGlyph is now imported from azul-layout
-
-// ParsedFont::from_bytes is now implemented in azul-layout
-
-// FontMetrics is now imported from azul-layout (simplified version with 17 fields)
+pub const FONT_B64_START: &str = "data:font/ttf;base64,";
 
 #[cfg(test)]
 mod test {
@@ -523,7 +632,7 @@ mod test {
 
     use crate::*;
 
-    const WIN_1252: &[char; 214] = &[
+    pub const WIN_1252: &[char; 214] = &[
         '!', '"', '#', '$', '%', '&', '\'', '(', ')', '*', '+', ',', '-', '.', '/', '0', '1', '2',
         '3', '4', '5', '6', '7', '8', '9', ':', ';', '<', '=', '>', '?', '@', 'A', 'B', 'C', 'D',
         'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V',

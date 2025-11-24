@@ -14,10 +14,10 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::{
     color::IccProfile,
-    font::FontType,
+    font::{ParsedFont, PrepFont, FontType},
     Actions, BuiltinFont, Color, ColorArray, Destination, FontId, IccProfileType,
-    ImageOptimizationOptions, Line, LinkAnnotation, Op, PaintMode, ParsedFont, PdfDocument,
-    PdfDocumentInfo, PdfPage, PdfResources, PdfWarnMsg, Polygon, PrepFont, TextItem, XObject,
+    ImageOptimizationOptions, Line, LinkAnnotation, Op, PaintMode, PdfDocument,
+    PdfDocumentInfo, PdfPage, PdfResources, PdfWarnMsg, Polygon, TextItem, XObject,
     XObjectId,
 };
 
@@ -734,9 +734,9 @@ fn encode_text_items_to_pdf(
                     // For custom fonts, convert each character to its subset glyph ID
                     let bytes = text.chars()
                         .flat_map(|c| {
-                            subset_info.original_font.lgi(c as u32)
+                            subset_info.original_font.lookup_glyph_index(c as u32)
                                 .and_then(|src_gdi| {
-                                    subset_info.glyph_mapping.get(&(src_gdi as u16))
+                                    subset_info.glyph_mapping.get(&src_gdi)
                                         .map(|(subset_gid, _)| *subset_gid)
                                 })
                                 .unwrap_or(0)
@@ -842,13 +842,13 @@ fn needs_hex_encoding(bytes: &[u8]) -> bool {
 /// Font subsetting information computed at serialization time
 #[derive(Debug, Clone)]
 pub(crate) struct RuntimeSubsetInfo {
-    original_font: ParsedFont,
+    pub original_font: ParsedFont,
     pub subset_font_bytes: Vec<u8>,
-    glyph_mapping: BTreeMap<u16, (u16, char)>, // original_gid -> (subset_gid, char)
-    cid_to_unicode_map: String,
-    widths_list: Vec<lopdf::Object>,
-    ascent: i64,
-    descent: i64,
+    pub glyph_mapping: BTreeMap<u16, (u16, char)>, // original_gid -> (subset_gid, char)
+    pub cid_to_unicode_map: String,
+    pub widths_list: Vec<lopdf::Object>,
+    pub ascent: i64,
+    pub descent: i64,
 }
 
 /// Analyze all PDF operations to collect used glyph IDs for each font - now trivial with Codepoint!
@@ -884,8 +884,8 @@ fn collect_used_glyphs_from_pages(
                                     TextItem::Text(text) => {
                                         // Convert each character to glyph ID using the font
                                         for c in text.chars() {
-                                            if let Some(glyph_id) = pdf_font.parsed_font.lgi(c as u32) {
-                                                font_glyphs.insert(glyph_id as u16, c);
+                                            if let Some(glyph_id) = pdf_font.parsed_font.lookup_glyph_index(c as u32) {
+                                                font_glyphs.insert(glyph_id, c);
                                             }
                                         }
                                     }
@@ -1172,101 +1172,144 @@ pub(crate) fn prepare_fonts_for_serialization(
             continue; // Skip unused fonts
         }
         
-        // Subset the font if needed
+        // Try to subset the font if text_layout feature is available and subsetting is enabled
+        #[cfg(feature = "text_layout")]
         let runtime_info = if pdf_font.meta.requires_subsetting && 
                               pdf_font.meta.embedding_mode == crate::font::FontEmbeddingMode::Subset {
-            
-            let subset_result = crate::font::subset_font(&pdf_font.parsed_font, &glyph_usage);
-            
-            match subset_result {
-                Ok(subset) => {
-                    let mut font_warnings = Vec::new();
-                    if let Some(subset_font) = ParsedFont::from_bytes(&subset.bytes, 0, &mut font_warnings) {
-                        
-                        let new_glyph_ids: Vec<(u16, char)> = glyph_usage
-                            .iter()
-                            .filter_map(|(orig_gid, char)| 
-                                subset.glyph_mapping.get(orig_gid)
-                                    .map(|(subset_gid, _)| (*subset_gid, *char))
-                            )
-                            .collect();
-                        
-                        let cid_to_unicode_map = crate::font::generate_cmap_string(
-                            &subset_font, 
-                            font_id, 
-                            &new_glyph_ids
-                        );
-                        
-                        let widths = match subset_font.font_type {
-                            FontType::TrueType => crate::font::get_normalized_widths_ttf(&subset_font, &new_glyph_ids),
-                            _ => {
-                                let gid_to_cid_map = crate::font::generate_gid_to_cid_map(&subset_font, &new_glyph_ids);
-                                crate::font::get_normalized_widths_cff(&subset_font, &gid_to_cid_map)
-                            }
-                        };
-                        
-                        RuntimeSubsetInfo {
-                            original_font: pdf_font.parsed_font.clone(),
-                            subset_font_bytes: subset.bytes,
-                            glyph_mapping: subset.glyph_mapping,
-                            cid_to_unicode_map,
-                            widths_list: widths,
-                            ascent: subset_font.font_metrics.ascent as i64,
-                            descent: subset_font.font_metrics.descent as i64,
-                        }
-                    } else {
-                        warnings.push(PdfWarnMsg::error(0, 0, 
-                            format!("Failed to parse subset font for {}", font_id.0)));
-                        continue;
-                    }
-                }
-                Err(e) => {
-                    warnings.push(PdfWarnMsg::error(0, 0, 
-                        format!("Failed to subset font {}: {}", font_id.0, e)));
-                    continue;
-                }
-            }
+            // Try subsetting, fall back to full font if it fails
+            create_subset_runtime_info(font_id, pdf_font, &glyph_usage, warnings)
+                .unwrap_or_else(|| create_full_font_runtime_info(font_id, pdf_font, &glyph_usage))
         } else {
             // Use full font without subsetting
-            let font_bytes = pdf_font.parsed_font.original_bytes.clone();
-            let glyph_ids: Vec<(u16, char)> = glyph_usage.iter()
-                .map(|(gid, char)| (*gid, *char))
-                .collect();
-            
-            let cid_to_unicode_map = crate::font::generate_cmap_string(
-                &pdf_font.parsed_font, 
-                font_id, 
-                &glyph_ids
-            );
-            
-            let widths = match pdf_font.parsed_font.font_type {
-                FontType::TrueType => crate::font::get_normalized_widths_ttf(&pdf_font.parsed_font, &glyph_ids),
-                _ => {
-                    let gid_to_cid_map = crate::font::generate_gid_to_cid_map(&pdf_font.parsed_font, &glyph_ids);
-                    crate::font::get_normalized_widths_cff(&pdf_font.parsed_font, &gid_to_cid_map)
-                }
-            };
-            
-            // Create identity mapping for full font
-            let identity_mapping: BTreeMap<u16, (u16, char)> = glyph_usage.iter()
-                .map(|(gid, char)| (*gid, (*gid, *char)))
-                .collect();
-            
-            RuntimeSubsetInfo {
-                original_font: pdf_font.parsed_font.clone(),
-                subset_font_bytes: font_bytes,
-                glyph_mapping: identity_mapping,
-                cid_to_unicode_map,
-                widths_list: widths,
-                ascent: pdf_font.parsed_font.font_metrics.ascent as i64,
-                descent: pdf_font.parsed_font.font_metrics.descent as i64,
-            }
+            create_full_font_runtime_info(font_id, pdf_font, &glyph_usage)
         };
+        
+        // Without text_layout, always use full font
+        #[cfg(not(feature = "text_layout"))]
+        let runtime_info = create_full_font_runtime_info(font_id, pdf_font, &glyph_usage);
         
         subset_info.insert(font_id.clone(), runtime_info);
     }
     
     subset_info
+}
+
+/// Create subset info by actually subsetting the font (requires text_layout feature)
+#[cfg(feature = "text_layout")]
+fn create_subset_runtime_info(
+    font_id: &FontId,
+    pdf_font: &crate::font::PdfFont,
+    glyph_usage: &BTreeMap<u16, char>,
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> Option<RuntimeSubsetInfo> {
+    let subset_result = crate::font::subset_font(&pdf_font.parsed_font, glyph_usage);
+    
+    match subset_result {
+        Ok(subset) => {
+            let mut font_warnings = Vec::new();
+            if let Some(subset_font) = ParsedFont::from_bytes(&subset.bytes, 0, &mut font_warnings) {
+                
+                let new_glyph_ids: Vec<(u16, char)> = glyph_usage
+                    .iter()
+                    .filter_map(|(orig_gid, char)| 
+                        subset.glyph_mapping.get(orig_gid)
+                            .map(|(subset_gid, _)| (*subset_gid, *char))
+                    )
+                    .collect();
+                
+                let cid_to_unicode_map = crate::font::generate_cmap_string(
+                    &subset_font, 
+                    font_id, 
+                    &new_glyph_ids
+                );
+                
+                let widths = match subset_font.font_type {
+                    FontType::TrueType => crate::font::get_normalized_widths_ttf(&subset_font, &new_glyph_ids),
+                    _ => {
+                        let gid_to_cid_map = crate::font::generate_gid_to_cid_map(&subset_font, &new_glyph_ids);
+                        crate::font::get_normalized_widths_cff(&subset_font, &gid_to_cid_map)
+                    }
+                };
+                
+                Some(RuntimeSubsetInfo {
+                    original_font: pdf_font.parsed_font.clone(),
+                    subset_font_bytes: subset.bytes,
+                    glyph_mapping: subset.glyph_mapping,
+                    cid_to_unicode_map,
+                    widths_list: widths,
+                    ascent: subset_font.font_metrics.ascent as i64,
+                    descent: subset_font.font_metrics.descent as i64,
+                })
+            } else {
+                warnings.push(PdfWarnMsg::error(0, 0, 
+                    format!("Failed to parse subset font for {}", font_id.0)));
+                None
+            }
+        }
+        Err(e) => {
+            warnings.push(PdfWarnMsg::error(0, 0, 
+                format!("Failed to subset font {}: {}", font_id.0, e)));
+            None
+        }
+    }
+}
+
+/// Create runtime info using the full font without subsetting
+/// This is used as a fallback when subsetting fails or is disabled
+fn create_full_font_runtime_info(
+    font_id: &FontId,
+    pdf_font: &crate::font::PdfFont,
+    glyph_usage: &BTreeMap<u16, char>,
+) -> RuntimeSubsetInfo {
+    let font_bytes = pdf_font.parsed_font.original_bytes.clone();
+    let glyph_ids: Vec<(u16, char)> = glyph_usage.iter()
+        .map(|(gid, char)| (*gid, *char))
+        .collect();
+    
+    #[cfg(feature = "text_layout")]
+    {
+        let cid_to_unicode_map = crate::font::generate_cmap_string(
+            &pdf_font.parsed_font, 
+            font_id, 
+            &glyph_ids
+        );
+        
+        let widths = match pdf_font.parsed_font.font_type {
+            FontType::TrueType => crate::font::get_normalized_widths_ttf(&pdf_font.parsed_font, &glyph_ids),
+            _ => {
+                let gid_to_cid_map = crate::font::generate_gid_to_cid_map(&pdf_font.parsed_font, &glyph_ids);
+                crate::font::get_normalized_widths_cff(&pdf_font.parsed_font, &gid_to_cid_map)
+            }
+        };
+        
+        // Create identity mapping for full font
+        let identity_mapping: BTreeMap<u16, (u16, char)> = glyph_usage.iter()
+            .map(|(gid, char)| (*gid, (*gid, *char)))
+            .collect();
+        
+        RuntimeSubsetInfo {
+            original_font: pdf_font.parsed_font.clone(),
+            subset_font_bytes: font_bytes,
+            glyph_mapping: identity_mapping,
+            cid_to_unicode_map,
+            widths_list: widths,
+            ascent: pdf_font.parsed_font.font_metrics.ascent as i64,
+            descent: pdf_font.parsed_font.font_metrics.descent as i64,
+        }
+    }
+    
+    #[cfg(not(feature = "text_layout"))]
+    {
+        RuntimeSubsetInfo {
+            original_font: pdf_font.parsed_font.clone(),
+            subset_font_bytes: font_bytes,
+            glyph_mapping: BTreeMap::new(), // Empty mapping - user provides glyph info via Codepoint
+            cid_to_unicode_map: String::new(),
+            widths_list: Vec::new(),
+            ascent: 0,
+            descent: 0,
+        }
+    }
 }
 
 fn add_subset_font_to_pdf(
@@ -1279,109 +1322,146 @@ fn add_subset_font_to_pdf(
         .clone()
         .unwrap_or(font_id.0.clone());
 
-    let face_name = format!("{}+{}", font_id.0.clone().get(0..6).unwrap_or(&font_id.0), font_name);
+    // With text_layout, create full font dictionary with subsetting
+    #[cfg(feature = "text_layout")]
+    {
+        let face_name = format!("{}+{}", font_id.0.clone().get(0..6).unwrap_or(&font_id.0), font_name);
+        let vertical = false; // subset_info.vertical_writing
 
-    let vertical = false; // subset_info.vertical_writing
+        let (sub_type, font_tuple) = match &subset_info.original_font.font_type {
+            FontType::OpenTypeCFF(_) => {
+                // WARNING: Font stream MAY NOT be compressed
+                let font_stream = LoStream::new(
+                    LoDictionary::from_iter(vec![("Subtype", Name("CIDFontType0C".into()))]),
+                    subset_info.subset_font_bytes.clone(),
+                )
+                .with_compression(false);
 
-    let (sub_type, font_tuple) = match &subset_info.original_font.font_type {
-        FontType::OpenTypeCFF(_) => {
-            // WARNING: Font stream MAY NOT be compressed
-            let font_stream = LoStream::new(
-                LoDictionary::from_iter(vec![("Subtype", Name("CIDFontType0C".into()))]),
-                subset_info.subset_font_bytes.clone(),
-            )
-            .with_compression(false);
+                (
+                    "CIDFontType0",
+                    ("FontFile3", Reference(doc.add_object(font_stream))),
+                )
+            }
+            FontType::TrueType => {
+                // WARNING: Font stream MAY NOT be compressed
+                let font_stream =
+                    LoStream::new(LoDictionary::new(), subset_info.subset_font_bytes.clone())
+                        .with_compression(false);
 
+                (
+                    "CIDFontType2",
+                    ("FontFile2", Reference(doc.add_object(font_stream))),
+                )
+            }
+        };
+
+        LoDictionary::from_iter(vec![
+            ("Type", Name("Font".into())),
+            ("Subtype", Name("Type0".into())),
+            ("BaseFont", Name(face_name.clone().into_bytes())),
             (
-                "CIDFontType0",
-                ("FontFile3", Reference(doc.add_object(font_stream))),
-            )
-        }
-        FontType::TrueType => {
-            // WARNING: Font stream MAY NOT be compressed
-            let font_stream =
-                LoStream::new(LoDictionary::new(), subset_info.subset_font_bytes.clone())
-                    .with_compression(false);
-
+                "Encoding",
+                if vertical {
+                    Name("Identity-V".into())
+                } else {
+                    Name("Identity-H".into())
+                },
+            ),
             (
-                "CIDFontType2",
-                ("FontFile2", Reference(doc.add_object(font_stream))),
-            )
-        }
-    };
-
-    LoDictionary::from_iter(vec![
-        ("Type", Name("Font".into())),
-        ("Subtype", Name("Type0".into())),
-        ("BaseFont", Name(face_name.clone().into_bytes())),
-        (
-            "Encoding",
-            if vertical {
-                Name("Identity-V".into())
-            } else {
-                Name("Identity-H".into())
-            },
-        ),
-        (
-            "ToUnicode",
-            Reference(doc.add_object(LoStream::new(
-                LoDictionary::new(),
-                subset_info.cid_to_unicode_map.as_bytes().to_vec(),
-            ))),
-        ),
-        (
-            "DescendantFonts",
-            Array(vec![Dictionary(LoDictionary::from_iter(vec![
-                ("Type", Name("Font".into())),
-                ("BaseFont", Name(face_name.clone().into_bytes())),
-                ("Subtype", Name(sub_type.into())),
-                (
-                    "CIDSystemInfo",
-                    Dictionary(LoDictionary::from_iter(vec![
-                        ("Registry", LoString("Adobe".into(), Literal)),
-                        ("Ordering", LoString("Identity".into(), Literal)),
-                        ("Supplement", Integer(0)),
-                    ])),
-                ),
-                (
-                    if vertical { "W2" } else { "W" },
-                    Array(subset_info.widths_list.clone()),
-                ),
-                (
-                    if vertical { "DW2" } else { "DW" },
-                    Integer(DEFAULT_CHARACTER_WIDTH),
-                ),
-                (
-                    "FontDescriptor",
-                    Reference(
-                        doc.add_object(LoDictionary::from_iter(vec![
-                            ("Type", Name("FontDescriptor".into())),
-                            ("FontName", Name(font_name.clone().into_bytes())),
-                            ("Ascent", Integer(subset_info.ascent)),
-                            ("Descent", Integer(subset_info.descent)),
-                            (
-                                "CapHeight",
-                                Integer(0), // s_cap_height not available in simplified FontMetrics
-                            ),
-                            ("ItalicAngle", Integer(0)),
-                            ("Flags", Integer(32)),
-                            ("StemV", Integer(80)),
-                            font_tuple,
-                            (
-                                "FontBBox",
-                                Array(vec![
-                                    Integer(subset_info.original_font.pdf_font_metrics.x_min as i64),
-                                    Integer(subset_info.original_font.pdf_font_metrics.y_min as i64),
-                                    Integer(subset_info.original_font.pdf_font_metrics.x_max as i64),
-                                    Integer(subset_info.original_font.pdf_font_metrics.y_max as i64),
-                                ]),
-                            ),
+                "ToUnicode",
+                Reference(doc.add_object(LoStream::new(
+                    LoDictionary::new(),
+                    subset_info.cid_to_unicode_map.as_bytes().to_vec(),
+                ))),
+            ),
+            (
+                "DescendantFonts",
+                Array(vec![Dictionary(LoDictionary::from_iter(vec![
+                    ("Type", Name("Font".into())),
+                    ("BaseFont", Name(face_name.clone().into_bytes())),
+                    ("Subtype", Name(sub_type.into())),
+                    (
+                        "CIDSystemInfo",
+                        Dictionary(LoDictionary::from_iter(vec![
+                            ("Registry", LoString("Adobe".into(), Literal)),
+                            ("Ordering", LoString("Identity".into(), Literal)),
+                            ("Supplement", Integer(0)),
                         ])),
                     ),
-                ),
-            ]))]),
-        ),
-    ])
+                    (
+                        if vertical { "W2" } else { "W" },
+                        Array(subset_info.widths_list.clone()),
+                    ),
+                    (
+                        if vertical { "DW2" } else { "DW" },
+                        Integer(DEFAULT_CHARACTER_WIDTH),
+                    ),
+                    (
+                        "FontDescriptor",
+                        Reference(
+                            doc.add_object(LoDictionary::from_iter(vec![
+                                ("Type", Name("FontDescriptor".into())),
+                                ("FontName", Name(font_name.clone().into_bytes())),
+                                ("Ascent", Integer(subset_info.ascent)),
+                                ("Descent", Integer(subset_info.descent)),
+                                (
+                                    "CapHeight",
+                                    Integer(0), // s_cap_height not available in simplified FontMetrics
+                                ),
+                                ("ItalicAngle", Integer(0)),
+                                ("Flags", Integer(32)),
+                                ("StemV", Integer(80)),
+                                font_tuple,
+                                (
+                                    "FontBBox",
+                                    Array(vec![
+                                        Integer(subset_info.original_font.pdf_font_metrics.x_min as i64),
+                                        Integer(subset_info.original_font.pdf_font_metrics.y_min as i64),
+                                        Integer(subset_info.original_font.pdf_font_metrics.x_max as i64),
+                                        Integer(subset_info.original_font.pdf_font_metrics.y_max as i64),
+                                    ]),
+                                ),
+                            ])),
+                        ),
+                    ),
+                ]))]),
+            ),
+        ])
+    }
+    
+    // Without text_layout, create minimal font dictionary
+    #[cfg(not(feature = "text_layout"))]
+    {
+        // Create a simple font stream with the original bytes
+        let font_stream = LoStream::new(
+            LoDictionary::new(),
+            subset_info.subset_font_bytes.clone(),
+        );
+        let font_stream_id = doc.add_object(font_stream);
+        
+        // Create a minimal font descriptor
+        let font_descriptor = LoDictionary::from_iter(vec![
+            ("Type", Name("FontDescriptor".into())),
+            ("FontName", Name(font_name.clone().into_bytes())),
+            ("Ascent", Integer(subset_info.ascent)),
+            ("Descent", Integer(subset_info.descent)),
+            ("CapHeight", Integer(0)),
+            ("ItalicAngle", Integer(0)),
+            ("Flags", Integer(32)),
+            ("StemV", Integer(80)),
+            ("FontFile2", Reference(font_stream_id)),
+            ("FontBBox", Array(vec![Integer(0), Integer(0), Integer(1000), Integer(1000)])),
+        ]);
+        let font_descriptor_id = doc.add_object(font_descriptor);
+        
+        // Create minimal font dictionary
+        LoDictionary::from_iter(vec![
+            ("Type", Name("Font".into())),
+            ("Subtype", Name("TrueType".into())),
+            ("BaseFont", Name(font_name.into_bytes())),
+            ("FontDescriptor", Reference(font_descriptor_id)),
+        ])
+    }
 }
 
 fn docinfo_to_dict(m: &PdfDocumentInfo) -> LoDictionary {

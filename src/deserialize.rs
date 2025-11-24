@@ -13,7 +13,8 @@ use lopdf::{
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    BuiltinFont, BuiltinOrExternalFontId, Color, DictItem, ExtendedGraphicsState, ExtendedGraphicsStateId, ExtendedGraphicsStateMap, FontId, LayerInternalId, Line, LineDashPattern, LinePoint, LinkAnnotation, Op, PageAnnotId, PageAnnotMap, PaintMode, ParsedFont, PdfDocument, PdfDocumentInfo, PdfFontMap, PdfLayerMap, PdfMetadata, PdfPage, PdfResources, Point, Polygon, PolygonRing, Pt, RawImage, Rect, RenderingIntent, TextMatrix, TextRenderingMode, WindingOrder, XObject, XObjectId, XObjectMap, cmap::ToUnicodeCMap, conformance::PdfConformance, date::{OffsetDateTime, parse_pdf_date}
+    font::ParsedFont,
+    BuiltinFont, BuiltinOrExternalFontId, Color, DictItem, ExtendedGraphicsState, ExtendedGraphicsStateId, ExtendedGraphicsStateMap, FontId, LayerInternalId, Line, LineDashPattern, LinePoint, LinkAnnotation, Op, PageAnnotId, PageAnnotMap, PaintMode, PdfDocument, PdfDocumentInfo, PdfFontMap, PdfLayerMap, PdfMetadata, PdfPage, PdfResources, Point, Polygon, PolygonRing, Pt, RawImage, Rect, RenderingIntent, TextMatrix, TextRenderingMode, WindingOrder, XObject, XObjectId, XObjectMap, cmap::ToUnicodeCMap, conformance::PdfConformance, date::{OffsetDateTime, parse_pdf_date}
 };
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -3343,7 +3344,8 @@ mod parsefont {
     use crate::{
         cmap::ToUnicodeCMap,
         deserialize::{get_dict_or_resolve_ref, PdfWarnMsg},
-        BuiltinFont, FontId, ParsedFont,
+        font::ParsedFont,
+        BuiltinFont, FontId,
     };
 
     /// Main function to parse fonts from PDF resources
@@ -3389,6 +3391,7 @@ mod parsefont {
 
             // Handle different font types
             if &font_type == b"Type0" {
+                #[cfg(feature = "text_layout")]
                 if let Some(parsed_font) =
                     process_type0_font(doc, font_dict, &font_id, warnings, page_num)
                 {
@@ -3511,6 +3514,7 @@ mod parsefont {
     }
 
     /// Process a Type0 (composite) font
+    #[cfg(feature = "text_layout")]
     fn process_type0_font(
         doc: &Document,
         font_dict: &Dictionary,
@@ -3531,6 +3535,7 @@ mod parsefont {
     }
 
     /// Get the descendant font dictionary for a Type0 font
+    #[cfg(feature = "text_layout")]
     fn get_descendant_font_dict<'a>(
         doc: &'a Document,
         font_dict: &'a Dictionary,
@@ -3573,6 +3578,7 @@ mod parsefont {
     }
 
     /// Get the font descriptor dictionary
+    #[cfg(feature = "text_layout")]
     fn get_font_descriptor<'a>(
         doc: &'a Document,
         font_dict: &'a Dictionary,
@@ -3633,8 +3639,13 @@ mod parsefont {
                 let mut font_warnings = Vec::new();
                 if let Some(parsed_font) = ParsedFont::from_bytes(&font_data, 0, &mut font_warnings) {
                     // Convert FontParseWarnings to PdfWarnMsg if needed
+                    #[cfg(feature = "text_layout")]
                     for fw in font_warnings {
-                        warnings.push(PdfWarnMsg::warning(page_num, 0, fw.message));
+                        warnings.push(PdfWarnMsg::warning(page_num, 0, format!("{:?}", fw)));
+                    }
+                    #[cfg(not(feature = "text_layout"))]
+                    for fw in font_warnings {
+                        warnings.push(PdfWarnMsg::warning(page_num, 0, fw));
                     }
                     return Some(parsed_font);
                 } else {
@@ -3673,6 +3684,7 @@ mod parsefont {
     }
 
     /// Process a Type1 font
+    #[cfg(feature = "text_layout")]
     fn process_type1_font(
         doc: &Document,
         font_dict: &Dictionary,
@@ -3706,18 +3718,30 @@ mod parsefont {
         match BuiltinFont::from_id(&basefont) {
             Some(builtin) => Some(ParsedOrBuiltinFont::B(builtin)),
             None => {
-                match process_type1_font(doc, font_dict, font_id, warnings, page_num) {
-                    Some(parsed_font) => {
-                        Some(ParsedOrBuiltinFont::P(parsed_font, None))
-                    },
-                    None => {
-                        warnings.push(PdfWarnMsg::warning(
-                            page_num,
-                            0,
-                            format!("Unknown base font: {}", basefont),
-                        ));
-                        None
+                #[cfg(feature = "text_layout")]
+                {
+                    match process_type1_font(doc, font_dict, font_id, warnings, page_num) {
+                        Some(parsed_font) => {
+                            Some(ParsedOrBuiltinFont::P(parsed_font, None))
+                        },
+                        None => {
+                            warnings.push(PdfWarnMsg::warning(
+                                page_num,
+                                0,
+                                format!("Unknown base font: {}", basefont),
+                            ));
+                            None
+                        }
                     }
+                }
+                #[cfg(not(feature = "text_layout"))]
+                {
+                    warnings.push(PdfWarnMsg::warning(
+                        page_num,
+                        0,
+                        format!("Unknown base font: {}", basefont),
+                    ));
+                    None
                 }
             }
         }

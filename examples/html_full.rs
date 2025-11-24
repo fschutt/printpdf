@@ -18,8 +18,8 @@ fn main() {
             }
         }
     } else {
-        println!("Loading HTML from examples/assets/html/tests/flexbox-flex-grow-shrink-001.xht...");
-        include_str!("assets/html/tests/flexbox-flex-grow-shrink-001.xht").to_string()
+        println!("Loading HTML from examples/assets/html/recipe.html...");
+        include_str!("assets/html/recipe.html").to_string()
     };
 
     // Create PDF from HTML
