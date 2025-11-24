@@ -14,153 +14,6 @@ pub use crate::image_types::{
     RawImage, RawImageData, RawImageFormat,
 };
 
-// Remove the duplicate definitions below and keep only the impl blocks
-
-/// Options for optimizing images in PDF
-#[derive(Debug, Clone, Serialize, PartialOrd, PartialEq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ImageOptimizationOptions {
-    /// Quality level for lossy compression (0.0-1.0)
-    #[serde(default = "default_quality", skip_serializing_if = "Option::is_none")]
-    pub quality: Option<f32>,
-    /// Maximum image size (e.g. "300kb")
-    #[serde(
-        default = "default_max_img_size",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub max_image_size: Option<String>,
-    /// Whether to apply dithering to greyscale images
-    #[serde(
-        default = "default_dither_greyscale",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub dither_greyscale: Option<bool>,
-    /// Automatically convert the image to greyscale (only done if auto_optimize = true)
-    #[serde(
-        default = "default_convert_to_greyscale",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub convert_to_greyscale: Option<bool>,
-    /// Auto-optimize images (remove alpha if not needed, detect greyscale)
-    #[serde(
-        default = "default_auto_optimize",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub auto_optimize: Option<bool>,
-    /// Preferred compression format
-    #[serde(default = "default_format", skip_serializing_if = "Option::is_none")]
-    pub format: Option<ImageCompression>,
-}
-
-const fn default_quality() -> Option<f32> {
-    Some(0.85)
-}
-
-fn default_max_img_size() -> Option<String> {
-    Some("2MB".to_string())
-}
-
-const fn default_convert_to_greyscale() -> Option<bool> {
-    Some(false)
-}
-
-const fn default_dither_greyscale() -> Option<bool> {
-    None
-}
-
-const fn default_auto_optimize() -> Option<bool> {
-    Some(true)
-}
-
-const fn default_format() -> Option<ImageCompression> {
-    Some(ImageCompression::Auto)
-}
-
-impl Default for ImageOptimizationOptions {
-    fn default() -> Self {
-        ImageOptimizationOptions {
-            quality: default_quality(),
-            convert_to_greyscale: default_convert_to_greyscale(),
-            max_image_size: default_max_img_size(),
-            dither_greyscale: default_dither_greyscale(),
-            auto_optimize: default_auto_optimize(),
-            format: default_format(),
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone, Serialize, PartialOrd, PartialEq, Default, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ImageCompression {
-    /// Automatic selection based on image content
-    #[default]
-    Auto,
-    /// JPEG compression (DCT filter)
-    Jpeg,
-    /// JPEG2000 compression (JPX filter - TODO: uses DCT filter)
-    Jpeg2000,
-    /// Flate compression (lossless)
-    Flate,
-    /// LZW compression (lossless)
-    Lzw,
-    /// Run Length encoding
-    RunLength,
-    /// None (raw)
-    None,
-}
-
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub struct RawImage {
-    pub pixels: RawImageData,
-    pub width: usize,
-    pub height: usize,
-    pub data_format: RawImageFormat,
-    pub tag: Vec<u8>,
-}
-
-impl serde::Serialize for RawImage {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        // Cycle through all output image formats until one succeeds.
-        let output_formats = [
-            OutputImageFormat::Png,
-            OutputImageFormat::Jpeg,
-            OutputImageFormat::Gif,
-            OutputImageFormat::Webp,
-            OutputImageFormat::Pnm,
-            OutputImageFormat::Tiff,
-            OutputImageFormat::Tga,
-            OutputImageFormat::Bmp,
-            OutputImageFormat::Avif,
-        ];
-        let (bytes, fmt) = self
-            .encode_to_bytes(&output_formats)
-            .map_err(serde::ser::Error::custom)?;
-        let base64_str = base64::prelude::BASE64_STANDARD.encode(&bytes);
-        let data_url = format!("data:{};base64,{}", fmt.mime_type(), base64_str);
-        serializer.serialize_str(&data_url)
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for RawImage {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let s = String::deserialize(deserializer)?;
-        // If the string is a data URL (e.g. "data:image/png;base64,..."),
-        // strip the header and keep the base64 payload.
-        let base64_part = if s.starts_with("data:") {
-            s.find(',')
-                .map(|idx| &s[idx + 1..])
-                .ok_or_else(|| D::Error::custom("Invalid data URL: missing comma"))?
-        } else {
-            &s
-        };
-        let bytes = base64::prelude::BASE64_STANDARD
-            .decode(base64_part)
-            .map_err(serde::de::Error::custom)?;
-
-        Self::decode_from_bytes(&bytes, &mut Vec::new()).map_err(serde::de::Error::custom)
-    }
-}
-
 struct RawImageU8 {
     pub pixels: Vec<u8>,
     pub width: usize,
@@ -177,24 +30,6 @@ impl fmt::Debug for RawImageU8 {
             .field("data_format", &self.data_format)
             .finish()
     }
-}
-
-#[derive(Debug, Serialize, Deserialize, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-#[serde(rename_all = "lowercase")]
-pub enum RawImageFormat {
-    R8,
-    RG8,
-    RGB8,
-    RGBA8,
-    R16,
-    RG16,
-    RGB16,
-    RGBA16,
-    BGR8,
-    BGRA8,
-    RGBF32,
-    RGBAF32,
 }
 
 impl RawImageFormat {
@@ -234,17 +69,6 @@ impl RawImageFormat {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, PartialOrd)]
-#[serde(tag = "tag", content = "data", rename_all = "lowercase")]
-pub enum RawImageData {
-    // 8-bit image data
-    U8(Vec<u8>),
-    // 16-bit image data
-    U16(Vec<u16>),
-    // HDR image data
-    F32(Vec<f32>),
-}
-
 impl RawImageData {
     pub fn empty(format: RawImageFormat) -> Self {
         use self::RawImageFormat::*;
@@ -262,46 +86,6 @@ impl RawImageData {
             RawImageData::U8(vec) => vec.is_empty(),
             RawImageData::U16(vec) => vec.is_empty(),
             RawImageData::F32(vec) => vec.is_empty(),
-        }
-    }
-}
-
-/// Format to encode the image into
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum OutputImageFormat {
-    /// An Image in PNG Format
-    Png,
-    /// An Image in JPEG Format
-    Jpeg,
-    /// An Image in GIF Format
-    Gif,
-    /// An Image in WEBP Format
-    Webp,
-    /// An Image in general PNM Format
-    Pnm,
-    /// An Image in TIFF Format
-    Tiff,
-    /// An Image in TGA Format
-    Tga,
-    /// An Image in BMP Format
-    Bmp,
-    /// An Image in AVIF Format
-    Avif,
-}
-
-impl OutputImageFormat {
-    pub fn mime_type(&self) -> &'static str {
-        match self {
-            OutputImageFormat::Png => "image/png",
-            OutputImageFormat::Jpeg => "image/jpeg",
-            OutputImageFormat::Gif => "image/gif",
-            OutputImageFormat::Webp => "image/webp",
-            OutputImageFormat::Pnm => "image/pnm",
-            OutputImageFormat::Tiff => "image/tiff",
-            OutputImageFormat::Tga => "image/tga",
-            OutputImageFormat::Bmp => "image/bmp",
-            OutputImageFormat::Avif => "image/avif",
         }
     }
 }

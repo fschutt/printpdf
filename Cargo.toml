@@ -37,9 +37,9 @@ xmlparser = { version = "0.13.6", default-features = false, optional = true }
 web-sys = { version = "0.3.77", optional = true, default-features = false, features = ["ImageData", "Window", "Document", "Blob", "CanvasRenderingContext2d", "HtmlCanvasElement", "HtmlImageElement", "ImageBitmap", "BlobPropertyBag"]}
 wasm-bindgen-futures = { version = "0.4.50", optional = true, default-features = false }
 kuchiki = { version = "0.8.1", optional = true }
-azul-css = { git = "https://github.com/fschutt/azul", rev = "e3385edbf22fcf712d9f5b217262f27dd232b6c6", default-features = false, features = ["parser"], optional = true }
-azul-core = { git = "https://github.com/fschutt/azul", rev = "e3385edbf22fcf712d9f5b217262f27dd232b6c6", default-features = false, features = ["std"], optional = true }
-azul-layout = { git = "https://github.com/fschutt/azul", rev = "e3385edbf22fcf712d9f5b217262f27dd232b6c6", default-features = false, optional = true }
+azul-css = { path = "../azul/css", default-features = false, features = ["parser"], optional = true }
+azul-core = { path = "../azul/core", default-features = false, features = ["std"], optional = true }
+azul-layout = { path = "../azul/layout", default-features = false, optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 wasm-bindgen = { version = "0.2" }
@@ -56,7 +56,7 @@ text_layout = ["dep:azul-css", "dep:azul-core", "dep:azul-layout", "azul-layout/
 # Add hyphenation support
 text_layout_hyphenation = ["text_layout", "azul-layout/text_layout_hyphenation"]
 # HTML/CSS layout
-html = ["text_layout", "dep:kuchiki", "dep:rust-fontconfig", "dep:xmlparser", "azul-layout/xml"]
+html = ["text_layout_hyphenation", "dep:kuchiki", "dep:rust-fontconfig", "dep:xmlparser", "azul-layout/xml"]
 # SVG support
 svg = ["html", "dep:svg2pdf", "azul-layout/svg"]
 # Image decoding support
@@ -144,7 +144,7 @@ required-features = ["html"]
 
 [[example]]
 name = "image"
-required-features = ["png"]
+required-features = ["images", "png"]
 
 [[example]]
 name = "layers"
@@ -156,7 +156,7 @@ required-features = []
 
 [[example]]
 name = "svg"
-required-features = []
+required-features = ["svg"]
 
 [[example]]
 name = "text"

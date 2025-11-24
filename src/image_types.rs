@@ -182,7 +182,7 @@ impl RawImage {
         Err("RawImage::decode_from_bytes_async requires the 'images' feature".to_string())
     }
 
-    /// Encode to bytes - returns placeholder SVG data when 'images' feature is not enabled
+    /// Encode to bytes - returns placeholder when 'images' feature is not enabled
     #[cfg(not(feature = "images"))]
     pub fn encode_to_bytes(&self, formats: &[OutputImageFormat]) -> Result<(Vec<u8>, OutputImageFormat), String> {
         // Return 1x1 transparent PNG as placeholder
