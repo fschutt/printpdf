@@ -8,6 +8,14 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::{ColorBits, ColorSpace, PdfWarnMsg};
 
+// Re-export types from image_types
+pub use crate::image_types::{
+    ImageOptimizationOptions, ImageCompression, OutputImageFormat,
+    RawImage, RawImageData, RawImageFormat,
+};
+
+// Remove the duplicate definitions below and keep only the impl blocks
+
 /// Options for optimizing images in PDF
 #[derive(Debug, Clone, Serialize, PartialOrd, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]

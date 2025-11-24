@@ -27,6 +27,7 @@ impl ColorSpace {
     }
 }
 
+#[cfg(feature = "images")]
 impl From<image::ColorType> for ColorSpace {
     fn from(color_type: image::ColorType) -> Self {
         use image::ColorType::*;

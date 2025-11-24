@@ -47,12 +47,8 @@ pub fn display_list_to_printpdf_ops<T: ParsedFontTrait + 'static, Q: FontLoaderT
     let mut ops = Vec::new();
     let page_height = page_size.height;
     
-    println!("[bridge] page_size from display_list: {}x{}", page_size.width, page_size.height);
-    
     // Track the current TextLayout for glyph-to-unicode mapping
     let mut current_text_layout: Option<(&azul_layout::text3::cache::UnifiedLayout<T>, LogicalRect)> = None;
-
-    println!("[bridge] Converting DisplayList with {} items", display_list.items.len());
 
     for (idx, item) in display_list.items.iter().enumerate() {
         let item_type = match item {
@@ -76,17 +72,14 @@ pub fn display_list_to_printpdf_ops<T: ParsedFontTrait + 'static, Q: FontLoaderT
             DisplayListItem::PopScrollFrame => "PopScrollFrame",
             DisplayListItem::HitTestArea { .. } => "HitTestArea",
         };
-        println!("[bridge] Item {}: {}", idx, item_type);
         convert_display_list_item(&mut ops, item, page_height, &mut current_text_layout, font_manager);
     }
 
     // Process any remaining TextLayout that was collected (should be rare now)
     if let Some((layout, bounds)) = current_text_layout {
-        println!("[bridge] Processing final TextLayout with {} items at bounds {:?} (this should be rare)", layout.items.len(), bounds);
         // Note: This will likely be redundant since TextLayouts are processed immediately now
     }
 
-    println!("[bridge] Generated {} ops", ops.len());
     Ok(ops)
 }
 
@@ -103,11 +96,8 @@ fn convert_display_list_item<'a, T: ParsedFontTrait + 'static, Q: FontLoaderTrai
             color,
             border_radius,
         } => {
-            println!("[bridge] Rect: bounds={:?}, color={:?}", bounds, color);
-            
             // Skip rectangles with zero size (layout artifacts from empty inline elements)
             if bounds.size.width == 0.0 || bounds.size.height == 0.0 {
-                println!("[bridge] Skipping zero-size rectangle");
                 return;
             }
             
@@ -208,15 +198,11 @@ fn convert_display_list_item<'a, T: ParsedFontTrait + 'static, Q: FontLoaderTrai
         } => {
             // Extract the UnifiedLayout from the type-erased Arc<dyn Any>
             if let Some(unified_layout) = layout.downcast_ref::<azul_layout::text3::cache::UnifiedLayout<T>>() {
-                println!("[bridge] ✓ Found TextLayout with {} items, bounds={:?}", unified_layout.items.len(), bounds);
-                
                 // Process this TextLayout immediately instead of just storing it
                 render_unified_layout_impl(ops, unified_layout, bounds, *color, page_height, font_manager);
                 
                 // Also update the current text layout for any subsequent processing
                 *current_text_layout = Some((unified_layout, *bounds));
-            } else {
-                println!("[bridge] ✗ Failed to downcast TextLayout");
             }
         }
 
@@ -224,9 +210,6 @@ fn convert_display_list_item<'a, T: ParsedFontTrait + 'static, Q: FontLoaderTrai
             // IGNORE: Text items are for visual renderers, not PDF generation
             // The azul-layout code pushes TextLayout items BEFORE Text items
             // We only process the TextLayout items which contain the full UnifiedLayout
-            if !glyphs.is_empty() {
-                println!("[bridge] IGNORING Text item with {} glyphs - use TextLayout instead", glyphs.len());
-            }
         }
 
         DisplayListItem::Border {
@@ -255,12 +238,10 @@ fn convert_display_list_item<'a, T: ParsedFontTrait + 'static, Q: FontLoaderTrai
 
         DisplayListItem::Image { bounds: _, key: _ } => {
             // Image rendering - not yet implemented
-            println!("[bridge] Image rendering not yet implemented");
         }
 
         _ => {
             // Other display list items not yet implemented
-            println!("[bridge] Unsupported display list item");
         }
     }
 }
@@ -305,20 +286,9 @@ fn render_unified_layout_impl<T: ParsedFontTrait + 'static, Q: FontLoaderTrait<T
     _font_manager: &FontManager<T, Q>,
 ) {
     use azul_layout::text3::glyphs::get_glyph_runs_pdf;
-    
-    println!(
-        "[bridge] Rendering unified layout with {} items, bounds={:?}", 
-        layout.items.len(), 
-        bounds
-    );
 
     // Get PDF-optimized glyph runs (grouped by font/color/style/line)
     let glyph_runs = get_glyph_runs_pdf(layout);
-    
-    println!(
-        "[bridge] Generated {} glyph runs from layout", 
-        glyph_runs.len()
-    );
 
     if glyph_runs.is_empty() {
         return;
@@ -334,18 +304,6 @@ fn render_unified_layout_impl<T: ParsedFontTrait + 'static, Q: FontLoaderTrait<T
         if run.glyphs.is_empty() {
             continue;
         }
-
-        println!(
-            "[bridge] Run {}: {} glyphs, baseline_start=({}, {}), first_glyph=({}, {}), bounds.origin=({}, {})",
-            run_idx,
-            run.glyphs.len(),
-            run.baseline_start.x,
-            run.baseline_start.y,
-            run.glyphs.first().map(|g| g.position.x).unwrap_or(0.0),
-            run.glyphs.first().map(|g| g.position.y).unwrap_or(0.0),
-            bounds.origin.x,
-            bounds.origin.y,
-        );
 
         // Set color if it changed (BEFORE text section)
         if current_color != Some(run.color) {

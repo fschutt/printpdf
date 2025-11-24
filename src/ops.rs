@@ -158,8 +158,6 @@ impl PdfPage {
                 Op::SetTextCursor { pos } => {
                     if (cur_text_cursor.y.0.abs() - pos.y.0.abs()).abs() > 3.0 {
                         current_chunk.push_str("\r\n");
-                    } else {
-                        println!("shifting {:?}", pos);
                     }
                     cur_text_cursor = *pos;
                 }

@@ -6,10 +6,10 @@ use serde_derive::{Deserialize, Serialize};
 use crate::{
     date::OffsetDateTime,
     deserialize::PageState,
-    image::RawImage,
+    image_types::{RawImage, ImageOptimizationOptions},
     matrix::CurTransMat,
     units::{Pt, Px},
-    ImageOptimizationOptions, Op,
+    Op,
 };
 
 /* Parent: Resources dictionary of the page */
@@ -58,8 +58,15 @@ pub(crate) fn add_xobject_to_document(
     // in the PDF content stream, reference an XObject like this
     match xobj {
         XObject::Image(i) => {
-            let stream = crate::image::image_to_stream(i.clone(), doc, image_opts);
-            doc.add_object(stream)
+            #[cfg(feature = "images")]
+            {
+                let stream = crate::image::image_to_stream(i.clone(), doc, image_opts);
+                doc.add_object(stream)
+            }
+            #[cfg(not(feature = "images"))]
+            {
+                panic!("Image XObjects require the 'images' feature");
+            }
         }
         XObject::Form(f) => {
             let stream = form_xobject_to_stream(f, doc);

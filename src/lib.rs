@@ -46,11 +46,18 @@ pub use color::*;
 /// XObject handling
 pub mod xobject;
 pub use xobject::*;
+/// Image types (always available)
+pub mod image_types;
+pub use image_types::*;
 /// SVG handling
+#[cfg(feature = "svg")]
 pub mod svg;
+#[cfg(feature = "svg")]
 pub use svg::*;
-/// Image decoding
+/// Image decoding (requires 'images' feature)
+#[cfg(feature = "images")]
 pub mod image;
+#[cfg(feature = "images")]
 pub use image::*;
 /// HTML handling (using azul solver3 and DisplayList)
 #[cfg(feature = "html")]
@@ -59,10 +66,11 @@ pub mod html;
 pub use html::*;
 
 /// Public API for text shaping using azul text3
-#[cfg(feature = "html")]
+#[cfg(feature = "text_layout")]
 pub mod text_shaping {
     pub use azul_layout::text3::cache::{FontManager, UnifiedLayout, ParsedFontTrait};
     pub use azul_css::props::basic::ColorU;
+    #[cfg(feature = "html")]
     pub use crate::html::bridge::render_unified_layout_public;
 }
 /// HTML component definitions
@@ -79,7 +87,7 @@ pub use serialize::*;
 /// Core utils for parsing PDF
 pub mod deserialize;
 pub use deserialize::*;
-/// Rendering PDF to SVG
+/// Rendering PDF to SVG (always available)
 pub(crate) mod render;
 pub use render::*;
 
@@ -394,12 +402,10 @@ impl PdfDocument {
                     // The font ID matches what the bridge generated
                     let font_id = FontId(format!("F{}", font_hash.font_hash));
                     
-                    println!("[from_html] Registering font: {}", font_id.0);
                     let pdf_font = crate::font::PdfFont::new(parsed_font.clone());
                     pdf.resources.fonts.map.insert(font_id, pdf_font);
                 }
                 
-                println!("[from_html] Registered {} fonts in PDF resources", font_data.len());
                 pdf.pages.extend(pages);
                 Ok(pdf)
             }

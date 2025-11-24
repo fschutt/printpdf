@@ -77,42 +77,6 @@ pub fn xml_to_pdf_pages(
     let preprocessed = RawHtml::new(xml).preprocess();
     let inlined_xml = preprocessed.as_str();
     
-    // Debug: Print preprocessed HTML with inlined styles
-    println!("\n========================================");
-    println!("=== CSS PREPROCESSING DEBUG ===");
-    println!("========================================");
-    println!("[PREPROCESSED_HTML] Length: {}", inlined_xml.len());
-    println!("[PREPROCESSED_HTML] First 2000 chars:\n{}", &inlined_xml[..inlined_xml.len().min(2000)]);
-    if inlined_xml.len() > 2000 {
-        println!("[PREPROCESSED_HTML] ... (truncated {} chars)", inlined_xml.len() - 2000);
-    }
-    
-    // Debug: Check for red-box and highlight classes
-    if inlined_xml.contains("red-box") {
-        println!("\n[CSS_DEBUG] ✓ Found 'red-box' in HTML");
-        // Extract the red-box element
-        if let Some(start) = inlined_xml.find("red-box") {
-            let context_start = start.saturating_sub(50);
-            let context_end = (start + 200).min(inlined_xml.len());
-            println!("[CSS_DEBUG] red-box context:\n{}", &inlined_xml[context_start..context_end]);
-        }
-    } else {
-        println!("\n[CSS_DEBUG] ✗ 'red-box' NOT found in HTML");
-    }
-    
-    if inlined_xml.contains("highlight") {
-        println!("\n[CSS_DEBUG] ✓ Found 'highlight' in HTML");
-        // Extract the highlight element
-        if let Some(start) = inlined_xml.find("highlight") {
-            let context_start = start.saturating_sub(50);
-            let context_end = (start + 200).min(inlined_xml.len());
-            println!("[CSS_DEBUG] highlight context:\n{}", &inlined_xml[context_start..context_end]);
-        }
-    } else {
-        println!("\n[CSS_DEBUG] ✗ 'highlight' NOT found in HTML");
-    }
-    println!("========================================\n");
-    
     // Parse XML to XmlNode tree
     let root_nodes = match parse_xml_string(inlined_xml) {
         Ok(nodes) => nodes,
@@ -145,37 +109,6 @@ pub fn xml_to_pdf_pages(
             return Err(warnings);
         }
     };
-
-    // Debug: Print StyledDom structure
-    println!("\n========================================");
-    println!("=== STYLED DOM DEBUG ===");
-    println!("========================================");
-    println!("[STYLED_DOM] Total nodes: {}", styled_dom.node_data.len());
-    println!("[STYLED_DOM] Node hierarchy:");
-    for (idx, node_data) in styled_dom.node_data.as_container().iter().enumerate() {
-        let node_type = match node_data.get_node_type() {
-            azul_core::dom::NodeType::Text(t) => format!("Text('{}')", t.as_str()),
-            azul_core::dom::NodeType::Div => "Div".to_string(),
-            azul_core::dom::NodeType::Span => "Span".to_string(),
-            azul_core::dom::NodeType::P => "P".to_string(),
-            azul_core::dom::NodeType::Body => "Body".to_string(),
-            azul_core::dom::NodeType::H1 => "H1".to_string(),
-            azul_core::dom::NodeType::Ul => "Ul".to_string(),
-            azul_core::dom::NodeType::Li => "Li".to_string(),
-            other => format!("{:?}", other),
-        };
-        
-        println!("  [{}] {}", idx, node_type);
-        
-        // If it's a Span, check for display property
-        if matches!(node_data.get_node_type(), azul_core::dom::NodeType::Span) {
-            let node_id = azul_core::dom::NodeId::new(idx);
-            if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(node_id) {
-                println!("    └─ Styled node found for Span[{}]", idx);
-            }
-        }
-    }
-    println!("========================================\n");
 
     // Create LayoutWindow and solve layout
     let fc_cache = build_font_cache();
@@ -230,29 +163,6 @@ pub fn xml_to_pdf_pages(
     };
     
     let display_list = layout_result.display_list;
-
-    // Debug: Print display list information
-    println!("\n========================================");
-    println!("=== DISPLAY LIST DEBUG ===");
-    println!("========================================");
-    println!("Display list has {} items", display_list.items.len());
-    for (idx, item) in display_list.items.iter().enumerate() {
-        match item {
-            azul_layout::solver3::display_list::DisplayListItem::TextLayout { bounds, .. } => {
-                println!("  [{}] TextLayout: bounds={:?}", idx, bounds);
-            }
-            azul_layout::solver3::display_list::DisplayListItem::Text { glyphs, .. } => {
-                println!("  [{}] Text: {} glyphs", idx, glyphs.len());
-            }
-            azul_layout::solver3::display_list::DisplayListItem::Rect { bounds, .. } => {
-                println!("  [{}] Rect: bounds={:?}", idx, bounds);
-            }
-            _ => {
-                println!("  [{}] Other item", idx);
-            }
-        }
-    }
-    println!("========================================\n");
 
     // Convert DisplayList directly to printpdf operations
     let page_size = LogicalSize::new(page_width_pt, page_height_pt);
