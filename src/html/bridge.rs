@@ -378,7 +378,7 @@ fn render_unified_layout_impl<T: ParsedFontTrait + 'static, Q: FontLoaderTrait<T
                     crate::text::Codepoint {
                         gid: glyph.glyph_id,
                         offset: 0.0,
-                        cid: Some(glyph.cluster_text.clone()),
+                        cid: Some(glyph.unicode_codepoint.clone()),
                     }
                 ])],
             });

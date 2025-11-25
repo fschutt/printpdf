@@ -10,17 +10,18 @@ use std::collections::BTreeMap;
 
 use azul_core::{
     dom::DomId,
-    geom::LogicalSize,
+    geom::{LogicalSize, LogicalRect, LogicalPosition},
     resources::RendererResources,
     xml::{str_to_dom, DynamicXmlComponent},
 };
 use azul_layout::{
-    callbacks::ExternalSystemCallbacks,
     font::loading::build_font_cache,
+    paged::FragmentationContext,
+    solver3::{paged_layout::layout_document_paged},
     text3::cache::FontHash,
-    window_state::FullWindowState,
+    font_traits::{TextLayoutCache, FontManager},
+    Solver3LayoutCache,
     xml::parse_xml_string,
-    LayoutWindow,
 };
 use serde_derive::{Deserialize, Serialize};
 
@@ -110,103 +111,127 @@ pub fn xml_to_pdf_pages(
         }
     };
 
-    // Create LayoutWindow and solve layout
+    // Create font cache and font manager
     let fc_cache = build_font_cache();
-    let mut layout_window = match LayoutWindow::new(fc_cache) {
-        Ok(window) => window,
+    let font_manager = match FontManager::new(fc_cache) {
+        Ok(fm) => fm,
         Err(e) => {
             warnings.push(PdfWarnMsg::error(
                 0,
                 0,
-                format!("Failed to create layout window: {:?}", e),
+                format!("Failed to create font manager: {:?}", e),
             ));
             return Err(warnings);
         }
     };
-
-    // Prepare window state with page dimensions
-    let page_height_pt = options.page_height.0 * 2.83465; // mm to pt
-    let mut window_state = FullWindowState::default();
-    window_state.size.dimensions = LogicalSize::new(page_width_pt, page_height_pt);
-
-    // Perform layout
-    let renderer_resources = RendererResources::default();
-    let external_callbacks = ExternalSystemCallbacks::rust_internal();
-    let mut debug_messages = Some(Vec::new());
-
-    if let Err(e) = layout_window.layout_and_generate_display_list(
-        styled_dom,
-        &window_state,
-        &renderer_resources,
-        &external_callbacks,
-        &mut debug_messages,
-    ) {
-        warnings.push(PdfWarnMsg::error(
-            0,
-            0,
-            format!("Layout solving failed: {:?}", e),
-        ));
-        return Err(warnings);
-    }
     
-    // Extract the display list from the layout result
-    let layout_result = match layout_window.layout_results.remove(&DomId::ROOT_ID) {
-        Some(result) => result,
-        None => {
+    // Prepare page size for paged layout context
+    let page_height_pt = options.page_height.0 * 2.83465; // mm to pt
+    let page_size = LogicalSize::new(page_width_pt, page_height_pt);
+    
+    // Create fragmentation context for paged layout
+    let fragmentation_context = FragmentationContext::new_paged(page_size);
+    
+    // Create layout cache and text cache
+    use azul_css::props::basic::FontRef;
+    let mut layout_cache = Solver3LayoutCache::<FontRef> {
+        tree: None,
+        calculated_positions: std::collections::BTreeMap::new(),
+        viewport: None,
+        scroll_ids: std::collections::BTreeMap::new(),
+        scroll_id_to_node_id: std::collections::BTreeMap::new(),
+        counters: std::collections::BTreeMap::new(),
+        float_cache: std::collections::BTreeMap::new(),
+    };
+    let mut text_cache = TextLayoutCache::new();
+    
+    // Prepare viewport (same as page size for PDF)
+    let viewport = LogicalRect {
+        origin: LogicalPosition::zero(),
+        size: page_size,
+    };
+    
+    // Perform paged layout - returns Vec<DisplayList>
+    let renderer_resources = RendererResources::default();
+    let mut debug_messages = Some(Vec::new());
+    
+    let display_lists = match layout_document_paged(
+        &mut layout_cache,
+        &mut text_cache,
+        fragmentation_context,
+        styled_dom,
+        viewport,
+        &font_manager,
+        &std::collections::BTreeMap::new(), // No scroll offsets for PDF
+        &std::collections::BTreeMap::new(), // No selections for PDF
+        &mut debug_messages,
+        None, // No GPU cache for PDF
+        &renderer_resources,
+        azul_core::resources::IdNamespace(0),
+        DomId::ROOT_ID,
+    ) {
+        Ok(lists) => lists,
+        Err(e) => {
             warnings.push(PdfWarnMsg::error(
                 0,
                 0,
-                "No layout result found for root DOM".to_string(),
+                format!("Layout solving failed: {:?}", e),
             ));
             return Err(warnings);
         }
     };
     
-    let display_list = layout_result.display_list;
-
-    // Convert DisplayList directly to printpdf operations
-    let page_size = LogicalSize::new(page_width_pt, page_height_pt);
-    let font_manager = &layout_window.font_manager;
-    let pdf_ops = bridge::display_list_to_printpdf_ops(&display_list, page_size, font_manager)
-        .map_err(|e| vec![PdfWarnMsg::warning(0, 0, format!("Failed to convert display list: {}", e))])?;
-
-    // Extract ParsedFonts from the font manager
-    let mut font_hashes: std::collections::HashSet<azul_layout::text3::cache::FontHash> = std::collections::HashSet::new();
-    for item in display_list.items.iter() {
-        if let azul_layout::solver3::display_list::DisplayListItem::Text { font_hash, .. } = item {
-            font_hashes.insert(*font_hash);
-        }
-    }
+    // Convert each DisplayList to a PDF page
+    let mut pages = Vec::new();
+    // font_data_map now maps u64 (font hash) directly to ParsedFont
+    let mut font_data_map: BTreeMap<FontHash, azul_layout::font::parsed::ParsedFont> = BTreeMap::new();
     
-    let mut font_data_map = BTreeMap::new();
-    
-    for font_hash in font_hashes.iter() {
+    for display_list in display_lists.iter() {
+        // Convert DisplayList to printpdf operations
+        let pdf_ops = bridge::display_list_to_printpdf_ops(&display_list, page_size, &font_manager)
+            .map_err(|e| vec![PdfWarnMsg::warning(0, 0, format!("Failed to convert display list: {}", e))])?;
         
-        if let Some(font_ref) = layout_window.font_manager.get_font_by_hash(font_hash.font_hash) {
-            // Extract azul's ParsedFont from the FontRef
-            let azul_parsed_font = unsafe {
-                let parsed_ptr = font_ref.get_parsed();
-                let parsed_font = &*(parsed_ptr as *const azul_layout::font::parsed::ParsedFont);
-                parsed_font.clone()
-            };
-            
-            // Use the ParsedFont directly without round-tripping through bytes
-            // This preserves all glyph records that were loaded during layout
-            font_data_map.insert(font_hash.clone(), azul_parsed_font);
-        } else {
-            warnings.push(PdfWarnMsg::warning(
-                0,
-                0,
-                format!("Could not find font with hash {} in font cache", font_hash.font_hash),
-            ));
+        // Extract fonts from TextLayout items (which contain the full UnifiedLayout with used_fonts)
+        // Ignore Text items - they are for visual renderers only
+        // Note: The UnifiedLayout is parameterized with FontRef (which wraps ParsedFont)
+        for item in display_list.items.iter() {
+            if let azul_layout::solver3::display_list::DisplayListItem::TextLayout { layout, .. } = item {
+                // Downcast the type-erased layout to UnifiedLayout<FontRef>
+                // (FontRef is the concrete type used by FontManager<FontRef, PathLoader>)
+                use azul_css::props::basic::FontRef;
+                if let Some(unified_layout) = layout.downcast_ref::<azul_layout::text3::cache::UnifiedLayout<FontRef>>() {
+                    // Extract all used fonts from this layout
+                    // FontRef contains a pointer to ParsedFont
+                    for (font_hash, font_ref) in unified_layout.used_fonts.iter() {
+                        let font_hash_key = FontHash { font_hash: *font_hash };
+                        if !font_data_map.contains_key(&font_hash_key) {
+                            // Extract ParsedFont from FontRef
+                            let parsed_font = unsafe {
+                                let parsed_ptr = font_ref.get_parsed();
+                                let parsed_font = &*(parsed_ptr as *const azul_layout::font::parsed::ParsedFont);
+                                parsed_font.clone()
+                            };
+                            font_data_map.insert(font_hash_key, parsed_font);
+                        }
+                    }
+                }
+            }
         }
+        
+        // Create a page for this display list
+        let page = PdfPage::new(options.page_width, options.page_height, pdf_ops);
+        pages.push(page);
+    }
+    
+    // If no pages were generated, create at least one empty page
+    if pages.is_empty() {
+        warnings.push(PdfWarnMsg::warning(0, 0, "No content generated, creating empty page".to_string()));
+        let page = PdfPage::new(options.page_width, options.page_height, Vec::new());
+        pages.push(page);
     }
 
-    // Create PDF page
-    let page = PdfPage::new(options.page_width, options.page_height, pdf_ops);
-
-    // Always return Ok with page and fonts, warnings are logged but don't fail the conversion
-    Ok((vec![page], font_data_map))
+    // Always return Ok with pages and fonts
+    Ok((pages, font_data_map))
 }
 
 /// Add XML/HTML content to an existing PDF document
@@ -316,39 +341,20 @@ fn parse_css(css_text: &str) -> Vec<CssRule> {
 /// Inline CSS rules into style attributes
 /// Note: This is a simplified version that works on XML strings
 /// For more complex selector matching, consider using a proper HTML/CSS parser
+///
+/// IMPORTANT: This function does NOT remove <style> tags anymore!
+/// The <style> tags are left intact so that str_to_dom() can process them
+/// as global CSS. This function only provides OPTIONAL inline style augmentation
+/// for simple selectors, but the main CSS processing happens in azul's CSS engine.
 fn inline_css_in_xml(xml: &str) -> String {
-    // Extract style blocks
-    let mut css_text = String::new();
-    let mut cleaned_xml = xml.to_string();
+    // DO NOT extract or remove style blocks - leave them for str_to_dom()
+    // The azul CSS engine is much more sophisticated than this simple inliner
+    // and can handle complex selectors, cascading, specificity, etc.
+    //
+    // This function used to remove <style> tags, which broke global CSS application!
+    // Now we just return the XML as-is, letting azul's str_to_dom() handle all CSS.
     
-    // Simple regex-like extraction of <style>...</style> blocks
-    while let Some(start) = cleaned_xml.find("<style>") {
-        if let Some(end) = cleaned_xml[start..].find("</style>") {
-            let style_start = start + "<style>".len();
-            let style_end = start + end;
-            css_text.push_str(&cleaned_xml[style_start..style_end]);
-            css_text.push('\n');
-            
-            // Remove the style block
-            cleaned_xml.replace_range(start..style_end + "</style>".len(), "");
-        } else {
-            break;
-        }
-    }
-    
-    if css_text.is_empty() {
-        return xml.to_string();
-    }
-    
-    let rules = parse_css(&css_text);
-    
-    // Apply rules by matching element names, classes, and IDs
-    let mut result = cleaned_xml;
-    for rule in rules {
-        result = apply_css_rule_to_xml(&result, &rule);
-    }
-    
-    result
+    xml.to_string()
 }
 
 /// Apply a single CSS rule to XML string (basic implementation)

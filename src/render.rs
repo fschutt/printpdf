@@ -518,12 +518,12 @@ fn render_to_svg_internal(
     svg.push('\n');
 
     // Handle fonts
-    let fonts = crate::serialize::prepare_fonts_for_serialization(resources, &[page.clone()], warnings);
-    if !fonts.is_empty() {
+    let (_, subset_fonts) = crate::serialize::prepare_fonts_for_serialization(resources, &[page.clone()], true, warnings);
+    if !subset_fonts.is_empty() {
         // Embed fonts via a <style> block
         svg.push_str("<style>\n");
         // Iterate over PDF fonts and embed each via an @font-face rule
-        for (font_id, font) in fonts.iter() {
+        for (font_id, font) in subset_fonts.iter() {
             svg.push_str(&format!(
                 r#"@font-face {{ font-family: "{}"; src: url("data:font/otf;charset=utf-8;base64,{}"); }}"#,
                 font_id.0, base64::prelude::BASE64_STANDARD.encode(&font.subset_font_bytes),

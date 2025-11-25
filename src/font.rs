@@ -13,7 +13,6 @@ use crate::{
 #[cfg(feature = "text_layout")]
 pub use azul_layout::{
     FontMetrics, FontParseWarning as PdfFontParseWarning, FontType, OwnedGlyph, ParsedFont,
-    PrepFont,
 };
 
 // Stub types when text_layout is disabled
@@ -111,9 +110,6 @@ pub type FontParseWarning = String;
 
 #[cfg(not(feature = "text_layout"))]
 pub type PdfFontParseWarning = String;
-
-#[cfg(not(feature = "text_layout"))]
-pub type PrepFont = ();
 
 #[cfg(not(feature = "text_layout"))]
 pub type OwnedGlyph = ();
@@ -558,7 +554,7 @@ pub fn generate_cmap_string(_font: &ParsedFont, font_id: &FontId, glyph_ids: &[(
 pub fn generate_gid_to_cid_map(font: &ParsedFont, glyph_ids: &[(u16, char)]) -> Vec<(u16, u16)> {
     glyph_ids
         .iter()
-        .filter_map(|(gid, _)| font.index_to_cid(*gid).map(|cid| (*gid, cid)))
+        .filter_map(|(gid, _)| font.index_to_cid.get(gid).map(|cid| (*gid, *cid)))
         .collect()
 }
 

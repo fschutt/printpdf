@@ -14,7 +14,7 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::{
     color::IccProfile,
-    font::{ParsedFont, PrepFont, FontType},
+    font::{ParsedFont, FontType},
     Actions, BuiltinFont, Color, ColorArray, Destination, FontId, IccProfileType,
     ImageOptimizationOptions, Line, LinkAnnotation, Op, PaintMode, PdfDocument,
     PdfDocumentInfo, PdfPage, PdfResources, PdfWarnMsg, Polygon, TextItem, XObject,
@@ -206,7 +206,7 @@ pub fn to_lopdf_doc(
 
     // Build fonts dictionary with deferred subsetting
     let mut global_font_dict = LoDictionary::new();
-    let subset_fonts = prepare_fonts_for_serialization(&pdf.resources, &pdf.pages, warnings);
+    let (font_infos, subset_fonts) = prepare_fonts_for_serialization(&pdf.resources, &pdf.pages, opts.subset_fonts, warnings);
     for (font_id, subset_info) in subset_fonts.iter() {
         let font_dict = add_subset_font_to_pdf(&mut doc, font_id, subset_info);
         let font_dict_id = doc.add_object(font_dict);
@@ -287,7 +287,7 @@ pub fn to_lopdf_doc(
 
             let layer_stream = translate_operations(
                 &page.ops,
-                &subset_fonts,
+                &font_infos,
                 &pdf.resources.xobjects.map,
                 opts.secure,
                 warnings,
@@ -439,7 +439,7 @@ fn builtin_font_to_dict(font: &BuiltinFont) -> LoDictionary {
 
 pub(crate) fn translate_operations(
     ops: &[Op],
-    subset_fonts: &BTreeMap<FontId, RuntimeSubsetInfo>,
+    font_infos: &BTreeMap<FontId, RuntimeFontInfo>,
     xobjects: &BTreeMap<XObjectId, XObject>,
     secure: bool,
     warnings: &mut Vec<PdfWarnMsg>,
@@ -509,16 +509,16 @@ pub(crate) fn translate_operations(
                     .as_ref()
                     .and_then(|r| BuiltinFont::from_id(r));
                 
-                let subset_info = if builtin_font.is_none() {
+                let font_info = if builtin_font.is_none() {
                     // Try to find external font by resource name
                     current_font_resource
                         .as_ref()
-                        .and_then(|r| subset_fonts.get(&FontId(r.clone())))
+                        .and_then(|r| font_infos.get(&FontId(r.clone())))
                 } else {
                     None
                 };
                 
-                encode_text_items_to_pdf(items, subset_info, builtin_font.as_ref(), &mut content);
+                encode_text_items_to_pdf(items, font_info, builtin_font.as_ref(), &mut content);
             }
             Op::SetLineHeight { lh } => {
                 content.push(LoOp::new("TL", vec![Real(lh.0)]));
@@ -713,9 +713,13 @@ pub(crate) fn translate_operations(
 }
 
 // Helper function to encode text items to PDF operations
+// 
+// IMPORTANT: This function uses ORIGINAL glyph IDs directly.
+// Font subsetting (if enabled) happens at font serialization time,
+// and the glyph ID remapping is done there, not here.
 fn encode_text_items_to_pdf(
     items: &[TextItem],
-    subset_info: Option<&RuntimeSubsetInfo>,
+    font_info: Option<&RuntimeFontInfo>,
     builtin_font: Option<&BuiltinFont>,
     content: &mut Vec<LoOp>,
 ) {
@@ -730,15 +734,12 @@ fn encode_text_items_to_pdf(
     for item in items {
         match item {
             TextItem::Text(text) => {
-                if let Some(subset_info) = subset_info {
-                    // For custom fonts, convert each character to its subset glyph ID
-                    let bytes = text.chars()
+                if let Some(font_info) = font_info {
+                    // For custom fonts, convert each character to its glyph ID
+                    // Use original GIDs - subsetting remapping happens at font serialization
+                    let bytes: Vec<u8> = text.chars()
                         .flat_map(|c| {
-                            subset_info.original_font.lookup_glyph_index(c as u32)
-                                .and_then(|src_gdi| {
-                                    subset_info.glyph_mapping.get(&src_gdi)
-                                        .map(|(subset_gid, _)| *subset_gid)
-                                })
+                            font_info.parsed_font.lookup_glyph_index(c as u32)
                                 .unwrap_or(0)
                                 .to_be_bytes()
                         })
@@ -767,26 +768,13 @@ fn encode_text_items_to_pdf(
                 tj_array.push(Real(*offset));
             }
             TextItem::GlyphIds(glyphs) => {
-                // For GlyphIds, we need to remap from original glyph IDs to subset glyph IDs
-                if let Some(subset_info) = subset_info {
-                    // Use the subset's glyph mapping to convert original GIDs to subset GIDs
-                    for codepoint in glyphs {
-                        if let Some(&(subset_gid, _)) = subset_info.glyph_mapping.get(&codepoint.gid) {
-                            let bytes = subset_gid.to_be_bytes().to_vec();
-                            tj_array.push(LoString(bytes, Hexadecimal));
-                            if codepoint.offset != 0.0 {
-                                tj_array.push(Real(codepoint.offset));
-                            }
-                        }
-                    }
-                } else {
-                    // No font mapping available - use original glyph IDs (for builtin fonts)
-                    for codepoint in glyphs {
-                        let bytes = codepoint.gid.to_be_bytes().to_vec();
-                        tj_array.push(LoString(bytes, Hexadecimal));
-                        if codepoint.offset != 0.0 {
-                            tj_array.push(Real(codepoint.offset));
-                        }
+                // Use original glyph IDs directly
+                // Subsetting remapping happens at font serialization time
+                for codepoint in glyphs {
+                    let bytes = codepoint.gid.to_be_bytes().to_vec();
+                    tj_array.push(LoString(bytes, Hexadecimal));
+                    if codepoint.offset != 0.0 {
+                        tj_array.push(Real(codepoint.offset));
                     }
                 }
             }
@@ -839,7 +827,14 @@ fn needs_hex_encoding(bytes: &[u8]) -> bool {
     })
 }
 
-/// Font subsetting information computed at serialization time
+/// Runtime font information for text encoding
+/// This is used during PDF serialization to look up glyph IDs
+#[derive(Debug, Clone)]
+pub(crate) struct RuntimeFontInfo {
+    pub parsed_font: ParsedFont,
+}
+
+/// Font subsetting information computed at serialization time (when subsetting is enabled)
 #[derive(Debug, Clone)]
 pub(crate) struct RuntimeSubsetInfo {
     pub original_font: ParsedFont,
@@ -890,17 +885,23 @@ fn collect_used_glyphs_from_pages(
                                         }
                                     }
                                     TextItem::GlyphIds(glyphs) => {
-                                        // Direct glyph IDs - now we can get the character from the CID!
+                                        // Direct glyph IDs - get the unicode codepoint from CID
                                         for codepoint in glyphs {
                                             let character = if let Some(ref cid) = codepoint.cid {
-                                                // Use the first character of the CID string
+                                                // CID contains the unicode codepoint(s) for this glyph
+                                                // For simple cases it's one character, for ligatures it could be multiple
+                                                // Use the first character for the GID mapping
                                                 cid.chars().next().unwrap_or('\u{FFFD}')
                                             } else {
                                                 // Try reverse lookup from the font's cache
                                                 pdf_font.parsed_font.get_glyph_primary_char(codepoint.gid)
                                                     .unwrap_or('\u{FFFD}')
                                             };
-                                            font_glyphs.insert(codepoint.gid, character);
+                                            // Only insert if we have a valid character (not replacement char)
+                                            // This avoids polluting the mapping with invalid entries
+                                            if character != '\u{FFFD}' || codepoint.cid.is_some() {
+                                                font_glyphs.insert(codepoint.gid, character);
+                                            }
                                         }
                                     }
                                     TextItem::Offset(_) => {
@@ -1153,18 +1154,23 @@ fn rectangle_to_stream_ops(rectangle: &crate::Rect) -> Vec<LoOp> {
     operations
 }
 
-/// Prepare fonts for serialization by subsetting them based on actual usage
+/// Prepare fonts for serialization
+/// Returns:
+/// - font_infos: Used by translate_operations for glyph ID lookup
+/// - subset_infos: Used for font dictionary creation (full fonts or subsetted)
 pub(crate) fn prepare_fonts_for_serialization(
     resources: &PdfResources,
     pages: &[PdfPage],
+    do_subset: bool,
     warnings: &mut Vec<PdfWarnMsg>,
-) -> BTreeMap<FontId, RuntimeSubsetInfo> {
-    let mut subset_info = BTreeMap::new();
+) -> (BTreeMap<FontId, RuntimeFontInfo>, BTreeMap<FontId, RuntimeSubsetInfo>) {
+    let mut font_infos = BTreeMap::new();
+    let mut subset_infos = BTreeMap::new();
     
     // First pass: collect used glyphs for each font
     let used_glyphs = collect_used_glyphs_from_pages(pages, &resources.fonts.map);
     
-    // Second pass: create subset info for each font
+    // Second pass: create info for each font
     for (font_id, pdf_font) in &resources.fonts.map {
         let glyph_usage = used_glyphs.get(font_id).cloned().unwrap_or_default();
         
@@ -1172,10 +1178,16 @@ pub(crate) fn prepare_fonts_for_serialization(
             continue; // Skip unused fonts
         }
         
-        // Try to subset the font if text_layout feature is available and subsetting is enabled
+        // Always create RuntimeFontInfo for text encoding (uses original GIDs)
+        font_infos.insert(font_id.clone(), RuntimeFontInfo {
+            parsed_font: pdf_font.parsed_font.clone(),
+        });
+        
+        // Create RuntimeSubsetInfo for font dictionary
         #[cfg(feature = "text_layout")]
-        let runtime_info = if pdf_font.meta.requires_subsetting && 
-                              pdf_font.meta.embedding_mode == crate::font::FontEmbeddingMode::Subset {
+        let subset_info = if do_subset && 
+                             pdf_font.meta.requires_subsetting && 
+                             pdf_font.meta.embedding_mode == crate::font::FontEmbeddingMode::Subset {
             // Try subsetting, fall back to full font if it fails
             create_subset_runtime_info(font_id, pdf_font, &glyph_usage, warnings)
                 .unwrap_or_else(|| create_full_font_runtime_info(font_id, pdf_font, &glyph_usage))
@@ -1184,14 +1196,13 @@ pub(crate) fn prepare_fonts_for_serialization(
             create_full_font_runtime_info(font_id, pdf_font, &glyph_usage)
         };
         
-        // Without text_layout, always use full font
         #[cfg(not(feature = "text_layout"))]
-        let runtime_info = create_full_font_runtime_info(font_id, pdf_font, &glyph_usage);
+        let subset_info = create_full_font_runtime_info(font_id, pdf_font, &glyph_usage);
         
-        subset_info.insert(font_id.clone(), runtime_info);
+        subset_infos.insert(font_id.clone(), subset_info);
     }
     
-    subset_info
+    (font_infos, subset_infos)
 }
 
 /// Create subset info by actually subsetting the font (requires text_layout feature)
@@ -1265,6 +1276,10 @@ fn create_full_font_runtime_info(
     let glyph_ids: Vec<(u16, char)> = glyph_usage.iter()
         .map(|(gid, char)| (*gid, *char))
         .collect();
+    
+    eprintln!("[create_full_font_runtime_info] Font: {}, glyph_ids count: {}, sample GIDs: {:?}", 
+              font_id.0, glyph_ids.len(), 
+              glyph_ids.iter().take(10).map(|(gid, c)| (*gid, *c)).collect::<Vec<_>>());
     
     #[cfg(feature = "text_layout")]
     {
