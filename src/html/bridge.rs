@@ -59,6 +59,8 @@ pub fn display_list_to_printpdf_ops_with_margins<T: ParsedFontTrait + 'static>(
     // Track the current TextLayout for glyph-to-unicode mapping
     let mut current_text_layout: Option<(&azul_layout::text3::cache::UnifiedLayout, LogicalRect)> = None;
 
+    let _text_layout_count = display_list.items.iter().filter(|item| matches!(item, DisplayListItem::TextLayout { .. })).count();
+
     for (_idx, item) in display_list.items.iter().enumerate() {
         convert_display_list_item_with_margins(
             &mut ops, 
@@ -576,7 +578,7 @@ fn render_unified_layout_with_margins<T: ParsedFontTrait + 'static>(
             // - Flip Y and subtract margin_top
             let pdf_x = transform.x(glyph_x_layout);
             let pdf_y = transform.y(glyph_y_layout);
-
+            
             // Set the text matrix to position this specific glyph
             ops.push(Op::SetTextMatrix {
                 matrix: crate::matrix::TextMatrix::Raw([
@@ -604,6 +606,7 @@ fn render_unified_layout_with_margins<T: ParsedFontTrait + 'static>(
         // End text section after this run
         ops.push(Op::EndTextSection);
     }
+    
 }
 
 /// Apply margin offset to all PDF operations.

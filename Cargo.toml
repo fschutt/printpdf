@@ -178,3 +178,8 @@ required-features = []
 name = "baseline_alignment"
 path = "examples/baseline_alignment.rs"
 required-features = ["html"]
+
+[[example]]
+name = "table_debug"
+path = "examples/table_debug.rs"
+required-features = ["html"]

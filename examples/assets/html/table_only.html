@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <style>
+            body {
+                font-family: 'Arial', sans-serif;
+                color: #333;
+                line-height: 1.5;
+            }
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                margin: 15px 0;
+            }
+            th {
+                background-color: #1a5276;
+                color: white;
+                font-weight: bold;
+                text-align: left;
+                padding: 8px;
+                border: 1px solid #ddd;
+            }
+            td {
+                padding: 8px;
+                border: 1px solid #ddd;
+            }
+            tr:nth-child(even) {
+                background-color: #f2f2f2;
+            }
+            .positive {
+                color: #27ae60;
+                font-weight: bold;
+            }
+            .negative {
+                color: #c0392b;
+                font-weight: bold;
+            }
+        </style>
+    </head>
+    <body>
+        <h2>Financial Performance by Segment</h2>
+        
+        <table>
+            <tr>
+                <th>Business Unit</th>
+                <th>Revenue ($M)</th>
+                <th>YoY Growth</th>
+                <th>Operating Margin</th>
+                <th>YoY Change</th>
+            </tr>
+            <tr>
+                <td>Technology</td>
+                <td>143.2</td>
+                <td class="positive">+18.7%</td>
+                <td>24.3%</td>
+                <td class="positive">+3.2pts</td>
+            </tr>
+            <tr>
+                <td>Manufacturing</td>
+                <td>82.5</td>
+                <td class="positive">+8.4%</td>
+                <td>15.8%</td>
+                <td class="positive">+1.5pts</td>
+            </tr>
+            <tr>
+                <td>Consumer Products</td>
+                <td>45.3</td>
+                <td class="positive">+5.2%</td>
+                <td>12.1%</td>
+                <td class="positive">+0.8pts</td>
+            </tr>
+            <tr>
+                <td>Services</td>
+                <td>16.5</td>
+                <td class="positive">+2.1%</td>
+                <td>14.5%</td>
+                <td class="negative">-0.5pts</td>
+            </tr>
+        </table>
+    </body>
+</html>
