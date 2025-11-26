@@ -18,17 +18,35 @@ fn main() {
             }
         }
     } else {
-        println!("Loading HTML from examples/assets/html/recipe.html...");
-        include_str!("assets/html/recipe.html").to_string()
+        println!("Loading HTML from examples/assets/html/report.html...");
+        include_str!("assets/html/report.html").to_string()
     };
 
-    // Create PDF from HTML
+    // Create PDF from HTML with page margins
     let images = BTreeMap::new();
     let fonts = BTreeMap::new();
-    let options = GeneratePdfOptions::default();
+    
+    // Configure PDF options including page margins
+    // Margins affect the content area available for layout and page breaking
+    let options = GeneratePdfOptions {
+        page_width: Some(210.0),      // A4 width in mm
+        page_height: Some(297.0),     // A4 height in mm
+        margin_top: Some(20.0),       // 20mm top margin
+        margin_right: Some(15.0),     // 15mm right margin  
+        margin_bottom: Some(20.0),    // 20mm bottom margin
+        margin_left: Some(15.0),      // 15mm left margin
+        ..Default::default()
+    };
+    
     let mut warnings = Vec::new();
 
     println!("\nParsing HTML and generating PDF...");
+    println!("Page margins: top={}mm, right={}mm, bottom={}mm, left={}mm",
+        options.margin_top.unwrap_or(0.0),
+        options.margin_right.unwrap_or(0.0),
+        options.margin_bottom.unwrap_or(0.0),
+        options.margin_left.unwrap_or(0.0)
+    );
     
     let doc = match PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnings) {
         Ok(doc) => {
@@ -78,8 +96,10 @@ fn main() {
                     println!("✓ HTML parsing successful");
                     println!("✓ CSS styling applied");
                     println!("✓ Layout calculation completed");
+                    println!("✓ Page margins applied");
                     println!("✓ PDF rendering successful");
                     println!("\nFeatures tested:");
+                    println!("  • Page margins (top, right, bottom, left)");
                     println!("  • Headings (h1, h2) with borders");
                     println!("  • Paragraphs with line-height and styling");
                     println!("  • Inline spans with background colors (.highlight)");

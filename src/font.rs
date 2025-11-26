@@ -496,14 +496,6 @@ impl Font {
 #[cfg(feature = "text_layout")]
 pub fn subset_font(font: &ParsedFont, glyph_ids: &BTreeMap<u16, char>) -> Result<SubsetFont, String> {
     use allsorts::{binary::read::ReadScope, font_data::FontData, subset::CmapTarget};
-    
-    let glyph_mapping = glyph_ids
-        .iter()
-        .enumerate()
-        .map(|(new_glyph_id, (original_glyph_id, ch))| {
-            (*original_glyph_id, (new_glyph_id as u16, *ch))
-        })
-        .collect();
 
     let scope = ReadScope::new(&font.original_bytes);
     let font_file = scope.read::<FontData<'_>>().map_err(|e| e.to_string())?;
@@ -511,7 +503,7 @@ pub fn subset_font(font: &ParsedFont, glyph_ids: &BTreeMap<u16, char>) -> Result
         .table_provider(font.original_index)
         .map_err(|e| e.to_string())?;
 
-    // Glyph id 0, corresponding to the .notdef glyph is always present
+    // Collect glyph IDs in a consistent order (BTreeMap gives sorted order)
     let ids: Vec<_> = glyph_ids.keys().copied().collect();
     
     // Use SubsetProfile::Pdf for PDF embedding and CmapTarget::Unicode for Unicode cmap
@@ -521,6 +513,20 @@ pub fn subset_font(font: &ParsedFont, glyph_ids: &BTreeMap<u16, char>) -> Result
         &allsorts::subset::SubsetProfile::Pdf,
         CmapTarget::Unicode,
     ).map_err(|e| e.to_string())?;
+
+    // Build glyph mapping: allsorts subset assigns new GIDs starting at 1
+    // (GID 0 is always .notdef), following the order of input glyph IDs
+    let glyph_mapping: BTreeMap<u16, (u16, char)> = ids
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, &original_gid)| {
+            glyph_ids.get(&original_gid).map(|&ch| {
+                // New GID = index + 1 (because GID 0 is .notdef)
+                let new_gid = (idx + 1) as u16;
+                (original_gid, (new_gid, ch))
+            })
+        })
+        .collect();
 
     Ok(SubsetFont {
         bytes,

@@ -6,7 +6,7 @@
 //! - Border styles (solid, dashed, dotted, etc.)
 //! - Reusable path generation for clipping rectangles
 
-use azul_core::geom::LogicalRect;
+use azul_core::geom::{LogicalRect, LogicalPosition, LogicalSize};
 use azul_css::props::basic::{pixel::DEFAULT_FONT_SIZE, ColorU};
 use azul_layout::solver3::display_list::{StyleBorderColors, StyleBorderStyles, StyleBorderWidths};
 use azul_css::props::style::border_radius::StyleBorderRadius;
@@ -49,6 +49,10 @@ pub struct BorderConfig {
     pub styles: BorderStyles,
     pub radii: BorderRadii,
     pub page_height: f32,
+    /// Left margin offset in points
+    pub margin_left: f32,
+    /// Top margin offset in points  
+    pub margin_top: f32,
 }
 
 /// Processed border widths (in pixels)
@@ -276,34 +280,40 @@ pub fn extract_border_radii(border_radius: &StyleBorderRadius) -> BorderRadii {
     }
 }
 
-/// Generate a rounded rectangle path with bezier curves for corners
-/// 
-/// The magic number 0.5522847498 is the kappa constant for drawing circles with cubic bezier curves
-/// It represents (4/3) * tan(π/8), which gives the best approximation of a circle using 4 cubic beziers
-pub fn create_rounded_rect_path_public(
+/// Create rounded rectangle path with margin support
+pub fn create_rounded_rect_path_with_margins(
     x: f32,
     y: f32,
     width: f32,
     height: f32,
     radii: &BorderRadii,
     page_height: f32,
+    margin_left: f32,
+    margin_top: f32,
 ) -> Vec<crate::graphics::LinePoint> {
-    create_rounded_rect_path(x, y, width, height, radii, page_height)
+    create_rounded_rect_path_with_margins_internal(x, y, width, height, radii, page_height, margin_left, margin_top)
 }
 
-/// Internal implementation of rounded rectangle path generation
-fn create_rounded_rect_path(
+/// Internal implementation of rounded rectangle path generation with margin support
+fn create_rounded_rect_path_with_margins_internal(
     x: f32,
     y: f32,
     width: f32,
     height: f32,
     radii: &BorderRadii,
     page_height: f32,
+    margin_left: f32,
+    margin_top: f32,
 ) -> Vec<crate::graphics::LinePoint> {
     const KAPPA: f32 = 0.5522847498;
     
-    // Convert to PDF coordinates (bottom-left origin)
-    let y_pdf = page_height - y - height;
+    // Apply margins: add margin_left to X, subtract margin_top from Y before PDF transformation
+    let x = x + margin_left;
+    
+    // Convert to PDF coordinates (bottom-left origin) with margin_top
+    // Layout Y is from top, PDF Y is from bottom
+    // PDF_Y = page_height - layout_y - height - margin_top
+    let y_pdf = page_height - y - height - margin_top;
     
     // Extract corner radii
     let tl_x = radii.top_left.0.min(width / 2.0).max(0.0);
@@ -459,12 +469,15 @@ fn has_border_radius(radii: &BorderRadii) -> bool {
 /// 
 /// NOTE: This function expects bounds in CSS coordinates (top-left origin).
 /// The Y-coordinate conversion to PDF space (bottom-left origin) happens internally.
+/// Margins are applied to shift the border within the page.
 pub fn render_border(ops: &mut Vec<Op>, config: &BorderConfig) {
     let widths = &config.widths;
     let colors = &config.colors;
     let styles = &config.styles;
     let radii = &config.radii;
     let bounds = &config.bounds;
+    let margin_left = config.margin_left;
+    let margin_top = config.margin_top;
 
     // Check if all sides are identical (common case optimization)
     let all_same = widths.top == widths.right && widths.top == widths.bottom && widths.top == widths.left
@@ -474,22 +487,22 @@ pub fn render_border(ops: &mut Vec<Op>, config: &BorderConfig) {
 
     if all_same && widths.top > 0.0 && colors.top.a > 0 {
         // Optimized path: render as a single stroked rectangle (with or without border-radius)
-        render_unified_border(ops, bounds, widths.top, colors.top, radii, config.page_height);
+        render_unified_border(ops, bounds, widths.top, colors.top, radii, config.page_height, margin_left, margin_top);
         return;
     }
 
     // Render each side individually
     if widths.top > 0.0 && styles.top != BorderStyleType::None && colors.top.a > 0 {
-        render_border_side(ops, BorderSide::Top, bounds, widths, colors, styles, radii, config.page_height);
+        render_border_side(ops, BorderSide::Top, bounds, widths, colors, styles, radii, config.page_height, margin_left, margin_top);
     }
     if widths.right > 0.0 && styles.right != BorderStyleType::None && colors.right.a > 0 {
-        render_border_side(ops, BorderSide::Right, bounds, widths, colors, styles, radii, config.page_height);
+        render_border_side(ops, BorderSide::Right, bounds, widths, colors, styles, radii, config.page_height, margin_left, margin_top);
     }
     if widths.bottom > 0.0 && styles.bottom != BorderStyleType::None && colors.bottom.a > 0 {
-        render_border_side(ops, BorderSide::Bottom, bounds, widths, colors, styles, radii, config.page_height);
+        render_border_side(ops, BorderSide::Bottom, bounds, widths, colors, styles, radii, config.page_height, margin_left, margin_top);
     }
     if widths.left > 0.0 && styles.left != BorderStyleType::None && colors.left.a > 0 {
-        render_border_side(ops, BorderSide::Left, bounds, widths, colors, styles, radii, config.page_height);
+        render_border_side(ops, BorderSide::Left, bounds, widths, colors, styles, radii, config.page_height, margin_left, margin_top);
     }
 }
 
@@ -501,6 +514,8 @@ fn render_unified_border(
     color: ColorU,
     radii: &BorderRadii,
     page_height: f32,
+    margin_left: f32,
+    margin_top: f32,
 ) {
     ops.push(Op::SaveGraphicsState);
     
@@ -538,13 +553,15 @@ fn render_unified_border(
             ),
         };
         
-        let points = create_rounded_rect_path(
+        let points = create_rounded_rect_path_with_margins_internal(
             adj_x,
             adj_y,
             adj_width,
             adj_height,
             &adj_radii,
             page_height,
+            margin_left,
+            margin_top,
         );
         
         let polygon = crate::graphics::Polygon {
@@ -556,12 +573,12 @@ fn render_unified_border(
         ops.push(Op::DrawPolygon { polygon });
     } else {
         // Simple rectangle without border radius
-        // Convert to PDF coordinate space (bottom-left origin)
-        let y = page_height - bounds.origin.y - bounds.size.height;
+        // Convert to PDF coordinate space (bottom-left origin) with margins
+        let y = page_height - bounds.origin.y - bounds.size.height - margin_top;
         
-        // Adjust for stroke centering
+        // Adjust for stroke centering and apply left margin
         let half_width = width / 2.0;
-        let x = bounds.origin.x + half_width;
+        let x = bounds.origin.x + half_width + margin_left;
         let y_adj = y + half_width;
         let w = bounds.size.width - width;
         let h = bounds.size.height - width;
@@ -607,6 +624,8 @@ fn render_border_side(
     styles: &BorderStyles,
     radii: &BorderRadii,
     page_height: f32,
+    margin_left: f32,
+    margin_top: f32,
 ) {
     let (width, color, style) = match side {
         BorderSide::Top => (widths.top, colors.top, styles.top),
@@ -617,27 +636,28 @@ fn render_border_side(
 
     ops.push(Op::SaveGraphicsState);
 
-    // Set color and width
+    // Set color, width, and round line caps for smooth corner connections
     ops.push(Op::SetOutlineColor { col: convert_color(&color) });
     ops.push(Op::SetOutlineThickness { pt: Pt(width) });
+    ops.push(Op::SetLineCapStyle { cap: LineCapStyle::Round });
 
     // Handle different border styles
     match style {
         BorderStyleType::Solid => {
-            render_solid_border_side(ops, side, bounds, widths, radii, page_height);
+            render_solid_border_side(ops, side, bounds, widths, radii, page_height, margin_left, margin_top);
         }
         BorderStyleType::Dashed => {
-            render_dashed_border_side(ops, side, bounds, widths, radii, page_height, width);
+            render_dashed_border_side(ops, side, bounds, widths, radii, page_height, width, margin_left, margin_top);
         }
         BorderStyleType::Dotted => {
-            render_dotted_border_side(ops, side, bounds, widths, radii, page_height, width);
+            render_dotted_border_side(ops, side, bounds, widths, radii, page_height, width, margin_left, margin_top);
         }
         BorderStyleType::Double => {
-            render_double_border_side(ops, side, bounds, widths, radii, page_height, width);
+            render_double_border_side(ops, side, bounds, widths, radii, page_height, width, margin_left, margin_top);
         }
         _ => {
             // For groove, ridge, inset, outset - fall back to solid for now
-            render_solid_border_side(ops, side, bounds, widths, radii, page_height);
+            render_solid_border_side(ops, side, bounds, widths, radii, page_height, margin_left, margin_top);
         }
     }
 
@@ -655,62 +675,90 @@ fn render_solid_border_side(
     widths: &BorderWidths,
     radii: &BorderRadii,
     page_height: f32,
+    margin_left: f32,
+    margin_top: f32,
 ) {
-    let x = bounds.origin.x;
+    // Apply margin_left to X coordinate
+    let x = bounds.origin.x + margin_left;
     let w = bounds.size.width;
     let h = bounds.size.height;
     
-    // Convert CSS Y (top-left origin) to PDF Y (bottom-left origin)
-    let pdf_y_bottom = page_height - bounds.origin.y - bounds.size.height;
-    let pdf_y_top = page_height - bounds.origin.y;
+    // Convert CSS Y (top-left origin) to PDF Y (bottom-left origin) with margin_top
+    let pdf_y_bottom = page_height - bounds.origin.y - bounds.size.height - margin_top;
+    let pdf_y_top = page_height - bounds.origin.y - margin_top;
+    
+    // For corners with radius, we pass the corner position to add_corner_curve
+    // which will handle the 45° split. The straight part coordinates are calculated
+    // to connect properly with the corner curves.
     
     let line = match side {
         BorderSide::Top => {
-            // CSS top border is at Y=bounds.origin.y, which is pdf_y_top in PDF space
-            let start_x = x + radii.top_left.0.max(widths.left / 2.0);
-            let end_x = x + w - radii.top_right.0.max(widths.right / 2.0);
+            // Top border runs from left to right at pdf_y_top
+            // Start corner: TopLeft, End corner: TopRight
+            let has_start_radius = radii.top_left.0 > 0.1 || radii.top_left.1 > 0.1;
+            let has_end_radius = radii.top_right.0 > 0.1 || radii.top_right.1 > 0.1;
+            
+            // For the straight part, we start after the left radius and end before the right radius
+            let straight_start_x = x + radii.top_left.0;
+            let straight_end_x = x + w - radii.top_right.0;
             
             create_line_with_corners(
-                start_x, pdf_y_top, end_x, pdf_y_top,
+                straight_start_x, pdf_y_top, straight_end_x, pdf_y_top,
                 radii.top_left, radii.top_right,
                 Corner::TopLeft, Corner::TopRight,
                 widths.left, widths.right, widths.top,
+                has_start_radius, has_end_radius,
             )
         }
         BorderSide::Right => {
-            // Right border: from top to bottom
-            let start_y = pdf_y_top - radii.top_right.1.max(widths.top / 2.0);
-            let end_y = pdf_y_bottom + radii.bottom_right.1.max(widths.bottom / 2.0);
+            // Right border runs from top to bottom at x + w
+            // Start corner: TopRight, End corner: BottomRight
+            let has_start_radius = radii.top_right.0 > 0.1 || radii.top_right.1 > 0.1;
+            let has_end_radius = radii.bottom_right.0 > 0.1 || radii.bottom_right.1 > 0.1;
+            
+            let straight_start_y = pdf_y_top - radii.top_right.1;
+            let straight_end_y = pdf_y_bottom + radii.bottom_right.1;
             
             create_line_with_corners(
-                x + w, start_y, x + w, end_y,
+                x + w, straight_start_y, x + w, straight_end_y,
                 radii.top_right, radii.bottom_right,
                 Corner::TopRight, Corner::BottomRight,
                 widths.top, widths.bottom, widths.right,
+                has_start_radius, has_end_radius,
             )
         }
         BorderSide::Bottom => {
-            // CSS bottom border is at Y=bounds.origin.y+height, which is pdf_y_bottom in PDF space
-            let start_x = x + w - radii.bottom_right.0.max(widths.right / 2.0);
-            let end_x = x + radii.bottom_left.0.max(widths.left / 2.0);
+            // Bottom border runs from right to left at pdf_y_bottom
+            // Start corner: BottomRight, End corner: BottomLeft
+            let has_start_radius = radii.bottom_right.0 > 0.1 || radii.bottom_right.1 > 0.1;
+            let has_end_radius = radii.bottom_left.0 > 0.1 || radii.bottom_left.1 > 0.1;
+            
+            let straight_start_x = x + w - radii.bottom_right.0;
+            let straight_end_x = x + radii.bottom_left.0;
             
             create_line_with_corners(
-                start_x, pdf_y_bottom, end_x, pdf_y_bottom,
+                straight_start_x, pdf_y_bottom, straight_end_x, pdf_y_bottom,
                 radii.bottom_right, radii.bottom_left,
                 Corner::BottomRight, Corner::BottomLeft,
                 widths.right, widths.left, widths.bottom,
+                has_start_radius, has_end_radius,
             )
         }
         BorderSide::Left => {
-            // Left border: from bottom to top
-            let start_y = pdf_y_bottom + radii.bottom_left.1.max(widths.bottom / 2.0);
-            let end_y = pdf_y_top - radii.top_left.1.max(widths.top / 2.0);
+            // Left border runs from bottom to top at x
+            // Start corner: BottomLeft, End corner: TopLeft
+            let has_start_radius = radii.bottom_left.0 > 0.1 || radii.bottom_left.1 > 0.1;
+            let has_end_radius = radii.top_left.0 > 0.1 || radii.top_left.1 > 0.1;
+            
+            let straight_start_y = pdf_y_bottom + radii.bottom_left.1;
+            let straight_end_y = pdf_y_top - radii.top_left.1;
             
             create_line_with_corners(
-                x, start_y, x, end_y,
+                x, straight_start_y, x, straight_end_y,
                 radii.bottom_left, radii.top_left,
                 Corner::BottomLeft, Corner::TopLeft,
                 widths.bottom, widths.top, widths.left,
+                has_start_radius, has_end_radius,
             )
         }
     };
@@ -718,7 +766,7 @@ fn render_solid_border_side(
     ops.push(Op::DrawLine { line });
 }
 
-/// Create a line with optional curved corners
+/// Create a line with optional curved corners at the 45° split points
 fn create_line_with_corners(
     start_x: f32, start_y: f32,
     end_x: f32, end_y: f32,
@@ -729,12 +777,13 @@ fn create_line_with_corners(
     start_perpendicular_width: f32,
     end_perpendicular_width: f32,
     parallel_width: f32,
+    has_start_radius: bool,
+    has_end_radius: bool,
 ) -> crate::graphics::Line {
     let mut points = Vec::new();
 
-    // Add start point (with optional curve)
-    if start_radius.0 > 0.1 || start_radius.1 > 0.1 {
-        // Add bezier curve for start corner
+    // Add start corner curve (second half of the arc, from 45° to edge)
+    if has_start_radius {
         add_corner_curve(&mut points, start_x, start_y, start_radius, start_corner, start_perpendicular_width, parallel_width, true);
     } else {
         points.push(crate::graphics::LinePoint {
@@ -743,9 +792,8 @@ fn create_line_with_corners(
         });
     }
 
-    // Add end point (with optional curve)
-    if end_radius.0 > 0.1 || end_radius.1 > 0.1 {
-        // Add bezier curve for end corner
+    // Add end corner curve (first half of the arc, from edge to 45°)
+    if has_end_radius {
         add_corner_curve(&mut points, end_x, end_y, end_radius, end_corner, end_perpendicular_width, parallel_width, false);
     } else {
         points.push(crate::graphics::LinePoint {
@@ -760,7 +808,18 @@ fn create_line_with_corners(
     }
 }
 
-/// Add a corner curve to the line points
+/// Add a corner arc to the line points using regular points (sin/cos).
+/// 
+/// Each border side renders HALF of the corner arc (split at 45°).
+/// - `is_start = true`: This is the START corner of the side, so we render 
+///   from the 45° midpoint TO the side's straight edge
+/// - `is_start = false`: This is the END corner of the side, so we render
+///   from the side's straight edge TO the 45° midpoint
+///
+/// The `x, y` coordinates are the point where the straight part of this border
+/// side begins/ends (i.e., at the tangent point of the radius).
+///
+/// Uses 1 point per pixel of the larger radius for smooth curves.
 fn add_corner_curve(
     points: &mut Vec<crate::graphics::LinePoint>,
     x: f32, y: f32,
@@ -768,14 +827,124 @@ fn add_corner_curve(
     corner: Corner,
     _perpendicular_width: f32,
     _parallel_width: f32,
-    _is_start: bool,
+    is_start: bool,
 ) {
-    // Simplified: just add the point without curve for now
-    // Full implementation would add proper bezier control points
-    points.push(crate::graphics::LinePoint {
-        p: crate::graphics::Point::new(Mm(x * 0.3527777778), Mm(y * 0.3527777778)),
-        bezier: false,
-    });
+    let rx = radius.0;
+    let ry = radius.1;
+    
+    if rx < 0.1 && ry < 0.1 {
+        points.push(crate::graphics::LinePoint {
+            p: crate::graphics::Point::new(Mm(x * 0.3527777778), Mm(y * 0.3527777778)),
+            bezier: false,
+        });
+        return;
+    }
+    
+    // Number of points = 1 per pixel of the larger radius, minimum 3
+    let max_radius = rx.max(ry);
+    let num_points = (max_radius as usize).max(3);
+    
+    // x, y is the tangent point where the straight border meets the arc.
+    // We need to calculate the center of the arc and the angle range.
+    //
+    // For each corner, we draw a 45° arc. The tangent point is where the
+    // straight border edge meets the curve.
+    //
+    // PDF coordinates: Y goes UP (bottom-left origin)
+    // Angles: 0° = right (+X), 90° = up (+Y), 180° = left (-X), 270° = down (-Y)
+    
+    let (center_x, center_y, start_angle, end_angle) = match corner {
+        Corner::TopLeft => {
+            // TopLeft corner: arc from left side (180°) to top side (90°)
+            // 
+            // Tangent points:
+            //   - Top tangent (90°): (cx, cy + ry)
+            //   - Left tangent (180°): (cx - rx, cy)
+            // 
+            // is_start=true (TOP border): x,y is the top tangent point
+            //   So: x = cx, y = cy + ry → cx = x, cy = y - ry
+            //   We draw from 135° to 90°
+            // is_start=false (LEFT border): x,y is the left tangent point
+            //   So: x = cx - rx, y = cy → cx = x + rx, cy = y
+            //   We draw from 180° to 135°
+            if is_start {
+                (x, y - ry, 135.0_f32.to_radians(), 90.0_f32.to_radians())
+            } else {
+                (x + rx, y, 180.0_f32.to_radians(), 135.0_f32.to_radians())
+            }
+        }
+        Corner::TopRight => {
+            // TopRight corner: arc from top side (90°) to right side (0°)
+            // 
+            // Tangent points:
+            //   - Top tangent (90°): (cx, cy + ry)
+            //   - Right tangent (0°): (cx + rx, cy)
+            // 
+            // is_start=true (RIGHT border): x,y is the right tangent point
+            //   So: x = cx + rx, y = cy → cx = x - rx, cy = y
+            //   We draw from 45° to 0°
+            // is_start=false (TOP border): x,y is the top tangent point  
+            //   So: x = cx, y = cy + ry → cx = x, cy = y - ry
+            //   We draw from 90° to 45°
+            if is_start {
+                (x - rx, y, 45.0_f32.to_radians(), 0.0_f32.to_radians())
+            } else {
+                (x, y - ry, 90.0_f32.to_radians(), 45.0_f32.to_radians())
+            }
+        }
+        Corner::BottomRight => {
+            // BottomRight corner: arc from right side (0°/360°) to bottom side (270°)
+            // 
+            // Tangent points:
+            //   - Right tangent (0°/360°): (cx + rx, cy)
+            //   - Bottom tangent (270°): (cx, cy - ry)
+            // 
+            // is_start=true (BOTTOM border): x,y is the bottom tangent point
+            //   So: x = cx, y = cy - ry → cx = x, cy = y + ry
+            //   We draw from 315° to 270°
+            // is_start=false (RIGHT border): x,y is the right tangent point
+            //   So: x = cx + rx, y = cy → cx = x - rx, cy = y
+            //   We draw from 360° to 315°
+            if is_start {
+                (x, y + ry, 315.0_f32.to_radians(), 270.0_f32.to_radians())
+            } else {
+                (x - rx, y, 360.0_f32.to_radians(), 315.0_f32.to_radians())
+            }
+        }
+        Corner::BottomLeft => {
+            // BottomLeft corner: arc from bottom side (270°) to left side (180°)
+            // 
+            // Tangent points:
+            //   - Bottom tangent (270°): (cx, cy - ry)
+            //   - Left tangent (180°): (cx - rx, cy)
+            // 
+            // is_start=true (LEFT border): x,y is the left tangent point
+            //   So: x = cx - rx, y = cy → cx = x + rx, cy = y
+            //   We draw from 225° to 180°
+            // is_start=false (BOTTOM border): x,y is the bottom tangent point
+            //   So: x = cx, y = cy - ry → cx = x, cy = y + ry
+            //   We draw from 270° to 225°
+            if is_start {
+                (x + rx, y, 225.0_f32.to_radians(), 180.0_f32.to_radians())
+            } else {
+                (x, y + ry, 270.0_f32.to_radians(), 225.0_f32.to_radians())
+            }
+        }
+    };
+    
+    // Generate points along the arc
+    let angle_step = (end_angle - start_angle) / (num_points as f32);
+    
+    for i in 0..=num_points {
+        let angle = start_angle + angle_step * (i as f32);
+        let px = center_x + rx * angle.cos();
+        let py = center_y + ry * angle.sin();
+        
+        points.push(crate::graphics::LinePoint {
+            p: crate::graphics::Point::new(Mm(px * 0.3527777778), Mm(py * 0.3527777778)),
+            bezier: false,
+        });
+    }
 }
 
 /// Render a dashed border side
@@ -787,6 +956,8 @@ fn render_dashed_border_side(
     radii: &BorderRadii,
     page_height: f32,
     width: f32,
+    margin_left: f32,
+    margin_top: f32,
 ) {
     // Set dash pattern
     ops.push(Op::SetLineDashPattern {
@@ -801,7 +972,7 @@ fn render_dashed_border_side(
         },
     });
     
-    render_solid_border_side(ops, side, bounds, widths, radii, page_height);
+    render_solid_border_side(ops, side, bounds, widths, radii, page_height, margin_left, margin_top);
     
     // Reset dash pattern
     ops.push(Op::SetLineDashPattern {
@@ -826,6 +997,8 @@ fn render_dotted_border_side(
     radii: &BorderRadii,
     page_height: f32,
     width: f32,
+    margin_left: f32,
+    margin_top: f32,
 ) {
     // Set dot pattern (dash = width, gap = width)
     ops.push(Op::SetLineDashPattern {
@@ -843,7 +1016,7 @@ fn render_dotted_border_side(
     // Set round line cap for dots
     ops.push(Op::SetLineCapStyle { cap: LineCapStyle::Round });
     
-    render_solid_border_side(ops, side, bounds, widths, radii, page_height);
+    render_solid_border_side(ops, side, bounds, widths, radii, page_height, margin_left, margin_top);
     
     // Reset to default
     ops.push(Op::SetLineCapStyle { cap: LineCapStyle::Butt });
@@ -869,176 +1042,41 @@ fn render_double_border_side(
     radii: &BorderRadii,
     page_height: f32,
     width: f32,
+    margin_left: f32,
+    margin_top: f32,
 ) {
     // Double border: render two lines with 1/3 width each, spaced by 1/3 width
+    // The outer line is at the outer edge, the inner line is inset by 2/3 of the total width
     let line_width = width / 3.0;
-    let gap = width / 3.0;
+    let inset = width * 2.0 / 3.0; // Distance from outer edge to inner line center
     
     ops.push(Op::SetOutlineThickness { pt: Pt(line_width) });
     
-    // Render outer line
-    render_solid_border_side(ops, side, bounds, widths, radii, page_height);
+    // Render outer line (at the original bounds)
+    render_solid_border_side(ops, side, bounds, widths, radii, page_height, margin_left, margin_top);
     
-    // Render inner line (offset by line_width + gap)
-    let mut inner_bounds = *bounds;
-    let offset = line_width + gap;
+    // Create inset bounds for inner line
+    // The inner line should be drawn on a rectangle that is inset by `inset` on all sides
+    let inner_bounds = LogicalRect {
+        origin: LogicalPosition {
+            x: bounds.origin.x + inset,
+            y: bounds.origin.y + inset,
+        },
+        size: LogicalSize {
+            width: bounds.size.width - inset * 2.0,
+            height: bounds.size.height - inset * 2.0,
+        },
+    };
     
-    match side {
-        BorderSide::Top => inner_bounds.origin.y += offset,
-        BorderSide::Right => inner_bounds.origin.x += inner_bounds.size.width - offset,
-        BorderSide::Bottom => inner_bounds.origin.y += inner_bounds.size.height - offset,
-        BorderSide::Left => inner_bounds.origin.x += offset,
-    }
+    // Adjust widths for inner bounds (they should still render the same width)
+    let inner_widths = BorderWidths {
+        top: widths.top,
+        right: widths.right,
+        bottom: widths.bottom,
+        left: widths.left,
+    };
     
-    render_solid_border_side(ops, side, &inner_bounds, widths, radii, page_height);
+    // Render inner line
+    render_solid_border_side(ops, side, &inner_bounds, &inner_widths, radii, page_height, margin_left, margin_top);
 }
 
-/// Generate a clipping path with border-radius
-/// This can be used to clip content to rounded rectangles
-pub fn create_clip_path(bounds: &LogicalRect, radii: &BorderRadii, page_height: f32) -> crate::graphics::Line {
-    let x = bounds.origin.x;
-    let y = page_height - bounds.origin.y - bounds.size.height;
-    let w = bounds.size.width;
-    let h = bounds.size.height;
-
-    let mut points = Vec::new();
-
-    // Top-left corner
-    if radii.top_left.0 > 0.1 || radii.top_left.1 > 0.1 {
-        add_rounded_corner(&mut points, x, y, radii.top_left, Corner::TopLeft);
-    } else {
-        points.push(crate::graphics::LinePoint {
-            p: crate::graphics::Point::new(Mm(x * 0.3527777778), Mm(y * 0.3527777778)),
-            bezier: false,
-        });
-    }
-
-    // Top-right corner
-    if radii.top_right.0 > 0.1 || radii.top_right.1 > 0.1 {
-        add_rounded_corner(&mut points, x + w, y, radii.top_right, Corner::TopRight);
-    } else {
-        points.push(crate::graphics::LinePoint {
-            p: crate::graphics::Point::new(Mm((x + w) * 0.3527777778), Mm(y * 0.3527777778)),
-            bezier: false,
-        });
-    }
-
-    // Bottom-right corner
-    if radii.bottom_right.0 > 0.1 || radii.bottom_right.1 > 0.1 {
-        add_rounded_corner(&mut points, x + w, y + h, radii.bottom_right, Corner::BottomRight);
-    } else {
-        points.push(crate::graphics::LinePoint {
-            p: crate::graphics::Point::new(Mm((x + w) * 0.3527777778), Mm((y + h) * 0.3527777778)),
-            bezier: false,
-        });
-    }
-
-    // Bottom-left corner
-    if radii.bottom_left.0 > 0.1 || radii.bottom_left.1 > 0.1 {
-        add_rounded_corner(&mut points, x, y + h, radii.bottom_left, Corner::BottomLeft);
-    } else {
-        points.push(crate::graphics::LinePoint {
-            p: crate::graphics::Point::new(Mm(x * 0.3527777778), Mm((y + h) * 0.3527777778)),
-            bezier: false,
-        });
-    }
-
-    crate::graphics::Line {
-        points,
-        is_closed: true,
-    }
-}
-
-/// Add a rounded corner with bezier curve
-fn add_rounded_corner(
-    points: &mut Vec<crate::graphics::LinePoint>,
-    x: f32, y: f32,
-    radius: (f32, f32),
-    corner: Corner,
-) {
-    // Bezier control point offset (magic number for circular arcs: 4/3 * tan(π/8) ≈ 0.5522847498)
-    const KAPPA: f32 = 0.5522847498;
-    
-    let (rx, ry) = radius;
-    let cx = rx * KAPPA;
-    let cy = ry * KAPPA;
-
-    match corner {
-        Corner::TopLeft => {
-            // Start from left side, curve to top
-            points.push(crate::graphics::LinePoint {
-                p: crate::graphics::Point::new(Mm(x * 0.3527777778), Mm((y + ry) * 0.3527777778)),
-                bezier: false,
-            });
-            points.push(crate::graphics::LinePoint {
-                p: crate::graphics::Point::new(Mm(x * 0.3527777778), Mm((y + ry - cy) * 0.3527777778)),
-                bezier: true,
-            });
-            points.push(crate::graphics::LinePoint {
-                p: crate::graphics::Point::new(Mm((x + rx - cx) * 0.3527777778), Mm(y * 0.3527777778)),
-                bezier: true,
-            });
-            points.push(crate::graphics::LinePoint {
-                p: crate::graphics::Point::new(Mm((x + rx) * 0.3527777778), Mm(y * 0.3527777778)),
-                bezier: false,
-            });
-        }
-        Corner::TopRight => {
-            // Start from top, curve to right
-            points.push(crate::graphics::LinePoint {
-                p: crate::graphics::Point::new(Mm((x - rx) * 0.3527777778), Mm(y * 0.3527777778)),
-                bezier: false,
-            });
-            points.push(crate::graphics::LinePoint {
-                p: crate::graphics::Point::new(Mm((x - rx + cx) * 0.3527777778), Mm(y * 0.3527777778)),
-                bezier: true,
-            });
-            points.push(crate::graphics::LinePoint {
-                p: crate::graphics::Point::new(Mm(x * 0.3527777778), Mm((y + ry - cy) * 0.3527777778)),
-                bezier: true,
-            });
-            points.push(crate::graphics::LinePoint {
-                p: crate::graphics::Point::new(Mm(x * 0.3527777778), Mm((y + ry) * 0.3527777778)),
-                bezier: false,
-            });
-        }
-        Corner::BottomRight => {
-            // Start from right, curve to bottom
-            points.push(crate::graphics::LinePoint {
-                p: crate::graphics::Point::new(Mm(x * 0.3527777778), Mm((y - ry) * 0.3527777778)),
-                bezier: false,
-            });
-            points.push(crate::graphics::LinePoint {
-                p: crate::graphics::Point::new(Mm(x * 0.3527777778), Mm((y - ry + cy) * 0.3527777778)),
-                bezier: true,
-            });
-            points.push(crate::graphics::LinePoint {
-                p: crate::graphics::Point::new(Mm((x - rx + cx) * 0.3527777778), Mm(y * 0.3527777778)),
-                bezier: true,
-            });
-            points.push(crate::graphics::LinePoint {
-                p: crate::graphics::Point::new(Mm((x - rx) * 0.3527777778), Mm(y * 0.3527777778)),
-                bezier: false,
-            });
-        }
-        Corner::BottomLeft => {
-            // Start from bottom, curve to left
-            points.push(crate::graphics::LinePoint {
-                p: crate::graphics::Point::new(Mm((x + rx) * 0.3527777778), Mm(y * 0.3527777778)),
-                bezier: false,
-            });
-            points.push(crate::graphics::LinePoint {
-                p: crate::graphics::Point::new(Mm((x + rx - cx) * 0.3527777778), Mm(y * 0.3527777778)),
-                bezier: true,
-            });
-            points.push(crate::graphics::LinePoint {
-                p: crate::graphics::Point::new(Mm(x * 0.3527777778), Mm((y - ry + cy) * 0.3527777778)),
-                bezier: true,
-            });
-            points.push(crate::graphics::LinePoint {
-                p: crate::graphics::Point::new(Mm(x * 0.3527777778), Mm((y - ry) * 0.3527777778)),
-                bezier: false,
-            });
-        }
-    }
-}

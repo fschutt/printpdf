@@ -1185,7 +1185,7 @@ pub(crate) fn prepare_fonts_for_serialization(
         
         // Create RuntimeSubsetInfo for font dictionary
         #[cfg(feature = "text_layout")]
-        let subset_info = if do_subset && 
+        let subset_info = if false && do_subset && 
                              pdf_font.meta.requires_subsetting && 
                              pdf_font.meta.embedding_mode == crate::font::FontEmbeddingMode::Subset {
             // Try subsetting, fall back to full font if it fails
@@ -1276,10 +1276,6 @@ fn create_full_font_runtime_info(
     let glyph_ids: Vec<(u16, char)> = glyph_usage.iter()
         .map(|(gid, char)| (*gid, *char))
         .collect();
-    
-    eprintln!("[create_full_font_runtime_info] Font: {}, glyph_ids count: {}, sample GIDs: {:?}", 
-              font_id.0, glyph_ids.len(), 
-              glyph_ids.iter().take(10).map(|(gid, c)| (*gid, *c)).collect::<Vec<_>>());
     
     #[cfg(feature = "text_layout")]
     {

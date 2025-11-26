@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html title="Border Test">
+<head>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 10mm;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        
+        .test-box {
+            width: 200px;
+            height: 100px;
+            margin: 20px;
+            display: inline-block;
+        }
+        
+        /* Basic borders */
+        .border-solid {
+            border: 3px solid #3498db;
+        }
+        
+        .border-dashed {
+            border: 3px dashed #e74c3c;
+        }
+        
+        .border-dotted {
+            border: 3px dotted #27ae60;
+        }
+        
+        .border-double {
+            border: 6px double #9b59b6;
+        }
+        
+        /* Border radius tests */
+        .border-radius-small {
+            border: 2px solid #2c3e50;
+            border-radius: 5px;
+        }
+        
+        .border-radius-medium {
+            border: 2px solid #2c3e50;
+            border-radius: 15px;
+        }
+        
+        .border-radius-large {
+            border: 2px solid #2c3e50;
+            border-radius: 30px;
+        }
+        
+        .border-radius-circle {
+            border: 2px solid #2c3e50;
+            border-radius: 50px;
+            width: 100px;
+            height: 100px;
+        }
+        
+        /* Different radii per corner */
+        .border-radius-asymmetric {
+            border: 3px solid #e67e22;
+            border-top-left-radius: 20px;
+            border-top-right-radius: 5px;
+            border-bottom-right-radius: 30px;
+            border-bottom-left-radius: 10px;
+        }
+        
+        /* Different colors per side */
+        .border-multicolor {
+            border-top: 4px solid #e74c3c;
+            border-right: 4px solid #3498db;
+            border-bottom: 4px solid #27ae60;
+            border-left: 4px solid #f39c12;
+        }
+        
+        /* Different widths per side */
+        .border-multiwidth {
+            border-top: 2px solid #333;
+            border-right: 4px solid #333;
+            border-bottom: 6px solid #333;
+            border-left: 8px solid #333;
+        }
+        
+        /* Background with border */
+        .border-with-bg {
+            background-color: #ecf0f1;
+            border: 3px solid #2c3e50;
+            border-radius: 10px;
+        }
+        
+        .label {
+            font-size: 12px;
+            text-align: center;
+            padding-top: 40px;
+        }
+        
+        .row {
+            margin-bottom: 30px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Border Rendering Test</h1>
+    
+    <h2>1. Border Styles</h2>
+    <div class="row">
+        <div class="test-box border-solid">
+            <div class="label">Solid Border</div>
+        </div>
+        <div class="test-box border-dashed">
+            <div class="label">Dashed Border</div>
+        </div>
+        <div class="test-box border-dotted">
+            <div class="label">Dotted Border</div>
+        </div>
+        <div class="test-box border-double">
+            <div class="label">Double Border</div>
+        </div>
+    </div>
+    
+    <h2>2. Border Radius</h2>
+    <div class="row">
+        <div class="test-box border-radius-small">
+            <div class="label">5px radius</div>
+        </div>
+        <div class="test-box border-radius-medium">
+            <div class="label">15px radius</div>
+        </div>
+        <div class="test-box border-radius-large">
+            <div class="label">30px radius</div>
+        </div>
+        <div class="test-box border-radius-circle">
+            <div class="label">Circle</div>
+        </div>
+    </div>
+    
+    <h2>3. Asymmetric Border Radius</h2>
+    <div class="row">
+        <div class="test-box border-radius-asymmetric">
+            <div class="label">Different corners</div>
+        </div>
+    </div>
+    
+    <h2>4. Multi-color Borders</h2>
+    <div class="row">
+        <div class="test-box border-multicolor">
+            <div class="label">4 colors</div>
+        </div>
+    </div>
+    
+    <h2>5. Multi-width Borders</h2>
+    <div class="row">
+        <div class="test-box border-multiwidth">
+            <div class="label">4 widths</div>
+        </div>
+    </div>
+    
+    <h2>6. Background + Border + Radius</h2>
+    <div class="row">
+        <div class="test-box border-with-bg">
+            <div class="label">Combined</div>
+        </div>
+    </div>
+</body>
+</html>

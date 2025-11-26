@@ -32,7 +32,7 @@ serde_derive = { version = "1" }
 flate2 = "1.0.35" # for decompression of builtin fonts
 serde_json = { version = "1" }
 # Feature-gated dependencies
-rust-fontconfig = { version = "1.0.4", default-features = false, features = ["std", "parsing"], optional = true }
+rust-fontconfig = { path = "../rust-fontconfig", default-features = false, features = ["std", "parsing", "multithreading"], optional = true }
 xmlparser = { version = "0.13.6", default-features = false, optional = true }
 web-sys = { version = "0.3.77", optional = true, default-features = false, features = ["ImageData", "Window", "Document", "Blob", "CanvasRenderingContext2d", "HtmlCanvasElement", "HtmlImageElement", "ImageBitmap", "BlobPropertyBag"]}
 wasm-bindgen-futures = { version = "0.4.50", optional = true, default-features = false }
@@ -56,7 +56,7 @@ text_layout = ["dep:azul-css", "dep:azul-core", "dep:azul-layout", "azul-layout/
 # Add hyphenation support
 text_layout_hyphenation = ["text_layout", "azul-layout/text_layout_hyphenation"]
 # HTML/CSS layout
-html = ["text_layout_hyphenation", "dep:kuchiki", "dep:rust-fontconfig", "dep:xmlparser", "azul-layout/xml"]
+html = ["text_layout_hyphenation", "dep:kuchiki", "dep:rust-fontconfig", "dep:xmlparser", "azul-layout/xml", "azul-layout/pdf"]
 # SVG support
 svg = ["html", "dep:svg2pdf", "azul-layout/svg"]
 # Image decoding support
@@ -164,6 +164,10 @@ required-features = []
 
 [[example]]
 name = "shape"
+required-features = ["html"]
+
+[[example]]
+name = "pagination_test"
 required-features = ["html"]
 
 [[example]]

@@ -102,6 +102,18 @@ pub struct GeneratePdfOptions {
     /// Page height in mm, default 297.0
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page_height: Option<f32>,
+    /// Top margin in mm, default 0.0
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub margin_top: Option<f32>,
+    /// Right margin in mm, default 0.0
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub margin_right: Option<f32>,
+    /// Bottom margin in mm, default 0.0
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub margin_bottom: Option<f32>,
+    /// Left margin in mm, default 0.0
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub margin_left: Option<f32>,
     /// Settings for automatic image optimization when saving PDF files
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_optimization: Option<ImageOptimizationOptions>,
@@ -113,6 +125,10 @@ impl Default for GeneratePdfOptions {
             font_embedding: Some(true),
             page_width: Some(210.0),
             page_height: Some(297.0),
+            margin_top: None,
+            margin_right: None,
+            margin_bottom: None,
+            margin_left: None,
             image_optimization: None,
         }
     }
@@ -367,7 +383,7 @@ impl PdfDocument {
         options: &GeneratePdfOptions,
         warnings: &mut Vec<PdfWarnMsg>,
     ) -> Result<Self, String> {
-        use crate::html::XmlRenderOptions;
+        use crate::html::{XmlRenderOptions, PageMargins};
         use base64::{engine::general_purpose::STANDARD, Engine as _};
 
         let mut pdf = Self::new("PDF Document");
@@ -376,6 +392,14 @@ impl PdfDocument {
         let mut xml_options = XmlRenderOptions::default();
         xml_options.page_width = Mm(options.page_width.unwrap_or(210.0));
         xml_options.page_height = Mm(options.page_height.unwrap_or(297.0));
+        
+        // Apply page margins if configured
+        xml_options.margins = PageMargins {
+            top: Mm(options.margin_top.unwrap_or(0.0)),
+            right: Mm(options.margin_right.unwrap_or(0.0)),
+            bottom: Mm(options.margin_bottom.unwrap_or(0.0)),
+            left: Mm(options.margin_left.unwrap_or(0.0)),
+        };
         
         // Convert images and fonts
         for (key, img) in images {
