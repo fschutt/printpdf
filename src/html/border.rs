@@ -681,7 +681,6 @@ fn render_solid_border_side(
     // Apply margin_left to X coordinate
     let x = bounds.origin.x + margin_left;
     let w = bounds.size.width;
-    let h = bounds.size.height;
     
     // Convert CSS Y (top-left origin) to PDF Y (bottom-left origin) with margin_top
     let pdf_y_bottom = page_height - bounds.origin.y - bounds.size.height - margin_top;

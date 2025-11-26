@@ -791,31 +791,6 @@ fn encode_text_items_to_pdf(
     }
 }
 
-// Helper function to encode codepoints to PDF operations
-fn encode_codepoints_to_pdf(codepoints: impl Iterator<Item = (u16, i64)>, content: &mut Vec<LoOp>) {
-    let mut tj_array = Vec::new();
-    let mut any_kerning = false;
-
-    for (codepoint, kerning) in codepoints {
-        if kerning != 0 {
-            any_kerning = true;
-            tj_array.push(Real(kerning as f32));
-        }
-
-        tj_array.push(LoString(codepoint.to_be_bytes().to_vec(), Hexadecimal));
-    }
-
-    match tj_array.len() {
-        0 => {}
-        1 if !any_kerning => {
-            content.push(LoOp::new("Tj", vec![tj_array.swap_remove(0)]));
-        }
-        _ => {
-            content.push(LoOp::new("TJ", vec![Array(tj_array)]));
-        }
-    }
-}
-
 // Helper function to determine if bytes need hexadecimal encoding
 fn needs_hex_encoding(bytes: &[u8]) -> bool {
     bytes.iter().any(|&b| {
@@ -839,7 +814,6 @@ pub(crate) struct RuntimeFontInfo {
 pub(crate) struct RuntimeSubsetInfo {
     pub original_font: ParsedFont,
     pub subset_font_bytes: Vec<u8>,
-    pub glyph_mapping: BTreeMap<u16, (u16, char)>, // original_gid -> (subset_gid, char)
     pub cid_to_unicode_map: String,
     pub widths_list: Vec<lopdf::Object>,
     pub ascent: i64,
@@ -1245,7 +1219,6 @@ fn create_subset_runtime_info(
                 Some(RuntimeSubsetInfo {
                     original_font: pdf_font.parsed_font.clone(),
                     subset_font_bytes: subset.bytes,
-                    glyph_mapping: subset.glyph_mapping,
                     cid_to_unicode_map,
                     widths_list: widths,
                     ascent: subset_font.font_metrics.ascent as i64,
@@ -1293,15 +1266,9 @@ fn create_full_font_runtime_info(
             }
         };
         
-        // Create identity mapping for full font
-        let identity_mapping: BTreeMap<u16, (u16, char)> = glyph_usage.iter()
-            .map(|(gid, char)| (*gid, (*gid, *char)))
-            .collect();
-        
         RuntimeSubsetInfo {
             original_font: pdf_font.parsed_font.clone(),
             subset_font_bytes: font_bytes,
-            glyph_mapping: identity_mapping,
             cid_to_unicode_map,
             widths_list: widths,
             ascent: pdf_font.parsed_font.font_metrics.ascent as i64,
@@ -1314,7 +1281,6 @@ fn create_full_font_runtime_info(
         RuntimeSubsetInfo {
             original_font: pdf_font.parsed_font.clone(),
             subset_font_bytes: font_bytes,
-            glyph_mapping: BTreeMap::new(), // Empty mapping - user provides glyph info via Codepoint
             cid_to_unicode_map: String::new(),
             widths_list: Vec::new(),
             ascent: 0,

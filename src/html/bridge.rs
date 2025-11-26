@@ -13,7 +13,7 @@
 use azul_core::{
     geom::{LogicalRect, LogicalSize, LogicalPosition},
 };
-use azul_css::props::basic::{pixel::DEFAULT_FONT_SIZE, ColorU};
+use azul_css::props::basic::ColorU;
 use azul_layout::{
     solver3::display_list::{DisplayList, DisplayListItem},
     text3::cache::{FontManager, ParsedFontTrait, UnifiedLayout},
@@ -288,29 +288,10 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
     }
 }
 
-fn convert_display_list_item<'a, T: ParsedFontTrait + 'static>(
-    ops: &mut Vec<Op>,
-    item: &'a DisplayListItem,
-    page_height: f32,
-    current_text_layout: &mut Option<(&'a UnifiedLayout, LogicalRect)>,
-    font_manager: &FontManager<T>,
-) {
-    convert_display_list_item_with_margins(ops, item, page_height, 0.0, 0.0, current_text_layout, font_manager)
-}
-
-/// Render an entire UnifiedLayout to PDF operations
-fn render_unified_layout<T: ParsedFontTrait + 'static>(
-    ops: &mut Vec<Op>,
-    layout: &UnifiedLayout,
-    bounds: &LogicalRect,
-    color: ColorU,
-    page_height: f32,
-    _font_manager: &FontManager<T>,
-) {
-    render_unified_layout_impl(ops, layout, bounds, color, page_height, _font_manager);
-}
-
-/// Public API for rendering UnifiedLayout to PDF operations
+/// Public API for rendering UnifiedLayout to PDF operations (without margins)
+/// 
+/// This is useful for rendering text layouts directly without going through
+/// the full display list conversion.
 pub fn render_unified_layout_public<T: ParsedFontTrait + 'static>(
     layout: &UnifiedLayout,
     bounds_width: f32,
@@ -333,7 +314,7 @@ fn render_unified_layout_impl<T: ParsedFontTrait + 'static>(
     ops: &mut Vec<Op>,
     layout: &UnifiedLayout,
     bounds: &LogicalRect,
-    color: ColorU,
+    _color: ColorU,  // Unused: per-glyph color from layout takes precedence
     page_height: f32,
     font_manager: &FontManager<T>,
 ) {
@@ -349,13 +330,11 @@ fn render_unified_layout_impl<T: ParsedFontTrait + 'static>(
         return;
     }
 
-    // Track current state to avoid redundant operations
-    let mut current_font_hash: Option<u64> = None;
-    let mut current_font_size: Option<f32> = None;
+    // Track current color to avoid redundant operations
     let mut current_color: Option<ColorU> = None;
 
     // Process each glyph run - each run will have its own text section
-    for (run_idx, run) in glyph_runs.iter().enumerate() {
+    for run in glyph_runs.iter() {
         if run.glyphs.is_empty() {
             continue;
         }
@@ -375,8 +354,6 @@ fn render_unified_layout_impl<T: ParsedFontTrait + 'static>(
             font: crate::ops::PdfFontHandle::External(font_id.clone()),
             size: Pt(run.font_size_px),
         });
-        current_font_hash = Some(run.font_hash);
-        current_font_size = Some(run.font_size_px);
 
         // Start text section AFTER setting font and color
         ops.push(Op::StartTextSection);
@@ -452,7 +429,7 @@ fn render_unified_layout_with_margins<T: ParsedFontTrait + 'static>(
     ops: &mut Vec<Op>,
     layout: &UnifiedLayout,
     bounds: &LogicalRect,
-    color: ColorU,
+    _color: ColorU,  // Unused: per-glyph color from layout takes precedence
     transform: &CoordTransform,
     font_manager: &FontManager<T>,
 ) {
@@ -556,13 +533,15 @@ fn render_unified_layout_with_margins<T: ParsedFontTrait + 'static>(
         }
     }
 
+    // ========================================================================
     // SECOND PASS: Render all text AFTER backgrounds
-    // Track current state to avoid redundant operations
-    let mut _current_font_hash: Option<u64> = None;
-    let mut _current_font_size: Option<f32> = None;
+    // ========================================================================
+    //
+    // Now that all backgrounds are drawn, render the text on top.
+    // Each glyph run gets its own BT...ET text section for proper font handling.
+    //
     let mut current_color: Option<ColorU> = None;
 
-    // Process each glyph run - each run will have its own text section
     for run in glyph_runs.iter() {
         if run.glyphs.is_empty() {
             continue;
@@ -582,8 +561,6 @@ fn render_unified_layout_with_margins<T: ParsedFontTrait + 'static>(
             font: crate::ops::PdfFontHandle::External(font_id.clone()),
             size: Pt(run.font_size_px),
         });
-        _current_font_hash = Some(run.font_hash);
-        _current_font_size = Some(run.font_size_px);
 
         // Start text section AFTER setting font and color
         ops.push(Op::StartTextSection);

@@ -173,3 +173,8 @@ required-features = ["html"]
 [[example]]
 name = "otf-font"
 required-features = []
+
+[[example]]
+name = "baseline_alignment"
+path = "examples/baseline_alignment.rs"
+required-features = ["html"]

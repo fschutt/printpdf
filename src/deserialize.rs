@@ -295,6 +295,7 @@ impl ParsedOrBuiltinFont {
         }
     }
 
+    #[allow(dead_code)]
     fn cmap(&self) -> Option<&ToUnicodeCMap> {
         match self {
             ParsedOrBuiltinFont::P(_, cmap) => cmap.as_ref(),

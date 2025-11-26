@@ -53,14 +53,14 @@ impl XObject {
 pub(crate) fn add_xobject_to_document(
     xobj: &XObject,
     doc: &mut lopdf::Document,
-    image_opts: Option<&ImageOptimizationOptions>,
+    _image_opts: Option<&ImageOptimizationOptions>,
 ) -> lopdf::ObjectId {
     // in the PDF content stream, reference an XObject like this
     match xobj {
-        XObject::Image(i) => {
+        XObject::Image(_i) => {
             #[cfg(feature = "images")]
             {
-                let stream = crate::image::image_to_stream(i.clone(), doc, image_opts);
+                let stream = crate::image::image_to_stream(_i.clone(), doc, _image_opts);
                 doc.add_object(stream)
             }
             #[cfg(not(feature = "images"))]

@@ -205,7 +205,6 @@ pub fn xml_to_pdf_pages(
     let fragmentation_context = FragmentationContext::new_paged(content_size);
     
     // Create layout cache and text cache
-    use azul_css::props::basic::FontRef;
     let mut layout_cache = Solver3LayoutCache {
         tree: None,
         calculated_positions: std::collections::BTreeMap::new(),
@@ -272,7 +271,7 @@ pub fn xml_to_pdf_pages(
         // We pass the FULL page size for Y-coordinate transformation (PDF origin is bottom-left)
         // The content was laid out in content_size, but coordinates need to be transformed
         // relative to the full page height
-        let mut pdf_ops = bridge::display_list_to_printpdf_ops_with_margins(
+        let pdf_ops = bridge::display_list_to_printpdf_ops_with_margins(
             &display_list, 
             full_page_size,
             margin_left_pt,
@@ -285,7 +284,6 @@ pub fn xml_to_pdf_pages(
         for item in display_list.items.iter() {
             if let azul_layout::solver3::display_list::DisplayListItem::TextLayout { layout, .. } = item {
                 // Downcast the type-erased layout to UnifiedLayout
-                use azul_css::props::basic::FontRef;
                 if let Some(unified_layout) = layout.downcast_ref::<azul_layout::text3::cache::UnifiedLayout>() {
                     // Collect all font hashes used in this layout by scanning the positioned items
                     let mut used_font_hashes = std::collections::HashSet::new();
@@ -396,47 +394,6 @@ pub struct HtmlExtractedConfig {
     pub components: Vec<DynamicXmlComponent>,
 }
 
-/// Simple CSS rule representation
-#[derive(Debug, Clone)]
-struct CssRule {
-    selector: String,
-    declarations: Vec<(String, String)>, // Property name, value
-}
-
-/// Parse CSS text into a list of rules (basic implementation)
-fn parse_css(css_text: &str) -> Vec<CssRule> {
-    let mut rules = Vec::new();
-
-    for rule_text in css_text.split('}') {
-        let parts: Vec<&str> = rule_text.split('{').collect();
-        if parts.len() >= 2 {
-            let selector = parts[0].trim();
-            let declarations_text = parts[1].trim();
-
-            let mut declarations = Vec::new();
-            for decl in declarations_text.split(';') {
-                let decl_parts: Vec<&str> = decl.split(':').collect();
-                if decl_parts.len() >= 2 {
-                    let property = decl_parts[0].trim();
-                    let value = decl_parts[1].trim();
-                    if !property.is_empty() && !value.is_empty() {
-                        declarations.push((property.to_string(), value.to_string()));
-                    }
-                }
-            }
-
-            if !selector.is_empty() && !declarations.is_empty() {
-                rules.push(CssRule {
-                    selector: selector.to_string(),
-                    declarations,
-                });
-            }
-        }
-    }
-
-    rules
-}
-
 /// Inline CSS rules into style attributes
 /// Note: This is a simplified version that works on XML strings
 /// For more complex selector matching, consider using a proper HTML/CSS parser
@@ -454,154 +411,6 @@ fn inline_css_in_xml(xml: &str) -> String {
     // Now we just return the XML as-is, letting azul's str_to_dom() handle all CSS.
     
     xml.to_string()
-}
-
-/// Apply a single CSS rule to XML string (basic implementation)
-fn apply_css_rule_to_xml(xml: &str, rule: &CssRule) -> String {
-    let mut result = xml.to_string();
-    
-    // Build the style string to add
-    let mut style_additions = String::new();
-    for (prop, val) in &rule.declarations {
-        if !style_additions.is_empty() {
-            style_additions.push(';');
-        }
-        style_additions.push_str(&format!("{}:{}", prop, val));
-    }
-    
-    // Split selector by comma to handle multiple selectors (e.g., "th, td")
-    for selector in rule.selector.split(',') {
-        let selector = selector.trim();
-        
-        if selector.starts_with('.') {
-            // Class selector
-            let class_name = &selector[1..];
-            result = add_style_to_class(&result, class_name, &style_additions);
-        } else if selector.starts_with('#') {
-            // ID selector
-            let id_name = &selector[1..];
-            result = add_style_to_id(&result, id_name, &style_additions);
-        } else {
-            // Element selector
-            result = add_style_to_element(&result, selector, &style_additions);
-        }
-    }
-    
-    result
-}
-
-/// Add style to elements with a specific class
-fn add_style_to_class(xml: &str, class_name: &str, style: &str) -> String {
-    let mut result = String::new();
-    let class_pattern = format!("class=\"{}\"", class_name);
-    let class_pattern_with_spaces = format!("class=\"{} ", class_name);
-    
-    let mut remaining = xml;
-    while let Some(pos) = remaining.find(&class_pattern).or_else(|| remaining.find(&class_pattern_with_spaces)) {
-        result.push_str(&remaining[..pos]);
-        
-        // Find the closing > of this tag
-        if let Some(close_pos) = remaining[pos..].find('>') {
-            let tag_end = pos + close_pos;
-            let tag_content = &remaining[pos..tag_end];
-            
-            // Add or append to style attribute
-            let new_tag = if tag_content.contains("style=\"") {
-                // Append to existing style
-                tag_content.replace("style=\"", &format!("style=\"{};", style))
-            } else {
-                // Add new style attribute
-                format!("{} style=\"{}\"", tag_content, style)
-            };
-            
-            result.push_str(&new_tag);
-            result.push('>');
-            remaining = &remaining[tag_end + 1..];
-        } else {
-            result.push_str(remaining);
-            break;
-        }
-    }
-    result.push_str(remaining);
-    result
-}
-
-/// Add style to elements with a specific ID
-fn add_style_to_id(xml: &str, id_name: &str, style: &str) -> String {
-    let mut result = String::new();
-    let id_pattern = format!("id=\"{}\"", id_name);
-    
-    let mut remaining = xml;
-    if let Some(pos) = remaining.find(&id_pattern) {
-        result.push_str(&remaining[..pos]);
-        
-        // Find the closing > of this tag
-        if let Some(close_pos) = remaining[pos..].find('>') {
-            let tag_end = pos + close_pos;
-            let tag_content = &remaining[pos..tag_end];
-            
-            // Add or append to style attribute
-            let new_tag = if tag_content.contains("style=\"") {
-                // Append to existing style
-                tag_content.replace("style=\"", &format!("style=\"{};", style))
-            } else {
-                // Add new style attribute
-                format!("{} style=\"{}\"", tag_content, style)
-            };
-            
-            result.push_str(&new_tag);
-            result.push('>');
-            remaining = &remaining[tag_end + 1..];
-        }
-    }
-    result.push_str(remaining);
-    result
-}
-
-/// Add style to elements with a specific tag name
-fn add_style_to_element(xml: &str, element_name: &str, style: &str) -> String {
-    let mut result = String::new();
-    let element_start = format!("<{}", element_name);
-    
-    let mut remaining = xml;
-    while let Some(pos) = remaining.find(&element_start) {
-        result.push_str(&remaining[..pos]);
-        
-        // Make sure it's a complete element name (followed by space or >)
-        let after_elem = pos + element_start.len();
-        if after_elem < remaining.len() {
-            let next_char = remaining.chars().nth(after_elem).unwrap();
-            if next_char != ' ' && next_char != '>' && next_char != '/' {
-                result.push_str(&element_start);
-                remaining = &remaining[after_elem..];
-                continue;
-            }
-        }
-        
-        // Find the closing > of this tag
-        if let Some(close_pos) = remaining[pos..].find('>') {
-            let tag_end = pos + close_pos;
-            let tag_content = &remaining[pos..tag_end];
-            
-            // Add or append to style attribute
-            let new_tag = if tag_content.contains("style=\"") {
-                // Append to existing style
-                tag_content.replace("style=\"", &format!("style=\"{};", style))
-            } else {
-                // Add new style attribute before closing >
-                format!("{} style=\"{}\"", tag_content, style)
-            };
-            
-            result.push_str(&new_tag);
-            result.push('>');
-            remaining = &remaining[tag_end + 1..];
-        } else {
-            result.push_str(remaining);
-            break;
-        }
-    }
-    result.push_str(remaining);
-    result
 }
 
 /// Extract HTML configuration from XML content (basic parsing)
