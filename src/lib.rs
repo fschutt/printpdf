@@ -68,8 +68,10 @@ pub use html::*;
 /// Public API for text shaping using azul text3
 #[cfg(feature = "text_layout")]
 pub mod text_shaping {
-    pub use azul_layout::text3::cache::{FontManager, UnifiedLayout, ParsedFontTrait};
+    pub use azul_layout::text3::cache::{FontManager, UnifiedLayout, ParsedFontTrait, LoadedFonts};
+    pub use azul_layout::text3::glyphs::{get_glyph_runs_pdf, PdfGlyphRun, PdfPositionedGlyph};
     pub use azul_css::props::basic::ColorU;
+    pub use crate::shape::{layout_to_ops, layout_to_ops_with_offset};
     #[cfg(feature = "html")]
     pub use crate::html::bridge::render_unified_layout_public;
 }
@@ -535,9 +537,6 @@ pub struct PdfLayerMap {
 pub struct PdfFontMap {
     pub map: BTreeMap<FontId, crate::font::PdfFont>,
 }
-
-#[derive(Debug, PartialEq, Default, Clone)]
-pub struct ParsedIccProfile {}
 
 #[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize)]
 #[serde(transparent)]

@@ -3,62 +3,167 @@
 //! This module provides functionality for measuring and shaping text,
 //! allowing for complex text layout with precise positioning, line breaks,
 //! and text flow around "holes" (like images or other non-text content).
+//!
+//! # Overview
+//!
+//! The text shaping pipeline converts raw text + font into positioned glyphs:
+//!
+//! ```text
+//! Text + Font + Options
+//!       ↓
+//! UnifiedLayout (from azul-layout text3 engine)
+//!       ↓
+//! Vec<Op> (PDF operations)
+//! ```
+//!
+//! # Example
+//!
+//! ```ignore
+//! use printpdf::*;
+//!
+//! // Load a font
+//! let font_bytes = std::fs::read("my_font.ttf")?;
+//! let font = ParsedFont::from_bytes(&font_bytes, 0)?;
+//!
+//! // Shape text
+//! let options = TextShapingOptions::new(Pt(12.0))
+//!     .with_max_width(Pt(200.0))
+//!     .with_align(TextAlign::Left);
+//!
+//! let layout = shape_text("Hello, World!", &font, &options)?;
+//!
+//! // Convert to PDF operations
+//! let ops = layout_to_ops(&layout, page_height, &font_id, Color::black());
+//! ```
 
-use crate::{FontId, Op, Point, Pt, Rect};
+use crate::{Color, FontId, Op, Pt, Rect, Rgb};
 
-/// Represents a "hole" in the text layout where text won't flow
+#[cfg(feature = "text_layout")]
+use azul_layout::text3::{
+    cache::{LoadedFonts, ParsedFontTrait, UnifiedLayout},
+    glyphs::get_glyph_runs_pdf,
+};
+
+#[cfg(feature = "text_layout")]
+use azul_css::props::basic::ColorU;
+
+/// Represents a "hole" in the text layout where text won't flow.
+///
+/// Text holes are rectangular regions that text should flow around,
+/// useful for inline images or other non-text content.
+///
+/// # Example
+/// ```ignore
+/// let hole = TextHole {
+///     rect: Rect { x: Pt(100.0), y: Pt(200.0), width: Pt(50.0), height: Pt(50.0) }
+/// };
+/// ```
 #[derive(Debug, Clone)]
 pub struct TextHole {
-    /// The rectangular area of the hole
+    /// The rectangular area of the hole in points
     pub rect: Rect,
 }
 
 /// Horizontal text alignment options
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TextAlign {
-    /// Left align text (default)
+    /// Left align text (default for LTR scripts)
+    #[default]
     Left,
     /// Center align text
     Center,
-    /// Right align text
+    /// Right align text (default for RTL scripts)
     Right,
-    /// Justified text
+    /// Justified text (both edges aligned)
     Justify,
 }
 
-impl Default for TextAlign {
-    fn default() -> Self {
-        TextAlign::Left
-    }
+/// Text direction for bidirectional text support
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TextDirection {
+    /// Left-to-right (default for Latin, Cyrillic, etc.)
+    #[default]
+    Ltr,
+    /// Right-to-left (for Arabic, Hebrew, etc.)
+    Rtl,
 }
 
 /// Options for text shaping and layout
 #[derive(Debug, Clone)]
 pub struct TextShapingOptions {
-    /// Font size in points
+    /// Font size in points (1 pt = 1/72 inch)
     pub font_size: Pt,
     /// Line height in points (optional, defaults to font's recommended line height)
     pub line_height: Option<Pt>,
-    /// Letter spacing multiplier (1.0 = default spacing)
+    /// Letter spacing in points (0.0 = default spacing)
     pub letter_spacing: Option<f32>,
-    /// Word spacing multiplier (1.0 = default spacing)
+    /// Word spacing in points (0.0 = default spacing)
     pub word_spacing: Option<f32>,
-    /// Width of tab character in points
+    /// Width of tab character in points (default: 4 spaces)
     pub tab_width: Option<f32>,
-    /// Maximum width of text block (for line wrapping)
+    /// Maximum width of text block for line wrapping (None = no wrapping)
     pub max_width: Option<Pt>,
+    /// Maximum height of text block (None = unlimited)
+    pub max_height: Option<Pt>,
     /// Horizontal text alignment
     pub align: TextAlign,
+    /// Text direction (LTR or RTL)
+    pub direction: TextDirection,
+    /// Text color
+    pub color: Color,
     /// Rectangular "holes" where text won't flow
     pub holes: Vec<TextHole>,
 }
 
 impl TextShapingOptions {
+    /// Create new options with default values and the specified font size
     pub fn new(font_size: Pt) -> Self {
         Self {
             font_size,
             ..Default::default()
         }
+    }
+
+    /// Set the maximum width for line wrapping
+    pub fn with_max_width(mut self, max_width: Pt) -> Self {
+        self.max_width = Some(max_width);
+        self
+    }
+
+    /// Set the maximum height for text clipping
+    pub fn with_max_height(mut self, max_height: Pt) -> Self {
+        self.max_height = Some(max_height);
+        self
+    }
+
+    /// Set the text alignment
+    pub fn with_align(mut self, align: TextAlign) -> Self {
+        self.align = align;
+        self
+    }
+
+    /// Set the text direction
+    pub fn with_direction(mut self, direction: TextDirection) -> Self {
+        self.direction = direction;
+        self
+    }
+
+    /// Set the text color
+    pub fn with_color(mut self, color: Color) -> Self {
+        self.color = color;
+        self
+    }
+
+    /// Set the line height
+    pub fn with_line_height(mut self, line_height: Pt) -> Self {
+        self.line_height = Some(line_height);
+        self
+    }
+
+    /// Set the letter spacing
+    pub fn with_letter_spacing(mut self, letter_spacing: f32) -> Self {
+        self.letter_spacing = Some(letter_spacing);
+        self
     }
 }
 
@@ -71,37 +176,55 @@ impl Default for TextShapingOptions {
             word_spacing: None,
             tab_width: None,
             max_width: None,
+            max_height: None,
             align: TextAlign::default(),
+            direction: TextDirection::default(),
+            color: Color::Rgb(Rgb {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                icc_profile: None,
+            }),
             holes: Vec::new(),
         }
     }
 }
 
-/// A shaped word with positioning information
+/// A shaped word with positioning information.
+///
+/// Represents a single word after text shaping, with its computed
+/// position and dimensions relative to the text block origin.
+///
+/// All measurements are in points (1/72 inch).
 #[derive(Debug, Clone)]
 pub struct ShapedWord {
     /// The text content of the word
     pub text: String,
-    /// X position relative to the text origin
+    /// X position relative to the text origin (in points)
     pub x: f32,
-    /// Y position relative to the text origin
+    /// Y position relative to the text origin (in points)
     pub y: f32,
     /// Width of the word in points
     pub width: f32,
     /// Height of the word in points
     pub height: f32,
-    /// Index of the word within its line
+    /// Index of the word within its line (0-based)
     pub index: usize,
 }
 
-/// A line of shaped text
+/// A line of shaped text.
+///
+/// Represents a single line of text after shaping and line-breaking,
+/// containing the individual words and the line's position/dimensions.
+///
+/// All measurements are in points (1/72 inch).
 #[derive(Debug, Clone)]
 pub struct ShapedLine {
     /// Words making up the line
     pub words: Vec<ShapedWord>,
-    /// X position relative to the text origin
+    /// X position relative to the text origin (in points)
     pub x: f32,
-    /// Y position relative to the text origin
+    /// Y position relative to the text origin (in points)
     pub y: f32,
     /// Width of the line in points
     pub width: f32,
@@ -111,12 +234,14 @@ pub struct ShapedLine {
     pub index: usize,
 }
 
-/// A block of shaped text with full layout information
+/// A block of shaped text with full layout information.
+///
+/// This is the result of text shaping and can be converted to PDF operations.
 #[derive(Debug, Clone)]
 pub struct ShapedText {
     /// Font ID that the ShapedText used
     pub font_id: FontId,
-    /// Options that this text was layouted with
+    /// Options that this text was laid out with
     pub options: TextShapingOptions,
     /// Lines making up the text block
     pub lines: Vec<ShapedLine>,
@@ -126,57 +251,170 @@ pub struct ShapedText {
     pub height: f32,
 }
 
-/// Convert ShapedText to PDF operations
+impl ShapedText {
+    /// Get the bounding box of the shaped text
+    pub fn bounds(&self) -> Rect {
+        Rect {
+            x: Pt(0.0),
+            y: Pt(0.0),
+            width: Pt(self.width),
+            height: Pt(self.height),
+            mode: None,
+            winding_order: None,
+        }
+    }
+
+    /// Check if the shaped text is empty
+    pub fn is_empty(&self) -> bool {
+        self.lines.is_empty()
+    }
+
+    /// Get the number of lines
+    pub fn line_count(&self) -> usize {
+        self.lines.len()
+    }
+}
+
+// ============================================================================
+// High-level API for text shaping (requires text_layout feature)
+// ============================================================================
+
+/// Convert a `UnifiedLayout` to PDF operations.
+///
+/// This is the main function for converting azul's layout output to printpdf operations.
+/// It handles:
+/// - Coordinate transformation from layout space (top-left origin) to PDF space (bottom-left origin)
+/// - Font selection via SetFont operations
+/// - Glyph positioning via SetTextMatrix
+/// - Color handling via SetFillColor
 ///
 /// # Arguments
-/// * `shaped_text` - The shaped text to convert
-/// * `origin_TOP_LEFT` - where to position the shaped text in the page, note: that this is the TOP
-///   left of the entire bbox of the text, NOT the text cursor
+/// * `layout` - The unified layout from azul's text3 engine
+/// * `page_height` - The page height in points (for Y-coordinate flipping)
+/// * `font_id` - The font ID to use in PDF operations
+/// * `loaded_fonts` - Pre-loaded fonts for glyph lookup
+/// * `default_color` - Default text color if not specified per-glyph
 ///
 /// # Returns
-/// A vector of PDF operations
-#[allow(non_snake_case)]
-impl ShapedText {
-    /// Legacy method - removed. Use azul's text3 API directly instead.
-    #[cfg(feature = "text_layout")]
-    #[allow(dead_code)]
-    pub(crate) fn from_inline_text(
-        _font_id: &FontId,
-        _inline_text: &(),  // Type doesn't exist anymore
-        _options: &TextShapingOptions,
-    ) -> Self {
-        unimplemented!("from_inline_text removed - use azul text3 API directly")
+/// A vector of PDF operations that render the text
+#[cfg(feature = "text_layout")]
+pub fn layout_to_ops<T: ParsedFontTrait + 'static>(
+    layout: &UnifiedLayout,
+    page_height: Pt,
+    font_id: &FontId,
+    loaded_fonts: &LoadedFonts<T>,
+    default_color: Color,
+) -> Vec<Op> {
+    layout_to_ops_with_offset(layout, page_height, font_id, loaded_fonts, default_color, Pt(0.0), Pt(0.0))
+}
+
+/// Convert a `UnifiedLayout` to PDF operations with position offset.
+///
+/// Same as `layout_to_ops` but allows specifying an offset for positioning
+/// the text block on the page.
+///
+/// # Arguments
+/// * `layout` - The unified layout from azul's text3 engine
+/// * `page_height` - The page height in points (for Y-coordinate flipping)
+/// * `font_id` - The font ID to use in PDF operations
+/// * `loaded_fonts` - Pre-loaded fonts for glyph lookup
+/// * `default_color` - Default text color if not specified per-glyph
+/// * `offset_x` - X offset from the left edge of the page
+/// * `offset_y` - Y offset from the top edge of the page (will be converted to PDF coordinates)
+///
+/// # Returns
+/// A vector of PDF operations that render the text
+#[cfg(feature = "text_layout")]
+pub fn layout_to_ops_with_offset<T: ParsedFontTrait + 'static>(
+    layout: &UnifiedLayout,
+    page_height: Pt,
+    _font_id: &FontId,
+    loaded_fonts: &LoadedFonts<T>,
+    _default_color: Color,
+    offset_x: Pt,
+    offset_y: Pt,
+) -> Vec<Op> {
+    let mut ops = Vec::new();
+
+    // Get PDF-optimized glyph runs from the layout
+    let glyph_runs = get_glyph_runs_pdf(layout, loaded_fonts);
+
+    if glyph_runs.is_empty() {
+        return ops;
     }
 
-    /// Convert from azul's GlyphRun to printpdf's ShapedText
-    /// This is the new way to get shaped text from azul's layout engine
-    #[cfg(feature = "text_layout")]
-    pub fn from_azul_glyph_runs<T>(
-        _font_id: &FontId,
-        _glyph_runs: &[azul_layout::text3::glyphs::GlyphRun<T>],
-        _options: &TextShapingOptions,
-    ) -> Self
-    where
-        T: azul_layout::text3::cache::ParsedFontTrait,
-    {
-        todo!("Implement conversion from azul GlyphRun to ShapedText")
+    // Track current color to avoid redundant SetFillColor operations
+    let mut current_color: Option<ColorU> = None;
+
+    // Process each glyph run
+    for run in glyph_runs.iter() {
+        if run.glyphs.is_empty() {
+            continue;
+        }
+
+        // Set color if changed
+        if current_color != Some(run.color) {
+            ops.push(Op::SetFillColor {
+                col: coloru_to_color(&run.color),
+            });
+            current_color = Some(run.color);
+        }
+
+        // Set font (SetFont must be outside the text section in PDF)
+        let run_font_id = FontId(format!("F{}", run.font_hash));
+        ops.push(Op::SetFont {
+            font: crate::ops::PdfFontHandle::External(run_font_id),
+            size: Pt(run.font_size_px),
+        });
+
+        // Start text section
+        ops.push(Op::StartTextSection);
+
+        // Position and render each glyph
+        for glyph in &run.glyphs {
+            // Calculate PDF coordinates
+            // Layout uses top-left origin, PDF uses bottom-left
+            let pdf_x = glyph.position.x + offset_x.0;
+            let pdf_y = page_height.0 - glyph.position.y - offset_y.0;
+
+            // Set text matrix to position this glyph
+            ops.push(Op::SetTextMatrix {
+                matrix: crate::matrix::TextMatrix::Raw([
+                    1.0,    // a: horizontal scaling
+                    0.0,    // b: horizontal skewing
+                    0.0,    // c: vertical skewing
+                    1.0,    // d: vertical scaling
+                    pdf_x,  // e: x translation
+                    pdf_y,  // f: y translation
+                ]),
+            });
+
+            // Render the glyph
+            ops.push(Op::ShowText {
+                items: vec![crate::text::TextItem::GlyphIds(vec![
+                    crate::text::Codepoint {
+                        gid: glyph.glyph_id,
+                        offset: 0.0,
+                        cid: Some(glyph.unicode_codepoint.clone()),
+                    }
+                ])],
+            });
+        }
+
+        // End text section
+        ops.push(Op::EndTextSection);
     }
 
-    /// Convert this ShapedText to PDF operations
-    pub fn to_pdf_ops(
-        &self,
-        _page_height: Pt,
-        _font_id: &FontId,
-        _color: crate::Color,
-    ) -> Vec<Op> {
-        todo!("Implement PDF operations generation from ShapedText")
-    }
+    ops
+}
 
-    /// Legacy method - converts shaped text to PDF operations at a given position
-    /// This method is kept for backward compatibility with existing examples
-    pub fn get_ops(&self, _origin: Point) -> Vec<Op> {
-        // Return empty ops for now - this is a stub
-        // In the future, this should be implemented using the new azul text3 API
-        Vec::new()
-    }
+/// Helper function to convert azul ColorU to printpdf Color
+#[cfg(feature = "text_layout")]
+fn coloru_to_color(color: &ColorU) -> Color {
+    Color::Rgb(Rgb {
+        r: color.r as f32 / 255.0,
+        g: color.g as f32 / 255.0,
+        b: color.b as f32 / 255.0,
+        icc_profile: None,
+    })
 }

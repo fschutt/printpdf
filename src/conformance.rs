@@ -100,13 +100,13 @@ pub struct CustomPdfConformance {
     pub allows_embedded_javascript: bool,
     /// Does this standard allow enbedding JPEG files?
     ///
-    /// Default: __true__
-    #[serde(default = "f_true")]
+    /// Default: __false__ (when deserializing without this field)
+    #[serde(default = "default_false")]
     pub allows_jpeg_content: bool,
     /// Does this standard require XMP metadata to be set?
     ///
-    /// Default: __true__
-    #[serde(default = "f_true")]
+    /// Default: __false__ (when deserializing without this field)
+    #[serde(default = "default_false")]
     pub requires_xmp_metadata: bool,
     /// Does this standard allow the default PDF fonts (Helvetica, etc.)
     ///
@@ -117,17 +117,17 @@ pub struct CustomPdfConformance {
     pub allows_default_fonts: bool,
     /// Does this standard require an ICC profile to be embedded for color management?
     ///
-    /// Default: __true__
-    #[serde(default = "f_true")]
+    /// Default: __false__ (when deserializing without this field)
+    #[serde(default = "default_false")]
     pub requires_icc_profile: bool,
     /// Does this standard allow PDF layers?
     ///
-    /// Default: __true__
-    #[serde(default = "f_true")]
+    /// Default: __false__ (when deserializing without this field)
+    #[serde(default = "default_false")]
     pub allows_pdf_layers: bool,
 }
 
-fn f_true() -> bool {
+fn default_false() -> bool {
     false
 }
 
