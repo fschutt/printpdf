@@ -17,7 +17,7 @@ use azul_core::{
 use azul_layout::{
     font::loading::build_font_cache,
     paged::FragmentationContext,
-    solver3::{paged_layout::layout_document_paged},
+    solver3::paged_layout::layout_document_paged,
     text3::cache::FontHash,
     font_traits::{TextLayoutCache, FontManager},
     Solver3LayoutCache,
