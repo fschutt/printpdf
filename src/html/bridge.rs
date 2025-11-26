@@ -468,6 +468,95 @@ fn render_unified_layout_with_margins<T: ParsedFontTrait + 'static>(
         return;
     }
 
+    // ========================================================================
+    // FIRST PASS: Render all inline background colors BEFORE any text
+    // ========================================================================
+    // 
+    // This two-pass approach ensures proper z-order:
+    // - Pass 1: Draw all background rectangles (this loop)
+    // - Pass 2: Draw all text on top of backgrounds (next loop)
+    // 
+    // Without this separation, backgrounds would be drawn interleaved with text,
+    // potentially covering text from previous runs.
+    // 
+    // The background_color comes from CSS like: <span style="background-color: yellow">
+    // It's propagated through: CSS -> StyleProperties -> ShapedGlyph -> PdfGlyphRun
+    // 
+    for run in glyph_runs.iter() {
+        if run.glyphs.is_empty() {
+            continue;
+        }
+        
+        // Render background if present
+        if let Some(bg_color) = run.background_color {
+            if bg_color.a > 0 {
+                // Calculate bounding box of this glyph run
+                if let (Some(first_glyph), Some(last_glyph)) = 
+                    (run.glyphs.first(), run.glyphs.last()) 
+                {
+                    let font_size = run.font_size_px;
+                    // Estimate ascent/descent from font size (typical values)
+                    let ascent = font_size * 0.8;
+                    let descent = font_size * 0.2;
+                    
+                    // Calculate background rectangle in layout space
+                    let bg_start_x = bounds.origin.x + first_glyph.position.x;
+                    let bg_end_x = bounds.origin.x + last_glyph.position.x + last_glyph.advance;
+                    let bg_width = bg_end_x - bg_start_x;
+                    
+                    // Background spans from ascent to descent relative to baseline
+                    let baseline_y = bounds.origin.y + first_glyph.position.y;
+                    let bg_top_y = baseline_y - ascent;
+                    let bg_height = ascent + descent;
+                    
+                    // Transform to PDF coordinates
+                    let pdf_x = transform.x(bg_start_x);
+                    let pdf_y = transform.rect_y(bg_top_y, bg_height);
+                    
+                    // Convert to millimeters for polygon
+                    let x_mm = Mm(pdf_x * 0.3527777778);
+                    let y_mm = Mm(pdf_y * 0.3527777778);
+                    let w_mm = Mm(bg_width * 0.3527777778);
+                    let h_mm = Mm(bg_height * 0.3527777778);
+                    
+                    ops.push(Op::SaveGraphicsState);
+                    ops.push(Op::SetFillColor {
+                        col: convert_color(&bg_color),
+                    });
+                    
+                    // Draw simple rectangle
+                    let polygon = crate::graphics::Polygon {
+                        rings: vec![crate::graphics::PolygonRing {
+                            points: vec![
+                                crate::graphics::LinePoint {
+                                    p: crate::graphics::Point::new(x_mm, y_mm),
+                                    bezier: false,
+                                },
+                                crate::graphics::LinePoint {
+                                    p: crate::graphics::Point::new(Mm(x_mm.0 + w_mm.0), y_mm),
+                                    bezier: false,
+                                },
+                                crate::graphics::LinePoint {
+                                    p: crate::graphics::Point::new(Mm(x_mm.0 + w_mm.0), Mm(y_mm.0 + h_mm.0)),
+                                    bezier: false,
+                                },
+                                crate::graphics::LinePoint {
+                                    p: crate::graphics::Point::new(x_mm, Mm(y_mm.0 + h_mm.0)),
+                                    bezier: false,
+                                },
+                            ],
+                        }],
+                        mode: crate::graphics::PaintMode::Fill,
+                        winding_order: crate::graphics::WindingOrder::NonZero,
+                    };
+                    ops.push(Op::DrawPolygon { polygon });
+                    ops.push(Op::RestoreGraphicsState);
+                }
+            }
+        }
+    }
+
+    // SECOND PASS: Render all text AFTER backgrounds
     // Track current state to avoid redundant operations
     let mut _current_font_hash: Option<u64> = None;
     let mut _current_font_size: Option<f32> = None;

@@ -13,22 +13,17 @@ fn main() {
 <head>
     <style>
         body { font-family: 'Helvetica'; margin: 20px; }
-        h1 { font-size: 2em; border-bottom: 2px solid #cc0000; }
-        h2 { font-size: 1.5em; color: #0000cc; }
-        .yellow { background-color: #ffff00; padding: 2px; }
-        .footer { text-align: center; font-size: 12px; color: #666; }
+        .yellow { background-color: #ffff00; }
+        .blue { background-color: #0000ff; color: white; }
     </style>
 </head>
 <body>
-    <h1>Test Header with Border</h1>
     <p>Text with <span class="yellow">yellow background</span> inline.</p>
-    <h2>Subheading Test</h2>
+    <p>Another line with <span class="blue">blue background and white text</span> to test.</p>
     <ol>
-        <li>First item</li>
+        <li>First item with list marker</li>
         <li>Second item</li>
-        <li>Third item</li>
     </ol>
-    <div class="footer">Footer text centered</div>
 </body>
 </html>
 "#;

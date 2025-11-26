@@ -133,14 +133,10 @@ pub fn xml_to_pdf_pages(
 ) -> Result<(Vec<PdfPage>, BTreeMap<FontHash, ParsedFont>), Vec<PdfWarnMsg>> {
     let mut warnings = Vec::new();
 
-    eprintln!("[DEBUG html.rs] Starting xml_to_pdf_pages...");
-
     // Type-safe preprocessing: RawHtml -> PreprocessedHtml
     let preprocessed = RawHtml::new(xml).preprocess();
     let inlined_xml = preprocessed.as_str();
-    
-    eprintln!("[DEBUG html.rs] Preprocessing done, parsing XML...");
-    
+
     // Parse XML to XmlNode tree
     let root_nodes = match parse_xml_string(inlined_xml) {
         Ok(nodes) => nodes,
@@ -153,8 +149,6 @@ pub fn xml_to_pdf_pages(
             return Err(warnings);
         }
     };
-
-    eprintln!("[DEBUG html.rs] XML parsed, converting to DOM...");
 
     // Calculate content area (page size minus margins)
     let mm_to_pt = 2.83465;
@@ -189,19 +183,10 @@ pub fn xml_to_pdf_pages(
         }
     };
 
-    eprintln!("[DEBUG html.rs] DOM created, building font cache...");
-
     // Create font cache and font manager
-    let start = std::time::Instant::now();
     let fc_cache = build_font_cache();
-    eprintln!("[DEBUG html.rs] Font cache built in {:?} with {} fonts", start.elapsed(), fc_cache.list().len());
-    
-    let start2 = std::time::Instant::now();
     let mut font_manager = match FontManager::new(fc_cache) {
-        Ok(fm) => {
-            eprintln!("[DEBUG html.rs] Font manager created in {:?}", start2.elapsed());
-            fm
-        },
+        Ok(fm) => fm,
         Err(e) => {
             warnings.push(PdfWarnMsg::error(
                 0,
@@ -211,9 +196,7 @@ pub fn xml_to_pdf_pages(
             return Err(warnings);
         }
     };
-    
-    eprintln!("[DEBUG html.rs] Font manager created...");
-    
+
     // Use content size for layout (page size minus margins)
     let content_size = LogicalSize::new(content_width_pt, content_height_pt);
     
@@ -243,10 +226,7 @@ pub fn xml_to_pdf_pages(
     // Perform paged layout - returns Vec<DisplayList>
     let renderer_resources = RendererResources::default();
     let mut debug_messages = Some(Vec::new());
-    
-    let start3 = std::time::Instant::now();
-    eprintln!("[DEBUG html.rs] Starting layout_document_paged...");
-    
+
     // Create font loader closure
     use azul_layout::text3::default::PathLoader;
     let loader = PathLoader::new();
@@ -268,10 +248,7 @@ pub fn xml_to_pdf_pages(
         DomId::ROOT_ID,
         font_loader,
     ) {
-        Ok(lists) => {
-            eprintln!("[DEBUG html.rs] layout_document_paged done, {} display lists", lists.len());
-            lists
-        },
+        Ok(lists) => lists,
         Err(e) => {
             warnings.push(PdfWarnMsg::error(
                 0,
@@ -281,9 +258,7 @@ pub fn xml_to_pdf_pages(
             return Err(warnings);
         }
     };
-    
-    eprintln!("[DEBUG html.rs] Converting display lists to PDF pages...");
-    
+
     // Convert each DisplayList to a PDF page
     let mut pages = Vec::new();
     // font_data_map now maps u64 (font hash) directly to ParsedFont
