@@ -119,6 +119,19 @@ pub struct GeneratePdfOptions {
     /// Settings for automatic image optimization when saving PDF files
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_optimization: Option<ImageOptimizationOptions>,
+    /// Show page numbers in footer ("Page X of Y" format)
+    /// NOTE: Full CSS @page rule parsing is not yet implemented.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show_page_numbers: Option<bool>,
+    /// Custom header text (appears on all pages, or skipped on first if skip_first_page is set)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header_text: Option<String>,
+    /// Custom footer text (in addition to or instead of page numbers)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub footer_text: Option<String>,
+    /// Skip header/footer on the first page
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skip_first_page: Option<bool>,
 }
 
 impl Default for GeneratePdfOptions {
@@ -132,6 +145,10 @@ impl Default for GeneratePdfOptions {
             margin_bottom: None,
             margin_left: None,
             image_optimization: None,
+            show_page_numbers: None,
+            header_text: None,
+            footer_text: None,
+            skip_first_page: None,
         }
     }
 }
@@ -402,6 +419,14 @@ impl PdfDocument {
             bottom: Mm(options.margin_bottom.unwrap_or(0.0)),
             left: Mm(options.margin_left.unwrap_or(0.0)),
         };
+        
+        // Apply header/footer configuration
+        // NOTE: Full CSS @page rule parsing is not yet implemented.
+        // These options provide programmatic control over page decoration.
+        xml_options.show_page_numbers = options.show_page_numbers.unwrap_or(false);
+        xml_options.header_text = options.header_text.clone();
+        xml_options.footer_text = options.footer_text.clone();
+        xml_options.skip_first_page = options.skip_first_page.unwrap_or(false);
         
         // Convert images and fonts
         for (key, img) in images {

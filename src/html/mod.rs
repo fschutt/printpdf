@@ -17,7 +17,8 @@ use azul_core::{
 use azul_layout::{
     font::loading::build_font_cache,
     paged::FragmentationContext,
-    solver3::paged_layout::layout_document_paged,
+    solver3::paged_layout::layout_document_paged_with_config,
+    solver3::pagination::FakePageConfig,
     text3::cache::FontHash,
     font_traits::{TextLayoutCache, FontManager},
     Solver3LayoutCache,
@@ -104,6 +105,18 @@ pub struct XmlRenderOptions {
     /// Page margins - affects the content area available for layout
     #[serde(default)]
     pub margins: PageMargins,
+    /// Show page numbers in footer ("Page X of Y" format)
+    #[serde(default)]
+    pub show_page_numbers: bool,
+    /// Custom header text (appears on all pages except first if skip_first_page is true)
+    #[serde(default)]
+    pub header_text: Option<String>,
+    /// Custom footer text (in addition to or instead of page numbers)
+    #[serde(default)]
+    pub footer_text: Option<String>,
+    /// Skip header/footer on the first page
+    #[serde(default)]
+    pub skip_first_page: bool,
 }
 
 impl Default for XmlRenderOptions {
@@ -114,6 +127,10 @@ impl Default for XmlRenderOptions {
             page_width: default_page_width(),
             page_height: default_page_height(),
             margins: PageMargins::default(),
+            show_page_numbers: false,
+            header_text: None,
+            footer_text: None,
+            skip_first_page: false,
         }
     }
 }
@@ -231,7 +248,28 @@ pub fn xml_to_pdf_pages(
     let loader = PathLoader::new();
     let font_loader = |bytes: &[u8], index: usize| loader.load_font(bytes, index);
     
-    let display_lists = match layout_document_paged(
+    // Build page config from options
+    // NOTE: Full CSS @page rule parsing is not yet implemented.
+    // This uses FakePageConfig for programmatic control over headers/footers.
+    let mut page_config = FakePageConfig::new();
+    
+    if options.show_page_numbers {
+        page_config = page_config.with_footer_page_numbers();
+    }
+    
+    if let Some(ref header) = options.header_text {
+        page_config = page_config.with_header_text(header.clone());
+    }
+    
+    if let Some(ref footer) = options.footer_text {
+        page_config = page_config.with_footer_text(footer.clone());
+    }
+    
+    if options.skip_first_page {
+        page_config = page_config.skip_first_page(true);
+    }
+    
+    let display_lists = match layout_document_paged_with_config(
         &mut layout_cache,
         &mut text_cache,
         fragmentation_context,
@@ -246,6 +284,7 @@ pub fn xml_to_pdf_pages(
         azul_core::resources::IdNamespace(0),
         DomId::ROOT_ID,
         font_loader,
+        page_config,
     ) {
         Ok(lists) => lists,
         Err(e) => {

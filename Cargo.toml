@@ -183,3 +183,13 @@ required-features = ["html"]
 name = "table_debug"
 path = "examples/table_debug.rs"
 required-features = ["html"]
+
+[[example]]
+name = "debug_pagination"
+path = "examples/debug_pagination.rs"
+required-features = ["html"]
+
+[[example]]
+name = "debug_displaylist"
+path = "examples/debug_displaylist.rs"
+required-features = ["html"]

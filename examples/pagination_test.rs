@@ -27,6 +27,10 @@ fn main() {
         margin_bottom: Some(25.0),   // Extra space for page numbers
         margin_left: Some(15.0),
         image_optimization: None,
+        show_page_numbers: Some(true),
+        header_text: Some("Pagination Test".to_string()),
+        footer_text: None,
+        skip_first_page: Some(false),
     };
     
     let mut warnings = Vec::new();

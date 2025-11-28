@@ -224,6 +224,7 @@ fn test_html_to_document() {
         page_width: Some(297.0),
         font_embedding: Some(true),
         image_optimization: Some(printpdf::ImageOptimizationOptions::default()),
+        ..Default::default()
     };
     
     println!("Options: {:?}", options);
@@ -357,6 +358,7 @@ fn test_html_uses_positioned_glyphs_not_text_operators() {
         page_width: Some(297.0),
         font_embedding: Some(true),
         image_optimization: Some(printpdf::ImageOptimizationOptions::default()),
+        ..Default::default()
     };
     
     println!("PDF Generation Options:");
@@ -537,6 +539,7 @@ li { display: list-item; margin: 5px 0; }
             page_height: Some(297.0),
             font_embedding: Some(true),
             image_optimization: Some(printpdf::ImageOptimizationOptions::default()),
+        ..Default::default()
         },
         &mut Vec::new(),
     );
@@ -638,6 +641,7 @@ li { display: list-item; margin: 5px 0; }
             page_height: Some(297.0),
             font_embedding: Some(true),
             image_optimization: Some(printpdf::ImageOptimizationOptions::default()),
+        ..Default::default()
         },
         &mut Vec::new(),
     );
@@ -708,6 +712,7 @@ li { display: list-item; margin: 3px 0; }
             page_height: Some(297.0),
             font_embedding: Some(true),
             image_optimization: Some(printpdf::ImageOptimizationOptions::default()),
+        ..Default::default()
         },
         &mut Vec::new(),
     );
@@ -759,6 +764,7 @@ li { display: list-item; margin: 5px 0; }
             page_height: Some(297.0),
             font_embedding: Some(true),
             image_optimization: Some(printpdf::ImageOptimizationOptions::default()),
+        ..Default::default()
         },
         &mut Vec::new(),
     );
@@ -831,6 +837,7 @@ li { display: list-item; margin: 3px 0; }
             page_height: Some(297.0),
             font_embedding: Some(true),
             image_optimization: Some(printpdf::ImageOptimizationOptions::default()),
+        ..Default::default()
         },
         &mut Vec::new(),
     );

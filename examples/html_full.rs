@@ -35,6 +35,14 @@ fn main() {
         margin_right: Some(15.0),     // 15mm right margin  
         margin_bottom: Some(20.0),    // 20mm bottom margin
         margin_left: Some(15.0),      // 15mm left margin
+        // Enable page numbers in footer
+        show_page_numbers: Some(true),
+        // NOTE: The HTML file has its own <header> and <footer> elements
+        // Don't set header_text here to avoid conflict with HTML headers
+        header_text: None,
+        footer_text: None,
+        // Skip header/footer on first page (title page)
+        skip_first_page: Some(true),
         ..Default::default()
     };
     

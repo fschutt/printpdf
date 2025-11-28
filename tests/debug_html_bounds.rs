@@ -19,6 +19,7 @@ fn debug_html_bounds() {
         page_width: Some(297.0),
         font_embedding: Some(true),
         image_optimization: Some(printpdf::ImageOptimizationOptions::default()),
+        ..Default::default()
     };
 
     let mut warnings = Vec::new();

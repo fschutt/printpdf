@@ -252,10 +252,104 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
             }
         }
 
-        DisplayListItem::Text { .. } => {
-            // IGNORE: Text items are for visual renderers, not PDF generation
-            // The azul-layout code pushes TextLayout items BEFORE Text items
-            // We only process the TextLayout items which contain the full UnifiedLayout
+        DisplayListItem::Text { glyphs, font_hash, font_size_px, color, clip_rect: _ } => {
+            // Render simple text items (used for headers/footers)
+            // These use Unicode codepoints as glyph indices and a placeholder font hash (0)
+            // 
+            // IMPORTANT: For external fonts (font_hash != 0), the TextLayout item already
+            // renders the text via render_unified_layout_with_margins(). The Text items
+            // are kept in the display list for other renderers (like WebRender for screen)
+            // but should be SKIPPED for PDF output to avoid double-rendering.
+            if glyphs.is_empty() {
+                return;
+            }
+            
+            // For text with font_hash == 0, use a builtin PDF font (Helvetica)
+            // This is used for page headers/footers which don't go through text shaping
+            let use_builtin_font = font_hash.font_hash == 0;
+            
+            // Skip external fonts - they are rendered via TextLayout
+            if !use_builtin_font {
+                return;
+            }
+            
+            ops.push(Op::SaveGraphicsState);
+            
+            // Set text color
+            ops.push(Op::SetFillColor {
+                col: convert_color(color),
+            });
+            
+            if use_builtin_font {
+                // Use Helvetica for system-generated text (headers/footers)
+                ops.push(Op::SetFont {
+                    font: crate::ops::PdfFontHandle::Builtin(crate::BuiltinFont::Helvetica),
+                    size: Pt(*font_size_px),
+                });
+            } else {
+                // Use external font by hash
+                let font_id = FontId(format!("F{}", font_hash.font_hash));
+                ops.push(Op::SetFont {
+                    font: crate::ops::PdfFontHandle::External(font_id),
+                    size: Pt(*font_size_px),
+                });
+            }
+            
+            // Start text section
+            ops.push(Op::StartTextSection);
+            
+            // Render glyphs - collect all characters into a single text string for better rendering
+            // Group glyphs by approximate y-position to handle potential line breaks
+            let mut text_string = String::new();
+            let mut first_glyph_pos: Option<(f32, f32)> = None;
+            
+            for glyph in glyphs {
+                if first_glyph_pos.is_none() {
+                    first_glyph_pos = Some((glyph.point.x, glyph.point.y));
+                }
+                
+                // For builtin fonts, glyph.index is the Unicode codepoint
+                if use_builtin_font {
+                    if let Some(ch) = char::from_u32(glyph.index) {
+                        text_string.push(ch);
+                    }
+                }
+            }
+            
+            if let Some((x, y)) = first_glyph_pos {
+                // Convert coordinates
+                let pdf_x = transform.x(x);
+                let pdf_y = transform.y(y);
+                
+                // Set position for this text
+                ops.push(Op::SetTextMatrix {
+                    matrix: crate::matrix::TextMatrix::Raw([
+                        1.0, 0.0,   // No scaling/rotation
+                        0.0, 1.0,
+                        pdf_x, pdf_y,
+                    ]),
+                });
+                
+                if use_builtin_font && !text_string.is_empty() {
+                    ops.push(Op::ShowText {
+                        items: vec![crate::text::TextItem::Text(text_string)],
+                    });
+                } else if !use_builtin_font {
+                    // For external fonts, use glyph IDs
+                    let glyph_ids: Vec<crate::text::Codepoint> = glyphs.iter().map(|g| {
+                        crate::text::Codepoint::new(g.index as u16, 0.0)
+                    }).collect();
+                    
+                    ops.push(Op::ShowText {
+                        items: vec![crate::text::TextItem::GlyphIds(glyph_ids)],
+                    });
+                }
+            }
+            
+            // End text section
+            ops.push(Op::EndTextSection);
+            
+            ops.push(Op::RestoreGraphicsState);
         }
 
         DisplayListItem::Border {
@@ -569,6 +663,18 @@ fn render_unified_layout_with_margins<T: ParsedFontTrait + 'static>(
 
         // Position each glyph absolutely using SetTextMatrix + ShowText
         for glyph in &run.glyphs {
+            // Filter glyphs that are outside the visible bounds
+            // The glyph.position is relative to the UnifiedLayout origin,
+            // but bounds.size defines the visible area on this page.
+            // Glyphs outside the bounds.size should be clipped (not rendered).
+            // Allow a small margin (font_size) for glyphs that may partially overlap
+            let glyph_y_in_bounds = glyph.position.y;
+            let line_height = run.font_size_px * 1.5; // Approximate line height
+            if glyph_y_in_bounds < -line_height || glyph_y_in_bounds > bounds.size.height + line_height {
+                // Skip glyphs that are clearly outside the visible page bounds
+                continue;
+            }
+            
             // Calculate absolute position for this glyph in layout space
             let glyph_x_layout = bounds.origin.x + glyph.position.x;
             let glyph_y_layout = bounds.origin.y + glyph.position.y;
