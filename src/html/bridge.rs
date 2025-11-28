@@ -663,17 +663,12 @@ fn render_unified_layout_with_margins<T: ParsedFontTrait + 'static>(
 
         // Position each glyph absolutely using SetTextMatrix + ShowText
         for glyph in &run.glyphs {
-            // Filter glyphs that are outside the visible bounds
-            // The glyph.position is relative to the UnifiedLayout origin,
-            // but bounds.size defines the visible area on this page.
-            // Glyphs outside the bounds.size should be clipped (not rendered).
-            // Allow a small margin (font_size) for glyphs that may partially overlap
-            let glyph_y_in_bounds = glyph.position.y;
-            let line_height = run.font_size_px * 1.5; // Approximate line height
-            if glyph_y_in_bounds < -line_height || glyph_y_in_bounds > bounds.size.height + line_height {
-                // Skip glyphs that are clearly outside the visible page bounds
-                continue;
-            }
+            // NOTE: Glyphs have already been filtered by the pagination/clipping code
+            // in display_list.rs (clip_and_offset_display_item). The glyph positions
+            // are page-relative and should be rendered directly.
+            // 
+            // The bounds.origin represents where this TextLayout block starts on the page,
+            // and glyph.position is relative to the block origin (after the clipping pass).
             
             // Calculate absolute position for this glyph in layout space
             let glyph_x_layout = bounds.origin.x + glyph.position.x;

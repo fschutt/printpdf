@@ -193,3 +193,8 @@ required-features = ["html"]
 name = "debug_displaylist"
 path = "examples/debug_displaylist.rs"
 required-features = ["html"]
+
+[[example]]
+name = "pagination_boundary_test"
+path = "examples/pagination_boundary_test.rs"
+required-features = ["html"]

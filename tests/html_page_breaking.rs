@@ -63,7 +63,7 @@ fn test_basic_text_breaks_across_pages() {
     
     // Verify text is distributed across pages
     for (i, page_text) in page_texts.iter().enumerate() {
-        println!("Page {} text: {:?}", i + 1, page_text.join(" "));
+        println!("Page {} text length: {}", i + 1, page_text.join(" ").len());
         assert!(!page_text.is_empty(), "Page {} should have text", i + 1);
     }
 }
