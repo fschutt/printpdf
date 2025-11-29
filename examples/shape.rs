@@ -61,7 +61,7 @@ fn main() {
     
     let doc = match PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnings) {
         Ok(doc) => {
-            println!("✓ Successfully generated PDF using text shaping");
+            println!("[OK] Successfully generated PDF using text shaping");
             
             // Print details about the text shaping process
             if !warnings.is_empty() {
@@ -74,7 +74,7 @@ fn main() {
             doc
         }
         Err(e) => {
-            println!("✗ Failed to generate PDF: {}", e);
+            println!("[ERROR] Failed to generate PDF: {}", e);
             return;
         }
     };
@@ -86,7 +86,7 @@ fn main() {
     
     std::fs::write("text_shaping_example.pdf", &pdf_bytes).expect("Failed to write PDF");
     
-    println!("\n✓ Saved text_shaping_example.pdf ({} bytes)", pdf_bytes.len());
+    println!("\n[OK] Saved text_shaping_example.pdf ({} bytes)", pdf_bytes.len());
     
     // Print technical details
     println!("\n=== Technical Workflow ===");

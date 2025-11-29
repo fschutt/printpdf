@@ -58,7 +58,7 @@ fn main() {
     
     let doc = match PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnings) {
         Ok(doc) => {
-            println!("✓ Successfully generated PDF");
+            println!("[OK] Successfully generated PDF");
             if !warnings.is_empty() {
                 println!("Warnings:");
                 for warn in &warnings {
@@ -68,7 +68,7 @@ fn main() {
             doc
         }
         Err(e) => {
-            eprintln!("✗ Failed to generate PDF: {}", e);
+            eprintln!("[ERROR] Failed to generate PDF: {}", e);
             return;
         }
     };
@@ -96,10 +96,10 @@ fn main() {
         Ok(mut file) => {
             use std::io::Write;
             match file.write_all(&bytes) {
-                Ok(_) => println!("✓ PDF saved successfully!"),
-                Err(e) => eprintln!("✗ Failed to write PDF: {}", e),
+                Ok(_) => println!("[OK] PDF saved successfully!"),
+                Err(e) => eprintln!("[ERROR] Failed to write PDF: {}", e),
             }
         }
-        Err(e) => eprintln!("✗ Failed to create file: {}", e),
+        Err(e) => eprintln!("[ERROR] Failed to create file: {}", e),
     }
 }

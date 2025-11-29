@@ -22,7 +22,7 @@ fn main() {
     
     let doc = match PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnings) {
         Ok(doc) => {
-            println!("✓ Successfully generated PDF");
+            println!("[OK] Successfully generated PDF");
             if !warnings.is_empty() {
                 println!("\nGeneration warnings ({}):", warnings.len());
                 for (i, warn) in warnings.iter().enumerate().take(10) {
@@ -35,7 +35,7 @@ fn main() {
             doc
         }
         Err(e) => {
-            eprintln!("✗ Failed to generate PDF: {}", e);
+            eprintln!("[ERROR] Failed to generate PDF: {}", e);
             return;
         }
     };
@@ -56,8 +56,8 @@ fn main() {
     }
 
     match std::fs::write(output_path, bytes) {
-        Ok(_) => println!("✓ Saved successfully"),
-        Err(e) => eprintln!("✗ Failed to save: {}", e),
+        Ok(_) => println!("[OK] Saved successfully"),
+        Err(e) => eprintln!("[ERROR] Failed to save: {}", e),
     }
     
     println!("\n=== Test Complete ===");

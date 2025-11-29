@@ -44,5 +44,5 @@ fn main() {
     use std::io::Write;
     file.write_all(&bytes).unwrap();
     
-    println!("\n✓ PDF saved to {}", output_path);
+    println!("\n[OK] PDF saved to {}", output_path);
 }

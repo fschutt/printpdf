@@ -505,19 +505,19 @@ fn main() {
         Op::AddLineBreak,
         Op::ShowText {
             items: vec![TextItem::Text(
-                "✓ TextMatrix provides absolute positioning".to_string(),
+                "[OK] TextMatrix provides absolute positioning".to_string(),
             )],
         },
         Op::AddLineBreak,
         Op::ShowText {
             items: vec![TextItem::Text(
-                "✓ TextItem::GlyphIds preserves exact glyph positioning".to_string(),
+                "[OK] TextItem::GlyphIds preserves exact glyph positioning".to_string(),
             )],
         },
         Op::AddLineBreak,
         Op::ShowText {
             items: vec![TextItem::Text(
-                "✓ Perfect for Arabic/Indic script shaping via azul-layout".to_string(),
+                "[OK] Perfect for Arabic/Indic script shaping via azul-layout".to_string(),
             )],
         },
         Op::AddLineBreak,

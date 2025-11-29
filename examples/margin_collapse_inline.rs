@@ -20,7 +20,7 @@ fn main() {
 </html>
 "#;
     
-    println!("✓ HTML created with inline styles");
+    println!("[OK] HTML created with inline styles");
     
     // Convert to PDF
     let images = BTreeMap::new();
@@ -31,7 +31,7 @@ fn main() {
     let pdf_doc = PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnings)
         .expect("Failed to create PDF");
     
-    println!("✓ PDF generated successfully");
+    println!("[OK] PDF generated successfully");
     
     // Save to file
     let filename = "margin_collapse_inline_test.pdf";
@@ -39,7 +39,7 @@ fn main() {
     let pdf_bytes = pdf_doc.save(&PdfSaveOptions::default(), &mut save_warnings);
     std::fs::write(filename, &pdf_bytes).expect("Failed to write PDF file");
     
-    println!("✓ Saved to {}", filename);
+    println!("[OK] Saved to {}", filename);
     println!("\n=== Expected Behavior ===");
     println!("With margin collapsing:");
     println!("  1. H1 (margin-bottom: 30px) + P (margin-top: 20px) → 30px gap (not 50px)");

@@ -269,7 +269,7 @@ fn test_html_to_document() {
         println!("  Number of operations: {}", page.ops.len());
         
         if page.ops.is_empty() {
-            println!("  ⚠️  WARNING: NO OPERATIONS ON THIS PAGE!");
+            println!("  [WARN] WARNING: NO OPERATIONS ON THIS PAGE!");
         } else {
             println!("  Operations:");
             for (op_idx, op) in page.ops.iter().enumerate() {
@@ -318,7 +318,7 @@ fn test_html_to_document() {
     }
     println!("========================================\n");
 
-    println!("✓ PDF written to ./htmltest.pdf");
+    println!("[OK] PDF written to ./htmltest.pdf");
     println!("========================================\n");
 
     assert!(!output.pages.is_empty(), "Expected at least one page, but got 0 pages. Warnings: {:?}", warnings);
@@ -404,13 +404,13 @@ fn test_html_uses_positioned_glyphs_not_text_operators() {
         println!("\nPage {}: {} operations", page_idx, page.ops.len());
         
         if page.ops.is_empty() {
-            println!("  ⚠️  NO OPERATIONS ON THIS PAGE!");
+            println!("  [WARN] NO OPERATIONS ON THIS PAGE!");
         }
         
         for (op_idx, op) in page.ops.iter().enumerate() {
             match op {
                 Op::ShowText { items } => {
-                    println!("  [{}] ✓ ShowText (new 1:1 PDF API)", op_idx);
+                    println!("  [{}] [OK] ShowText (new 1:1 PDF API)", op_idx);
                     println!("       items: {} text items", items.len());
                     if !items.is_empty() {
                         println!("       first 5 items: {:?}", &items[..items.len().min(5)]);
@@ -473,7 +473,7 @@ fn test_html_uses_positioned_glyphs_not_text_operators() {
 
     // For now, just check that we have some operations
     if doc.pages[0].ops.is_empty() {
-        println!("⚠️  WARNING: No operations generated from HTML!");
+        println!("[WARN] WARNING: No operations generated from HTML!");
         println!();
         println!("This indicates the HTML-to-PDF rendering pipeline is not generating");
         println!("any output. Possible causes:");
@@ -486,7 +486,7 @@ fn test_html_uses_positioned_glyphs_not_text_operators() {
         return;
     }
 
-    println!("✓ Page has operations, checking if they use ShowText...");
+    println!("[OK] Page has operations, checking if they use ShowText...");
     println!();
 
     assert!(
@@ -599,7 +599,7 @@ li { display: list-item; margin: 5px 0; }
         );
     }
     
-    println!("✓ Unordered list test passed");
+    println!("[OK] Unordered list test passed");
 }
 
 /// Tests HTML ordered lists (<ol>, <li>) with decimal markers
@@ -659,7 +659,7 @@ li { display: list-item; margin: 5px 0; }
     println!("Generated {} text sections", text_sections);
     assert!(text_sections >= 1, "Should have at least 1 text section");
     
-    println!("✓ Ordered list test passed");
+    println!("[OK] Ordered list test passed");
 }
 
 /// Tests nested lists
@@ -722,7 +722,7 @@ li { display: list-item; margin: 3px 0; }
     let doc = result.unwrap();
     assert_eq!(doc.pages.len(), 1, "Should generate 1 page");
     
-    println!("✓ Nested list test passed");
+    println!("[OK] Nested list test passed");
 }
 
 /// Tests Greek numerals (Unicode markers)
@@ -781,7 +781,7 @@ li { display: list-item; margin: 5px 0; }
     
     assert!(has_text, "Should have rendered text with glyphs");
     
-    println!("✓ Greek numeral list test passed");
+    println!("[OK] Greek numeral list test passed");
 }
 
 /// Tests multiple list styles in same document
@@ -855,5 +855,5 @@ li { display: list-item; margin: 3px 0; }
     println!("Generated {} text sections", text_sections);
     assert!(text_sections >= 1, "Should have at least 1 text section");
     
-    println!("✓ Mixed list styles test passed");
+    println!("[OK] Mixed list styles test passed");
 }

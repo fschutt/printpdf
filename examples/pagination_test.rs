@@ -43,8 +43,8 @@ fn main() {
             let mut save_warnings = Vec::new();
             let pdf_bytes = pdf.save(&PdfSaveOptions::default(), &mut save_warnings);
             std::fs::write(output_path, pdf_bytes).expect("Failed to write PDF");
-            println!("✓ Successfully generated {} pages", pdf.pages.len());
-            println!("✓ PDF saved to {}", output_path);
+            println!("[OK] Successfully generated {} pages", pdf.pages.len());
+            println!("[OK] PDF saved to {}", output_path);
             
             if !warnings.is_empty() {
                 println!("\nWarnings during generation:");
@@ -60,7 +60,7 @@ fn main() {
             }
         }
         Err(e) => {
-            eprintln!("✗ Failed to generate PDF: {:?}", e);
+            eprintln!("[ERROR] Failed to generate PDF: {:?}", e);
         }
     }
 }

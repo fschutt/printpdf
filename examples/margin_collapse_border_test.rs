@@ -58,7 +58,7 @@ fn main() {
         let pdf_bytes = pdf_doc.save(&PdfSaveOptions::default(), &mut save_warnings);
         std::fs::write(&filename, &pdf_bytes).expect("Failed to write PDF file");
         
-        println!("✓ Generated: {}", filename);
+        println!("[OK] Generated: {}", filename);
     }
     
     println!("\n=== Expected Behavior ===");

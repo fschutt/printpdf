@@ -36,7 +36,7 @@ fn main() {
 
     match PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnings) {
         Ok(_doc) => {
-            println!("✓ PDF generated successfully");
+            println!("[OK] PDF generated successfully");
             println!("\nCheck the styled_dom debug output above");
             println!("\nExpected behavior:");
             println!("  1. H1 element should have font-weight: bold from UA CSS");
@@ -48,7 +48,7 @@ fn main() {
             println!("  → Check compute_inherited_values() in prop_cache.rs");
         }
         Err(e) => {
-            eprintln!("✗ Failed: {}", e);
+            eprintln!("[ERROR] Failed: {}", e);
         }
     }
 }

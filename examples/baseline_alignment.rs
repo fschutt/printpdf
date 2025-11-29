@@ -187,15 +187,15 @@ fn main() {
     <div class="test-container">
         <p><strong>Currently implemented:</strong></p>
         <ul>
-            <li>✅ Global vertical-align on UnifiedConstraints</li>
-            <li>✅ baseline, top, middle, bottom alignment modes</li>
-            <li>✅ sub, super for script positioning</li>
+            <li>[x] Global vertical-align on UnifiedConstraints</li>
+            <li>[x] baseline, top, middle, bottom alignment modes</li>
+            <li>[x] sub, super for script positioning</li>
         </ul>
         <p><strong>Known limitations:</strong></p>
         <ul>
-            <li>⚠️ Per-image vertical-align stored but not used in positioning</li>
-            <li>⚠️ text-top, text-bottom fall back to baseline</li>
-            <li>⚠️ Length/percentage values not supported</li>
+            <li>[!] Per-image vertical-align stored but not used in positioning</li>
+            <li>[!] text-top, text-bottom fall back to baseline</li>
+            <li>[!] Length/percentage values not supported</li>
         </ul>
     </div>
 </body>
@@ -214,7 +214,7 @@ fn main() {
     
     let doc = match PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnings) {
         Ok(doc) => {
-            println!("✓ Successfully generated PDF");
+            println!("[OK] Successfully generated PDF");
             if !warnings.is_empty() {
                 println!("Warnings ({}):", warnings.len());
                 for warn in warnings.iter().take(10) {
@@ -227,7 +227,7 @@ fn main() {
             doc
         }
         Err(e) => {
-            eprintln!("✗ Failed to generate PDF: {}", e);
+            eprintln!("[ERROR] Failed to generate PDF: {}", e);
             return;
         }
     };
@@ -251,7 +251,7 @@ fn main() {
         Ok(mut file) => {
             match file.write_all(&bytes) {
                 Ok(_) => {
-                    println!("✓ PDF saved successfully!");
+                    println!("[OK] PDF saved successfully!");
                     println!("");
                     println!("Open {} to verify baseline alignment visually.", output_path);
                     println!("");
@@ -261,9 +261,9 @@ fn main() {
                     println!("3. Inline boxes should align according to their vertical-align value");
                     println!("4. The line box should expand to fit tall inline elements");
                 }
-                Err(e) => eprintln!("✗ Failed to write PDF: {}", e),
+                Err(e) => eprintln!("[ERROR] Failed to write PDF: {}", e),
             }
         }
-        Err(e) => eprintln!("✗ Failed to create file: {}", e),
+        Err(e) => eprintln!("[ERROR] Failed to create file: {}", e),
     }
 }

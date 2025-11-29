@@ -52,9 +52,9 @@ fn test_empty_block_collapse_through() {
             let mut save_warnings = Vec::new();
             let pdf_bytes = doc.save(&PdfSaveOptions::default(), &mut save_warnings);
             std::fs::write("margin_collapse_empty_through.pdf", &pdf_bytes).unwrap();
-            println!("✓ Generated: margin_collapse_empty_through.pdf");
+            println!("[OK] Generated: margin_collapse_empty_through.pdf");
         }
-        Err(e) => println!("✗ Error: {:?}", e),
+        Err(e) => println!("[ERROR] Error: {:?}", e),
     }
 }
 
@@ -87,9 +87,9 @@ fn test_parent_child_top_escape() {
             let mut save_warnings = Vec::new();
             let pdf_bytes = doc.save(&PdfSaveOptions::default(), &mut save_warnings);
             std::fs::write("margin_collapse_parent_child_top.pdf", &pdf_bytes).unwrap();
-            println!("✓ Generated: margin_collapse_parent_child_top.pdf");
+            println!("[OK] Generated: margin_collapse_parent_child_top.pdf");
         }
-        Err(e) => println!("✗ Error: {:?}", e),
+        Err(e) => println!("[ERROR] Error: {:?}", e),
     }
 }
 
@@ -123,9 +123,9 @@ fn test_parent_child_bottom_escape() {
             let mut save_warnings = Vec::new();
             let pdf_bytes = doc.save(&PdfSaveOptions::default(), &mut save_warnings);
             std::fs::write("margin_collapse_parent_child_bottom.pdf", &pdf_bytes).unwrap();
-            println!("✓ Generated: margin_collapse_parent_child_bottom.pdf");
+            println!("[OK] Generated: margin_collapse_parent_child_bottom.pdf");
         }
-        Err(e) => println!("✗ Error: {:?}", e),
+        Err(e) => println!("[ERROR] Error: {:?}", e),
     }
 }
 
@@ -160,9 +160,9 @@ fn test_complex_nested_collapse() {
             let mut save_warnings = Vec::new();
             let pdf_bytes = doc.save(&PdfSaveOptions::default(), &mut save_warnings);
             std::fs::write("margin_collapse_complex_nested.pdf", &pdf_bytes).unwrap();
-            println!("✓ Generated: margin_collapse_complex_nested.pdf");
+            println!("[OK] Generated: margin_collapse_complex_nested.pdf");
         }
-        Err(e) => println!("✗ Error: {:?}", e),
+        Err(e) => println!("[ERROR] Error: {:?}", e),
     }
 }
 
@@ -196,9 +196,9 @@ fn test_multiple_empty_blocks() {
             let mut save_warnings = Vec::new();
             let pdf_bytes = doc.save(&PdfSaveOptions::default(), &mut save_warnings);
             std::fs::write("margin_collapse_multiple_empty.pdf", &pdf_bytes).unwrap();
-            println!("✓ Generated: margin_collapse_multiple_empty.pdf");
+            println!("[OK] Generated: margin_collapse_multiple_empty.pdf");
         }
-        Err(e) => println!("✗ Error: {:?}", e),
+        Err(e) => println!("[ERROR] Error: {:?}", e),
     }
 }
 
@@ -234,8 +234,8 @@ fn test_parent_child_with_blockers() {
             let mut save_warnings = Vec::new();
             let pdf_bytes = doc.save(&PdfSaveOptions::default(), &mut save_warnings);
             std::fs::write("margin_collapse_parent_blockers.pdf", &pdf_bytes).unwrap();
-            println!("✓ Generated: margin_collapse_parent_blockers.pdf");
+            println!("[OK] Generated: margin_collapse_parent_blockers.pdf");
         }
-        Err(e) => println!("✗ Error: {:?}", e),
+        Err(e) => println!("[ERROR] Error: {:?}", e),
     }
 }

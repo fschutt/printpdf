@@ -72,7 +72,7 @@ fn main() {
 
     let doc = match PdfDocument::from_html(html, &images, &fonts, &options, &mut warnings) {
         Ok(doc) => {
-            println!("✓ Successfully generated PDF with CSS Shapes");
+            println!("[OK] Successfully generated PDF with CSS Shapes");
             if !warnings.is_empty() {
                 println!("\nWarnings:");
                 for warn in &warnings {
@@ -82,7 +82,7 @@ fn main() {
             doc
         }
         Err(e) => {
-            eprintln!("✗ Failed to generate PDF: {}", e);
+            eprintln!("[ERROR] Failed to generate PDF: {}", e);
             return;
         }
     };
@@ -107,15 +107,15 @@ fn main() {
             use std::io::Write;
             match file.write_all(&bytes) {
                 Ok(_) => {
-                    println!("✓ PDF saved successfully!");
+                    println!("[OK] PDF saved successfully!");
                     println!("\n=== Implementation Status ===");
-                    println!("✓ CSS Shape Parser: 11 unit tests passing");
-                    println!("✓ C-Compatible Structures: Eq/Hash/Ord implemented");
-                    println!("✓ CSS Properties: ShapeInside, ShapeOutside, ClipPath");
-                    println!("✓ Layout Bridge: ShapeBoundary::from_css_shape()");
-                    println!("✓ Property Cache: get_shape_inside/outside/clip_path()");
-                    println!("✓ Integration: translate_to_text3_constraints() populates shape_boundaries");
-                    println!("✓ Text Layout: text3::cache already supports shape boundaries");
+                    println!("[OK] CSS Shape Parser: 11 unit tests passing");
+                    println!("[OK] C-Compatible Structures: Eq/Hash/Ord implemented");
+                    println!("[OK] CSS Properties: ShapeInside, ShapeOutside, ClipPath");
+                    println!("[OK] Layout Bridge: ShapeBoundary::from_css_shape()");
+                    println!("[OK] Property Cache: get_shape_inside/outside/clip_path()");
+                    println!("[OK] Integration: translate_to_text3_constraints() populates shape_boundaries");
+                    println!("[OK] Text Layout: text3::cache already supports shape boundaries");
                     println!("\n=== Expected Output ===");
                     println!("- Circle box: Text should form circular pattern");
                     println!("  • Widest lines in center (~200px)");
@@ -124,9 +124,9 @@ fn main() {
                     println!("  • Horizontally stretched circular flow");
                     println!("\nOpen {} to verify the results!", output_path);
                 }
-                Err(e) => eprintln!("✗ Failed to write PDF: {}", e),
+                Err(e) => eprintln!("[ERROR] Failed to write PDF: {}", e),
             }
         }
-        Err(e) => eprintln!("✗ Failed to create file: {}", e),
+        Err(e) => eprintln!("[ERROR] Failed to create file: {}", e),
     }
 }

@@ -52,6 +52,6 @@ fn main() {
     let mut file = File::create(output_path).unwrap();
     file.write_all(&bytes).unwrap();
     
-    println!("\n✓ PDF saved to {}", output_path);
+    println!("\n[OK] PDF saved to {}", output_path);
     println!("Open the PDF to check Y spacing between elements.");
 }

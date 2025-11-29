@@ -13,7 +13,7 @@ fn main() {
         match std::fs::read_to_string(&path) {
             Ok(content) => content,
             Err(e) => {
-                eprintln!("✗ Failed to read file {}: {}", path, e);
+                eprintln!("[ERROR] Failed to read file {}: {}", path, e);
                 return;
             }
         }
@@ -58,7 +58,7 @@ fn main() {
     
     let doc = match PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnings) {
         Ok(doc) => {
-            println!("✓ Successfully generated PDF");
+            println!("[OK] Successfully generated PDF");
             if !warnings.is_empty() {
                 println!("\nGeneration warnings ({}):", warnings.len());
                 for (i, warn) in warnings.iter().enumerate().take(10) {
@@ -71,7 +71,7 @@ fn main() {
             doc
         }
         Err(e) => {
-            eprintln!("✗ Failed to generate PDF: {}", e);
+            eprintln!("[ERROR] Failed to generate PDF: {}", e);
             return;
         }
     };
@@ -99,29 +99,29 @@ fn main() {
             use std::io::Write;
             match file.write_all(&bytes) {
                 Ok(_) => {
-                    println!("\n✓ PDF saved successfully!");
+                    println!("\n[OK] PDF saved successfully!");
                     println!("\n=== Test Results ===");
-                    println!("✓ HTML parsing successful");
-                    println!("✓ CSS styling applied");
-                    println!("✓ Layout calculation completed");
-                    println!("✓ Page margins applied");
-                    println!("✓ PDF rendering successful");
+                    println!("[OK] HTML parsing successful");
+                    println!("[OK] CSS styling applied");
+                    println!("[OK] Layout calculation completed");
+                    println!("[OK] Page margins applied");
+                    println!("[OK] PDF rendering successful");
                     println!("\nFeatures tested:");
-                    println!("  • Page margins (top, right, bottom, left)");
-                    println!("  • Headings (h1, h2) with borders");
-                    println!("  • Paragraphs with line-height and styling");
-                    println!("  • Inline spans with background colors (.highlight)");
-                    println!("  • Unordered lists (ul/li) with margins");
-                    println!("  • Ordered lists (ol/li) - numbered items");
-                    println!("  • Complex tables with headers (th) and data cells (td)");
-                    println!("  • CSS borders, backgrounds, and border-radius");
-                    println!("  • Text alignment and padding");
-                    println!("  • Footer styling with different font sizes");
+                    println!("  - Page margins (top, right, bottom, left)");
+                    println!("  - Headings (h1, h2) with borders");
+                    println!("  - Paragraphs with line-height and styling");
+                    println!("  - Inline spans with background colors (.highlight)");
+                    println!("  - Unordered lists (ul/li) with margins");
+                    println!("  - Ordered lists (ol/li) - numbered items");
+                    println!("  - Complex tables with headers (th) and data cells (td)");
+                    println!("  - CSS borders, backgrounds, and border-radius");
+                    println!("  - Text alignment and padding");
+                    println!("  - Footer styling with different font sizes");
                     println!("\nOpen {} to verify the results!", output_path);
                 }
-                Err(e) => eprintln!("✗ Failed to write PDF: {}", e),
+                Err(e) => eprintln!("[ERROR] Failed to write PDF: {}", e),
             }
         }
-        Err(e) => eprintln!("✗ Failed to create file: {}", e),
+        Err(e) => eprintln!("[ERROR] Failed to create file: {}", e),
     }
 }
