@@ -257,12 +257,12 @@ impl DateTime {
         use js_sys::Date as JsDate;
 
         let js_date = JsDate::new_with_year_month_day_hr_min_sec(
-            self.date.year as f64,
-            (self.date.month - 1) as f64,
-            self.date.day as f64,
-            self.time.hour as f64,
-            self.time.minute as f64,
-            self.time.second as f64,
+            self.date.year as u32,
+            (self.date.month - 1) as i32,
+            self.date.day as i32,
+            self.time.hour as i32,
+            self.time.minute as i32,
+            self.time.second as i32,
         );
 
         (js_date.get_time() / 1000.0) as i64
