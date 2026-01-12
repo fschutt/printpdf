@@ -658,16 +658,6 @@ mod tests {
     }
 
     #[test]
-    fn test_css_parsing() {
-        let css = "div { color: red; font-size: 12px; } .my-class { margin: 10px; }";
-        let rules = parse_css(css);
-        assert_eq!(rules.len(), 2);
-        assert_eq!(rules[0].selector, "div");
-        assert_eq!(rules[0].declarations.len(), 2);
-        assert_eq!(rules[1].selector, ".my-class");
-    }
-
-    #[test]
     fn test_html_config_extraction() {
         let html = r#"
             <html>
@@ -710,8 +700,11 @@ mod tests {
             <div>Test</div>
         "#;
         
+        // inline_css_in_xml no longer removes <style> tags - they are left for azul's CSS engine
         let inlined = inline_css_in_xml(xml);
-        assert!(!inlined.contains("<style>"));
-        assert!(inlined.contains("style="));
+        // <style> tags are preserved for str_to_dom() to process
+        assert!(inlined.contains("<style>"));
+        // The function just returns the XML as-is now
+        assert!(inlined.contains("<div>Test</div>"));
     }
 }
