@@ -12,7 +12,7 @@ use crate::{
 // Use azul-layout's types instead of redefining them
 #[cfg(feature = "text_layout")]
 pub use azul_layout::{
-    FontMetrics, FontParseWarning as PdfFontParseWarning, FontType, OwnedGlyph, ParsedFont,
+    PdfFontMetrics as FontMetrics, FontParseWarning as PdfFontParseWarning, FontType, OwnedGlyph, ParsedFont,
 };
 
 // Stub types when text_layout is disabled

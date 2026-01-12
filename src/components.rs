@@ -23,7 +23,7 @@ macro_rules! html_component {
         impl $name {
             pub fn new() -> Self {
                 Self {
-                    node: XmlNode::new($tag),
+                    node: XmlNode::create($tag),
                 }
             }
         }
@@ -40,7 +40,7 @@ macro_rules! html_component {
                 text: &XmlTextContent,
             ) -> Result<StyledDom, RenderDomError> {
                 // Create the DOM node manually
-                let node_data = NodeData::new($node_type);
+                let node_data = NodeData::create_node($node_type);
                 let mut dom = Dom {
                     root: node_data,
                     children: Vec::new().into(),
@@ -50,7 +50,7 @@ macro_rules! html_component {
                 // Add text content if present
                 if let Some(text_str) = text.as_ref() {
                     if !text_str.is_empty() {
-                        let text_node = NodeData::text(text_str.as_str());
+                        let text_node = NodeData::create_text(text_str.as_str());
                         let text_dom = Dom {
                             root: text_node,
                             children: Vec::new().into(),
@@ -62,9 +62,9 @@ macro_rules! html_component {
                 
                 // Apply default CSS if provided
                 let css = if $default_css.is_empty() {
-                    azul_css::parser2::CssApiWrapper::empty()
+                    azul_css::css::Css::default()
                 } else {
-                    azul_css::parser2::CssApiWrapper::from_string($default_css.into())
+                    azul_css::css::Css::from_string($default_css.into())
                 };
                 
                 Ok(dom.style(css))
@@ -179,7 +179,7 @@ impl XmlComponentTrait for ImgComponent {
         _: &XmlTextContent,
     ) -> Result<StyledDom, RenderDomError> {
         // For now, just return an empty div - image rendering needs proper ImageRef support
-        Ok(Dom::div().style(azul_css::parser2::CssApiWrapper::empty()))
+        Ok(Dom::create_div().style(azul_css::css::Css::default()))
     }
 
     fn compile_to_rust_code(
@@ -192,7 +192,7 @@ impl XmlComponentTrait for ImgComponent {
     }
 
     fn get_xml_node(&self) -> XmlNode {
-        XmlNode::new("img")
+        XmlNode::create("img")
     }
 }
 
