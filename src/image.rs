@@ -1,10 +1,7 @@
 use core::fmt;
 use std::io::Cursor;
 
-use base64::Engine;
 use image::{DynamicImage, GenericImageView};
-use serde::de::Error;
-use serde_derive::{Deserialize, Serialize};
 
 use crate::{ColorBits, ColorSpace, PdfWarnMsg};
 
@@ -188,7 +185,7 @@ impl RawImage {
     pub fn decode_from_bytes(bytes: &[u8], warnings: &mut Vec<PdfWarnMsg>) -> Result<Self, String> {
         use image::DynamicImage::*;
 
-        let im = match image::guess_format(bytes) {
+        let _im = match image::guess_format(bytes) {
             Ok(format) => {
                 warnings.push(PdfWarnMsg::info(
                     0,
@@ -1752,12 +1749,12 @@ fn f32vec_to_u8(data: Vec<f32>) -> Vec<u8> {
 #[cfg(all(feature = "js-sys", target_family = "wasm"))]
 mod browser_image {
 
-    use js_sys::{Array, Object, Promise, Reflect, Uint8Array};
-    use wasm_bindgen::{closure::Closure, JsCast, JsValue};
+    use js_sys::{Array, Uint8Array};
+    use wasm_bindgen::JsCast;
     use wasm_bindgen_futures::JsFuture;
     use web_sys::{
         js_sys, window, Blob, BlobPropertyBag, CanvasRenderingContext2d, HtmlCanvasElement,
-        HtmlImageElement, ImageBitmap,
+        ImageBitmap,
     };
 
     use super::{OutputImageFormat, RawImage, RawImageData, RawImageFormat};
@@ -1766,7 +1763,7 @@ mod browser_image {
     // Decode image bytes using browser's capabilities
     pub async fn decode_image_with_browser(
         bytes: &[u8],
-        warnings: &mut Vec<PdfWarnMsg>,
+        _warnings: &mut Vec<PdfWarnMsg>,
     ) -> Result<RawImage, String> {
         let window = window().ok_or("No window available")?;
 

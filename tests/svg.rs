@@ -1,3 +1,5 @@
+#![cfg(feature = "svg")]
+
 use printpdf::{ExternalStream, Svg};
 
 #[test]
