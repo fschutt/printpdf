@@ -374,7 +374,7 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
             render_border(ops, &config);
         }
 
-        DisplayListItem::Image { bounds: _, key: _ } => {
+        DisplayListItem::Image { bounds: _, image: _ } => {
             // Image rendering - not yet implemented
         }
 
