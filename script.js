@@ -30,6 +30,47 @@ for (const [name, base64] of Object.entries(DEFAULT_FONTS)) {
     }
 }
 
+// If no embedded fonts, try to load them from the local examples/assets/fonts folder
+// This allows local development to work without injected fonts
+async function loadLocalFonts() {
+    const fontFiles = [
+        'Helvetica.ttf',
+        'Helvetica-Bold.ttf',
+        'Helvetica-Oblique.ttf',
+        'Helvetica-BoldOblique.ttf',
+        'Times.ttf',
+        'Times-Bold.ttf',
+        'Times-Oblique.ttf',
+        'Times-BoldOblique.ttf',
+        'Courier.ttf',
+        'Courier-Bold.ttf',
+        'Courier-Oblique.ttf',
+        'Courier-BoldOblique.ttf',
+        'NotoSansJP-Regular.otf',
+        'RobotoMedium.ttf',
+    ];
+    
+    if (Object.keys(fonts).length === 0) {
+        console.log('No embedded fonts found, loading from local files...');
+        for (const fontFile of fontFiles) {
+            try {
+                const response = await fetch(`examples/assets/fonts/${fontFile}`);
+                if (response.ok) {
+                    const arrayBuffer = await response.arrayBuffer();
+                    const base64 = await bufferToBase64(new Uint8Array(arrayBuffer));
+                    fonts[fontFile] = base64;
+                    console.log(`  Loaded ${fontFile}`);
+                }
+            } catch (e) {
+                console.warn(`  Could not load ${fontFile}: ${e}`);
+            }
+        }
+        console.log(`Loaded ${Object.keys(fonts).length} local fonts`);
+    }
+}
+
+// Call loadLocalFonts immediately (it will be awaited later)
+
 // HTML Examples
 const htmlExamples = {
     'ramen-recipe': `<!DOCTYPE html>
@@ -1473,5 +1514,7 @@ document.getElementById('html-examples').value = 'ramen-recipe';
 htmlEditorPre.textContent = htmlExamples['ramen-recipe'];
 updateLineNumbers(htmlEditorPre, htmlLineNumbersDiv);
 
-// Generate initial PDF
-updatePdfFromHtml();
+// Load local fonts first, then generate initial PDF
+loadLocalFonts().then(() => {
+    updatePdfFromHtml();
+});

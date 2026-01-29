@@ -34,7 +34,7 @@ serde_json = { version = "1" }
 # Feature-gated dependencies
 rust-fontconfig = { version = "1.2.2", default-features = false, features = ["std", "parsing", "multithreading"], optional = true }
 xmlparser = { version = "0.13.6", default-features = false, optional = true }
-web-sys = { version = "0.3.77", optional = true, default-features = false, features = ["ImageData", "Window", "Document", "Blob", "CanvasRenderingContext2d", "HtmlCanvasElement", "HtmlImageElement", "ImageBitmap", "BlobPropertyBag"]}
+web-sys = { version = "0.3.77", optional = true, default-features = false, features = ["console", "ImageData", "Window", "Document", "Blob", "CanvasRenderingContext2d", "HtmlCanvasElement", "HtmlImageElement", "ImageBitmap", "BlobPropertyBag"]}
 wasm-bindgen-futures = { version = "0.4.50", optional = true, default-features = false }
 kuchiki = { version = "0.8.1", optional = true }
 azul-css = { version = "0.0.6", default-features = false, features = ["parser"], optional = true }
