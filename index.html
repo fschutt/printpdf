@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>printpdf-wasm Demo</title>
+    <link rel="stylesheet" href="./style.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body>
+    <div class="container">
+        <div class="input-panel">
+            <div class="tab-selector">
+                <select id="action-tab">
+                    <option value="html-to-pdf">Create PDF from HTML</option>
+                    <option value="parse-edit-pdf">Parse / Edit PDF</option>
+                    <option value="sign-pdf">Sign PDF</option>
+                </select>
+            </div>
+
+            <div id="html-to-pdf-tab" class="tab-content">
+                <div class="controls">
+                    <div class="examples-dropdown-container">
+                        <label for="html-examples">Example:</label>
+                        <select id="html-examples">
+                            <option value="">-- Select Example --</option>
+                            <option value="ramen-recipe">Japanese Ramen Recipe</option>
+                            <option value="synthwave-gallery">Synthwave Art Gallery</option>
+                            <option value="business-report">Business Report</option>
+                        </select>
+                    </div>                    
+                    <div class="resources-container" id="main-resources-container"></div>
+                </div>
+                <div class="file-inputs">
+                    <div>
+                        <button id="add-image-html">Add Image</button>
+                        <button id="add-font-html">Add Font</button>
+                    </div>
+                    <div class="config-buttons-container">
+                        <button id="save-config">Save Config</button>
+                        <button id="load-config">Load Config</button>
+                    </div>
+                </div>
+                <div class="editor-container">
+                    <div class="line-numbers"></div>
+                    <pre id="html-editor" contenteditable="true" class="editor"></pre>
+                </div>
+            </div>
+
+            <div id="parse-edit-pdf-tab" class="tab-content hidden">
+                <div class="controls">
+                    <button id="upload-pdf">Upload PDF</button>
+                    <div class="file-inputs">
+                        <button id="add-image-parse">Add Image</button>
+                        <button id="add-font-parse">Add Font</button>
+                    </div>
+                    <!-- Resource previews container will be added here via JavaScript -->
+                </div>
+                <div class="editor-container">
+                    <div class="line-numbers"></div>
+                    <pre id="json-editor" contenteditable="true" class="editor"></pre>
+                </div>
+            </div>
+
+            <div id="sign-pdf-tab" class="tab-content hidden">
+                <div class="controls">
+                    <label for="signature-image-uploade">Signature Image:</label>
+                    <input type="file" id="signature-image-upload" accept="image/*">
+                    <label for="signature-page">Page Number:</label>
+                    <input type="number" id="signature-page" value="1" min="1">
+                    <label for="signature-x">X:</label>
+                    <input type="number" id="signature-x" value="100">
+                    <label for="signature-y">Y:</label>
+                    <input type="number" id="signature-y" value="100">
+                    <label for="signature-scale-x">Scale X:</label>
+                    <input type="number" id="signature-scale-x" value="1">
+                    <label for="signature-scale-y">Scale Y:</label>
+                    <input type="number" id="signature-scale-y" value="1">
+                </div>
+            </div>
+
+        </div>
+        <div class="output-panel">
+            <div class="pdf-viewer-controls">
+                <button id="prev-page">< Page</button>
+                <input type="number" id="page-number" value="1" min="1">
+                <button id="next-page">Next ></button>
+                <button id="save-pdf">Save</button>
+            </div>
+            <div class="pdf-viewer-wrapper">
+                <div class="pdf-viewer-c1">
+                    <div id="pdf-viewer-error"></div>
+                    <div class="pdf-viewer" id="pdf-viewer">
+                        <!-- SVG pages will be rendered here -->
+                    </div>
+                </div>
+                <div class="sidebar">
+                    <div class="sidebar-modes">
+                        <button data-mode="minimap" class="active">Minimap</button>
+                        <button data-mode="layers">Layers</button>
+                        <button data-mode="bookmarks">Bookmarks</button>
+                    </div>
+                    <div id="minimap-view" class="sidebar-content"></div>
+                    <div id="layers-view" class="sidebar-content hidden">Layers Content</div>
+                    <div id="bookmarks-view" class="sidebar-content hidden">Bookmarks Content</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden file inputs -->
+    <input type="file" id="image-upload" accept="image/*" style="display: none;">
+    <input type="file" id="font-upload" accept=".ttf,.otf,.woff,.woff2" style="display: none;">
+    <input type="file" id="pdf-file-upload" accept=".pdf" style="display: none;">
+    <!-- Config file input will be added via JavaScript -->
+
+    <script src="./pkg/printpdf.js" type="module"></script>
+    <script src="./script.js" type="module"></script>
+</body>
+</html>
