@@ -205,32 +205,32 @@ pub fn xml_to_pdf_pages(
     
     // Add embedded fonts from options to the font cache
     // This is critical for WASM where there are no system fonts
-    #[cfg(target_family = "wasm")]
+    #[cfg(all(target_family = "wasm", feature = "js-sys"))]
     {
         web_sys::console::log_1(&format!("Loading {} embedded fonts...", options.fonts.len()).into());
     }
     
     for (font_name, font_bytes) in &options.fonts {
-        #[cfg(target_family = "wasm")]
+        #[cfg(all(target_family = "wasm", feature = "js-sys"))]
         {
             web_sys::console::log_1(&format!("  Parsing font: {} ({} bytes)", font_name, font_bytes.len()).into());
         }
         
         if let Some(parsed_fonts) = rust_fontconfig::FcParseFontBytes(font_bytes, font_name) {
-            #[cfg(target_family = "wasm")]
+            #[cfg(all(target_family = "wasm", feature = "js-sys"))]
             {
                 web_sys::console::log_1(&format!("    -> Successfully parsed {} font variants", parsed_fonts.len()).into());
             }
             fc_cache.with_memory_fonts(parsed_fonts);
         } else {
-            #[cfg(target_family = "wasm")]
+            #[cfg(all(target_family = "wasm", feature = "js-sys"))]
             {
                 web_sys::console::log_1(&format!("    -> Failed to parse font!").into());
             }
         }
     }
     
-    #[cfg(target_family = "wasm")]
+    #[cfg(all(target_family = "wasm", feature = "js-sys"))]
     {
         let font_list = fc_cache.list();
         web_sys::console::log_1(&format!("Font cache now contains {} fonts", font_list.len()).into());
