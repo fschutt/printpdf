@@ -201,7 +201,16 @@ pub fn xml_to_pdf_pages(
     };
 
     // Create font cache and font manager
-    let fc_cache = build_font_cache();
+    let mut fc_cache = build_font_cache();
+    
+    // Add embedded fonts from options to the font cache
+    // This is critical for WASM where there are no system fonts
+    for (font_name, font_bytes) in &options.fonts {
+        if let Some(parsed_fonts) = rust_fontconfig::FcParseFontBytes(font_bytes, font_name) {
+            fc_cache.with_memory_fonts(parsed_fonts);
+        }
+    }
+    
     let mut font_manager = match FontManager::new(fc_cache) {
         Ok(fm) => fm,
         Err(e) => {

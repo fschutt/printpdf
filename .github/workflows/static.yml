@@ -32,6 +32,62 @@ jobs:
         run: cargo install wasm-pack
       - name: wasm-pack build
         run: wasm-pack build --target web --no-pack --no-typescript --release --no-default-features --features "html,js-sys,gif,jpeg,png,pnm,tiff,bmp,webp"
+      - name: Inject default fonts into script.js
+        run: |
+          # Base64 encode fonts for WASM (no filesystem access)
+          HELVETICA_B64=$(base64 -w 0 examples/assets/fonts/Helvetica.ttf)
+          HELVETICA_BOLD_B64=$(base64 -w 0 examples/assets/fonts/Helvetica-Bold.ttf)
+          HELVETICA_OBLIQUE_B64=$(base64 -w 0 examples/assets/fonts/Helvetica-Oblique.ttf)
+          HELVETICA_BOLD_OBLIQUE_B64=$(base64 -w 0 examples/assets/fonts/Helvetica-BoldOblique.ttf)
+          TIMES_B64=$(base64 -w 0 examples/assets/fonts/Times.ttf)
+          TIMES_BOLD_B64=$(base64 -w 0 examples/assets/fonts/Times-Bold.ttf)
+          TIMES_OBLIQUE_B64=$(base64 -w 0 examples/assets/fonts/Times-Oblique.ttf)
+          TIMES_BOLD_OBLIQUE_B64=$(base64 -w 0 examples/assets/fonts/Times-BoldOblique.ttf)
+          COURIER_B64=$(base64 -w 0 examples/assets/fonts/Courier.ttf)
+          COURIER_BOLD_B64=$(base64 -w 0 examples/assets/fonts/Courier-Bold.ttf)
+          COURIER_OBLIQUE_B64=$(base64 -w 0 examples/assets/fonts/Courier-Oblique.ttf)
+          COURIER_BOLD_OBLIQUE_B64=$(base64 -w 0 examples/assets/fonts/Courier-BoldOblique.ttf)
+          NOTO_SANS_JP_B64=$(base64 -w 0 examples/assets/fonts/NotoSansJP-Regular.otf)
+          ROBOTO_B64=$(base64 -w 0 examples/assets/fonts/RobotoMedium.ttf)
+          
+          # Create the font object content
+          FONT_OBJECT="\"Helvetica.ttf\": \"$HELVETICA_B64\",
+              \"Helvetica-Bold.ttf\": \"$HELVETICA_BOLD_B64\",
+              \"Helvetica-Oblique.ttf\": \"$HELVETICA_OBLIQUE_B64\",
+              \"Helvetica-BoldOblique.ttf\": \"$HELVETICA_BOLD_OBLIQUE_B64\",
+              \"Times.ttf\": \"$TIMES_B64\",
+              \"Times-Bold.ttf\": \"$TIMES_BOLD_B64\",
+              \"Times-Oblique.ttf\": \"$TIMES_OBLIQUE_B64\",
+              \"Times-BoldOblique.ttf\": \"$TIMES_BOLD_OBLIQUE_B64\",
+              \"Courier.ttf\": \"$COURIER_B64\",
+              \"Courier-Bold.ttf\": \"$COURIER_BOLD_B64\",
+              \"Courier-Oblique.ttf\": \"$COURIER_OBLIQUE_B64\",
+              \"Courier-BoldOblique.ttf\": \"$COURIER_BOLD_OBLIQUE_B64\",
+              \"NotoSansJP-Regular.otf\": \"$NOTO_SANS_JP_B64\",
+              \"RobotoMedium.ttf\": \"$ROBOTO_B64\""
+          
+          # Replace the placeholder in script.js
+          # Use a temp file approach to handle large base64 strings
+          python3 << EOF
+          import re
+          
+          with open('script.js', 'r') as f:
+              content = f.read()
+          
+          # Replace the DEFAULT_FONTS placeholder
+          font_object = '''$FONT_OBJECT'''
+          new_content = re.sub(
+              r'const DEFAULT_FONTS = \{[^}]*\};',
+              'const DEFAULT_FONTS = {\n    ' + font_object + '\n};',
+              content,
+              flags=re.DOTALL
+          )
+          
+          with open('script.js', 'w') as f:
+              f.write(new_content)
+          
+          print("Fonts injected successfully")
+          EOF
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact

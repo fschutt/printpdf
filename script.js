@@ -15,6 +15,21 @@ let images = {}; // Store uploaded images (filename => base64)
 let fonts = {};  // Store uploaded fonts (filename => base64)
 let signatureImageBase64 = null;
 
+// Default fonts for WASM (no filesystem access)
+// These placeholders are replaced by the GitHub Actions workflow during deployment
+// Format: { "FontName.ttf": "base64-encoded-font-bytes" }
+const DEFAULT_FONTS = {
+    // __HELVETICA_FONT_PLACEHOLDER__
+    // __NOTO_SANS_FONT_PLACEHOLDER__
+};
+
+// Initialize default fonts
+for (const [name, base64] of Object.entries(DEFAULT_FONTS)) {
+    if (base64 && base64.length > 0) {
+        fonts[name] = base64;
+    }
+}
+
 // HTML Examples
 const htmlExamples = {
     'ramen-recipe': `<!DOCTYPE html>
