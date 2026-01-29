@@ -32,7 +32,7 @@ serde_derive = { version = "1" }
 flate2 = "1.0.35" # for decompression of builtin fonts
 serde_json = { version = "1" }
 # Feature-gated dependencies
-rust-fontconfig = { version = "1.2.2", default-features = false, features = ["std", "parsing", "multithreading"], optional = true }
+rust-fontconfig = { version = "1.2.2", default-features = false, features = ["std", "parsing"], optional = true }
 xmlparser = { version = "0.13.6", default-features = false, optional = true }
 web-sys = { version = "0.3.77", optional = true, default-features = false, features = ["console", "ImageData", "Window", "Document", "Blob", "CanvasRenderingContext2d", "HtmlCanvasElement", "HtmlImageElement", "ImageBitmap", "BlobPropertyBag"]}
 wasm-bindgen-futures = { version = "0.4.50", optional = true, default-features = false }
