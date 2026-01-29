@@ -20,7 +20,7 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-lopdf = { version = "0.35.0", default-features = false, features = ["nom_parser"]}
+lopdf = { version = "0.39.0", default-features = false, features = ["time"]}
 time = { version = "0.3.25", default-features = false, features = ["std", "serde", "serde-human-readable"] }
 allsorts = { version = "0.16.1", default-features = false, features = ["flate2_rust"] }
 image = { version = "0.25", default-features = false, optional = true }
