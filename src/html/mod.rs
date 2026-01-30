@@ -264,6 +264,7 @@ pub fn xml_to_pdf_pages(
         scroll_id_to_node_id: std::collections::BTreeMap::new(),
         counters: std::collections::BTreeMap::new(),
         float_cache: std::collections::BTreeMap::new(),
+        subtree_layout_cache: std::collections::BTreeMap::new(),
     };
     let mut text_cache = TextLayoutCache::new();
     
@@ -402,6 +403,325 @@ pub fn xml_to_pdf_pages(
 
     // Always return Ok with pages and fonts
     Ok((pages, font_data_map))
+}
+
+/// Debug information from PDF generation
+#[derive(Debug, Clone)]
+pub struct PdfDebugInfo {
+    /// The display lists for each page (before conversion to PDF ops)
+    pub display_list_debug: Vec<String>,
+    /// The PDF operations for each page (after conversion)
+    pub pdf_ops_debug: Vec<String>,
+}
+
+/// Convert XML/HTML content to PDF pages with debug information.
+/// This is the same as `xml_to_pdf_pages` but also returns debug info about
+/// the display list and PDF operations for the first page.
+pub fn xml_to_pdf_pages_debug(
+    xml: &str,
+    options: &XmlRenderOptions,
+) -> Result<(Vec<PdfPage>, BTreeMap<FontHash, ParsedFont>, PdfDebugInfo), Vec<PdfWarnMsg>> {
+    eprintln!("[DEBUG xml_to_pdf_pages_debug] Starting, xml length={}", xml.len());
+    let mut warnings = Vec::new();
+    let mut debug_info = PdfDebugInfo {
+        display_list_debug: Vec::new(),
+        pdf_ops_debug: Vec::new(),
+    };
+
+    // Type-safe preprocessing: RawHtml -> PreprocessedHtml
+    eprintln!("[DEBUG xml_to_pdf_pages_debug] Preprocessing HTML...");
+    let preprocessed = RawHtml::new(xml).preprocess();
+    let inlined_xml = preprocessed.as_str();
+    eprintln!("[DEBUG xml_to_pdf_pages_debug] Preprocessed, length={}", inlined_xml.len());
+
+    // Parse XML to XmlNode tree
+    eprintln!("[DEBUG xml_to_pdf_pages_debug] Parsing XML...");
+    let xml_parse_start = std::time::Instant::now();
+    let root_nodes = match parse_xml_string(inlined_xml) {
+        Ok(nodes) => {
+            eprintln!("[DEBUG xml_to_pdf_pages_debug] XML parsed in {:?}, got {} root nodes", xml_parse_start.elapsed(), nodes.len());
+            nodes
+        },
+        Err(e) => {
+            warnings.push(PdfWarnMsg::error(
+                0,
+                0,
+                format!("Failed to parse XML: {}", e),
+            ));
+            return Err(warnings);
+        }
+    };
+
+    // Calculate content area (page size minus margins)
+    let mm_to_pt = 2.83465;
+    let page_width_pt = options.page_width.0 * mm_to_pt;
+    let page_height_pt = options.page_height.0 * mm_to_pt;
+    let margin_top_pt = options.margins.top.0 * mm_to_pt;
+    let margin_right_pt = options.margins.right.0 * mm_to_pt;
+    let margin_bottom_pt = options.margins.bottom.0 * mm_to_pt;
+    let margin_left_pt = options.margins.left.0 * mm_to_pt;
+    
+    // Content area is the page minus margins
+    let content_width_pt = page_width_pt - margin_left_pt - margin_right_pt;
+    let content_height_pt = page_height_pt - margin_top_pt - margin_bottom_pt;
+
+    // Convert XML nodes to StyledDom with registered HTML components
+    eprintln!("[DEBUG xml_to_pdf_pages_debug] Converting to StyledDom...");
+    let str_to_dom_start = std::time::Instant::now();
+    // Use content width (not page width) for layout
+    let mut component_map = crate::components::printpdf_default_components();
+    
+    let styled_dom = match str_to_dom(
+        root_nodes.as_ref(),
+        &mut component_map,
+        Some(content_width_pt),
+    ) {
+        Ok(dom) => {
+            eprintln!("[DEBUG xml_to_pdf_pages_debug] StyledDom created with {} nodes in {:?}", dom.node_data.as_container().len(), str_to_dom_start.elapsed());
+            dom
+        },
+        Err(e) => {
+            warnings.push(PdfWarnMsg::error(
+                0,
+                0,
+                format!("Failed to convert XML to DOM: {}", e),
+            ));
+            return Err(warnings);
+        }
+    };
+
+    // Create font cache and font manager
+    eprintln!("[DEBUG xml_to_pdf_pages_debug] Building font cache (line 491)...");
+    let fc_start = std::time::Instant::now();
+    let mut fc_cache = build_font_cache();
+    eprintln!("[DEBUG xml_to_pdf_pages_debug] Font cache built in {:?}", fc_start.elapsed());
+    
+    eprintln!("[DEBUG xml_to_pdf_pages_debug] Building font cache with {} embedded fonts...", options.fonts.len());
+    
+    // Add embedded fonts from options to the font cache
+    for (font_name, font_bytes) in &options.fonts {
+        eprintln!("[DEBUG xml_to_pdf_pages_debug] Adding font '{}' ({} bytes)", font_name, font_bytes.len());
+        if let Some(parsed_fonts) = rust_fontconfig::FcParseFontBytes(font_bytes, font_name) {
+            fc_cache.with_memory_fonts(parsed_fonts);
+        }
+    }
+    
+    eprintln!("[DEBUG xml_to_pdf_pages_debug] Creating font manager...");
+    let mut font_manager = match FontManager::new(fc_cache) {
+        Ok(fm) => fm,
+        Err(e) => {
+            warnings.push(PdfWarnMsg::error(
+                0,
+                0,
+                format!("Failed to create font manager: {:?}", e),
+            ));
+            return Err(warnings);
+        }
+    };
+
+    // Use content size for layout (page size minus margins)
+    let content_size = LogicalSize::new(content_width_pt, content_height_pt);
+    
+    // Create fragmentation context for paged layout using CONTENT size
+    let fragmentation_context = FragmentationContext::new_paged(content_size);
+    
+    // Create layout cache and text cache
+    let mut layout_cache = Solver3LayoutCache {
+        tree: None,
+        calculated_positions: std::collections::BTreeMap::new(),
+        viewport: None,
+        scroll_ids: std::collections::BTreeMap::new(),
+        scroll_id_to_node_id: std::collections::BTreeMap::new(),
+        counters: std::collections::BTreeMap::new(),
+        float_cache: std::collections::BTreeMap::new(),
+        subtree_layout_cache: std::collections::BTreeMap::new(),
+    };
+    let mut text_cache = TextLayoutCache::new();
+    
+    // Viewport is the content area (layout is done within margins)
+    let viewport = LogicalRect {
+        origin: LogicalPosition::zero(),
+        size: content_size,
+    };
+    
+    // Perform paged layout - returns Vec<DisplayList>
+    let renderer_resources = RendererResources::default();
+    let mut debug_messages = Some(Vec::new());
+
+    // Create font loader closure
+    use azul_layout::text3::default::PathLoader;
+    let loader = PathLoader::new();
+    let font_loader = |bytes: &[u8], index: usize| loader.load_font(bytes, index);
+    
+    // Build page config from options
+    let mut page_config = FakePageConfig::new();
+    
+    if options.show_page_numbers {
+        page_config = page_config.with_footer_page_numbers();
+    }
+    
+    if let Some(ref header) = options.header_text {
+        page_config = page_config.with_header_text(header.clone());
+    }
+    
+    if let Some(ref footer) = options.footer_text {
+        page_config = page_config.with_footer_text(footer.clone());
+    }
+    
+    if options.skip_first_page {
+        page_config = page_config.skip_first_page(true);
+    }
+    
+    let display_lists = match layout_document_paged_with_config(
+        &mut layout_cache,
+        &mut text_cache,
+        fragmentation_context,
+        styled_dom,
+        viewport,
+        &mut font_manager,
+        &std::collections::BTreeMap::new(),
+        &std::collections::BTreeMap::new(),
+        &mut debug_messages,
+        None,
+        &renderer_resources,
+        azul_core::resources::IdNamespace(0),
+        DomId::ROOT_ID,
+        font_loader,
+        page_config,
+    ) {
+        Ok(lists) => lists,
+        Err(e) => {
+            warnings.push(PdfWarnMsg::error(
+                0,
+                0,
+                format!("Layout solving failed: {:?}", e),
+            ));
+            return Err(warnings);
+        }
+    };
+
+    // Debug: Dump layout tree and calculated positions
+    {
+        let mut tree_debug = String::new();
+        tree_debug.push_str("=== Layout Tree Debug ===\n\n");
+        
+        if let Some(ref tree) = layout_cache.tree {
+            tree_debug.push_str(&format!("Total nodes: {}\n", tree.nodes.len()));
+            tree_debug.push_str(&format!("Calculated positions: {}\n\n", layout_cache.calculated_positions.len()));
+            
+            // Dump first 100 nodes with their positions and formatting context
+            for (idx, node) in tree.nodes.iter().enumerate().take(100) {
+                let pos = layout_cache.calculated_positions.get(&idx);
+                let dom_id_str = node.dom_node_id
+                    .map(|id| format!("DOM#{}", id.index()))
+                    .unwrap_or_else(|| "anonymous".to_string());
+                
+                tree_debug.push_str(&format!(
+                    "Node {}: {} fc={:?} pos={:?} size={:?} inline_result={}\n",
+                    idx,
+                    dom_id_str,
+                    node.formatting_context,
+                    pos,
+                    node.used_size,
+                    node.inline_layout_result.is_some()
+                ));
+                
+                // Show children
+                if !node.children.is_empty() {
+                    tree_debug.push_str(&format!("  children: {:?}\n", node.children));
+                }
+            }
+        } else {
+            tree_debug.push_str("Layout tree is None!\n");
+        }
+        
+        debug_info.display_list_debug.push(tree_debug);
+    }
+
+    // Convert each DisplayList to a PDF page
+    let mut pages = Vec::new();
+    let mut font_data_map: BTreeMap<FontHash, azul_layout::font::parsed::ParsedFont> = BTreeMap::new();
+    
+    // Full page size for PDF coordinate transformation
+    let full_page_size = LogicalSize::new(page_width_pt, page_height_pt);
+    
+    for (page_idx, display_list) in display_lists.iter().enumerate() {
+        // Debug: capture display list info for first page only
+        if page_idx == 0 {
+            let mut dl_debug = String::new();
+            dl_debug.push_str(&format!("=== Display List for Page {} ===\n", page_idx + 1));
+            dl_debug.push_str(&format!("Total items: {}\n\n", display_list.items.len()));
+            
+            for (item_idx, item) in display_list.items.iter().enumerate() {
+                dl_debug.push_str(&format!("Item {}: {:?}\n", item_idx, item));
+            }
+            debug_info.display_list_debug.push(dl_debug);
+        }
+        
+        // Convert DisplayList to printpdf operations
+        let pdf_ops = bridge::display_list_to_printpdf_ops_with_margins(
+            &display_list, 
+            full_page_size,
+            margin_left_pt,
+            margin_top_pt,
+            &font_manager
+        ).map_err(|e| vec![PdfWarnMsg::warning(0, 0, format!("Failed to convert display list: {}", e))])?;
+        
+        // Debug: capture PDF ops for first page only
+        if page_idx == 0 {
+            let mut ops_debug = String::new();
+            ops_debug.push_str(&format!("=== PDF Ops for Page {} ===\n", page_idx + 1));
+            ops_debug.push_str(&format!("Total ops: {}\n\n", pdf_ops.len()));
+            
+            for (op_idx, op) in pdf_ops.iter().enumerate() {
+                ops_debug.push_str(&format!("Op {}: {:?}\n", op_idx, op));
+            }
+            debug_info.pdf_ops_debug.push(ops_debug);
+        }
+        
+        // Extract fonts from TextLayout items
+        for item in display_list.items.iter() {
+            if let azul_layout::solver3::display_list::DisplayListItem::TextLayout { layout, .. } = item {
+                if let Some(unified_layout) = layout.downcast_ref::<azul_layout::text3::cache::UnifiedLayout>() {
+                    let mut used_font_hashes = std::collections::HashSet::new();
+                    for positioned_item in &unified_layout.items {
+                        if let azul_layout::text3::cache::ShapedItem::Cluster(cluster) = &positioned_item.item {
+                            for glyph in &cluster.glyphs {
+                                used_font_hashes.insert(glyph.font_hash);
+                            }
+                        }
+                    }
+                    
+                    for font_hash in used_font_hashes {
+                        let font_hash_key = FontHash { font_hash };
+                        if !font_data_map.contains_key(&font_hash_key) {
+                            if let Some(font_ref) = font_manager.get_font_by_hash(font_hash) {
+                                let parsed_font = unsafe {
+                                    let parsed_ptr = font_ref.get_parsed();
+                                    let parsed_font = &*(parsed_ptr as *const azul_layout::font::parsed::ParsedFont);
+                                    parsed_font.clone()
+                                };
+                                font_data_map.insert(font_hash_key, parsed_font);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Create a page for this display list
+        let page = PdfPage::new(options.page_width, options.page_height, pdf_ops);
+        pages.push(page);
+    }
+    
+    // If no pages were generated, create at least one empty page
+    if pages.is_empty() {
+        warnings.push(PdfWarnMsg::warning(0, 0, "No content generated, creating empty page".to_string()));
+        let page = PdfPage::new(options.page_width, options.page_height, Vec::new());
+        pages.push(page);
+    }
+
+    Ok((pages, font_data_map, debug_info))
 }
 
 /// Add XML/HTML content to an existing PDF document

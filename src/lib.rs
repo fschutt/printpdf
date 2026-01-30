@@ -467,6 +467,79 @@ impl PdfDocument {
         }
     }
 
+    /// Renders HTML to pages with debug information (new implementation using azul solver3)
+    /// Returns both the PDF document and debug info about display lists and PDF operations.
+    #[cfg(feature = "html")]
+    pub fn from_html_debug(
+        html: &str,
+        images: &BTreeMap<String, Base64OrRaw>,
+        fonts: &BTreeMap<String, Base64OrRaw>,
+        options: &GeneratePdfOptions,
+        warnings: &mut Vec<PdfWarnMsg>,
+    ) -> Result<(Self, crate::html::PdfDebugInfo), String> {
+        use crate::html::{XmlRenderOptions, PageMargins};
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+        let mut pdf = Self::new("PDF Document");
+
+        // Convert to XmlRenderOptions
+        let mut xml_options = XmlRenderOptions::default();
+        xml_options.page_width = Mm(options.page_width.unwrap_or(210.0));
+        xml_options.page_height = Mm(options.page_height.unwrap_or(297.0));
+        
+        // Apply page margins if configured
+        xml_options.margins = PageMargins {
+            top: Mm(options.margin_top.unwrap_or(0.0)),
+            right: Mm(options.margin_right.unwrap_or(0.0)),
+            bottom: Mm(options.margin_bottom.unwrap_or(0.0)),
+            left: Mm(options.margin_left.unwrap_or(0.0)),
+        };
+        
+        xml_options.show_page_numbers = options.show_page_numbers.unwrap_or(false);
+        xml_options.header_text = options.header_text.clone();
+        xml_options.footer_text = options.footer_text.clone();
+        xml_options.skip_first_page = options.skip_first_page.unwrap_or(false);
+        
+        // Convert images and fonts
+        for (key, img) in images {
+            let bytes = match img {
+                Base64OrRaw::Raw(b) => b.clone(),
+                Base64OrRaw::B64(s) => STANDARD.decode(s).map_err(|e| format!("Base64 decode error: {}", e))?,
+            };
+            xml_options.images.insert(key.clone(), bytes);
+        }
+        
+        for (key, font) in fonts {
+            let bytes = match font {
+                Base64OrRaw::Raw(b) => b.clone(),
+                Base64OrRaw::B64(s) => STANDARD.decode(s).map_err(|e| format!("Base64 decode error: {}", e))?,
+            };
+            xml_options.fonts.insert(key.clone(), bytes);
+        }
+
+        // Render XML to pages with debug info
+        match crate::html::xml_to_pdf_pages_debug(html, &xml_options) {
+            Ok((pages, font_data, debug_info)) => {
+                // Register fonts from font_data in pdf.resources.fonts
+                for (font_hash, parsed_font) in font_data.iter() {
+                    let font_id = FontId(format!("F{}", font_hash.font_hash));
+                    let pdf_font = crate::font::PdfFont::new(parsed_font.clone());
+                    pdf.resources.fonts.map.insert(font_id, pdf_font);
+                }
+                
+                pdf.pages.extend(pages);
+                Ok((pdf, debug_info))
+            }
+            Err(errs) => {
+                warnings.extend(errs);
+                Ok((pdf, crate::html::PdfDebugInfo {
+                    display_list_debug: Vec::new(),
+                    pdf_ops_debug: Vec::new(),
+                }))
+            }
+        }
+    }
+
     /// Renders a PDF Page into an SVG String. Returns `None` on an invalid page number
     /// (note: 1-indexed, so the first PDF page is "page 1", not "page 0").
     pub fn page_to_svg(

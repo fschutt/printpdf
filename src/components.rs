@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use azul_core::{
     dom::{Dom, NodeData, NodeType},
     styled_dom::StyledDom,
@@ -199,7 +201,7 @@ impl XmlComponentTrait for ImgComponent {
 /// Creates and returns a component map with all default HTML components registered
 pub fn printpdf_default_components() -> XmlComponentMap {
     let mut map = XmlComponentMap {
-        components: Vec::new(),
+        components: BTreeMap::new(),
     };
 
     // Register structural elements
