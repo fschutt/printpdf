@@ -57,6 +57,8 @@ text_layout = ["dep:azul-css", "dep:azul-core", "dep:azul-layout", "azul-layout/
 text_layout_hyphenation = ["text_layout", "azul-layout/text_layout_hyphenation"]
 # HTML/CSS layout
 html = ["text_layout_hyphenation", "dep:kuchiki", "dep:rust-fontconfig", "dep:xmlparser", "azul-layout/xml", "azul-layout/pdf"]
+# HTML with multithreaded font loading (faster on desktop, not available on WASM)
+html_multithreaded = ["html", "rust-fontconfig/multithreading", "azul-layout/font_loading_multithreaded"]
 # SVG support
 svg = ["html", "dep:svg2pdf", "azul-layout/svg"]
 # Image decoding support
