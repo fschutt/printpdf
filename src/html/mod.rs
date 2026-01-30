@@ -507,6 +507,7 @@ pub fn xml_to_pdf_pages_debug(
     }
     
     eprintln!("[DEBUG xml_to_pdf_pages_debug] Creating font manager...");
+    let font_manager_start = std::time::Instant::now();
     let mut font_manager = match FontManager::new(fc_cache) {
         Ok(fm) => fm,
         Err(e) => {
@@ -518,6 +519,7 @@ pub fn xml_to_pdf_pages_debug(
             return Err(warnings);
         }
     };
+    eprintln!("[DEBUG xml_to_pdf_pages_debug] Font manager created in {:?}", font_manager_start.elapsed());
 
     // Use content size for layout (page size minus margins)
     let content_size = LogicalSize::new(content_width_pt, content_height_pt);
@@ -572,6 +574,8 @@ pub fn xml_to_pdf_pages_debug(
         page_config = page_config.skip_first_page(true);
     }
     
+    eprintln!("[DEBUG xml_to_pdf_pages_debug] Starting paged layout...");
+    let layout_start = std::time::Instant::now();
     let display_lists = match layout_document_paged_with_config(
         &mut layout_cache,
         &mut text_cache,
@@ -589,7 +593,10 @@ pub fn xml_to_pdf_pages_debug(
         font_loader,
         page_config,
     ) {
-        Ok(lists) => lists,
+        Ok(lists) => {
+            eprintln!("[DEBUG xml_to_pdf_pages_debug] Paged layout completed in {:?}, got {} pages", layout_start.elapsed(), lists.len());
+            lists
+        },
         Err(e) => {
             warnings.push(PdfWarnMsg::error(
                 0,
@@ -601,6 +608,8 @@ pub fn xml_to_pdf_pages_debug(
     };
 
     // Debug: Dump layout tree and calculated positions
+    eprintln!("[DEBUG xml_to_pdf_pages_debug] Converting display lists to PDF...");
+    let pdf_convert_start = std::time::Instant::now();
     {
         let mut tree_debug = String::new();
         tree_debug.push_str("=== Layout Tree Debug ===\n\n");
@@ -713,6 +722,7 @@ pub fn xml_to_pdf_pages_debug(
         let page = PdfPage::new(options.page_width, options.page_height, pdf_ops);
         pages.push(page);
     }
+    eprintln!("[DEBUG xml_to_pdf_pages_debug] Display lists converted to {} pages in {:?}", pages.len(), pdf_convert_start.elapsed());
     
     // If no pages were generated, create at least one empty page
     if pages.is_empty() {
