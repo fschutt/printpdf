@@ -661,9 +661,41 @@ pub fn xml_to_pdf_pages_debug(
             dl_debug.push_str(&format!("=== Display List for Page {} ===\n", page_idx + 1));
             dl_debug.push_str(&format!("Total items: {}\n\n", display_list.items.len()));
             
+            // Count item types
+            let mut text_layout_count = 0;
+            let mut text_count = 0;
+            let mut rect_count = 0;
+            let mut other_count = 0;
+            
             for (item_idx, item) in display_list.items.iter().enumerate() {
-                dl_debug.push_str(&format!("Item {}: {:?}\n", item_idx, item));
+                use azul_layout::solver3::display_list::DisplayListItem;
+                match item {
+                    DisplayListItem::TextLayout { bounds, font_hash, font_size_px, color, .. } => {
+                        text_layout_count += 1;
+                        dl_debug.push_str(&format!("Item {}: TextLayout at ({:.1}, {:.1}) size {:.1}x{:.1} font_size={:.1} color=({},{},{},{})\n", 
+                            item_idx, bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height,
+                            font_size_px, color.r, color.g, color.b, color.a));
+                    }
+                    DisplayListItem::Text { glyphs, font_size_px, color, .. } => {
+                        text_count += 1;
+                        dl_debug.push_str(&format!("Item {}: Text with {} glyphs, font_size={:.1} color=({},{},{},{})\n", 
+                            item_idx, glyphs.len(), font_size_px, color.r, color.g, color.b, color.a));
+                    }
+                    DisplayListItem::Rect { bounds, color, .. } => {
+                        rect_count += 1;
+                        if item_idx < 20 || bounds.size.width > 100.0 {
+                            dl_debug.push_str(&format!("Item {}: Rect at ({:.1}, {:.1}) size {:.1}x{:.1} color=({},{},{},{})\n", 
+                                item_idx, bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height,
+                                color.r, color.g, color.b, color.a));
+                        }
+                    }
+                    _ => {
+                        other_count += 1;
+                    }
+                }
             }
+            dl_debug.push_str(&format!("\n=== Summary: {} TextLayout, {} Text, {} Rect, {} other ===\n", 
+                text_layout_count, text_count, rect_count, other_count));
             debug_info.display_list_debug.push(dl_debug);
         }
         
