@@ -575,6 +575,99 @@ impl PdfDocument {
         self.pages.append(&mut pages);
         self
     }
+
+    /// Appends another PDF document to the end of this document.
+    /// 
+    /// This merges resources (fonts, images, XObjects) and appends all pages
+    /// from the other document. Bookmarks from the other document are adjusted
+    /// to point to the correct page numbers.
+    /// 
+    /// # Example
+    /// ```rust,ignore
+    /// let mut main_doc = PdfDocument::new("Main");
+    /// let other_doc = PdfDocument::new("Other");
+    /// main_doc.append_document(other_doc);
+    /// ```
+    pub fn append_document(&mut self, other: PdfDocument) {
+        let page_offset = self.pages.len();
+        self.merge_resources(other.resources);
+        self.merge_bookmarks(other.bookmarks, page_offset);
+        self.pages.extend(other.pages);
+    }
+
+    /// Inserts another PDF document after a specific page index.
+    /// 
+    /// Page indices are 0-based. To insert at the beginning, use `insert_at` = 0.
+    /// To insert after page 3, use `insert_at` = 3.
+    /// 
+    /// This merges resources (fonts, images, XObjects) and inserts all pages
+    /// from the other document at the specified position. Existing bookmarks
+    /// after the insertion point are adjusted, and bookmarks from the inserted
+    /// document point to the correct page numbers.
+    /// 
+    /// # Example
+    /// ```rust,ignore
+    /// let mut main_doc = PdfDocument::new("Main");
+    /// let title_page = PdfDocument::new("Title");
+    /// // Insert title page at the beginning
+    /// main_doc.insert_document(0, title_page);
+    /// ```
+    pub fn insert_document(&mut self, insert_at: usize, other: PdfDocument) {
+        let insert_at = insert_at.min(self.pages.len());
+        let pages_to_insert = other.pages.len();
+        
+        // Adjust existing bookmarks that point to pages after insertion point
+        for (_, annot) in self.bookmarks.map.iter_mut() {
+            if annot.page >= insert_at {
+                annot.page += pages_to_insert;
+            }
+        }
+        
+        self.merge_resources(other.resources);
+        self.merge_bookmarks(other.bookmarks, insert_at);
+        
+        // Insert pages at the specified position
+        let mut new_pages = Vec::with_capacity(self.pages.len() + pages_to_insert);
+        new_pages.extend(self.pages.drain(..insert_at));
+        new_pages.extend(other.pages);
+        new_pages.extend(self.pages.drain(..));
+        self.pages = new_pages;
+    }
+
+    /// Merges resources from another document into this one.
+    /// Fonts, XObjects, ExtGStates, and Layers are combined.
+    fn merge_resources(&mut self, other: PdfResources) {
+        // Merge fonts
+        for (id, font) in other.fonts.map {
+            self.resources.fonts.map.entry(id).or_insert(font);
+        }
+        // Merge XObjects (images, forms, etc.)
+        for (id, xobj) in other.xobjects.map {
+            self.resources.xobjects.map.entry(id).or_insert(xobj);
+        }
+        // Merge extended graphics states
+        for (id, gs) in other.extgstates.map {
+            self.resources.extgstates.map.entry(id).or_insert(gs);
+        }
+        // Merge layers
+        for (id, layer) in other.layers.map {
+            self.resources.layers.map.entry(id).or_insert(layer);
+        }
+    }
+
+    /// Merges bookmarks from another document, adjusting page numbers by offset.
+    fn merge_bookmarks(&mut self, other: PageAnnotMap, page_offset: usize) {
+        for (id, mut annot) in other.map {
+            annot.page += page_offset;
+            self.bookmarks.map.insert(id, annot);
+        }
+    }
+
+    /// Returns the number of pages in the document.
+    pub fn page_count(&self) -> usize {
+        self.pages.len()
+    }
+
     /// Serializes the PDF document and writes it to a `writer`
     pub fn save_writer<W: std::io::Write>(
         &self,
