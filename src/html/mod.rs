@@ -341,6 +341,17 @@ pub fn xml_to_pdf_pages(
     let full_page_size = LogicalSize::new(page_width_pt, page_height_pt);
     
     for display_list in display_lists.iter() {
+        // Skip pages that have no meaningful content (only background fills)
+        // A page needs at least one TextLayout item to be considered "real"
+        let has_text_content = display_list.items.iter().any(|item| {
+            matches!(item, azul_layout::solver3::display_list::DisplayListItem::TextLayout { .. })
+        });
+        
+        if !has_text_content {
+            // Skip this page - it only contains background rectangles
+            continue;
+        }
+        
         // Convert DisplayList to printpdf operations
         // We pass the FULL page size for Y-coordinate transformation (PDF origin is bottom-left)
         // The content was laid out in content_size, but coordinates need to be transformed
