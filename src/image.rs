@@ -185,7 +185,7 @@ impl RawImage {
     pub fn decode_from_bytes(bytes: &[u8], warnings: &mut Vec<PdfWarnMsg>) -> Result<Self, String> {
         use image::DynamicImage::*;
 
-        let _im = match image::guess_format(bytes) {
+        let im = match image::guess_format(bytes) {
             Ok(format) => {
                 warnings.push(PdfWarnMsg::info(
                     0,
