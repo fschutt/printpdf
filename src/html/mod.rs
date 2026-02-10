@@ -264,7 +264,7 @@ pub fn xml_to_pdf_pages(
         scroll_id_to_node_id: std::collections::BTreeMap::new(),
         counters: std::collections::BTreeMap::new(),
         float_cache: std::collections::BTreeMap::new(),
-        subtree_layout_cache: std::collections::BTreeMap::new(),
+        cache_map: Default::default(),
     };
     let mut text_cache = TextLayoutCache::new();
     
@@ -547,7 +547,7 @@ pub fn xml_to_pdf_pages_debug(
         scroll_id_to_node_id: std::collections::BTreeMap::new(),
         counters: std::collections::BTreeMap::new(),
         float_cache: std::collections::BTreeMap::new(),
-        subtree_layout_cache: std::collections::BTreeMap::new(),
+        cache_map: Default::default(),
     };
     let mut text_cache = TextLayoutCache::new();
     
