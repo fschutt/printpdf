@@ -1074,9 +1074,24 @@ fn render_text_items_to_svg(
                 }
             }
             TextItem::GlyphIds(glyphs) => {
-                // Render glyph IDs as placeholder
-                // TODO: Convert GIDs to unicode using font mapping
-                processed_text.push_str(&format!("[{} glyphs]", glyphs.len()));
+                // Convert glyph IDs to Unicode text using the CID mapping
+                // Each Codepoint may carry cid: Option<String> with the Unicode character
+                for cp in glyphs {
+                    if let Some(cid) = &cp.cid {
+                        let escaped = escape_xml_text(cid);
+                        if x_offset != 0.0 {
+                            processed_text.push_str(&format!(
+                                "<tspan dx=\"{}\">{}</tspan>", x_offset, escaped
+                            ));
+                            x_offset = 0.0;
+                        } else {
+                            processed_text.push_str(&escaped);
+                        }
+                    }
+                    if cp.offset != 0.0 {
+                        x_offset -= cp.offset * font_size.0 / 1000.0;
+                    }
+                }
             }
             TextItem::Offset(offset) => {
                 // Convert from thousandths of an em to points
