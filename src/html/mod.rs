@@ -180,14 +180,24 @@ pub fn xml_to_pdf_pages(
     let content_width_pt = page_width_pt - margin_left_pt - margin_right_pt;
     let content_height_pt = page_height_pt - margin_top_pt - margin_bottom_pt;
 
+    // CRITICAL: Convert content dimensions from PDF points to CSS pixels.
+    // The CSS resolver converts unit values to CSS px (e.g. 12pt → 16px via PT_TO_PX=96/72).
+    // The layout engine is unit-agnostic, so if we feed it pt-valued dimensions,
+    // CSS pt values get inflated by 96/72 relative to the coordinate system.
+    // Solution: express the viewport in CSS px so all CSS units resolve correctly.
+    // After layout, the bridge converts coordinates back from CSS px to PDF pt.
+    const PT_TO_CSS_PX: f32 = 96.0 / 72.0;
+    let content_width_px = content_width_pt * PT_TO_CSS_PX;
+    let content_height_px = content_height_pt * PT_TO_CSS_PX;
+
     // Convert XML nodes to StyledDom with registered HTML components
-    // Use content width (not page width) for layout
+    // Use content width in CSS px (not pt) for layout
     let mut component_map = crate::components::printpdf_default_components();
     
     let styled_dom = match str_to_dom(
         root_nodes.as_ref(),
         &mut component_map,
-        Some(content_width_pt),
+        Some(content_width_px),
     ) {
         Ok(dom) => dom,
         Err(e) => {
@@ -248,11 +258,11 @@ pub fn xml_to_pdf_pages(
         }
     };
 
-    // Use content size for layout (page size minus margins)
-    let content_size = LogicalSize::new(content_width_pt, content_height_pt);
+    // Use content size in CSS px for layout (converted from pt above)
+    let content_size = LogicalSize::new(content_width_px, content_height_px);
     
-    // Create fragmentation context for paged layout using CONTENT size
-    // This ensures page breaks happen at the correct content boundaries
+    // Create fragmentation context for paged layout using CONTENT size (in CSS px)
+    // Page breaks happen at CSS px boundaries; the bridge converts back to pt.
     let fragmentation_context = FragmentationContext::new_paged(content_size);
     
     // Create layout cache and text cache
@@ -268,7 +278,7 @@ pub fn xml_to_pdf_pages(
     };
     let mut text_cache = TextLayoutCache::new();
     
-    // Viewport is the content area (layout is done within margins)
+    // Viewport is the content area in CSS px (layout is done within margins)
     let viewport = LogicalRect {
         origin: LogicalPosition::zero(),
         size: content_size,
@@ -477,16 +487,22 @@ pub fn xml_to_pdf_pages_debug(
     let content_width_pt = page_width_pt - margin_left_pt - margin_right_pt;
     let content_height_pt = page_height_pt - margin_top_pt - margin_bottom_pt;
 
+    // CRITICAL: Convert content dimensions from PDF points to CSS pixels.
+    // See xml_to_pdf_pages() for detailed explanation.
+    const PT_TO_CSS_PX: f32 = 96.0 / 72.0;
+    let content_width_px = content_width_pt * PT_TO_CSS_PX;
+    let content_height_px = content_height_pt * PT_TO_CSS_PX;
+
     // Convert XML nodes to StyledDom with registered HTML components
     eprintln!("[DEBUG xml_to_pdf_pages_debug] Converting to StyledDom...");
     let str_to_dom_start = std::time::Instant::now();
-    // Use content width (not page width) for layout
+    // Use content width in CSS px (not pt) for layout
     let mut component_map = crate::components::printpdf_default_components();
     
     let styled_dom = match str_to_dom(
         root_nodes.as_ref(),
         &mut component_map,
-        Some(content_width_pt),
+        Some(content_width_px),
     ) {
         Ok(dom) => {
             eprintln!("[DEBUG xml_to_pdf_pages_debug] StyledDom created with {} nodes in {:?}", dom.node_data.as_container().len(), str_to_dom_start.elapsed());
@@ -533,10 +549,10 @@ pub fn xml_to_pdf_pages_debug(
     };
     eprintln!("[DEBUG xml_to_pdf_pages_debug] Font manager created in {:?}", font_manager_start.elapsed());
 
-    // Use content size for layout (page size minus margins)
-    let content_size = LogicalSize::new(content_width_pt, content_height_pt);
+    // Use content size in CSS px for layout (converted from pt above)
+    let content_size = LogicalSize::new(content_width_px, content_height_px);
     
-    // Create fragmentation context for paged layout using CONTENT size
+    // Create fragmentation context for paged layout using CONTENT size (in CSS px)
     let fragmentation_context = FragmentationContext::new_paged(content_size);
     
     // Create layout cache and text cache
@@ -552,7 +568,7 @@ pub fn xml_to_pdf_pages_debug(
     };
     let mut text_cache = TextLayoutCache::new();
     
-    // Viewport is the content area (layout is done within margins)
+    // Viewport is the content area in CSS px (layout is done within margins)
     let viewport = LogicalRect {
         origin: LogicalPosition::zero(),
         size: content_size,
@@ -683,7 +699,7 @@ pub fn xml_to_pdf_pages_debug(
             for (item_idx, item) in display_list.items.iter().enumerate() {
                 use azul_layout::solver3::display_list::DisplayListItem;
                 match item {
-                    DisplayListItem::TextLayout { bounds, font_hash, font_size_px, color, .. } => {
+                    DisplayListItem::TextLayout { bounds, font_hash: _, font_size_px, color, .. } => {
                         text_layout_count += 1;
                         dl_debug.push_str(&format!("Item {}: TextLayout at ({:.1}, {:.1}) size {:.1}x{:.1} font_size={:.1} color=({},{},{},{})\n", 
                             item_idx, bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height,
