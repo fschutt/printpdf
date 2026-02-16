@@ -7,6 +7,7 @@
 //! - Internal bridge module for translating azul PDF ops to printpdf Ops
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use azul_core::{
     dom::DomId,
@@ -117,6 +118,19 @@ pub struct XmlRenderOptions {
     /// Skip header/footer on the first page
     #[serde(default)]
     pub skip_first_page: bool,
+    /// Pre-built font cache to reuse across multiple `xml_to_pdf_pages` calls.
+    ///
+    /// When rendering multiple HTML documents to PDF (e.g. one per source file),
+    /// building the system font cache is expensive (~1-4s). Pass a shared cache
+    /// here to avoid redundant font scanning.
+    ///
+    /// Build one with [`build_font_cache_for_options`], which scans system fonts
+    /// and registers any embedded fonts from `self.fonts`.
+    ///
+    /// On WASM (no system fonts), this is cheap but still avoids re-parsing
+    /// embedded font bytes on every call.
+    #[serde(skip)]
+    pub fc_cache: Option<Arc<rust_fontconfig::FcFontCache>>,
 }
 
 impl Default for XmlRenderOptions {
@@ -131,8 +145,37 @@ impl Default for XmlRenderOptions {
             header_text: None,
             footer_text: None,
             skip_first_page: false,
+            fc_cache: None,
         }
     }
+}
+
+/// Build a font cache suitable for use with [`XmlRenderOptions::fc_cache`].
+///
+/// Scans system fonts (or returns an empty cache on WASM), then registers
+/// any embedded fonts from `fonts`. The returned `Arc` can be shared across
+/// multiple `xml_to_pdf_pages` / `from_html` calls.
+///
+/// # Arguments
+/// * `fonts` — Embedded fonts to register (same map you'd put in `XmlRenderOptions::fonts`)
+/// * `families` — If `Some`, only scan system fonts matching these family names
+///   (e.g. `&["monospace"]`). Pass `None` to scan all system fonts.
+pub fn build_font_cache_for_options(
+    fonts: &BTreeMap<String, Vec<u8>>,
+    families: Option<&[&str]>,
+) -> Arc<rust_fontconfig::FcFontCache> {
+    let mut fc_cache = match families {
+        Some(fams) => rust_fontconfig::FcFontCache::build_with_families(fams),
+        None => build_font_cache(),
+    };
+
+    for (font_name, font_bytes) in fonts {
+        if let Some(parsed_fonts) = rust_fontconfig::FcParseFontBytes(font_bytes, font_name) {
+            fc_cache.with_memory_fonts(parsed_fonts);
+        }
+    }
+
+    Arc::new(fc_cache)
 }
 
 fn default_page_width() -> Mm {
@@ -149,12 +192,16 @@ pub fn xml_to_pdf_pages(
     options: &XmlRenderOptions,
 ) -> Result<(Vec<PdfPage>, BTreeMap<FontHash, ParsedFont>), Vec<PdfWarnMsg>> {
     let mut warnings = Vec::new();
+    let _t_total = std::time::Instant::now();
 
     // Type-safe preprocessing: RawHtml -> PreprocessedHtml
+    let _t0 = std::time::Instant::now();
     let preprocessed = RawHtml::new(xml).preprocess();
     let inlined_xml = preprocessed.as_str();
+    eprintln!("  [xml_to_pdf_pages] preprocess HTML: {:?} (html len = {} bytes)", _t0.elapsed(), xml.len());
 
     // Parse XML to XmlNode tree
+    let _t1 = std::time::Instant::now();
     let root_nodes = match parse_xml_string(inlined_xml) {
         Ok(nodes) => nodes,
         Err(e) => {
@@ -166,6 +213,7 @@ pub fn xml_to_pdf_pages(
             return Err(warnings);
         }
     };
+    eprintln!("  [xml_to_pdf_pages] parse XML: {:?}", _t1.elapsed());
 
     // Calculate content area (page size minus margins)
     let mm_to_pt = 2.83465;
@@ -192,6 +240,7 @@ pub fn xml_to_pdf_pages(
 
     // Convert XML nodes to StyledDom with registered HTML components
     // Use content width in CSS px (not pt) for layout
+    let _t2 = std::time::Instant::now();
     let mut component_map = crate::components::printpdf_default_components();
     
     let styled_dom = match str_to_dom(
@@ -209,44 +258,21 @@ pub fn xml_to_pdf_pages(
             return Err(warnings);
         }
     };
+    eprintln!("  [xml_to_pdf_pages] str_to_dom: {:?}", _t2.elapsed());
 
     // Create font cache and font manager
-    let mut fc_cache = build_font_cache();
+    // If a pre-built fc_cache was provided in options, use it directly.
+    // Otherwise build one from scratch (scanning system fonts + embedded fonts).
+    let _t3 = std::time::Instant::now();
+    let fc_cache_arc: Arc<rust_fontconfig::FcFontCache> = if let Some(ref cache) = options.fc_cache {
+        eprintln!("  [xml_to_pdf_pages] reusing pre-built font cache");
+        Arc::clone(cache)
+    } else {
+        build_font_cache_for_options(&options.fonts, None)
+    };
+    eprintln!("  [xml_to_pdf_pages] font cache ready: {:?}", _t3.elapsed());
     
-    // Add embedded fonts from options to the font cache
-    // This is critical for WASM where there are no system fonts
-    #[cfg(all(target_family = "wasm", feature = "js-sys"))]
-    {
-        web_sys::console::log_1(&format!("Loading {} embedded fonts...", options.fonts.len()).into());
-    }
-    
-    for (font_name, font_bytes) in &options.fonts {
-        #[cfg(all(target_family = "wasm", feature = "js-sys"))]
-        {
-            web_sys::console::log_1(&format!("  Parsing font: {} ({} bytes)", font_name, font_bytes.len()).into());
-        }
-        
-        if let Some(parsed_fonts) = rust_fontconfig::FcParseFontBytes(font_bytes, font_name) {
-            #[cfg(all(target_family = "wasm", feature = "js-sys"))]
-            {
-                web_sys::console::log_1(&format!("    -> Successfully parsed {} font variants", parsed_fonts.len()).into());
-            }
-            fc_cache.with_memory_fonts(parsed_fonts);
-        } else {
-            #[cfg(all(target_family = "wasm", feature = "js-sys"))]
-            {
-                web_sys::console::log_1(&format!("    -> Failed to parse font!").into());
-            }
-        }
-    }
-    
-    #[cfg(all(target_family = "wasm", feature = "js-sys"))]
-    {
-        let font_list = fc_cache.list();
-        web_sys::console::log_1(&format!("Font cache now contains {} fonts", font_list.len()).into());
-    }
-    
-    let mut font_manager = match FontManager::new(fc_cache) {
+    let mut font_manager = match FontManager::from_arc(fc_cache_arc) {
         Ok(fm) => fm,
         Err(e) => {
             warnings.push(PdfWarnMsg::error(
@@ -286,7 +312,7 @@ pub fn xml_to_pdf_pages(
     
     // Perform paged layout - returns Vec<DisplayList>
     let renderer_resources = RendererResources::default();
-    let mut debug_messages = Some(Vec::new());
+    let mut debug_messages = None; // None = skip debug format! overhead
 
     // Create font loader closure
     use azul_layout::text3::default::PathLoader;
@@ -314,11 +340,12 @@ pub fn xml_to_pdf_pages(
         page_config = page_config.skip_first_page(true);
     }
     
+    let _t5 = std::time::Instant::now();
     let display_lists = match layout_document_paged_with_config(
         &mut layout_cache,
         &mut text_cache,
         fragmentation_context,
-        styled_dom,
+        &styled_dom,
         viewport,
         &mut font_manager,
         &std::collections::BTreeMap::new(), // No scroll offsets for PDF
@@ -342,6 +369,7 @@ pub fn xml_to_pdf_pages(
             return Err(warnings);
         }
     };
+    eprintln!("  [xml_to_pdf_pages] layout_document_paged: {:?} ({} pages)", _t5.elapsed(), display_lists.len());
 
     // Convert each DisplayList to a PDF page
     let mut pages = Vec::new();
@@ -422,6 +450,9 @@ pub fn xml_to_pdf_pages(
         let page = PdfPage::new(options.page_width, options.page_height, Vec::new());
         pages.push(page);
     }
+
+    eprintln!("  [xml_to_pdf_pages] display_list->ops+fonts: {} pages", pages.len());
+    eprintln!("  [xml_to_pdf_pages] TOTAL: {:?}", _t_total.elapsed());
 
     // Always return Ok with pages and fonts
     Ok((pages, font_data_map))
@@ -518,25 +549,20 @@ pub fn xml_to_pdf_pages_debug(
         }
     };
 
-    // Create font cache and font manager
-    eprintln!("[DEBUG xml_to_pdf_pages_debug] Building font cache (line 491)...");
+    // Create font cache and font manager (reuse pre-built cache if provided)
     let fc_start = std::time::Instant::now();
-    let mut fc_cache = build_font_cache();
-    eprintln!("[DEBUG xml_to_pdf_pages_debug] Font cache built in {:?}", fc_start.elapsed());
-    
-    eprintln!("[DEBUG xml_to_pdf_pages_debug] Building font cache with {} embedded fonts...", options.fonts.len());
-    
-    // Add embedded fonts from options to the font cache
-    for (font_name, font_bytes) in &options.fonts {
-        eprintln!("[DEBUG xml_to_pdf_pages_debug] Adding font '{}' ({} bytes)", font_name, font_bytes.len());
-        if let Some(parsed_fonts) = rust_fontconfig::FcParseFontBytes(font_bytes, font_name) {
-            fc_cache.with_memory_fonts(parsed_fonts);
-        }
-    }
+    let fc_cache_arc: Arc<rust_fontconfig::FcFontCache> = if let Some(ref cache) = options.fc_cache {
+        eprintln!("[DEBUG xml_to_pdf_pages_debug] Reusing pre-built font cache");
+        Arc::clone(cache)
+    } else {
+        eprintln!("[DEBUG xml_to_pdf_pages_debug] Building font cache from scratch...");
+        build_font_cache_for_options(&options.fonts, None)
+    };
+    eprintln!("[DEBUG xml_to_pdf_pages_debug] Font cache ready in {:?}", fc_start.elapsed());
     
     eprintln!("[DEBUG xml_to_pdf_pages_debug] Creating font manager...");
     let font_manager_start = std::time::Instant::now();
-    let mut font_manager = match FontManager::new(fc_cache) {
+    let mut font_manager = match FontManager::from_arc(fc_cache_arc) {
         Ok(fm) => fm,
         Err(e) => {
             warnings.push(PdfWarnMsg::error(
@@ -608,7 +634,7 @@ pub fn xml_to_pdf_pages_debug(
         &mut layout_cache,
         &mut text_cache,
         fragmentation_context,
-        styled_dom,
+        &styled_dom,
         viewport,
         &mut font_manager,
         &std::collections::BTreeMap::new(),

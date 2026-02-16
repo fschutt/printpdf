@@ -402,6 +402,23 @@ impl PdfDocument {
         options: &GeneratePdfOptions,
         warnings: &mut Vec<PdfWarnMsg>,
     ) -> Result<Self, String> {
+        Self::from_html_with_cache(html, images, fonts, options, warnings, None)
+    }
+
+    /// Like [`from_html`], but accepts a pre-built font cache to avoid
+    /// redundant system font scanning when rendering multiple documents.
+    ///
+    /// Build a cache once with [`crate::html::build_font_cache_for_options`],
+    /// then pass it to every call.
+    #[cfg(feature = "html")]
+    pub fn from_html_with_cache(
+        html: &str,
+        images: &BTreeMap<String, Base64OrRaw>,
+        fonts: &BTreeMap<String, Base64OrRaw>,
+        options: &GeneratePdfOptions,
+        warnings: &mut Vec<PdfWarnMsg>,
+        fc_cache: Option<std::sync::Arc<rust_fontconfig::FcFontCache>>,
+    ) -> Result<Self, String> {
         use crate::html::{XmlRenderOptions, PageMargins};
         use base64::{engine::general_purpose::STANDARD, Engine as _};
 
@@ -445,6 +462,9 @@ impl PdfDocument {
             xml_options.fonts.insert(key.clone(), bytes);
         }
 
+        // Pass pre-built font cache if provided
+        xml_options.fc_cache = fc_cache;
+
         // Render XML to pages
         match crate::html::xml_to_pdf_pages(html, &xml_options) {
             Ok((pages, font_data)) => {
@@ -476,6 +496,19 @@ impl PdfDocument {
         fonts: &BTreeMap<String, Base64OrRaw>,
         options: &GeneratePdfOptions,
         warnings: &mut Vec<PdfWarnMsg>,
+    ) -> Result<(Self, crate::html::PdfDebugInfo), String> {
+        Self::from_html_debug_with_cache(html, images, fonts, options, warnings, None)
+    }
+
+    /// Like [`from_html_debug`], but accepts a pre-built font cache.
+    #[cfg(feature = "html")]
+    pub fn from_html_debug_with_cache(
+        html: &str,
+        images: &BTreeMap<String, Base64OrRaw>,
+        fonts: &BTreeMap<String, Base64OrRaw>,
+        options: &GeneratePdfOptions,
+        warnings: &mut Vec<PdfWarnMsg>,
+        fc_cache: Option<std::sync::Arc<rust_fontconfig::FcFontCache>>,
     ) -> Result<(Self, crate::html::PdfDebugInfo), String> {
         use crate::html::{XmlRenderOptions, PageMargins};
         use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -516,6 +549,9 @@ impl PdfDocument {
             };
             xml_options.fonts.insert(key.clone(), bytes);
         }
+
+        // Pass pre-built font cache if provided
+        xml_options.fc_cache = fc_cache;
 
         // Render XML to pages with debug info
         match crate::html::xml_to_pdf_pages_debug(html, &xml_options) {
