@@ -12,6 +12,12 @@ use azul_layout::solver3::display_list::{StyleBorderColors, StyleBorderStyles, S
 use azul_css::props::style::border_radius::StyleBorderRadius;
 use crate::{Color, Mm, Op, Pt, Rgb, LineCapStyle, LineDashPattern};
 
+/// Create a `graphics::Point` from PDF-pt coordinates.
+#[inline]
+fn pt_point(x: f32, y: f32) -> crate::graphics::Point {
+    crate::graphics::Point::new(Mm::from(Pt(x)), Mm::from(Pt(y)))
+}
+
 /// Convert azul ColorU to printpdf Color
 pub fn convert_color(color: &ColorU) -> Color {
     Color::Rgb(Rgb {
@@ -331,14 +337,14 @@ fn create_rounded_rect_path_with_margins_internal(
     let start_x = x + tl_x;
     let start_y = y_pdf + height;
     points.push(crate::graphics::LinePoint {
-        p: crate::graphics::Point::new(Mm(start_x * 0.3527777778), Mm(start_y * 0.3527777778)),
+        p: pt_point(start_x, start_y),
         bezier: false,
     });
     
     // Top edge to top-right corner
     let top_right_start_x = x + width - tr_x;
     points.push(crate::graphics::LinePoint {
-        p: crate::graphics::Point::new(Mm(top_right_start_x * 0.3527777778), Mm((y_pdf + height) * 0.3527777778)),
+        p: pt_point(top_right_start_x, y_pdf + height),
         bezier: false,
     });
     
@@ -352,15 +358,15 @@ fn create_rounded_rect_path_with_margins_internal(
         let end_y = y_pdf + height - tr_y;
         
         points.push(crate::graphics::LinePoint {
-            p: crate::graphics::Point::new(Mm(cp1_x * 0.3527777778), Mm(cp1_y * 0.3527777778)),
+            p: pt_point(cp1_x, cp1_y),
             bezier: true,
         });
         points.push(crate::graphics::LinePoint {
-            p: crate::graphics::Point::new(Mm(cp2_x * 0.3527777778), Mm(cp2_y * 0.3527777778)),
+            p: pt_point(cp2_x, cp2_y),
             bezier: true,
         });
         points.push(crate::graphics::LinePoint {
-            p: crate::graphics::Point::new(Mm(end_x * 0.3527777778), Mm(end_y * 0.3527777778)),
+            p: pt_point(end_x, end_y),
             bezier: false,
         });
     }
@@ -368,7 +374,7 @@ fn create_rounded_rect_path_with_margins_internal(
     // Right edge to bottom-right corner
     let bottom_right_start_y = y_pdf + br_y;
     points.push(crate::graphics::LinePoint {
-        p: crate::graphics::Point::new(Mm((x + width) * 0.3527777778), Mm(bottom_right_start_y * 0.3527777778)),
+        p: pt_point(x + width, bottom_right_start_y),
         bezier: false,
     });
     
@@ -382,15 +388,15 @@ fn create_rounded_rect_path_with_margins_internal(
         let end_y = y_pdf;
         
         points.push(crate::graphics::LinePoint {
-            p: crate::graphics::Point::new(Mm(cp1_x * 0.3527777778), Mm(cp1_y * 0.3527777778)),
+            p: pt_point(cp1_x, cp1_y),
             bezier: true,
         });
         points.push(crate::graphics::LinePoint {
-            p: crate::graphics::Point::new(Mm(cp2_x * 0.3527777778), Mm(cp2_y * 0.3527777778)),
+            p: pt_point(cp2_x, cp2_y),
             bezier: true,
         });
         points.push(crate::graphics::LinePoint {
-            p: crate::graphics::Point::new(Mm(end_x * 0.3527777778), Mm(end_y * 0.3527777778)),
+            p: pt_point(end_x, end_y),
             bezier: false,
         });
     }
@@ -398,7 +404,7 @@ fn create_rounded_rect_path_with_margins_internal(
     // Bottom edge to bottom-left corner
     let bottom_left_start_x = x + bl_x;
     points.push(crate::graphics::LinePoint {
-        p: crate::graphics::Point::new(Mm(bottom_left_start_x * 0.3527777778), Mm(y_pdf * 0.3527777778)),
+        p: pt_point(bottom_left_start_x, y_pdf),
         bezier: false,
     });
     
@@ -412,22 +418,22 @@ fn create_rounded_rect_path_with_margins_internal(
         let end_y = y_pdf + bl_y;
         
         points.push(crate::graphics::LinePoint {
-            p: crate::graphics::Point::new(Mm(cp1_x * 0.3527777778), Mm(cp1_y * 0.3527777778)),
+            p: pt_point(cp1_x, cp1_y),
             bezier: true,
         });
         points.push(crate::graphics::LinePoint {
-            p: crate::graphics::Point::new(Mm(cp2_x * 0.3527777778), Mm(cp2_y * 0.3527777778)),
+            p: pt_point(cp2_x, cp2_y),
             bezier: true,
         });
         points.push(crate::graphics::LinePoint {
-            p: crate::graphics::Point::new(Mm(end_x * 0.3527777778), Mm(end_y * 0.3527777778)),
+            p: pt_point(end_x, end_y),
             bezier: false,
         });
     }
     
     // Left edge back to start
     points.push(crate::graphics::LinePoint {
-        p: crate::graphics::Point::new(Mm(x * 0.3527777778), Mm((y_pdf + height - tl_y) * 0.3527777778)),
+        p: pt_point(x, y_pdf + height - tl_y),
         bezier: false,
     });
     
@@ -441,15 +447,15 @@ fn create_rounded_rect_path_with_margins_internal(
         let end_y = y_pdf + height;
         
         points.push(crate::graphics::LinePoint {
-            p: crate::graphics::Point::new(Mm(cp1_x * 0.3527777778), Mm(cp1_y * 0.3527777778)),
+            p: pt_point(cp1_x, cp1_y),
             bezier: true,
         });
         points.push(crate::graphics::LinePoint {
-            p: crate::graphics::Point::new(Mm(cp2_x * 0.3527777778), Mm(cp2_y * 0.3527777778)),
+            p: pt_point(cp2_x, cp2_y),
             bezier: true,
         });
         points.push(crate::graphics::LinePoint {
-            p: crate::graphics::Point::new(Mm(end_x * 0.3527777778), Mm(end_y * 0.3527777778)),
+            p: pt_point(end_x, end_y),
             bezier: false,
         });
     }
@@ -587,19 +593,19 @@ fn render_unified_border(
             rings: vec![crate::graphics::PolygonRing {
                 points: vec![
                     crate::graphics::LinePoint {
-                        p: crate::graphics::Point::new(Mm(x * 0.3527777778), Mm(y_adj * 0.3527777778)),
+                        p: pt_point(x, y_adj),
                         bezier: false,
                     },
                     crate::graphics::LinePoint {
-                        p: crate::graphics::Point::new(Mm((x + w) * 0.3527777778), Mm(y_adj * 0.3527777778)),
+                        p: pt_point(x + w, y_adj),
                         bezier: false,
                     },
                     crate::graphics::LinePoint {
-                        p: crate::graphics::Point::new(Mm((x + w) * 0.3527777778), Mm((y_adj + h) * 0.3527777778)),
+                        p: pt_point(x + w, y_adj + h),
                         bezier: false,
                     },
                     crate::graphics::LinePoint {
-                        p: crate::graphics::Point::new(Mm(x * 0.3527777778), Mm((y_adj + h) * 0.3527777778)),
+                        p: pt_point(x, y_adj + h),
                         bezier: false,
                     },
                 ],
@@ -786,7 +792,7 @@ fn create_line_with_corners(
         add_corner_curve(&mut points, start_x, start_y, start_radius, start_corner, start_perpendicular_width, parallel_width, true);
     } else {
         points.push(crate::graphics::LinePoint {
-            p: crate::graphics::Point::new(Mm(start_x * 0.3527777778), Mm(start_y * 0.3527777778)),
+            p: pt_point(start_x, start_y),
             bezier: false,
         });
     }
@@ -796,7 +802,7 @@ fn create_line_with_corners(
         add_corner_curve(&mut points, end_x, end_y, end_radius, end_corner, end_perpendicular_width, parallel_width, false);
     } else {
         points.push(crate::graphics::LinePoint {
-            p: crate::graphics::Point::new(Mm(end_x * 0.3527777778), Mm(end_y * 0.3527777778)),
+            p: pt_point(end_x, end_y),
             bezier: false,
         });
     }
@@ -833,7 +839,7 @@ fn add_corner_curve(
     
     if rx < 0.1 && ry < 0.1 {
         points.push(crate::graphics::LinePoint {
-            p: crate::graphics::Point::new(Mm(x * 0.3527777778), Mm(y * 0.3527777778)),
+            p: pt_point(x, y),
             bezier: false,
         });
         return;
@@ -940,7 +946,7 @@ fn add_corner_curve(
         let py = center_y + ry * angle.sin();
         
         points.push(crate::graphics::LinePoint {
-            p: crate::graphics::Point::new(Mm(px * 0.3527777778), Mm(py * 0.3527777778)),
+            p: pt_point(px, py),
             bezier: false,
         });
     }
