@@ -401,6 +401,24 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
             // Image rendering - not yet implemented
         }
 
+        DisplayListItem::Underline { bounds, color, thickness: _ }
+        | DisplayListItem::Strikethrough { bounds, color, thickness: _ }
+        | DisplayListItem::Overline { bounds, color, thickness: _ } => {
+            // Text decorations are rendered as simple filled rectangles.
+            // The decoration thickness is already encoded in bounds.size.height.
+            if bounds.size.width > 0.0 && bounds.size.height > 0.0 {
+                let x = transform.x(bounds.origin.x);
+                let y = transform.rect_y(bounds.origin.y, bounds.size.height);
+                let w = transform.dim(bounds.size.width);
+                let h = transform.dim(bounds.size.height);
+
+                ops.push(Op::SaveGraphicsState);
+                ops.push(Op::SetFillColor { col: convert_color(color) });
+                ops.push(Op::DrawPolygon { polygon: make_rect_polygon_pt(x, y, w, h) });
+                ops.push(Op::RestoreGraphicsState);
+            }
+        }
+
         _ => {
             // Other display list items not yet implemented
         }
@@ -519,9 +537,6 @@ fn render_unified_layout_impl<T: ParsedFontTrait + 'static>(
 
         // End text section after this run
         ops.push(Op::EndTextSection);
-
-        // TODO: Handle text decorations (underline, strikethrough, overline)
-        // This would require drawing lines at appropriate positions relative to the baseline
     }
 }
 
