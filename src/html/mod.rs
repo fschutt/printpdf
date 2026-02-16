@@ -320,6 +320,7 @@ pub fn xml_to_pdf_pages(
         DomId::ROOT_ID,
         font_loader,
         page_config,
+        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
     ) {
         Ok(lists) => lists,
         Err(e) => {
@@ -603,6 +604,7 @@ pub fn xml_to_pdf_pages_debug(
         DomId::ROOT_ID,
         font_loader,
         page_config,
+        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
     ) {
         Ok(lists) => {
             eprintln!("[DEBUG xml_to_pdf_pages_debug] Paged layout completed in {:?}, got {} pages", layout_start.elapsed(), lists.len());
