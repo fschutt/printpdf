@@ -7,7 +7,8 @@
 //! - Internal bridge module for translating azul PDF ops to printpdf Ops
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
 
 use azul_core::{
     dom::DomId,
@@ -28,6 +29,23 @@ use azul_layout::{
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{font::ParsedFont, Mm, PdfDocument, PdfPage, PdfWarnMsg};
+
+/// Shared font state that can be reused across multiple `xml_to_pdf_pages` calls.
+///
+/// Holds both the fontconfig cache (system font paths / metadata) and
+/// the already-parsed font data so that font files are only read and
+/// parsed once, even when rendering many documents.
+///
+/// Build with [`build_font_pool`], then pass via [`XmlRenderOptions::font_pool`].
+#[derive(Clone, Debug)]
+pub struct SharedFontPool {
+    /// Font-path / metadata cache (shared, read-only after build).
+    pub fc_cache: Arc<rust_fontconfig::FcFontCache>,
+    /// Pool of already-parsed font binaries keyed by FontId.
+    /// Populated lazily during the first layout pass and reused
+    /// by every subsequent pass that shares this pool.
+    pub parsed_fonts: Arc<Mutex<HashMap<rust_fontconfig::FontId, azul_css::props::basic::FontRef>>>,
+}
 
 pub mod bridge;
 pub mod border;
@@ -118,19 +136,16 @@ pub struct XmlRenderOptions {
     /// Skip header/footer on the first page
     #[serde(default)]
     pub skip_first_page: bool,
-    /// Pre-built font cache to reuse across multiple `xml_to_pdf_pages` calls.
+    /// Shared font pool to reuse across multiple `xml_to_pdf_pages` calls.
     ///
-    /// When rendering multiple HTML documents to PDF (e.g. one per source file),
-    /// building the system font cache is expensive (~1-4s). Pass a shared cache
-    /// here to avoid redundant font scanning.
+    /// Holds both the fontconfig metadata cache *and* the already-parsed
+    /// font binaries so that font files are read from disk only once.
     ///
-    /// Build one with [`build_font_cache_for_options`], which scans system fonts
-    /// and registers any embedded fonts from `self.fonts`.
-    ///
-    /// On WASM (no system fonts), this is cheap but still avoids re-parsing
-    /// embedded font bytes on every call.
+    /// Build with [`build_font_pool`], then set this field.
+    /// On the first render the pool will load fonts lazily; subsequent
+    /// renders reuse the cached parse results (~0 ms for font loading).
     #[serde(skip)]
-    pub fc_cache: Option<Arc<rust_fontconfig::FcFontCache>>,
+    pub font_pool: Option<SharedFontPool>,
 }
 
 impl Default for XmlRenderOptions {
@@ -145,25 +160,25 @@ impl Default for XmlRenderOptions {
             header_text: None,
             footer_text: None,
             skip_first_page: false,
-            fc_cache: None,
+            font_pool: None,
         }
     }
 }
 
-/// Build a font cache suitable for use with [`XmlRenderOptions::fc_cache`].
+/// Build a [`SharedFontPool`] suitable for reuse across many render calls.
 ///
-/// Scans system fonts (or returns an empty cache on WASM), then registers
-/// any embedded fonts from `fonts`. The returned `Arc` can be shared across
-/// multiple `xml_to_pdf_pages` / `from_html` calls.
+/// Scans system fonts (or returns an empty cache on WASM), registers any
+/// embedded fonts from `fonts`, and returns a pool whose `parsed_fonts`
+/// map starts empty — it will be populated lazily on the first layout.
 ///
 /// # Arguments
 /// * `fonts` — Embedded fonts to register (same map you'd put in `XmlRenderOptions::fonts`)
 /// * `families` — If `Some`, only scan system fonts matching these family names
 ///   (e.g. `&["monospace"]`). Pass `None` to scan all system fonts.
-pub fn build_font_cache_for_options(
+pub fn build_font_pool(
     fonts: &BTreeMap<String, Vec<u8>>,
     families: Option<&[&str]>,
-) -> Arc<rust_fontconfig::FcFontCache> {
+) -> SharedFontPool {
     let mut fc_cache = match families {
         Some(fams) => rust_fontconfig::FcFontCache::build_with_families(fams),
         None => build_font_cache(),
@@ -175,7 +190,22 @@ pub fn build_font_cache_for_options(
         }
     }
 
-    Arc::new(fc_cache)
+    SharedFontPool {
+        fc_cache: Arc::new(fc_cache),
+        parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
+    }
+}
+
+/// Build a font cache suitable for use with [`XmlRenderOptions::font_pool`].
+///
+/// **Deprecated**: prefer [`build_font_pool`] which also shares parsed fonts.
+/// This function only builds the fontconfig metadata cache.
+pub fn build_font_cache_for_options(
+    fonts: &BTreeMap<String, Vec<u8>>,
+    families: Option<&[&str]>,
+) -> Arc<rust_fontconfig::FcFontCache> {
+    let pool = build_font_pool(fonts, families);
+    pool.fc_cache
 }
 
 fn default_page_width() -> Mm {
@@ -261,18 +291,19 @@ pub fn xml_to_pdf_pages(
     eprintln!("  [xml_to_pdf_pages] str_to_dom: {:?}", _t2.elapsed());
 
     // Create font cache and font manager
-    // If a pre-built fc_cache was provided in options, use it directly.
-    // Otherwise build one from scratch (scanning system fonts + embedded fonts).
+    // If a shared font pool was provided, reuse both metadata and parsed fonts.
+    // Otherwise build from scratch (scanning system fonts + embedded fonts).
     let _t3 = std::time::Instant::now();
-    let fc_cache_arc: Arc<rust_fontconfig::FcFontCache> = if let Some(ref cache) = options.fc_cache {
-        eprintln!("  [xml_to_pdf_pages] reusing pre-built font cache");
-        Arc::clone(cache)
+    let (fc_cache_arc, parsed_fonts_arc) = if let Some(ref pool) = options.font_pool {
+        eprintln!("  [xml_to_pdf_pages] reusing shared font pool");
+        (Arc::clone(&pool.fc_cache), Arc::clone(&pool.parsed_fonts))
     } else {
-        build_font_cache_for_options(&options.fonts, None)
+        let pool = build_font_pool(&options.fonts, None);
+        (pool.fc_cache, pool.parsed_fonts)
     };
     eprintln!("  [xml_to_pdf_pages] font cache ready: {:?}", _t3.elapsed());
     
-    let mut font_manager = match FontManager::from_arc(fc_cache_arc) {
+    let mut font_manager = match FontManager::from_arc_shared(fc_cache_arc, parsed_fonts_arc) {
         Ok(fm) => fm,
         Err(e) => {
             warnings.push(PdfWarnMsg::error(
@@ -549,20 +580,21 @@ pub fn xml_to_pdf_pages_debug(
         }
     };
 
-    // Create font cache and font manager (reuse pre-built cache if provided)
+    // Create font cache and font manager (reuse shared font pool if provided)
     let fc_start = std::time::Instant::now();
-    let fc_cache_arc: Arc<rust_fontconfig::FcFontCache> = if let Some(ref cache) = options.fc_cache {
-        eprintln!("[DEBUG xml_to_pdf_pages_debug] Reusing pre-built font cache");
-        Arc::clone(cache)
+    let (fc_cache_arc, parsed_fonts_arc) = if let Some(ref pool) = options.font_pool {
+        eprintln!("[DEBUG xml_to_pdf_pages_debug] Reusing shared font pool");
+        (Arc::clone(&pool.fc_cache), Arc::clone(&pool.parsed_fonts))
     } else {
-        eprintln!("[DEBUG xml_to_pdf_pages_debug] Building font cache from scratch...");
-        build_font_cache_for_options(&options.fonts, None)
+        eprintln!("[DEBUG xml_to_pdf_pages_debug] Building font pool from scratch...");
+        let pool = build_font_pool(&options.fonts, None);
+        (pool.fc_cache, pool.parsed_fonts)
     };
-    eprintln!("[DEBUG xml_to_pdf_pages_debug] Font cache ready in {:?}", fc_start.elapsed());
+    eprintln!("[DEBUG xml_to_pdf_pages_debug] Font pool ready in {:?}", fc_start.elapsed());
     
     eprintln!("[DEBUG xml_to_pdf_pages_debug] Creating font manager...");
     let font_manager_start = std::time::Instant::now();
-    let mut font_manager = match FontManager::from_arc(fc_cache_arc) {
+    let mut font_manager = match FontManager::from_arc_shared(fc_cache_arc, parsed_fonts_arc) {
         Ok(fm) => fm,
         Err(e) => {
             warnings.push(PdfWarnMsg::error(
