@@ -280,6 +280,7 @@ pub fn xml_to_pdf_pages(
     ) {
         Ok(dom) => dom,
         Err(e) => {
+            eprintln!("  [xml_to_pdf_pages] str_to_dom FAILED: {}", e);
             warnings.push(PdfWarnMsg::error(
                 0,
                 0,
@@ -325,7 +326,7 @@ pub fn xml_to_pdf_pages(
     // Create layout cache and text cache
     let mut layout_cache = Solver3LayoutCache {
         tree: None,
-        calculated_positions: std::collections::BTreeMap::new(),
+        calculated_positions: Vec::new(),
         viewport: None,
         scroll_ids: std::collections::BTreeMap::new(),
         scroll_id_to_node_id: std::collections::BTreeMap::new(),
@@ -616,7 +617,7 @@ pub fn xml_to_pdf_pages_debug(
     // Create layout cache and text cache
     let mut layout_cache = Solver3LayoutCache {
         tree: None,
-        calculated_positions: std::collections::BTreeMap::new(),
+        calculated_positions: Vec::new(),
         viewport: None,
         scroll_ids: std::collections::BTreeMap::new(),
         scroll_id_to_node_id: std::collections::BTreeMap::new(),
@@ -707,7 +708,7 @@ pub fn xml_to_pdf_pages_debug(
             
             // Dump first 100 nodes with their positions and formatting context
             for (idx, node) in tree.nodes.iter().enumerate().take(100) {
-                let pos = layout_cache.calculated_positions.get(&idx);
+                let pos = layout_cache.calculated_positions.get(idx);
                 let dom_id_str = node.dom_node_id
                     .map(|id| format!("DOM#{}", id.index()))
                     .unwrap_or_else(|| "anonymous".to_string());
