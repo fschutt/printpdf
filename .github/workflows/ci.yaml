@@ -96,18 +96,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          path: printpdf
-      - name: Clone rust-fontconfig (path dependency)
-        uses: actions/checkout@v4
-        with:
-          repository: fschutt/rust-fontconfig
-          path: rust-fontconfig
       - uses: dtolnay/rust-toolchain@stable
 
       # No-feature examples
       - name: Run no-feature examples
-        working-directory: printpdf
         run: |
           for ex in advanced bookmarks customfont graphics layers multipage text otf-font; do
             echo "=== Running $ex ==="
@@ -116,17 +108,14 @@ jobs:
 
       # Image example
       - name: Run image example
-        working-directory: printpdf
         run: cargo run --example image --features "images,png" || true
 
       # SVG example
       - name: Run svg example
-        working-directory: printpdf
         run: cargo run --example svg --features svg || true
 
       # HTML-feature examples
       - name: Run HTML examples
-        working-directory: printpdf
         run: |
           for ex in html css_shapes html_full html_full_debug shape pagination_test \
                     baseline_alignment table_debug debug_pagination debug_displaylist \
@@ -138,7 +127,6 @@ jobs:
 
       # Collect and upload PDFs
       - name: Collect PDFs
-        working-directory: printpdf
         run: |
           mkdir -p pdf-artifacts
           find . -maxdepth 1 -name '*.pdf' -exec cp {} pdf-artifacts/ \;
@@ -147,6 +135,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pdf-output-${{ github.sha }}
-          path: printpdf/pdf-artifacts/
+          path: pdf-artifacts/
           retention-days: 30
 
