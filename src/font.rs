@@ -32,6 +32,34 @@ pub struct ParsedFont {
     pub units_per_em: u16,
     /// Manual font metrics
     pub font_metrics: FontMetrics,
+    /// Font type (TrueType vs OpenType/CFF) - needed for correct PDF serialization
+    pub font_type: FontType,
+    /// PDF font bounding box and metrics - needed for font descriptor in PDF
+    pub pdf_font_metrics: PdfFontMetricsStub,
+}
+
+/// Minimal font metrics needed for PDF font descriptors when text_layout is disabled
+#[cfg(not(feature = "text_layout"))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PdfFontMetricsStub {
+    pub units_per_em: u16,
+    pub x_min: i16,
+    pub y_min: i16,
+    pub x_max: i16,
+    pub y_max: i16,
+}
+
+#[cfg(not(feature = "text_layout"))]
+impl Default for PdfFontMetricsStub {
+    fn default() -> Self {
+        Self {
+            units_per_em: 1000,
+            x_min: 0,
+            y_min: -200,
+            x_max: 1000,
+            y_max: 800,
+        }
+    }
 }
 
 #[cfg(not(feature = "text_layout"))]
@@ -43,14 +71,16 @@ impl ParsedFont {
             font_name: None,
             codepoint_to_glyph: BTreeMap::new(),
             glyph_widths: BTreeMap::new(),
-            units_per_em: 1000, // Default value
+            units_per_em: 1000,
             font_metrics: FontMetrics {
                 ascent: 800,
                 descent: -200,
             },
+            font_type: FontType::TrueType,
+            pdf_font_metrics: PdfFontMetricsStub::default(),
         })
     }
-    
+
     /// Create a ParsedFont with manual glyph mappings and widths
     pub fn with_glyph_data(
         bytes: Vec<u8>,
@@ -69,29 +99,31 @@ impl ParsedFont {
             glyph_widths,
             units_per_em,
             font_metrics,
+            font_type: FontType::TrueType,
+            pdf_font_metrics: PdfFontMetricsStub { units_per_em, ..Default::default() },
         }
     }
-    
+
     /// Set Unicode codepoint to glyph ID mapping
     pub fn set_codepoint_mapping(&mut self, codepoint: u32, gid: u16) {
         self.codepoint_to_glyph.insert(codepoint, gid);
     }
-    
+
     /// Set glyph width for a specific glyph ID
     pub fn set_glyph_width(&mut self, gid: u16, width: u16) {
         self.glyph_widths.insert(gid, width);
     }
-    
+
     /// Get glyph width for a specific glyph ID
     pub fn get_glyph_width(&self, gid: u16) -> Option<u16> {
         self.glyph_widths.get(&gid).copied()
     }
-    
+
     /// Lookup glyph index for a Unicode codepoint
     pub fn lookup_glyph_index(&self, codepoint: u32) -> Option<u16> {
         self.codepoint_to_glyph.get(&codepoint).copied()
     }
-    
+
     /// Returns None without panicking - reverse lookup is not available without text_layout feature
     pub fn get_glyph_primary_char(&self, _gid: u16) -> Option<char> {
         None
@@ -628,7 +660,7 @@ pub fn get_normalized_widths_cff(font: &ParsedFont, gid_to_cid_map: &[(u16, u16)
 
 pub const FONT_B64_START: &str = "data:font/ttf;base64,";
 
-#[cfg(test)]
+#[cfg(all(test, feature = "text_layout"))]
 mod test {
     use std::collections::BTreeMap;
 

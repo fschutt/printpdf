@@ -1280,6 +1280,7 @@ pub(crate) fn image_to_stream(
     if let Some(opts) = options {
         if let Some(filter) = get_compression_filter(opts, &rgb8) {
             match filter {
+                #[cfg(feature = "jpeg")]
                 "DCTDecode" => {
                     // JPEG compression
                     let quality = opts.quality.unwrap_or(0.85);
@@ -1481,6 +1482,7 @@ fn get_compression_filter_by_format(format: ImageCompression) -> &'static str {
 }
 
 // JPEG encoding using the image crate
+#[cfg(feature = "jpeg")]
 fn jpeg_encode(image: &RawImageU8, quality: f32) -> Option<Vec<u8>> {
     let quality = (quality * 100.0) as u8;
 

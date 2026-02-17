@@ -3,6 +3,34 @@ on: [push, pull_request]
 
 jobs:
 
+  check-no-default-features:
+    name: Check and test (no default features)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo check --no-default-features --verbose
+      - run: cargo test --no-default-features --lib --verbose
+
+  check-feature-combinations:
+    name: Check feature combinations
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        features:
+          - "images"
+          - "images,png"
+          - "images,jpeg"
+          - "images,gif"
+          - "images,tiff"
+          - "images,bmp"
+          - "images,webp"
+          - "images,png,jpeg,gif,tiff,bmp,webp"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo check --no-default-features --features "${{ matrix.features }}" --verbose
+
   check-and-test-unix:
     name: Cargo check and test on Unix systems
     strategy:
@@ -59,7 +87,54 @@ jobs:
       - run: cargo check --verbose --target wasm32-wasip1 --examples
       - run: cargo check --verbose --target wasm32-wasip1
       - run: cargo check --verbose --target wasm32-wasip2 --examples
-      - run: cargo check --verbose --target wasm32-wasip2      
+      - run: cargo check --verbose --target wasm32-wasip2
       - run: cargo check --verbose --target wasm32-wasip2 --no-default-features
       - run: cargo check --verbose --target wasm32-wasip2 --all-features
+
+  generate-pdf-artifacts:
+    name: Generate PDF artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      # No-feature examples
+      - name: Run no-feature examples
+        run: |
+          for ex in advanced bookmarks customfont graphics layers multipage text otf-font; do
+            echo "=== Running $ex ==="
+            cargo run --example "$ex" || true
+          done
+
+      # Image example
+      - name: Run image example
+        run: cargo run --example image --features "images,png" || true
+
+      # SVG example
+      - name: Run svg example
+        run: cargo run --example svg --features svg || true
+
+      # HTML-feature examples
+      - name: Run HTML examples
+        run: |
+          for ex in html css_shapes html_full html_full_debug shape pagination_test \
+                    baseline_alignment table_debug debug_pagination debug_displaylist \
+                    pagination_boundary_test margin_collapse margin_collapse_inline \
+                    margin_collapse_border_test margin_collapse_comprehensive; do
+            echo "=== Running $ex ==="
+            cargo run --example "$ex" || true
+          done
+
+      # Collect and upload PDFs
+      - name: Collect PDFs
+        run: |
+          mkdir -p pdf-artifacts
+          find . -maxdepth 1 -name '*.pdf' -exec cp {} pdf-artifacts/ \;
+          ls -la pdf-artifacts/
+      - name: Upload PDF artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdf-output-${{ github.sha }}
+          path: pdf-artifacts/
+          retention-days: 30
 

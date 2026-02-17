@@ -402,6 +402,23 @@ impl PdfDocument {
         options: &GeneratePdfOptions,
         warnings: &mut Vec<PdfWarnMsg>,
     ) -> Result<Self, String> {
+        Self::from_html_with_cache(html, images, fonts, options, warnings, None)
+    }
+
+    /// Like [`from_html`], but accepts a shared font pool to avoid
+    /// redundant font loading when rendering multiple documents.
+    ///
+    /// Build a pool once with [`crate::html::build_font_pool`],
+    /// then pass it to every call.
+    #[cfg(feature = "html")]
+    pub fn from_html_with_cache(
+        html: &str,
+        images: &BTreeMap<String, Base64OrRaw>,
+        fonts: &BTreeMap<String, Base64OrRaw>,
+        options: &GeneratePdfOptions,
+        warnings: &mut Vec<PdfWarnMsg>,
+        font_pool: Option<crate::html::SharedFontPool>,
+    ) -> Result<Self, String> {
         use crate::html::{XmlRenderOptions, PageMargins};
         use base64::{engine::general_purpose::STANDARD, Engine as _};
 
@@ -445,6 +462,9 @@ impl PdfDocument {
             xml_options.fonts.insert(key.clone(), bytes);
         }
 
+        // Pass shared font pool if provided
+        xml_options.font_pool = font_pool;
+
         // Render XML to pages
         match crate::html::xml_to_pdf_pages(html, &xml_options) {
             Ok((pages, font_data)) => {
@@ -476,6 +496,19 @@ impl PdfDocument {
         fonts: &BTreeMap<String, Base64OrRaw>,
         options: &GeneratePdfOptions,
         warnings: &mut Vec<PdfWarnMsg>,
+    ) -> Result<(Self, crate::html::PdfDebugInfo), String> {
+        Self::from_html_debug_with_cache(html, images, fonts, options, warnings, None)
+    }
+
+    /// Like [`from_html_debug`], but accepts a shared font pool.
+    #[cfg(feature = "html")]
+    pub fn from_html_debug_with_cache(
+        html: &str,
+        images: &BTreeMap<String, Base64OrRaw>,
+        fonts: &BTreeMap<String, Base64OrRaw>,
+        options: &GeneratePdfOptions,
+        warnings: &mut Vec<PdfWarnMsg>,
+        font_pool: Option<crate::html::SharedFontPool>,
     ) -> Result<(Self, crate::html::PdfDebugInfo), String> {
         use crate::html::{XmlRenderOptions, PageMargins};
         use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -516,6 +549,9 @@ impl PdfDocument {
             };
             xml_options.fonts.insert(key.clone(), bytes);
         }
+
+        // Pass shared font pool if provided
+        xml_options.font_pool = font_pool;
 
         // Render XML to pages with debug info
         match crate::html::xml_to_pdf_pages_debug(html, &xml_options) {

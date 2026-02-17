@@ -87,11 +87,61 @@ pub fn display_list_to_printpdf_ops<T: ParsedFontTrait + 'static>(
     display_list_to_printpdf_ops_with_margins(display_list, page_size, 0.0, 0.0, font_manager)
 }
 
-/// Coordinate transformation parameters for converting from layout to PDF coordinates
+/// CSS px to PDF pt conversion factor.
+/// The layout engine works in CSS px (where 1pt = 96/72 px).
+/// PDF coordinates are in pt (1pt = 1/72 inch).
+/// To convert layout px back to PDF pt: multiply by 72/96.
+const CSS_PX_TO_PT: f32 = 72.0 / 96.0;
+
+/// Convert a value in PDF pt to `Mm` (1 pt = 25.4/72 mm ≈ 0.352778 mm)
+#[inline]
+fn pt_to_mm(pt: f32) -> Mm {
+    Mm::from(Pt(pt))
+}
+
+/// Convert a CSS-px `LogicalRect` to PDF-pt `LogicalRect`.
+fn bounds_px_to_pt(b: &LogicalRect) -> LogicalRect {
+    LogicalRect {
+        origin: LogicalPosition::new(
+            b.origin.x * CSS_PX_TO_PT,
+            b.origin.y * CSS_PX_TO_PT,
+        ),
+        size: LogicalSize::new(
+            b.size.width * CSS_PX_TO_PT,
+            b.size.height * CSS_PX_TO_PT,
+        ),
+    }
+}
+
+/// Build a filled rectangle polygon from PDF-pt coordinates.
+fn make_rect_polygon_pt(x: f32, y: f32, w: f32, h: f32) -> crate::graphics::Polygon {
+    let lp = |px: f32, py: f32| crate::graphics::LinePoint {
+        p: crate::graphics::Point::new(pt_to_mm(px), pt_to_mm(py)),
+        bezier: false,
+    };
+    crate::graphics::Polygon {
+        rings: vec![crate::graphics::PolygonRing {
+            points: vec![
+                lp(x, y),
+                lp(x + w, y),
+                lp(x + w, y + h),
+                lp(x, y + h),
+            ],
+        }],
+        mode: crate::graphics::PaintMode::Fill,
+        winding_order: crate::graphics::WindingOrder::NonZero,
+    }
+}
+
+/// Coordinate transformation parameters for converting from layout to PDF coordinates.
+/// All layout coordinates are in CSS px; this struct converts them to PDF pt.
 #[derive(Clone, Copy)]
 struct CoordTransform {
+    /// Full page height in PDF pt (for Y-axis flip)
     page_height: f32,
+    /// Left margin in PDF pt
     margin_left: f32,
+    /// Top margin in PDF pt
     margin_top: f32,
 }
 
@@ -100,25 +150,29 @@ impl CoordTransform {
         Self { page_height, margin_left, margin_top }
     }
     
-    /// Transform X coordinate from layout space to PDF space
-    /// Layout X is relative to content area, PDF X needs margin offset
+    /// Transform X coordinate from layout space (CSS px) to PDF space (pt)
     #[inline]
     fn x(&self, layout_x: f32) -> f32 {
-        layout_x + self.margin_left
+        layout_x * CSS_PX_TO_PT + self.margin_left
     }
     
-    /// Transform Y coordinate from layout space to PDF space
-    /// Layout Y is from top, PDF Y is from bottom
-    /// Also applies top margin offset
+    /// Transform Y coordinate from layout space (CSS px) to PDF space (pt)
+    /// Layout Y is from top (increases downward), PDF Y is from bottom (increases upward)
     #[inline]
     fn y(&self, layout_y: f32) -> f32 {
-        self.page_height - layout_y - self.margin_top
+        self.page_height - layout_y * CSS_PX_TO_PT - self.margin_top
     }
     
-    /// Transform a rectangle's Y position (accounts for rectangle height)
+    /// Transform a rectangle's Y position (accounts for rectangle height in CSS px)
     #[inline]
     fn rect_y(&self, layout_y: f32, height: f32) -> f32 {
-        self.page_height - layout_y - height - self.margin_top
+        self.page_height - (layout_y + height) * CSS_PX_TO_PT - self.margin_top
+    }
+    
+    /// Convert a dimension (width, height, font size) from CSS px to PDF pt
+    #[inline]
+    fn dim(&self, px_value: f32) -> f32 {
+        px_value * CSS_PX_TO_PT
     }
 }
 
@@ -163,11 +217,13 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
             
             if has_radius {
                 // Use rounded rectangle path for filling (with margin-adjusted coordinates)
+                // Convert layout coordinates from CSS px to PDF pt before passing
+                let b = bounds_px_to_pt(bounds);
                 let points = crate::html::border::create_rounded_rect_path_with_margins(
-                    bounds.origin.x,
-                    bounds.origin.y,
-                    bounds.size.width,
-                    bounds.size.height,
+                    b.origin.x,
+                    b.origin.y,
+                    b.size.width,
+                    b.size.height,
                     &radii,
                     page_height,
                     margin_left,
@@ -188,48 +244,13 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
                 // Simple rectangle without border radius
                 let x = transform.x(bounds.origin.x);
                 let y = transform.rect_y(bounds.origin.y, bounds.size.height);
-                
-                let polygon = crate::graphics::Polygon {
-                    rings: vec![crate::graphics::PolygonRing {
-                        points: vec![
-                            crate::graphics::LinePoint {
-                                p: crate::graphics::Point::new(
-                                    Mm(x * 0.3527777778),
-                                    Mm(y * 0.3527777778),
-                                ),
-                                bezier: false,
-                            },
-                            crate::graphics::LinePoint {
-                                p: crate::graphics::Point::new(
-                                    Mm((x + bounds.size.width) * 0.3527777778),
-                                    Mm(y * 0.3527777778),
-                                ),
-                                bezier: false,
-                            },
-                            crate::graphics::LinePoint {
-                                p: crate::graphics::Point::new(
-                                    Mm((x + bounds.size.width) * 0.3527777778),
-                                    Mm((y + bounds.size.height) * 0.3527777778),
-                                ),
-                                bezier: false,
-                            },
-                            crate::graphics::LinePoint {
-                                p: crate::graphics::Point::new(
-                                    Mm(x * 0.3527777778),
-                                    Mm((y + bounds.size.height) * 0.3527777778),
-                                ),
-                                bezier: false,
-                            },
-                        ],
-                    }],
-                    mode: crate::graphics::PaintMode::Fill,
-                    winding_order: crate::graphics::WindingOrder::NonZero,
-                };
+                let w = transform.dim(bounds.size.width);
+                let h = transform.dim(bounds.size.height);
 
                 ops.push(Op::SetFillColor {
                     col: convert_color(color),
                 });
-                ops.push(Op::DrawPolygon { polygon });
+                ops.push(Op::DrawPolygon { polygon: make_rect_polygon_pt(x, y, w, h) });
             }
             
             ops.push(Op::RestoreGraphicsState);
@@ -284,14 +305,14 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
                 // Use Helvetica for system-generated text (headers/footers)
                 ops.push(Op::SetFont {
                     font: crate::ops::PdfFontHandle::Builtin(crate::BuiltinFont::Helvetica),
-                    size: Pt(*font_size_px),
+                    size: Pt(transform.dim(*font_size_px)),
                 });
             } else {
                 // Use external font by hash
                 let font_id = FontId(format!("F{}", font_hash.font_hash));
                 ops.push(Op::SetFont {
                     font: crate::ops::PdfFontHandle::External(font_id),
-                    size: Pt(*font_size_px),
+                    size: Pt(transform.dim(*font_size_px)),
                 });
             }
             
@@ -360,8 +381,10 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
             border_radius,
         } => {
             // Use comprehensive border rendering with margin support
+            // Convert bounds from CSS px to PDF pt
+            let bounds_pt = bounds_px_to_pt(bounds);
             let config = BorderConfig {
-                bounds: *bounds,
+                bounds: bounds_pt,
                 widths: extract_border_widths(widths),
                 colors: extract_border_colors(colors),
                 styles: extract_border_styles(styles),
@@ -376,6 +399,24 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
 
         DisplayListItem::Image { bounds: _, image: _ } => {
             // Image rendering - not yet implemented
+        }
+
+        DisplayListItem::Underline { bounds, color, thickness: _ }
+        | DisplayListItem::Strikethrough { bounds, color, thickness: _ }
+        | DisplayListItem::Overline { bounds, color, thickness: _ } => {
+            // Text decorations are rendered as simple filled rectangles.
+            // The decoration thickness is already encoded in bounds.size.height.
+            if bounds.size.width > 0.0 && bounds.size.height > 0.0 {
+                let x = transform.x(bounds.origin.x);
+                let y = transform.rect_y(bounds.origin.y, bounds.size.height);
+                let w = transform.dim(bounds.size.width);
+                let h = transform.dim(bounds.size.height);
+
+                ops.push(Op::SaveGraphicsState);
+                ops.push(Op::SetFillColor { col: convert_color(color) });
+                ops.push(Op::DrawPolygon { polygon: make_rect_polygon_pt(x, y, w, h) });
+                ops.push(Op::RestoreGraphicsState);
+            }
         }
 
         _ => {
@@ -448,44 +489,26 @@ fn render_unified_layout_impl<T: ParsedFontTrait + 'static>(
         let font_id = FontId(format!("F{}", run.font_hash));
         ops.push(Op::SetFont {
             font: crate::ops::PdfFontHandle::External(font_id.clone()),
-            size: Pt(run.font_size_px),
+            size: Pt(run.font_size_px * CSS_PX_TO_PT),
         });
 
         // Start text section AFTER setting font and color
         ops.push(Op::StartTextSection);
 
-        // IMPORTANT: Unit conversion notes
-        // 
-        // The azul-layout DisplayList uses LogicalSize with coordinates in CSS pixels at 72 DPI.
-        // This is the web standard where 1 CSS pixel = 1/96 inch at 96 DPI reference resolution,
-        // BUT azul normalizes to 72 DPI (1 CSS px = 1 PDF pt).
-        //
-        // Page dimensions from GeneratePdfOptions are in millimeters (Mm), which get converted
-        // to points when creating the LogicalSize: 210mm × (72/25.4) = 595.28pt
-        //
-        // Therefore:
-        // - page_height: f32 = 595.28 (in points, from LogicalSize.height)
-        // - bounds.origin.{x,y}: f32 = layout coordinates (in points)
-        // - glyph.position.{x,y}: f32 = glyph coordinates relative to bounds (in points)
-        //
-        // All coordinates are ALREADY in PDF points (72 DPI), so no conversion is needed.
-        // The TextMatrix values should be passed directly as raw floats in point units.
-
+        // Layout coordinates are in CSS px; convert to PDF pt.
         // Position each glyph absolutely using SetTextMatrix + ShowText
         // This gives us complete control over positioning for RTL, vertical text, etc.
         // and avoids relying on PDF's font metrics for cursor advancement
         for glyph in &run.glyphs {
-            // Calculate absolute position for this glyph
-            // All values are in points (72 DPI) - no conversion needed
-            let glyph_x_pt = bounds.origin.x + glyph.position.x;
-            let glyph_y_pt = bounds.origin.y + glyph.position.y;
+            // Calculate absolute position for this glyph (in CSS px)
+            let glyph_x_px = bounds.origin.x + glyph.position.x;
+            let glyph_y_px = bounds.origin.y + glyph.position.y;
             
-            // Convert from HTML coordinate system to PDF coordinate system
+            // Convert from CSS px to PDF pt, then flip Y axis
             // HTML: origin at top-left, Y increases downward
             // PDF: origin at bottom-left, Y increases upward
-            // Therefore: PDF_Y = page_height - HTML_Y
-            let pdf_x = glyph_x_pt;
-            let pdf_y = page_height - glyph_y_pt;
+            let pdf_x = glyph_x_px * CSS_PX_TO_PT;
+            let pdf_y = page_height - glyph_y_px * CSS_PX_TO_PT;
 
             // Set the text matrix to position this specific glyph
             // The matrix values are in PDF user space units (points)
@@ -514,9 +537,6 @@ fn render_unified_layout_impl<T: ParsedFontTrait + 'static>(
 
         // End text section after this run
         ops.push(Op::EndTextSection);
-
-        // TODO: Handle text decorations (underline, strikethrough, overline)
-        // This would require drawing lines at appropriate positions relative to the baseline
     }
 }
 
@@ -582,47 +602,19 @@ fn render_unified_layout_with_margins<T: ParsedFontTrait + 'static>(
                     let bg_top_y = baseline_y - ascent;
                     let bg_height = ascent + descent;
                     
-                    // Transform to PDF coordinates
+                    // Transform to PDF coordinates (px → pt via transform)
                     let pdf_x = transform.x(bg_start_x);
                     let pdf_y = transform.rect_y(bg_top_y, bg_height);
                     
-                    // Convert to millimeters for polygon
-                    let x_mm = Mm(pdf_x * 0.3527777778);
-                    let y_mm = Mm(pdf_y * 0.3527777778);
-                    let w_mm = Mm(bg_width * 0.3527777778);
-                    let h_mm = Mm(bg_height * 0.3527777778);
+                    // Convert dimensions from CSS px to PDF pt
+                    let pdf_w = transform.dim(bg_width);
+                    let pdf_h = transform.dim(bg_height);
                     
                     ops.push(Op::SaveGraphicsState);
                     ops.push(Op::SetFillColor {
                         col: convert_color(&bg_color),
                     });
-                    
-                    // Draw simple rectangle
-                    let polygon = crate::graphics::Polygon {
-                        rings: vec![crate::graphics::PolygonRing {
-                            points: vec![
-                                crate::graphics::LinePoint {
-                                    p: crate::graphics::Point::new(x_mm, y_mm),
-                                    bezier: false,
-                                },
-                                crate::graphics::LinePoint {
-                                    p: crate::graphics::Point::new(Mm(x_mm.0 + w_mm.0), y_mm),
-                                    bezier: false,
-                                },
-                                crate::graphics::LinePoint {
-                                    p: crate::graphics::Point::new(Mm(x_mm.0 + w_mm.0), Mm(y_mm.0 + h_mm.0)),
-                                    bezier: false,
-                                },
-                                crate::graphics::LinePoint {
-                                    p: crate::graphics::Point::new(x_mm, Mm(y_mm.0 + h_mm.0)),
-                                    bezier: false,
-                                },
-                            ],
-                        }],
-                        mode: crate::graphics::PaintMode::Fill,
-                        winding_order: crate::graphics::WindingOrder::NonZero,
-                    };
-                    ops.push(Op::DrawPolygon { polygon });
+                    ops.push(Op::DrawPolygon { polygon: make_rect_polygon_pt(pdf_x, pdf_y, pdf_w, pdf_h) });
                     ops.push(Op::RestoreGraphicsState);
                 }
             }
@@ -651,11 +643,11 @@ fn render_unified_layout_with_margins<T: ParsedFontTrait + 'static>(
             current_color = Some(run.color);
         }
 
-        // Set font 
+        // Set font (convert CSS px to PDF pt)
         let font_id = FontId(format!("F{}", run.font_hash));
         ops.push(Op::SetFont {
             font: crate::ops::PdfFontHandle::External(font_id.clone()),
-            size: Pt(run.font_size_px),
+            size: Pt(transform.dim(run.font_size_px)),
         });
 
         // Start text section AFTER setting font and color
