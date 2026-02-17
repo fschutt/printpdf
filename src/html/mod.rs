@@ -222,16 +222,11 @@ pub fn xml_to_pdf_pages(
     options: &XmlRenderOptions,
 ) -> Result<(Vec<PdfPage>, BTreeMap<FontHash, ParsedFont>), Vec<PdfWarnMsg>> {
     let mut warnings = Vec::new();
-    let _t_total = std::time::Instant::now();
-
     // Type-safe preprocessing: RawHtml -> PreprocessedHtml
-    let _t0 = std::time::Instant::now();
     let preprocessed = RawHtml::new(xml).preprocess();
     let inlined_xml = preprocessed.as_str();
-    eprintln!("  [xml_to_pdf_pages] preprocess HTML: {:?} (html len = {} bytes)", _t0.elapsed(), xml.len());
 
     // Parse XML to XmlNode tree
-    let _t1 = std::time::Instant::now();
     let root_nodes = match parse_xml_string(inlined_xml) {
         Ok(nodes) => nodes,
         Err(e) => {
@@ -243,7 +238,6 @@ pub fn xml_to_pdf_pages(
             return Err(warnings);
         }
     };
-    eprintln!("  [xml_to_pdf_pages] parse XML: {:?}", _t1.elapsed());
 
     // Calculate content area (page size minus margins)
     let mm_to_pt = 2.83465;
@@ -270,7 +264,6 @@ pub fn xml_to_pdf_pages(
 
     // Convert XML nodes to StyledDom with registered HTML components
     // Use content width in CSS px (not pt) for layout
-    let _t2 = std::time::Instant::now();
     let mut component_map = crate::components::printpdf_default_components();
     
     let styled_dom = match str_to_dom(
@@ -280,7 +273,6 @@ pub fn xml_to_pdf_pages(
     ) {
         Ok(dom) => dom,
         Err(e) => {
-            eprintln!("  [xml_to_pdf_pages] str_to_dom FAILED: {}", e);
             warnings.push(PdfWarnMsg::error(
                 0,
                 0,
@@ -289,20 +281,16 @@ pub fn xml_to_pdf_pages(
             return Err(warnings);
         }
     };
-    eprintln!("  [xml_to_pdf_pages] str_to_dom: {:?}", _t2.elapsed());
 
     // Create font cache and font manager
     // If a shared font pool was provided, reuse both metadata and parsed fonts.
     // Otherwise build from scratch (scanning system fonts + embedded fonts).
-    let _t3 = std::time::Instant::now();
     let (fc_cache_arc, parsed_fonts_arc) = if let Some(ref pool) = options.font_pool {
-        eprintln!("  [xml_to_pdf_pages] reusing shared font pool");
         (Arc::clone(&pool.fc_cache), Arc::clone(&pool.parsed_fonts))
     } else {
         let pool = build_font_pool(&options.fonts, None);
         (pool.fc_cache, pool.parsed_fonts)
     };
-    eprintln!("  [xml_to_pdf_pages] font cache ready: {:?}", _t3.elapsed());
     
     let mut font_manager = match FontManager::from_arc_shared(fc_cache_arc, parsed_fonts_arc) {
         Ok(fm) => fm,
@@ -372,7 +360,6 @@ pub fn xml_to_pdf_pages(
         page_config = page_config.skip_first_page(true);
     }
     
-    let _t5 = std::time::Instant::now();
     let display_lists = match layout_document_paged_with_config(
         &mut layout_cache,
         &mut text_cache,
@@ -401,7 +388,6 @@ pub fn xml_to_pdf_pages(
             return Err(warnings);
         }
     };
-    eprintln!("  [xml_to_pdf_pages] layout_document_paged: {:?} ({} pages)", _t5.elapsed(), display_lists.len());
 
     // Convert each DisplayList to a PDF page
     let mut pages = Vec::new();
@@ -483,9 +469,6 @@ pub fn xml_to_pdf_pages(
         pages.push(page);
     }
 
-    eprintln!("  [xml_to_pdf_pages] display_list->ops+fonts: {} pages", pages.len());
-    eprintln!("  [xml_to_pdf_pages] TOTAL: {:?}", _t_total.elapsed());
-
     // Always return Ok with pages and fonts
     Ok((pages, font_data_map))
 }
@@ -521,10 +504,9 @@ pub fn xml_to_pdf_pages_debug(
 
     // Parse XML to XmlNode tree
     eprintln!("[DEBUG xml_to_pdf_pages_debug] Parsing XML...");
-    let xml_parse_start = std::time::Instant::now();
     let root_nodes = match parse_xml_string(inlined_xml) {
         Ok(nodes) => {
-            eprintln!("[DEBUG xml_to_pdf_pages_debug] XML parsed in {:?}, got {} root nodes", xml_parse_start.elapsed(), nodes.len());
+            eprintln!("[DEBUG xml_to_pdf_pages_debug] XML parsed, got {} root nodes", nodes.len());
             nodes
         },
         Err(e) => {
@@ -558,7 +540,6 @@ pub fn xml_to_pdf_pages_debug(
 
     // Convert XML nodes to StyledDom with registered HTML components
     eprintln!("[DEBUG xml_to_pdf_pages_debug] Converting to StyledDom...");
-    let str_to_dom_start = std::time::Instant::now();
     // Use content width in CSS px (not pt) for layout
     let mut component_map = crate::components::printpdf_default_components();
     
@@ -568,7 +549,7 @@ pub fn xml_to_pdf_pages_debug(
         Some(content_width_px),
     ) {
         Ok(dom) => {
-            eprintln!("[DEBUG xml_to_pdf_pages_debug] StyledDom created with {} nodes in {:?}", dom.node_data.as_container().len(), str_to_dom_start.elapsed());
+            eprintln!("[DEBUG xml_to_pdf_pages_debug] StyledDom created with {} nodes", dom.node_data.as_container().len());
             dom
         },
         Err(e) => {
@@ -582,7 +563,6 @@ pub fn xml_to_pdf_pages_debug(
     };
 
     // Create font cache and font manager (reuse shared font pool if provided)
-    let fc_start = std::time::Instant::now();
     let (fc_cache_arc, parsed_fonts_arc) = if let Some(ref pool) = options.font_pool {
         eprintln!("[DEBUG xml_to_pdf_pages_debug] Reusing shared font pool");
         (Arc::clone(&pool.fc_cache), Arc::clone(&pool.parsed_fonts))
@@ -591,10 +571,8 @@ pub fn xml_to_pdf_pages_debug(
         let pool = build_font_pool(&options.fonts, None);
         (pool.fc_cache, pool.parsed_fonts)
     };
-    eprintln!("[DEBUG xml_to_pdf_pages_debug] Font pool ready in {:?}", fc_start.elapsed());
     
     eprintln!("[DEBUG xml_to_pdf_pages_debug] Creating font manager...");
-    let font_manager_start = std::time::Instant::now();
     let mut font_manager = match FontManager::from_arc_shared(fc_cache_arc, parsed_fonts_arc) {
         Ok(fm) => fm,
         Err(e) => {
@@ -606,7 +584,7 @@ pub fn xml_to_pdf_pages_debug(
             return Err(warnings);
         }
     };
-    eprintln!("[DEBUG xml_to_pdf_pages_debug] Font manager created in {:?}", font_manager_start.elapsed());
+    eprintln!("[DEBUG xml_to_pdf_pages_debug] Font manager created");
 
     // Use content size in CSS px for layout (converted from pt above)
     let content_size = LogicalSize::new(content_width_px, content_height_px);
@@ -662,7 +640,6 @@ pub fn xml_to_pdf_pages_debug(
     }
     
     eprintln!("[DEBUG xml_to_pdf_pages_debug] Starting paged layout...");
-    let layout_start = std::time::Instant::now();
     let display_lists = match layout_document_paged_with_config(
         &mut layout_cache,
         &mut text_cache,
@@ -682,7 +659,7 @@ pub fn xml_to_pdf_pages_debug(
         azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
     ) {
         Ok(lists) => {
-            eprintln!("[DEBUG xml_to_pdf_pages_debug] Paged layout completed in {:?}, got {} pages", layout_start.elapsed(), lists.len());
+            eprintln!("[DEBUG xml_to_pdf_pages_debug] Paged layout completed, got {} pages", lists.len());
             lists
         },
         Err(e) => {
@@ -697,7 +674,6 @@ pub fn xml_to_pdf_pages_debug(
 
     // Debug: Dump layout tree and calculated positions
     eprintln!("[DEBUG xml_to_pdf_pages_debug] Converting display lists to PDF...");
-    let pdf_convert_start = std::time::Instant::now();
     {
         let mut tree_debug = String::new();
         tree_debug.push_str("=== Layout Tree Debug ===\n\n");
@@ -842,7 +818,7 @@ pub fn xml_to_pdf_pages_debug(
         let page = PdfPage::new(options.page_width, options.page_height, pdf_ops);
         pages.push(page);
     }
-    eprintln!("[DEBUG xml_to_pdf_pages_debug] Display lists converted to {} pages in {:?}", pages.len(), pdf_convert_start.elapsed());
+    eprintln!("[DEBUG xml_to_pdf_pages_debug] Display lists converted to {} pages", pages.len());
     
     // If no pages were generated, create at least one empty page
     if pages.is_empty() {
