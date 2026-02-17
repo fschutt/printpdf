@@ -12,6 +12,25 @@ jobs:
       - run: cargo check --no-default-features --verbose
       - run: cargo test --no-default-features --lib --verbose
 
+  check-feature-combinations:
+    name: Check feature combinations
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        features:
+          - "images"
+          - "images,png"
+          - "images,jpeg"
+          - "images,gif"
+          - "images,tiff"
+          - "images,bmp"
+          - "images,webp"
+          - "images,png,jpeg,gif,tiff,bmp,webp"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo check --no-default-features --features "${{ matrix.features }}" --verbose
+
   check-and-test-unix:
     name: Cargo check and test on Unix systems
     strategy:
