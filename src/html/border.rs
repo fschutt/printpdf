@@ -967,13 +967,11 @@ fn render_dashed_border_side(
     // Set dash pattern
     ops.push(Op::SetLineDashPattern {
         dash: LineDashPattern {
-            offset: 0,
-            dash_1: Some((width * 3.0) as i64),
-            gap_1: Some((width * 2.0) as i64),
-            dash_2: None,
-            gap_2: None,
-            dash_3: None,
-            gap_3: None,
+            offset: 0.0,
+            pattern: [
+                width * 3.0,    // dash
+                width * 2.0     // gap
+            ].into()
         },
     });
     
@@ -982,13 +980,8 @@ fn render_dashed_border_side(
     // Reset dash pattern
     ops.push(Op::SetLineDashPattern {
         dash: LineDashPattern {
-            offset: 0,
-            dash_1: None,
-            gap_1: None,
-            dash_2: None,
-            gap_2: None,
-            dash_3: None,
-            gap_3: None,
+            offset: 0.0,
+            pattern: [].into()
         },
     });
 }
@@ -1008,13 +1001,11 @@ fn render_dotted_border_side(
     // Set dot pattern (dash = width, gap = width)
     ops.push(Op::SetLineDashPattern {
         dash: LineDashPattern {
-            offset: 0,
-            dash_1: Some(width as i64),
-            gap_1: Some(width as i64),
-            dash_2: None,
-            gap_2: None,
-            dash_3: None,
-            gap_3: None,
+            offset: 0.0,
+            pattern: [
+                width,      // dash
+                width       // gap
+            ].into()
         },
     });
     
@@ -1027,13 +1018,8 @@ fn render_dotted_border_side(
     ops.push(Op::SetLineCapStyle { cap: LineCapStyle::Butt });
     ops.push(Op::SetLineDashPattern {
         dash: LineDashPattern {
-            offset: 0,
-            dash_1: None,
-            gap_1: None,
-            dash_2: None,
-            gap_2: None,
-            dash_3: None,
-            gap_3: None,
+            offset: 0.0,
+            pattern: [].into()
         },
     });
 }
