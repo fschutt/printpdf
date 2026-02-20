@@ -570,10 +570,10 @@ pub(crate) fn translate_operations(
                 content.push(LoOp::new("w", vec![Real(pt.0)]));
             }
             Op::SetLineDashPattern { dash } => {
-                let dash_array_ints = dash.as_array().into_iter().map(Integer).collect();
+                let dash_array_floats = dash.pattern.iter().copied().map(Real).collect();
                 content.push(LoOp::new(
                     "d",
-                    vec![Array(dash_array_ints), Integer(dash.offset)],
+                    vec![Array(dash_array_floats), Real(dash.offset)],
                 ));
             }
             Op::SetLineJoinStyle { join } => {

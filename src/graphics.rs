@@ -340,118 +340,23 @@ impl FromIterator<(Point, bool)> for Polygon {
 }
 
 /// Line dash pattern is made up of a total width
-#[derive(Debug, Copy, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LineDashPattern {
     /// Offset at which the dashing pattern should start, measured from the beginning ot the line
     /// Default: 0 (start directly where the line starts)
-    pub offset: i64,
-    /// Length of the first dash in the dash pattern. If `None`, the line will be solid (good for
-    /// resetting the dash pattern)
-    #[serde(default)]
-    pub dash_1: Option<i64>,
-    /// Whitespace after the first dash. If `None`, whitespace will be the same as length_1st,
-    /// meaning that the line will have dash - whitespace - dash - whitespace in even offsets
-    #[serde(default)]
-    pub gap_1: Option<i64>,
-    /// Length of the second dash in the dash pattern. If None, will be equal to length_1st
-    #[serde(default)]
-    pub dash_2: Option<i64>,
-    /// Same as whitespace_1st, but for length_2nd
-    #[serde(default)]
-    pub gap_2: Option<i64>,
-    /// Length of the second dash in the dash pattern. If None, will be equal to length_1st
-    #[serde(default)]
-    pub dash_3: Option<i64>,
-    /// Same as whitespace_1st, but for length_3rd
-    #[serde(default)]
-    pub gap_3: Option<i64>,
+    pub offset: f32,
+    /// Dash, gap, dash, gap, ... 
+    pub pattern: smallvec::SmallVec<[f32;8]>, 
 }
 
 impl LineDashPattern {
-    pub fn as_array(&self) -> Vec<i64> {
-        [
-            self.dash_1,
-            self.gap_1,
-            self.dash_2,
-            self.gap_2,
-            self.dash_3,
-            self.gap_3,
-        ]
-        .iter()
-        .copied()
-        .take_while(Option::is_some)
-        .flatten()
-        .collect()
-    }
-
     pub fn get_svg_id(&self) -> String {
-        let dash_array = self.as_array();
-        dash_array
+        self.pattern
             .iter()
             .map(|num| num.to_string())
             .collect::<Vec<_>>()
             .join(",")
-    }
-
-    /// Builds a `LineDashPattern` from a slice of up to 6 integers.
-    ///
-    /// - The array is interpreted in dash-gap pairs:
-    ///   - If `dashes[0]` is present => `dash_1 = Some(...)`
-    ///   - If `dashes[1]` is present => `gap_1 = Some(...)`
-    ///   - If `dashes[2]` is present => `dash_2 = Some(...)`
-    ///   - If `dashes[3]` is present => `gap_2 = Some(...)`
-    ///   - If `dashes[4]` is present => `dash_3 = Some(...)`
-    ///   - If `dashes[5]` is present => `gap_3 = Some(...)`
-    ///
-    /// Any extra elements beyond index 5 are ignored. If the slice is empty,
-    /// the line is solid (all fields `None`).
-    pub fn from_array(dashes: &[i64], offset: i64) -> Self {
-        let mut pat = LineDashPattern::default();
-        pat.offset = offset;
-
-        match dashes.len() {
-            0 => {
-                // No dashes => solid line
-                // (everything is None, which is already default)
-            }
-            1 => {
-                pat.dash_1 = Some(dashes[0]);
-            }
-            2 => {
-                pat.dash_1 = Some(dashes[0]);
-                pat.gap_1 = Some(dashes[1]);
-            }
-            3 => {
-                pat.dash_1 = Some(dashes[0]);
-                pat.gap_1 = Some(dashes[1]);
-                pat.dash_2 = Some(dashes[2]);
-            }
-            4 => {
-                pat.dash_1 = Some(dashes[0]);
-                pat.gap_1 = Some(dashes[1]);
-                pat.dash_2 = Some(dashes[2]);
-                pat.gap_2 = Some(dashes[3]);
-            }
-            5 => {
-                pat.dash_1 = Some(dashes[0]);
-                pat.gap_1 = Some(dashes[1]);
-                pat.dash_2 = Some(dashes[2]);
-                pat.gap_2 = Some(dashes[3]);
-                pat.dash_3 = Some(dashes[4]);
-            }
-            _ => {
-                // 6 or more elements => fill all 3 dash-gap pairs
-                pat.dash_1 = Some(dashes[0]);
-                pat.gap_1 = Some(dashes[1]);
-                pat.dash_2 = Some(dashes[2]);
-                pat.gap_2 = Some(dashes[3]);
-                pat.dash_3 = Some(dashes[4]);
-                pat.gap_3 = Some(dashes[5]);
-            }
-        }
-
-        pat
     }
 }
 
@@ -1216,9 +1121,9 @@ pub fn extgstate_to_dict(val: &ExtendedGraphicsState) -> LoDictionary {
     }
 
     // Optional parameters
-    if let Some(ldp) = val.line_dash_pattern {
+    if let Some(ldp) = &val.line_dash_pattern {
         if val.changed_fields.contains(&ChangedField::LineDashPattern) {
-            let array = ldp.as_array().into_iter().map(Integer).collect();
+            let array = ldp.pattern.iter().copied().map(Real).collect();
             gs_operations.push(("D".to_string(), Array(array)));
         }
     }

@@ -2311,10 +2311,9 @@ pub fn parse_op(
                 if let Some(arr_obj) = op.operands.get(0) {
                     // parse array of numbers
                     if let Ok(arr) = arr_obj.as_array() {
-                        let pattern: Vec<i64> =
-                            arr.iter().map(|item| to_f32(item) as i64).collect();
-                        let offset = to_f32(&op.operands[1]) as i64;
-                        let dash = LineDashPattern::from_array(&pattern, offset);
+                        let pattern = arr.iter().map(|item| to_f32(item)).collect();
+                        let offset = to_f32(&op.operands[1]);
+                        let dash = LineDashPattern{offset, pattern};
                         out_ops.push(Op::SetLineDashPattern { dash });
                     }
                 }
@@ -3239,9 +3238,8 @@ mod extgstate {
 
         if let Some(obj) = dict.get(b"D").ok() {
             if let Some(arr) = obj.as_array().ok() {
-                // Parse the dash pattern as a flat array of integers.
-                let dashes: Vec<i64> = arr.iter().filter_map(|o| parse_i64(o)).collect();
-                gs.line_dash_pattern = Some(LineDashPattern::from_array(&dashes, 0)); // default offset = 0
+                let pattern = arr.iter().filter_map(|o| parse_f32(o)).collect();
+                gs.line_dash_pattern = Some(LineDashPattern{offset: 0.0, pattern}); // default offset = 0
                 changed.insert(ChangedField::LineDashPattern);
             }
         }

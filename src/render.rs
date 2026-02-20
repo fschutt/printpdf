@@ -1199,13 +1199,14 @@ fn render_line_to_svg(line: &Line, gst: &GraphicsStateVec, page_height: f32) -> 
     // Handle dash pattern if present
     let dash_array = match gst.get_dash_array() {
         Some(dash) => {
-            let dash_array = dash.as_array();
-            if dash_array.is_empty() {
+            // Dispatch SmallVec storage only once, by taking slice.  
+            let dash_pattern = dash.pattern.as_slice(); 
+            if dash_pattern.is_empty() {
                 String::new()
             } else {
                 format!(
                     " stroke-dasharray=\"{}\" stroke-dashoffset=\"{}\"",
-                    dash_array
+                    dash_pattern
                         .iter()
                         .map(|n| n.to_string())
                         .collect::<Vec<_>>()
@@ -1312,13 +1313,14 @@ fn render_polygon_to_svg(polygon: &Polygon, gst: &GraphicsStateVec, page_height:
     // Handle dash pattern if present
     let dash_array = match gst.get_dash_array() {
         Some(dash) => {
-            let dash_array = dash.as_array();
-            if dash_array.is_empty() {
+            // Dispatch SmallVec storage only once, by taking slice.
+            let dash_pattern = dash.pattern.as_slice(); 
+            if dash_pattern.is_empty() {
                 String::new()
             } else {
                 format!(
                     " stroke-dasharray=\"{}\" stroke-dashoffset=\"{}\"",
-                    dash_array
+                    dash_pattern
                         .iter()
                         .map(|n| n.to_string())
                         .collect::<Vec<_>>()
