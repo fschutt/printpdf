@@ -347,7 +347,7 @@ pub struct LineDashPattern {
     /// Default: 0 (start directly where the line starts)
     pub offset: f32,
     /// Dash, gap, dash, gap, ... 
-    pub pattern: heapless::Vec<f32, 6, u32>,
+    pub pattern: smallvec::SmallVec<[f32;8]>, 
 }
 
 impl LineDashPattern {
