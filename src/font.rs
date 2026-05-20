@@ -529,7 +529,12 @@ impl Font {
 pub fn subset_font(font: &ParsedFont, glyph_ids: &BTreeMap<u16, char>) -> Result<SubsetFont, String> {
     use allsorts::{binary::read::ReadScope, font_data::FontData, subset::CmapTarget};
 
-    let scope = ReadScope::new(&font.original_bytes);
+    // azul-layout's `ParsedFont.original_bytes` is now `Option<Arc<FontBytes>>`.
+    let original_bytes = font
+        .original_bytes
+        .as_ref()
+        .ok_or_else(|| "ParsedFont has no original_bytes to subset".to_string())?;
+    let scope = ReadScope::new(original_bytes.as_slice());
     let font_file = scope.read::<FontData<'_>>().map_err(|e| e.to_string())?;
     let provider = font_file
         .table_provider(font.original_index)
@@ -598,7 +603,8 @@ pub fn generate_gid_to_cid_map(font: &ParsedFont, glyph_ids: &[(u16, char)]) -> 
 
 #[cfg(feature = "text_layout")]
 fn get_glyph_width(font: &ParsedFont, gid: u16) -> Option<u16> {
-    font.glyph_records_decoded.get(&gid).map(|g| g.horz_advance)
+    // `glyph_records_decoded` was replaced by the lazy `get_or_decode_glyph`.
+    font.get_or_decode_glyph(gid).map(|g| g.horz_advance)
 }
 
 #[cfg(feature = "text_layout")]

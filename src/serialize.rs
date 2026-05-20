@@ -1245,7 +1245,13 @@ fn create_full_font_runtime_info(
     pdf_font: &crate::font::PdfFont,
     glyph_usage: &BTreeMap<u16, char>,
 ) -> RuntimeSubsetInfo {
-    let font_bytes = pdf_font.parsed_font.original_bytes.clone();
+    // `original_bytes` is now `Option<Arc<FontBytes>>`; the field wants `Vec<u8>`.
+    let font_bytes = pdf_font
+        .parsed_font
+        .original_bytes
+        .as_ref()
+        .map(|fb| fb.as_slice().to_vec())
+        .unwrap_or_default();
     let glyph_ids: Vec<(u16, char)> = glyph_usage.iter()
         .map(|(gid, char)| (*gid, *char))
         .collect();
@@ -1271,7 +1277,7 @@ fn create_full_font_runtime_info(
 /// Look up the advance width for a glyph ID, normalized to 1000 units per em.
 fn get_scaled_glyph_width(font: &crate::font::ParsedFont, gid: u16) -> i64 {
     #[cfg(feature = "text_layout")]
-    let raw_width = font.glyph_records_decoded.get(&gid).map(|g| g.horz_advance);
+    let raw_width = font.get_or_decode_glyph(gid).map(|g| g.horz_advance);
     #[cfg(not(feature = "text_layout"))]
     let raw_width = font.get_glyph_width(gid);
 
