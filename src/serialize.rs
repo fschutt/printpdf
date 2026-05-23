@@ -814,7 +814,7 @@ fn encode_text_items_to_pdf<T: PrepFont>(
                 } else if builtin_font.is_some() {
                     // For built-in fonts, use WinAnsiEncoding
                     let bytes = lopdf::Document::encode_text(
-                        &lopdf::Encoding::SimpleEncoding(b"WinAnsiEncoding"),
+                        &lopdf::Encoding::OneByteEncoding(&lopdf::encodings::WIN_ANSI_ENCODING),
                         text,
                     );
 
