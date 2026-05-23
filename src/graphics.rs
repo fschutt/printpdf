@@ -137,11 +137,13 @@ impl Rect {
     }
 
     pub fn to_array(&self) -> Vec<lopdf::Object> {
+        // #253: emit Real(f32) values, not rounded integers. Rounding distorts
+        // media/trim/crop boxes (and any other rectangle serialized via this).
         vec![
-            (self.x.0.round() as i64).into(),
-            (self.y.0.round() as i64).into(),
-            (self.width.0.round() as i64).into(),
-            (self.height.0.round() as i64).into(),
+            self.x.0.into(),
+            self.y.0.into(),
+            self.width.0.into(),
+            self.height.0.into(),
         ]
     }
 }
@@ -1896,4 +1898,26 @@ pub enum SoftMaskFunction {
     GroupAlpha,
     //
     GroupLuminosity,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // #253: Rect::to_array must emit Real(f32), not rounded integers, so that
+    // media/trim/crop boxes are not distorted.
+    #[test]
+    fn rect_to_array_emits_real_not_rounded() {
+        let rect = Rect::from_xywh(Pt(10.4), Pt(20.6), Pt(100.25), Pt(200.75));
+        let arr = rect.to_array();
+        assert_eq!(arr.len(), 4);
+        assert_eq!(arr[0], lopdf::Object::Real(10.4));
+        assert_eq!(arr[1], lopdf::Object::Real(20.6));
+        assert_eq!(arr[2], lopdf::Object::Real(100.25));
+        assert_eq!(arr[3], lopdf::Object::Real(200.75));
+        // Explicitly assert none of them got rounded to integers.
+        for o in &arr {
+            assert!(matches!(o, lopdf::Object::Real(_)), "expected Real, got {o:?}");
+        }
+    }
 }

@@ -314,16 +314,27 @@ fn get_dict_or_resolve_ref<'a>(
 ) -> Option<&'a LopdfDictionary> {
     match xobj_obj {
         Object::Dictionary(dict) => Some(dict),
+        // #216: XObjects are stream objects; accept a stream and return its dict so
+        // that XObject stream refs (e.g. Form/Image XObjects) parse instead of being
+        // rejected as an "unexpected type".
+        Object::Stream(stream) => Some(&stream.dict),
         Object::Reference(r) => match doc.get_dictionary(*r) {
             Ok(s) => Some(s),
-            Err(e) => {
-                warnings.push(PdfWarnMsg::error(
-                    page.unwrap_or(0),
-                    0,
-                    format!("{id}: Invalid dictionary reference {r:?}: {e:?}"),
-                ));
-                return None;
-            }
+            // The reference may point at a *stream* object (the common case for
+            // XObjects), which `get_dictionary` rejects. Resolve the object and
+            // return the stream's dict before treating it as an error.
+            Err(_) => match doc.get_object(*r) {
+                Ok(Object::Stream(stream)) => Some(&stream.dict),
+                Ok(Object::Dictionary(dict)) => Some(dict),
+                _ => {
+                    warnings.push(PdfWarnMsg::error(
+                        page.unwrap_or(0),
+                        0,
+                        format!("{id}: Invalid dictionary reference {r:?}"),
+                    ));
+                    return None;
+                }
+            },
         },
         _ => {
             warnings.push(PdfWarnMsg::error(

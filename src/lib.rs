@@ -605,10 +605,12 @@ impl PdfDocument {
         )
     }
 
-    /// Replaces `document.pages` with the new pages
+    /// Replaces `document.pages` with the new pages.
+    ///
+    /// #224: this now *replaces* `self.pages` to match its doc comment. To merge
+    /// pages from another document instead, use [`PdfDocument::append_document`].
     pub fn with_pages(&mut self, pages: Vec<PdfPage>) -> &mut Self {
-        let mut pages = pages;
-        self.pages.append(&mut pages);
+        self.pages = pages;
         self
     }
 
@@ -897,5 +899,26 @@ impl Default for PdfDocumentInfo {
             subject: String::new(),
             identifier: String::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod with_pages_tests {
+    use super::*;
+
+    // #224: with_pages must REPLACE self.pages (matching its doc), not append.
+    #[test]
+    fn with_pages_replaces() {
+        let mut doc = PdfDocument::new("test");
+        doc.pages = vec![
+            PdfPage::new(Mm(210.0), Mm(297.0), Vec::new()),
+            PdfPage::new(Mm(210.0), Mm(297.0), Vec::new()),
+        ];
+        assert_eq!(doc.pages.len(), 2);
+
+        // Replace with a single page.
+        doc.with_pages(vec![PdfPage::new(Mm(100.0), Mm(100.0), Vec::new())]);
+        assert_eq!(doc.pages.len(), 1, "with_pages should replace, not append");
+        assert_eq!(doc.pages[0].media_box.width, Pt::from(Mm(100.0)));
     }
 }

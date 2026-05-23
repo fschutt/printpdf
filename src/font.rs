@@ -64,10 +64,10 @@ impl Default for PdfFontMetricsStub {
 
 #[cfg(not(feature = "text_layout"))]
 impl ParsedFont {
-    pub fn from_bytes(bytes: &[u8], index: u32, _warnings: &mut Vec<String>) -> Option<Self> {
+    pub fn from_bytes(bytes: &[u8], index: usize, _warnings: &mut Vec<String>) -> Option<Self> {
         Some(ParsedFont {
             original_bytes: bytes.to_vec(),
-            font_index: index,
+            font_index: index as u32,
             font_name: None,
             codepoint_to_glyph: BTreeMap::new(),
             glyph_widths: BTreeMap::new(),

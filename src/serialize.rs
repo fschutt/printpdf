@@ -871,11 +871,14 @@ fn collect_used_glyphs_from_pages(
                                                 pdf_font.parsed_font.get_glyph_primary_char(codepoint.gid)
                                                     .unwrap_or('\u{FFFD}')
                                             };
-                                            // Only insert if we have a valid character (not replacement char)
-                                            // This avoids polluting the mapping with invalid entries
-                                            if character != '\u{FFFD}' || codepoint.cid.is_some() {
-                                                font_glyphs.insert(codepoint.gid, character);
-                                            }
+                                            // #261: always record the glyph, even when the
+                                            // reverse char lookup failed (cid is None and the
+                                            // font has no primary char for this gid). Otherwise
+                                            // the glyph is silently dropped from the used-glyph
+                                            // map and the font is never embedded, producing a PDF
+                                            // that references missing glyphs. The fallback char
+                                            // ('\u{FFFD}') only affects the ToUnicode mapping.
+                                            font_glyphs.insert(codepoint.gid, character);
                                         }
                                     }
                                     TextItem::Offset(_) => {
@@ -1103,9 +1106,11 @@ fn polygon_to_stream_ops(poly: &Polygon) -> Vec<LoOp> {
 }
 
 fn rectangle_to_stream_ops(rectangle: &crate::Rect) -> Vec<LoOp> {
+    use crate::graphics::{PaintMode, WindingOrder};
+
     let mut operations = Vec::new();
 
-    // x, y, with, height
+    // x, y, width, height. `re` appends a complete (closed) rectangle subpath.
     operations.push(LoOp::new(
         "re",
         vec![
@@ -1116,14 +1121,36 @@ fn rectangle_to_stream_ops(rectangle: &crate::Rect) -> Vec<LoOp> {
         ],
     ));
 
-    match rectangle.winding_order {
-        Some(crate::WindingOrder::NonZero) => operations.push(LoOp::new("W", vec![])),
-        Some(crate::WindingOrder::EvenOdd) => operations.push(LoOp::new("W*", vec![])),
-        None => {},
+    // Honor the rectangle's paint mode (mirrors `polygon_to_stream_ops`), instead
+    // of always emitting `n` (which paints nothing / makes the rectangle invisible).
+    // #259
+    let winding = rectangle.winding_order.unwrap_or(WindingOrder::NonZero);
+    match rectangle.mode {
+        Some(PaintMode::Clip) => {
+            // Set the rectangle as a clip path, then end the path with `n`.
+            operations.push(LoOp::new(winding.get_clip_op(), vec![]));
+            operations.push(LoOp::new("n", vec![]));
+        }
+        Some(PaintMode::Fill) => {
+            operations.push(LoOp::new(winding.get_fill_op(), vec![]));
+        }
+        Some(PaintMode::Stroke) => {
+            operations.push(LoOp::new("S", vec![]));
+        }
+        Some(PaintMode::FillStroke) => {
+            operations.push(LoOp::new(winding.get_fill_stroke_op(), vec![]));
+        }
+        None => {
+            // No explicit paint mode: preserve the legacy behavior of applying any
+            // winding_order as a clip and ending the path without painting.
+            match rectangle.winding_order {
+                Some(WindingOrder::NonZero) => operations.push(LoOp::new("W", vec![])),
+                Some(WindingOrder::EvenOdd) => operations.push(LoOp::new("W*", vec![])),
+                None => {}
+            }
+            operations.push(LoOp::new("n", vec![]));
+        }
     }
-
-    // close the path
-    operations.push(LoOp::new("n", vec![]));
 
     operations
 }
@@ -1159,8 +1186,8 @@ pub(crate) fn prepare_fonts_for_serialization(
         
         // Create RuntimeSubsetInfo for font dictionary
         #[cfg(feature = "text_layout")]
-        let subset_info = if false && do_subset && 
-                             pdf_font.meta.requires_subsetting && 
+        let subset_info = if do_subset &&
+                             pdf_font.meta.requires_subsetting &&
                              pdf_font.meta.embedding_mode == crate::font::FontEmbeddingMode::Subset {
             // Try subsetting, fall back to full font if it fails
             create_subset_runtime_info(font_id, pdf_font, &glyph_usage, warnings)
@@ -1373,6 +1400,34 @@ fn add_subset_font_to_pdf(
         }
     };
 
+    // #271: PDF font descriptor metrics (Ascent/Descent/FontBBox/CapHeight) must be
+    // expressed in glyph-space units of 1/1000 em, but the font tables store them in
+    // the font's own units-per-em (often 2048). Scale everything by 1000/units_per_em.
+    let upm = subset_info.original_font.pdf_font_metrics.units_per_em;
+    let font_scale = if upm == 0 { 1.0 } else { 1000.0 / upm as f32 };
+    let scale_i64 = |v: i64| (v as f32 * font_scale).round() as i64;
+    let scale_i16 = |v: i16| (v as f32 * font_scale).round() as i64;
+
+    let ascent_scaled = scale_i64(subset_info.ascent);
+    let descent_scaled = scale_i64(subset_info.descent);
+    let bbox_x_min = scale_i16(subset_info.original_font.pdf_font_metrics.x_min);
+    let bbox_y_min = scale_i16(subset_info.original_font.pdf_font_metrics.y_min);
+    let bbox_x_max = scale_i16(subset_info.original_font.pdf_font_metrics.x_max);
+    let bbox_y_max = scale_i16(subset_info.original_font.pdf_font_metrics.y_max);
+
+    // CapHeight: prefer the real OS/2 sCapHeight (font units, scaled to 1000/em).
+    // Fall back to the scaled ascent when the font doesn't expose sCapHeight (or when
+    // text_layout is disabled and metrics are unavailable) — still far better than 0.
+    #[cfg(feature = "text_layout")]
+    let cap_height = subset_info
+        .original_font
+        .font_metrics
+        .cap_height
+        .map(|c| (c * font_scale).round() as i64)
+        .unwrap_or(ascent_scaled);
+    #[cfg(not(feature = "text_layout"))]
+    let cap_height = ascent_scaled;
+
     LoDictionary::from_iter(vec![
         ("Type", Name("Font".into())),
         ("Subtype", Name("Type0".into())),
@@ -1407,9 +1462,9 @@ fn add_subset_font_to_pdf(
                         doc.add_object(LoDictionary::from_iter(vec![
                             ("Type", Name("FontDescriptor".into())),
                             ("FontName", Name(font_name.clone().into_bytes())),
-                            ("Ascent", Integer(subset_info.ascent)),
-                            ("Descent", Integer(subset_info.descent)),
-                            ("CapHeight", Integer(0)),
+                            ("Ascent", Integer(ascent_scaled)),
+                            ("Descent", Integer(descent_scaled)),
+                            ("CapHeight", Integer(cap_height)),
                             ("ItalicAngle", Integer(0)),
                             ("Flags", Integer(32)),
                             ("StemV", Integer(80)),
@@ -1417,10 +1472,10 @@ fn add_subset_font_to_pdf(
                             (
                                 "FontBBox",
                                 Array(vec![
-                                    Integer(subset_info.original_font.pdf_font_metrics.x_min as i64),
-                                    Integer(subset_info.original_font.pdf_font_metrics.y_min as i64),
-                                    Integer(subset_info.original_font.pdf_font_metrics.x_max as i64),
-                                    Integer(subset_info.original_font.pdf_font_metrics.y_max as i64),
+                                    Integer(bbox_x_min),
+                                    Integer(bbox_y_min),
+                                    Integer(bbox_x_max),
+                                    Integer(bbox_y_max),
                                 ]),
                             ),
                         ])),
@@ -1586,4 +1641,55 @@ fn encode_text_to_utf16be(text: &str) -> lopdf::Object {
 
     // Return as a Hex String
     lopdf::Object::String(bytes, Hexadecimal)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graphics::{PaintMode, WindingOrder};
+    use crate::units::Pt;
+
+    fn rect_with(mode: Option<PaintMode>, winding: Option<WindingOrder>) -> crate::Rect {
+        crate::Rect {
+            x: Pt(0.0),
+            y: Pt(0.0),
+            width: Pt(10.0),
+            height: Pt(10.0),
+            mode,
+            winding_order: winding,
+        }
+    }
+
+    fn operators(ops: &[LoOp]) -> Vec<String> {
+        ops.iter().map(|o| o.operator.clone()).collect()
+    }
+
+    // #259: rectangle_to_stream_ops must honor `rectangle.mode` (emit S/f/B/B*),
+    // not always `n` (which makes the rectangle invisible).
+    #[test]
+    fn rectangle_honors_paint_mode() {
+        // Fill
+        let ops = rectangle_to_stream_ops(&rect_with(Some(PaintMode::Fill), None));
+        assert_eq!(operators(&ops), vec!["re", "f"]);
+
+        // Stroke
+        let ops = rectangle_to_stream_ops(&rect_with(Some(PaintMode::Stroke), None));
+        assert_eq!(operators(&ops), vec!["re", "S"]);
+
+        // FillStroke
+        let ops = rectangle_to_stream_ops(&rect_with(Some(PaintMode::FillStroke), None));
+        assert_eq!(operators(&ops), vec!["re", "B"]);
+
+        // Fill with even-odd winding
+        let ops = rectangle_to_stream_ops(&rect_with(Some(PaintMode::Fill), Some(WindingOrder::EvenOdd)));
+        assert_eq!(operators(&ops), vec!["re", "f*"]);
+
+        // Clip ends the path with `n` after setting the clip operator.
+        let ops = rectangle_to_stream_ops(&rect_with(Some(PaintMode::Clip), None));
+        assert_eq!(operators(&ops), vec!["re", "W", "n"]);
+
+        // No mode: legacy behavior (no paint, optional clip via winding_order).
+        let ops = rectangle_to_stream_ops(&rect_with(None, None));
+        assert_eq!(operators(&ops), vec!["re", "n"]);
+    }
 }
