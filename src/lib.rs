@@ -467,16 +467,24 @@ impl PdfDocument {
 
         // Render XML to pages
         match crate::html::xml_to_pdf_pages(html, &xml_options) {
-            Ok((pages, font_data)) => {
+            Ok((pages, font_data, images)) => {
                 // Register fonts from font_data in pdf.resources.fonts
                 for (font_hash, parsed_font) in font_data.iter() {
                     // The font ID matches what the bridge generated
                     let font_id = FontId(format!("F{}", font_hash.font_hash));
-                    
+
                     let pdf_font = crate::font::PdfFont::new(parsed_font.clone());
                     pdf.resources.fonts.map.insert(font_id, pdf_font);
                 }
-                
+                // Register `<img>` images as PDF Image XObjects (ids match the
+                // bridge's `UseXobject` ops).
+                for (_src, (xobject_id, raw_image)) in images.into_iter() {
+                    pdf.resources
+                        .xobjects
+                        .map
+                        .insert(xobject_id, crate::XObject::Image(raw_image));
+                }
+
                 pdf.pages.extend(pages);
                 Ok(pdf)
             }
@@ -562,7 +570,18 @@ impl PdfDocument {
                     let pdf_font = crate::font::PdfFont::new(parsed_font.clone());
                     pdf.resources.fonts.map.insert(font_id, pdf_font);
                 }
-                
+                // Register `<img>` images as PDF Image XObjects (ids match the
+                // bridge's `UseXobject` ops). Re-derived from the same bytes so
+                // it stays in sync with `xml_to_pdf_pages_debug`.
+                for (_src, (xobject_id, raw_image)) in
+                    crate::html::bridge::resolve_html_images(&xml_options.images).into_iter()
+                {
+                    pdf.resources
+                        .xobjects
+                        .map
+                        .insert(xobject_id, crate::XObject::Image(raw_image));
+                }
+
                 pdf.pages.extend(pages);
                 Ok((pdf, debug_info))
             }

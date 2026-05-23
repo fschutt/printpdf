@@ -10,8 +10,11 @@
 //! generate ShowText operations (with SetFont for font/size), which map 1:1 to PDF operators.
 //! which is necessary for proper text shaping in complex scripts.
 
+use std::collections::BTreeMap;
+
 use azul_core::{
     geom::{LogicalRect, LogicalSize, LogicalPosition},
+    resources::DecodedImage,
 };
 use azul_css::props::basic::ColorU;
 use azul_layout::{
@@ -19,7 +22,42 @@ use azul_layout::{
     text3::cache::{FontManager, ParsedFontTrait, UnifiedLayout},
 };
 
-use crate::{Color, Mm, Op, Pt, Rgb, FontId};
+use crate::{Color, Mm, Op, Pt, Rgb, FontId, RawImage, XObjectId, XObjectTransform};
+
+/// Resolved `<img>` resources keyed by the `src` value that appeared in the HTML.
+///
+/// Each entry pairs the deterministic [`XObjectId`] under which the image is
+/// registered on the [`crate::PdfDocument`] with the decoded [`RawImage`] (kept
+/// so the bridge can read the natural pixel size when building the placement
+/// transform).
+pub type ResolvedImages = BTreeMap<String, (XObjectId, RawImage)>;
+
+/// Build the deterministic [`XObjectId`] used to register an `<img src=KEY>`
+/// image on the document. Both the bridge (which emits `Op::UseXobject`) and the
+/// document-assembly step (which registers the XObject) derive the id from the
+/// `src` key, so they always agree without sharing state.
+pub fn image_xobject_id(src_key: &str) -> XObjectId {
+    // Keep it readable but avoid characters that would be awkward in a PDF name.
+    let sanitized: String = src_key
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    XObjectId(format!("HtmlImg_{}", sanitized))
+}
+
+/// Decode every entry of an `images` map (key = `src`, value = raw image bytes)
+/// into a [`ResolvedImages`] table. Images that fail to decode are skipped (the
+/// corresponding `<img>` simply renders nothing).
+pub fn resolve_html_images(images: &BTreeMap<String, Vec<u8>>) -> ResolvedImages {
+    let mut out = ResolvedImages::new();
+    for (key, bytes) in images.iter() {
+        let mut warnings = Vec::new();
+        if let Ok(raw) = RawImage::decode_from_bytes(bytes, &mut warnings) {
+            out.insert(key.clone(), (image_xobject_id(key), raw));
+        }
+    }
+    out
+}
 
 use super::border::{
     BorderConfig, extract_border_widths, extract_border_colors, 
@@ -52,6 +90,7 @@ pub fn display_list_to_printpdf_ops_with_margins<T: ParsedFontTrait + 'static>(
     margin_left_pt: f32,
     margin_top_pt: f32,
     font_manager: &FontManager<T>,
+    images: &ResolvedImages,
 ) -> Result<Vec<Op>, String> {
     let mut ops = Vec::new();
     let page_height = page_size.height;
@@ -63,13 +102,14 @@ pub fn display_list_to_printpdf_ops_with_margins<T: ParsedFontTrait + 'static>(
 
     for (_idx, item) in display_list.items.iter().enumerate() {
         convert_display_list_item_with_margins(
-            &mut ops, 
-            item, 
-            page_height, 
+            &mut ops,
+            item,
+            page_height,
             margin_left_pt,
             margin_top_pt,
-            &mut current_text_layout, 
-            font_manager
+            &mut current_text_layout,
+            font_manager,
+            images,
         );
     }
 
@@ -84,7 +124,7 @@ pub fn display_list_to_printpdf_ops<T: ParsedFontTrait + 'static>(
     page_size: LogicalSize,
     font_manager: &FontManager<T>,
 ) -> Result<Vec<Op>, String> {
-    display_list_to_printpdf_ops_with_margins(display_list, page_size, 0.0, 0.0, font_manager)
+    display_list_to_printpdf_ops_with_margins(display_list, page_size, 0.0, 0.0, font_manager, &ResolvedImages::new())
 }
 
 /// CSS px to PDF pt conversion factor.
@@ -184,6 +224,7 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
     margin_top: f32,
     current_text_layout: &mut Option<(&'a UnifiedLayout, LogicalRect)>,
     font_manager: &FontManager<T>,
+    images: &ResolvedImages,
 ) {
     let transform = CoordTransform::new(page_height, margin_left, margin_top);
     
@@ -397,8 +438,59 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
             render_border(ops, &config);
         }
 
-        DisplayListItem::Image { bounds: _, image: _, border_radius: _ } => {
-            // Image rendering - not yet implemented
+        DisplayListItem::Image { bounds, image, border_radius: _ } => {
+            // The display-list `ImageRef` for an HTML `<img>` is a `NullImage`
+            // whose `tag` carries the original `src` string (set by azul's
+            // `xml_node_to_dom_fast`). We use that key to look up the decoded
+            // bytes — already registered as a PDF Image XObject on the document —
+            // and emit a `UseXobject` op positioned at `bounds`.
+            let src_key = match image.get_data() {
+                DecodedImage::NullImage { tag, .. } if !tag.is_empty() => {
+                    String::from_utf8(tag.clone()).ok()
+                }
+                _ => None,
+            };
+
+            let Some(src_key) = src_key else { return; };
+            let Some((xobject_id, raw_image)) = images.get(&src_key) else { return; };
+
+            // Target placement rectangle in PDF pt.
+            let b = bounds_px_to_pt(bounds.inner());
+            let target_w_pt = b.size.width;
+            let target_h_pt = b.size.height;
+            if target_w_pt <= 0.0 || target_h_pt <= 0.0 {
+                return;
+            }
+
+            // The serializer maps the image's unit square to its natural size in
+            // pt at `IMAGE_DPI` first (see `XObjectTransform::get_ctms`), so we
+            // scale by target/natural to make the image fill `bounds` exactly.
+            const IMAGE_DPI: f32 = 300.0;
+            let natural_w_pt = crate::Px(raw_image.width).into_pt(IMAGE_DPI).0;
+            let natural_h_pt = crate::Px(raw_image.height).into_pt(IMAGE_DPI).0;
+            if natural_w_pt <= 0.0 || natural_h_pt <= 0.0 {
+                return;
+            }
+            let scale_x = target_w_pt / natural_w_pt;
+            let scale_y = target_h_pt / natural_h_pt;
+
+            // Bottom-left corner of the image box in PDF coordinates (origin
+            // bottom-left). `transform.rect_y` already accounts for the rect
+            // height and top margin; `transform.x` adds the left margin.
+            let pdf_x = transform.x(bounds.origin().x);
+            let pdf_y = transform.rect_y(bounds.origin().y, bounds.size().height);
+
+            ops.push(Op::UseXobject {
+                id: xobject_id.clone(),
+                transform: XObjectTransform {
+                    translate_x: Some(Pt(pdf_x)),
+                    translate_y: Some(Pt(pdf_y)),
+                    rotate: None,
+                    scale_x: Some(scale_x),
+                    scale_y: Some(scale_y),
+                    dpi: Some(IMAGE_DPI),
+                },
+            });
         }
 
         DisplayListItem::Underline { bounds, color, thickness: _ }
@@ -801,5 +893,168 @@ pub fn apply_margin_offset(ops: &mut [Op], offset_x: crate::Mm, offset_y: crate:
             | Op::SetSpacingMoveAndShowText { .. }
             | Op::Unknown { .. } => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+    use azul_core::resources::{ImageRef, RawImageFormat};
+    use azul_layout::solver3::display_list::{
+        BorderRadius, DisplayList, DisplayListItem, WindowLogicalRect,
+    };
+    use azul_layout::text3::cache::FontManager;
+
+    fn empty_font_manager() -> FontManager<azul_css::props::basic::FontRef> {
+        FontManager::new(rust_fontconfig::FcFontCache::default())
+            .expect("build empty FontManager")
+    }
+
+    /// The real cat.jpg used by the `html_image` example, decoded and placed in a
+    /// display-list Image item, must produce an `Op::UseXobject` referencing the
+    /// deterministic id and scaled to the item bounds.
+    #[test]
+    fn image_item_emits_use_xobject() {
+        let cat_jpg: &[u8] = include_bytes!("../../examples/assets/img/cat.jpg");
+        let resolved = resolve_html_images(
+            &[("cat.jpg".to_string(), cat_jpg.to_vec())]
+                .into_iter()
+                .collect(),
+        );
+        let (_id, raw) = resolved.get("cat.jpg").expect("cat.jpg decoded");
+        assert!(raw.width > 0 && raw.height > 0, "decoded image has dimensions");
+
+        // ImageRef carrying the src as its NullImage tag (mirrors what azul's
+        // xml_node_to_dom_fast produces for <img src="cat.jpg">).
+        let image_ref = ImageRef::null_image(
+            raw.width,
+            raw.height,
+            RawImageFormat::RGBA8,
+            b"cat.jpg".to_vec(),
+        );
+
+        // 200x100 px box at (10, 20) px.
+        let bounds = WindowLogicalRect(LogicalRect {
+            origin: LogicalPosition { x: 10.0, y: 20.0 },
+            size: LogicalSize { width: 200.0, height: 100.0 },
+        });
+
+        let mut dl = DisplayList::default();
+        dl.items.push(DisplayListItem::Image {
+            bounds,
+            image: image_ref,
+            border_radius: BorderRadius::default(),
+        });
+
+        let fm = empty_font_manager();
+        let page = LogicalSize { width: 595.0, height: 842.0 }; // A4 pt
+        let ops = display_list_to_printpdf_ops_with_margins(&dl, page, 0.0, 0.0, &fm, &resolved)
+            .expect("bridge conversion");
+
+        let use_xobject = ops.iter().find_map(|op| match op {
+            Op::UseXobject { id, transform } => Some((id.clone(), *transform)),
+            _ => None,
+        });
+        let (id, transform) = use_xobject.expect("an Op::UseXobject must be emitted for the image");
+
+        assert_eq!(id.0, "HtmlImg_cat_jpg", "deterministic xobject id");
+        assert_eq!(id, image_xobject_id("cat.jpg"), "id matches helper");
+
+        // The image should be scaled to fill the 200x100 px box (= 150x75 pt).
+        const IMAGE_DPI: f32 = 300.0;
+        let natural_w_pt = crate::Px(raw.width).into_pt(IMAGE_DPI).0;
+        let natural_h_pt = crate::Px(raw.height).into_pt(IMAGE_DPI).0;
+        let target_w_pt = 200.0 * (72.0 / 96.0);
+        let target_h_pt = 100.0 * (72.0 / 96.0);
+        let sx = transform.scale_x.expect("scale_x set");
+        let sy = transform.scale_y.expect("scale_y set");
+        assert!((natural_w_pt * sx - target_w_pt).abs() < 0.5, "image width fills bounds");
+        assert!((natural_h_pt * sy - target_h_pt).abs() < 0.5, "image height fills bounds");
+
+        // Bottom-left corner: x = 10px -> pt + left margin(0); y flipped.
+        let tx = transform.translate_x.expect("translate_x set").0;
+        let ty = transform.translate_y.expect("translate_y set").0;
+        assert!((tx - 10.0 * (72.0 / 96.0)).abs() < 0.5, "x placement");
+        // page_height - (y + h)*px_to_pt = 842 - (20+100)*0.75
+        let expect_ty = 842.0 - (20.0 + 100.0) * (72.0 / 96.0);
+        assert!((ty - expect_ty).abs() < 0.5, "y placement (bottom-left, flipped)");
+    }
+
+    /// An image whose src has no matching entry in the resolved map renders
+    /// nothing (no UseXobject, no panic).
+    #[test]
+    fn image_item_without_bytes_is_noop() {
+        let image_ref =
+            ImageRef::null_image(100, 50, RawImageFormat::RGBA8, b"missing.png".to_vec());
+        let bounds = WindowLogicalRect(LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: LogicalSize { width: 100.0, height: 50.0 },
+        });
+        let mut dl = DisplayList::default();
+        dl.items.push(DisplayListItem::Image {
+            bounds,
+            image: image_ref,
+            border_radius: BorderRadius::default(),
+        });
+
+        let fm = empty_font_manager();
+        let ops = display_list_to_printpdf_ops_with_margins(
+            &dl,
+            LogicalSize { width: 595.0, height: 842.0 },
+            0.0,
+            0.0,
+            &fm,
+            &ResolvedImages::new(),
+        )
+        .expect("bridge conversion");
+
+        assert!(
+            !ops.iter().any(|op| matches!(op, Op::UseXobject { .. })),
+            "no UseXobject when bytes are missing"
+        );
+    }
+
+    /// End-to-end serialization: a document carrying the decoded image as an
+    /// Image XObject must serialize to a PDF containing `/Subtype /Image`.
+    #[test]
+    fn registered_image_serializes_as_xobject() {
+        let cat_jpg: &[u8] = include_bytes!("../../examples/assets/img/cat.jpg");
+        let mut warnings = Vec::new();
+        let raw = RawImage::decode_from_bytes(cat_jpg, &mut warnings).expect("decode cat.jpg");
+
+        let mut doc = crate::PdfDocument::new("img test");
+        let id = image_xobject_id("cat.jpg");
+        doc.resources
+            .xobjects
+            .map
+            .insert(id.clone(), crate::XObject::Image(raw.clone()));
+        // A page that uses the image so the XObject is referenced.
+        doc.pages.push(crate::PdfPage::new(
+            crate::Mm(210.0),
+            crate::Mm(297.0),
+            vec![Op::UseXobject {
+                id,
+                transform: XObjectTransform::default(),
+            }],
+        ));
+
+        let bytes = doc.save(&crate::PdfSaveOptions::default(), &mut Vec::new());
+        // lopdf renders the dict without spaces (e.g. `/Subtype/Image`); accept
+        // both forms to be robust to lopdf formatting changes.
+        let contains = |needle: &[u8]| bytes.windows(needle.len()).any(|w| w == needle);
+        let has_image = contains(b"/Subtype/Image") || contains(b"/Subtype /Image");
+        assert!(
+            has_image,
+            "serialized PDF must contain an Image XObject (len={})",
+            bytes.len()
+        );
+        // The cat.jpg is a JPEG, so it round-trips as a DCTDecode-filtered stream.
+        // (The serializer may down-scale the pixels to fit a size budget, so we do
+        // not assert exact dimensions — only that an image stream is present.)
+        let has_filter = contains(b"/Filter/DCTDecode") || contains(b"/Filter /DCTDecode");
+        assert!(has_filter, "image XObject should be a DCTDecode (JPEG) stream");
+        let has_width = contains(b"/Width") && contains(b"/Height");
+        assert!(has_width, "serialized PDF must declare image width/height");
     }
 }

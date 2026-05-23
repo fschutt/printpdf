@@ -217,11 +217,18 @@ fn default_page_height() -> Mm {
     Mm(297.0) // A4 height
 }
 
-/// Convert XML/HTML content to PDF pages, returning pages and font map
+/// Convert XML/HTML content to PDF pages, returning pages, the font map, and the
+/// decoded `<img>` resources.
+///
+/// The returned [`bridge::ResolvedImages`] must be registered on the destination
+/// [`PdfDocument`] (via [`bridge::ResolvedImages`] entries → `resources.xobjects`)
+/// so that the `UseXobject` ops emitted for `<img>` elements resolve. The
+/// document-assembly helpers ([`add_xml_to_document`], `PdfDocument::from_html`)
+/// do this automatically.
 pub fn xml_to_pdf_pages(
     xml: &str,
     options: &XmlRenderOptions,
-) -> Result<(Vec<PdfPage>, BTreeMap<FontHash, ParsedFont>), Vec<PdfWarnMsg>> {
+) -> Result<(Vec<PdfPage>, BTreeMap<FontHash, ParsedFont>, bridge::ResolvedImages), Vec<PdfWarnMsg>> {
     let mut warnings = Vec::new();
     // Type-safe preprocessing: RawHtml -> PreprocessedHtml
     let preprocessed = RawHtml::new(xml).preprocess();
@@ -384,36 +391,43 @@ pub fn xml_to_pdf_pages(
         }
     };
 
+    // Decode any embedded `<img>` bytes once, keyed by `src`. Each decoded image
+    // gets a deterministic XObject id so the bridge's `UseXobject` ops and the
+    // document-side XObject registration agree.
+    let resolved_images = bridge::resolve_html_images(&options.images);
+
     // Convert each DisplayList to a PDF page
     let mut pages = Vec::new();
     // font_data_map now maps u64 (font hash) directly to ParsedFont
     let mut font_data_map: BTreeMap<FontHash, azul_layout::font::parsed::ParsedFont> = BTreeMap::new();
-    
+
     // Full page size for PDF coordinate transformation
     let full_page_size = LogicalSize::new(page_width_pt, page_height_pt);
-    
+
     for display_list in display_lists.iter() {
-        // Skip pages that have no meaningful content (only background fills)
-        // A page needs at least one TextLayout item to be considered "real"
-        let has_text_content = display_list.items.iter().any(|item| {
-            matches!(item, azul_layout::solver3::display_list::DisplayListItem::TextLayout { .. })
+        // Skip pages that have no meaningful content (only background fills).
+        // A page is "real" if it has at least one TextLayout or Image item.
+        let has_real_content = display_list.items.iter().any(|item| {
+            use azul_layout::solver3::display_list::DisplayListItem;
+            matches!(item, DisplayListItem::TextLayout { .. } | DisplayListItem::Image { .. })
         });
-        
-        if !has_text_content {
+
+        if !has_real_content {
             // Skip this page - it only contains background rectangles
             continue;
         }
-        
+
         // Convert DisplayList to printpdf operations
         // We pass the FULL page size for Y-coordinate transformation (PDF origin is bottom-left)
         // The content was laid out in content_size, but coordinates need to be transformed
         // relative to the full page height
         let pdf_ops = bridge::display_list_to_printpdf_ops_with_margins(
-            &display_list, 
+            &display_list,
             full_page_size,
             margin_left_pt,
             margin_top_pt,
-            &font_manager
+            &font_manager,
+            &resolved_images,
         ).map_err(|e| vec![PdfWarnMsg::warning(0, 0, format!("Failed to convert display list: {}", e))])?;
         
         // Extract fonts from TextLayout items by collecting font hashes from the layout
@@ -464,8 +478,8 @@ pub fn xml_to_pdf_pages(
         pages.push(page);
     }
 
-    // Always return Ok with pages and fonts
-    Ok((pages, font_data_map))
+    // Always return Ok with pages, fonts, and decoded image resources
+    Ok((pages, font_data_map, resolved_images))
 }
 
 /// Debug information from PDF generation
@@ -694,10 +708,14 @@ pub fn xml_to_pdf_pages_debug(
         debug_info.display_list_debug.push(tree_debug);
     }
 
+    // Decode embedded `<img>` bytes once (same deterministic ids as the
+    // document-side XObject registration).
+    let resolved_images = bridge::resolve_html_images(&options.images);
+
     // Convert each DisplayList to a PDF page
     let mut pages = Vec::new();
     let mut font_data_map: BTreeMap<FontHash, azul_layout::font::parsed::ParsedFont> = BTreeMap::new();
-    
+
     // Full page size for PDF coordinate transformation
     let full_page_size = LogicalSize::new(page_width_pt, page_height_pt);
     
@@ -748,13 +766,14 @@ pub fn xml_to_pdf_pages_debug(
         
         // Convert DisplayList to printpdf operations
         let pdf_ops = bridge::display_list_to_printpdf_ops_with_margins(
-            &display_list, 
+            &display_list,
             full_page_size,
             margin_left_pt,
             margin_top_pt,
-            &font_manager
+            &font_manager,
+            &resolved_images,
         ).map_err(|e| vec![PdfWarnMsg::warning(0, 0, format!("Failed to convert display list: {}", e))])?;
-        
+
         // Debug: capture PDF ops for first page only
         if page_idx == 0 {
             let mut ops_debug = String::new();
@@ -820,12 +839,21 @@ pub fn add_xml_to_document(
     options: &XmlRenderOptions,
 ) -> Result<(), Vec<PdfWarnMsg>> {
     match xml_to_pdf_pages(xml, options) {
-        Ok((pages, font_data)) => {
+        Ok((pages, font_data, images)) => {
             // Register fonts in the document
             for (font_hash, parsed_font) in font_data.into_iter() {
                 let font_id = crate::FontId(format!("F{}", font_hash.font_hash));
                 let pdf_font = crate::font::PdfFont::new(parsed_font);
                 document.resources.fonts.map.insert(font_id, pdf_font);
+            }
+            // Register `<img>` images as PDF Image XObjects under the same
+            // deterministic ids the bridge used for its `UseXobject` ops.
+            for (_src, (xobject_id, raw_image)) in images.into_iter() {
+                document
+                    .resources
+                    .xobjects
+                    .map
+                    .insert(xobject_id, crate::XObject::Image(raw_image));
             }
             document.pages.extend(pages);
             Ok(())
@@ -1075,6 +1103,49 @@ pub fn process_html_for_rendering(html: &str) -> (String, HtmlExtractedConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// End-to-end: `<img src="cat.jpg">` through the real azul layout + the
+    /// printpdf bridge must (a) decode the image, (b) emit an `Op::UseXobject`
+    /// referencing it on a page. Exercises the full `xml_to_pdf_pages` pipeline.
+    #[test]
+    fn test_html_img_embeds_through_pipeline() {
+        let cat_jpg: &[u8] = include_bytes!("../../examples/assets/img/cat.jpg");
+
+        // The `<app>` wrapper + inline styles is the layout shape exercised by
+        // `test_simple_xml_rendering` (known to lay out cleanly here).
+        let xml = r#"
+            <html>
+                <body>
+                    <div style="width: 300px; height: 169px;">
+                        <img src="cat.jpg" style="width: 300px; height: 169px;" />
+                    </div>
+                    <div>caption text</div>
+                </body>
+            </html>
+        "#;
+
+        let mut options = XmlRenderOptions::default();
+        options.images.insert("cat.jpg".to_string(), cat_jpg.to_vec());
+
+        let (pages, _fonts, images) =
+            xml_to_pdf_pages(xml, &options).expect("xml_to_pdf_pages should succeed");
+
+        // (a) the image was decoded and assigned the deterministic id.
+        let (xobject_id, raw) = images.get("cat.jpg").expect("cat.jpg resolved");
+        assert_eq!(xobject_id.0, "HtmlImg_cat_jpg");
+        assert!(raw.width > 0 && raw.height > 0);
+
+        // (b) some page references it via UseXobject.
+        let referenced = pages.iter().any(|page| {
+            page.ops.iter().any(|op| {
+                matches!(op, crate::Op::UseXobject { id, .. } if id.0 == "HtmlImg_cat_jpg")
+            })
+        });
+        assert!(
+            referenced,
+            "a page content stream should reference the cat.jpg image XObject"
+        );
+    }
 
     #[test]
     fn test_simple_xml_rendering() {
