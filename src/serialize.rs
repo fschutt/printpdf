@@ -16,6 +16,487 @@ use crate::{
     Actions, BuiltinFont, Color, ColorArray, Destination, FontId, IccProfileType, ImageOptimizationOptions, Line, LinkAnnotation, Op, PaintMode, ParsedFont, ParsedSubsetFont, PdfDocument, PdfDocumentInfo, PdfPage, PdfResources, PdfWarnMsg, Polygon, PrepFont, TextItem, XObject, XObjectId, color::IccProfile, font::{FontType, SubsetFont}
 };
 
+#[allow(non_upper_case_globals, dead_code)]
+struct Glyph;
+impl Glyph {
+    pub const A: u16 = 0x0041;
+    pub const AE: u16 = 0x00c6;
+    pub const Aacute: u16 = 0x00c1;
+    pub const Acircumflex: u16 = 0x00c2;
+    pub const Adieresis: u16 = 0x00c4;
+    pub const Agrave: u16 = 0x00c0;
+    pub const Aring: u16 = 0x00c5;
+    pub const Atilde: u16 = 0x00c3;
+    pub const B: u16 = 0x0042;
+    pub const C: u16 = 0x0043;
+    pub const Ccedilla: u16 = 0x00c7;
+    pub const D: u16 = 0x0044;
+    pub const E: u16 = 0x0045;
+    pub const Eacute: u16 = 0x00c9;
+    pub const Ecircumflex: u16 = 0x00ca;
+    pub const Edieresis: u16 = 0x00cb;
+    pub const Egrave: u16 = 0x00c8;
+    pub const Eth: u16 = 0x00d0;
+    pub const Euro: u16 = 0x20ac;
+    pub const F: u16 = 0x0046;
+    pub const G: u16 = 0x0047;
+    pub const H: u16 = 0x0048;
+    pub const I: u16 = 0x0049;
+    pub const Iacute: u16 = 0x00cd;
+    pub const Icircumflex: u16 = 0x00ce;
+    pub const Idieresis: u16 = 0x00cf;
+    pub const Igrave: u16 = 0x00cc;
+    pub const J: u16 = 0x004a;
+    pub const K: u16 = 0x004b;
+    pub const L: u16 = 0x004c;
+    pub const M: u16 = 0x004d;
+    pub const N: u16 = 0x004e;
+    pub const Ntilde: u16 = 0x00d1;
+    pub const O: u16 = 0x004f;
+    pub const OE: u16 = 0x0152;
+    pub const Oacute: u16 = 0x00d3;
+    pub const Ocircumflex: u16 = 0x00d4;
+    pub const Odieresis: u16 = 0x00d6;
+    pub const Ograve: u16 = 0x00d2;
+    pub const Oslash: u16 = 0x00d8;
+    pub const Otilde: u16 = 0x00d5;
+    pub const P: u16 = 0x0050;
+    pub const Q: u16 = 0x0051;
+    pub const R: u16 = 0x0052;
+    pub const S: u16 = 0x0053;
+    pub const Scaron: u16 = 0x0160;
+    pub const T: u16 = 0x0054;
+    pub const Thorn: u16 = 0x00de;
+    pub const U: u16 = 0x0055;
+    pub const Uacute: u16 = 0x00da;
+    pub const Ucircumflex: u16 = 0x00db;
+    pub const Udieresis: u16 = 0x00dc;
+    pub const Ugrave: u16 = 0x00d9;
+    pub const V: u16 = 0x0056;
+    pub const W: u16 = 0x0057;
+    pub const X: u16 = 0x0058;
+    pub const Y: u16 = 0x0059;
+    pub const Yacute: u16 = 0x00dd;
+    pub const Ydieresis: u16 = 0x0178;
+    pub const Z: u16 = 0x005a;
+    pub const Zcaron: u16 = 0x017d;
+    pub const a: u16 = 0x0061;
+    pub const aacute: u16 = 0x00e1;
+    pub const acircumflex: u16 = 0x00e2;
+    pub const acute: u16 = 0x00b4;
+    pub const adieresis: u16 = 0x00e4;
+    pub const ae: u16 = 0x00e6;
+    pub const agrave: u16 = 0x00e0;
+    pub const ampersand: u16 = 0x0026;
+    pub const aring: u16 = 0x00e5;
+    pub const asciicircum: u16 = 0x005e;
+    pub const asciitilde: u16 = 0x007e;
+    pub const asterisk: u16 = 0x002a;
+    pub const at: u16 = 0x0040;
+    pub const atilde: u16 = 0x00e3;
+    pub const b: u16 = 0x0062;
+    pub const backslash: u16 = 0x005c;
+    pub const bar: u16 = 0x007c;
+    pub const braceleft: u16 = 0x007b;
+    pub const braceright: u16 = 0x007d;
+    pub const bracketleft: u16 = 0x005b;
+    pub const bracketright: u16 = 0x005d;
+    pub const brokenbar: u16 = 0x00a6;
+    pub const bullet: u16 = 0x2022;
+    pub const c: u16 = 0x0063;
+    pub const ccedilla: u16 = 0x00e7;
+    pub const cedilla: u16 = 0x00b8;
+    pub const cent: u16 = 0x00a2;
+    pub const circumflex: u16 = 0x02c6;
+    pub const colon: u16 = 0x003a;
+    pub const comma: u16 = 0x002c;
+    pub const copyright: u16 = 0x00a9;
+    pub const currency: u16 = 0x00a4;
+    pub const d: u16 = 0x0064;
+    pub const dagger: u16 = 0x2020;
+    pub const daggerdbl: u16 = 0x2021;
+    pub const degree: u16 = 0x00b0;
+    pub const dieresis: u16 = 0x00a8;
+    pub const divide: u16 = 0x00f7;
+    pub const dollar: u16 = 0x0024;
+    pub const e: u16 = 0x0065;
+    pub const eacute: u16 = 0x00e9;
+    pub const ecircumflex: u16 = 0x00ea;
+    pub const edieresis: u16 = 0x00eb;
+    pub const egrave: u16 = 0x00e8;
+    pub const eight: u16 = 0x0038;
+    pub const ellipsis: u16 = 0x2026;
+    pub const emdash: u16 = 0x2014;
+    pub const endash: u16 = 0x2013;
+    pub const equal: u16 = 0x003d;
+    pub const eth: u16 = 0x00f0;
+    pub const exclam: u16 = 0x0021;
+    pub const exclamdown: u16 = 0x00a1;
+    pub const f: u16 = 0x0066;
+    pub const five: u16 = 0x0035;
+    pub const florin: u16 = 0x0192;
+    pub const four: u16 = 0x0034;
+    pub const g: u16 = 0x0067;
+    pub const germandbls: u16 = 0x00df;
+    pub const grave: u16 = 0x0060;
+    pub const greater: u16 = 0x003e;
+    pub const guillemotleft: u16 = 0x00ab;
+    pub const guillemotright: u16 = 0x00bb;
+    pub const guilsinglleft: u16 = 0x2039;
+    pub const guilsinglright: u16 = 0x203a;
+    pub const h: u16 = 0x0068;
+    pub const hyphen: u16 = 0x002d;
+    pub const i: u16 = 0x0069;
+    pub const iacute: u16 = 0x00ed;
+    pub const icircumflex: u16 = 0x00ee;
+    pub const idieresis: u16 = 0x00ef;
+    pub const igrave: u16 = 0x00ec;
+    pub const j: u16 = 0x006a;
+    pub const k: u16 = 0x006b;
+    pub const l: u16 = 0x006c;
+    pub const less: u16 = 0x003c;
+    pub const logicalnot: u16 = 0x00ac;
+    pub const m: u16 = 0x006d;
+    pub const macron: u16 = 0x00af;
+    pub const mu: u16 = 0x00b5;
+    pub const multiply: u16 = 0x00d7;
+    pub const n: u16 = 0x006e;
+    pub const nine: u16 = 0x0039;
+    pub const ntilde: u16 = 0x00f1;
+    pub const numbersign: u16 = 0x0023;
+    pub const o: u16 = 0x006f;
+    pub const oacute: u16 = 0x00f3;
+    pub const ocircumflex: u16 = 0x00f4;
+    pub const odieresis: u16 = 0x00f6;
+    pub const oe: u16 = 0x0153;
+    pub const ograve: u16 = 0x00f2;
+    pub const one: u16 = 0x0031;
+    pub const onehalf: u16 = 0x00bd;
+    pub const onequarter: u16 = 0x00bc;
+    pub const onesuperior: u16 = 0x00b9;
+    pub const ordfeminine: u16 = 0x00aa;
+    pub const ordmasculine: u16 = 0x00ba;
+    pub const oslash: u16 = 0x00f8;
+    pub const otilde: u16 = 0x00f5;
+    pub const p: u16 = 0x0070;
+    pub const paragraph: u16 = 0x00b6;
+    pub const parenleft: u16 = 0x0028;
+    pub const parenright: u16 = 0x0029;
+    pub const percent: u16 = 0x0025;
+    pub const period: u16 = 0x002e;
+    pub const periodcentered: u16 = 0x00b7;
+    pub const perthousand: u16 = 0x2030;
+    pub const plus: u16 = 0x002b;
+    pub const plusminus: u16 = 0x00b1;
+    pub const q: u16 = 0x0071;
+    pub const question: u16 = 0x003f;
+    pub const questiondown: u16 = 0x00bf;
+    pub const quotedbl: u16 = 0x0022;
+    pub const quotedblbase: u16 = 0x201e;
+    pub const quotedblleft: u16 = 0x201c;
+    pub const quotedblright: u16 = 0x201d;
+    pub const quoteleft: u16 = 0x2018;
+    pub const quoteright: u16 = 0x2019;
+    pub const quotesinglbase: u16 = 0x201a;
+    pub const quotesingle: u16 = 0x0027;
+    pub const r: u16 = 0x0072;
+    pub const registered: u16 = 0x00ae;
+    pub const s: u16 = 0x0073;
+    pub const scaron: u16 = 0x0161;
+    pub const section: u16 = 0x00a7;
+    pub const semicolon: u16 = 0x003b;
+    pub const seven: u16 = 0x0037;
+    pub const six: u16 = 0x0036;
+    pub const slash: u16 = 0x002f;
+    pub const space: u16 = 0x0020;
+    pub const sterling: u16 = 0x00a3;
+    pub const t: u16 = 0x0074;
+    pub const thorn: u16 = 0x00fe;
+    pub const three: u16 = 0x0033;
+    pub const threequarters: u16 = 0x00be;
+    pub const threesuperior: u16 = 0x00b3;
+    pub const tilde: u16 = 0x02dc;
+    pub const trademark: u16 = 0x2122;
+    pub const two: u16 = 0x0032;
+    pub const twosuperior: u16 = 0x00b2;
+    pub const u: u16 = 0x0075;
+    pub const uacute: u16 = 0x00fa;
+    pub const ucircumflex: u16 = 0x00fb;
+    pub const udieresis: u16 = 0x00fc;
+    pub const ugrave: u16 = 0x00f9;
+    pub const underscore: u16 = 0x005f;
+    pub const v: u16 = 0x0076;
+    pub const w: u16 = 0x0077;
+    pub const x: u16 = 0x0078;
+    pub const y: u16 = 0x0079;
+    pub const yacute: u16 = 0x00fd;
+    pub const ydieresis: u16 = 0x00ff;
+    pub const yen: u16 = 0x00a5;
+    pub const z: u16 = 0x007a;
+    pub const zcaron: u16 = 0x017e;
+    pub const zero: u16 = 0x0030;
+}
+
+type CodedCharacterSet = [Option<u16>; 256];
+const WIN_ANSI_ENCODING: CodedCharacterSet = [
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    Some(Glyph::space),
+    Some(Glyph::exclam),
+    Some(Glyph::quotedbl),
+    Some(Glyph::numbersign),
+    Some(Glyph::dollar),
+    Some(Glyph::percent),
+    Some(Glyph::ampersand),
+    Some(Glyph::quotesingle),
+    Some(Glyph::parenleft),
+    Some(Glyph::parenright),
+    Some(Glyph::asterisk),
+    Some(Glyph::plus),
+    Some(Glyph::comma),
+    Some(Glyph::hyphen),
+    Some(Glyph::period),
+    Some(Glyph::slash),
+    Some(Glyph::zero),
+    Some(Glyph::one),
+    Some(Glyph::two),
+    Some(Glyph::three),
+    Some(Glyph::four),
+    Some(Glyph::five),
+    Some(Glyph::six),
+    Some(Glyph::seven),
+    Some(Glyph::eight),
+    Some(Glyph::nine),
+    Some(Glyph::colon),
+    Some(Glyph::semicolon),
+    Some(Glyph::less),
+    Some(Glyph::equal),
+    Some(Glyph::greater),
+    Some(Glyph::question),
+    Some(Glyph::at),
+    Some(Glyph::A),
+    Some(Glyph::B),
+    Some(Glyph::C),
+    Some(Glyph::D),
+    Some(Glyph::E),
+    Some(Glyph::F),
+    Some(Glyph::G),
+    Some(Glyph::H),
+    Some(Glyph::I),
+    Some(Glyph::J),
+    Some(Glyph::K),
+    Some(Glyph::L),
+    Some(Glyph::M),
+    Some(Glyph::N),
+    Some(Glyph::O),
+    Some(Glyph::P),
+    Some(Glyph::Q),
+    Some(Glyph::R),
+    Some(Glyph::S),
+    Some(Glyph::T),
+    Some(Glyph::U),
+    Some(Glyph::V),
+    Some(Glyph::W),
+    Some(Glyph::X),
+    Some(Glyph::Y),
+    Some(Glyph::Z),
+    Some(Glyph::bracketleft),
+    Some(Glyph::backslash),
+    Some(Glyph::bracketright),
+    Some(Glyph::asciicircum),
+    Some(Glyph::underscore),
+    Some(Glyph::grave),
+    Some(Glyph::a),
+    Some(Glyph::b),
+    Some(Glyph::c),
+    Some(Glyph::d),
+    Some(Glyph::e),
+    Some(Glyph::f),
+    Some(Glyph::g),
+    Some(Glyph::h),
+    Some(Glyph::i),
+    Some(Glyph::j),
+    Some(Glyph::k),
+    Some(Glyph::l),
+    Some(Glyph::m),
+    Some(Glyph::n),
+    Some(Glyph::o),
+    Some(Glyph::p),
+    Some(Glyph::q),
+    Some(Glyph::r),
+    Some(Glyph::s),
+    Some(Glyph::t),
+    Some(Glyph::u),
+    Some(Glyph::v),
+    Some(Glyph::w),
+    Some(Glyph::x),
+    Some(Glyph::y),
+    Some(Glyph::z),
+    Some(Glyph::braceleft),
+    Some(Glyph::bar),
+    Some(Glyph::braceright),
+    Some(Glyph::asciitilde),
+    Some(Glyph::bullet),
+    Some(Glyph::Euro),
+    Some(Glyph::bullet),
+    Some(Glyph::quotesinglbase),
+    Some(Glyph::florin),
+    Some(Glyph::quotedblbase),
+    Some(Glyph::ellipsis),
+    Some(Glyph::dagger),
+    Some(Glyph::daggerdbl),
+    Some(Glyph::circumflex),
+    Some(Glyph::perthousand),
+    Some(Glyph::Scaron),
+    Some(Glyph::guilsinglleft),
+    Some(Glyph::OE),
+    Some(Glyph::bullet),
+    Some(Glyph::Zcaron),
+    Some(Glyph::bullet),
+    Some(Glyph::bullet),
+    Some(Glyph::quoteleft),
+    Some(Glyph::quoteright),
+    Some(Glyph::quotedblleft),
+    Some(Glyph::quotedblright),
+    Some(Glyph::bullet),
+    Some(Glyph::endash),
+    Some(Glyph::emdash),
+    Some(Glyph::tilde),
+    Some(Glyph::trademark),
+    Some(Glyph::scaron),
+    Some(Glyph::guilsinglright),
+    Some(Glyph::oe),
+    Some(Glyph::bullet),
+    Some(Glyph::zcaron),
+    Some(Glyph::Ydieresis),
+    Some(Glyph::space),
+    Some(Glyph::exclamdown),
+    Some(Glyph::cent),
+    Some(Glyph::sterling),
+    Some(Glyph::currency),
+    Some(Glyph::yen),
+    Some(Glyph::brokenbar),
+    Some(Glyph::section),
+    Some(Glyph::dieresis),
+    Some(Glyph::copyright),
+    Some(Glyph::ordfeminine),
+    Some(Glyph::guillemotleft),
+    Some(Glyph::logicalnot),
+    Some(Glyph::hyphen),
+    Some(Glyph::registered),
+    Some(Glyph::macron),
+    Some(Glyph::degree),
+    Some(Glyph::plusminus),
+    Some(Glyph::twosuperior),
+    Some(Glyph::threesuperior),
+    Some(Glyph::acute),
+    Some(Glyph::mu),
+    Some(Glyph::paragraph),
+    Some(Glyph::periodcentered),
+    Some(Glyph::cedilla),
+    Some(Glyph::onesuperior),
+    Some(Glyph::ordmasculine),
+    Some(Glyph::guillemotright),
+    Some(Glyph::onequarter),
+    Some(Glyph::onehalf),
+    Some(Glyph::threequarters),
+    Some(Glyph::questiondown),
+    Some(Glyph::Agrave),
+    Some(Glyph::Aacute),
+    Some(Glyph::Acircumflex),
+    Some(Glyph::Atilde),
+    Some(Glyph::Adieresis),
+    Some(Glyph::Aring),
+    Some(Glyph::AE),
+    Some(Glyph::Ccedilla),
+    Some(Glyph::Egrave),
+    Some(Glyph::Eacute),
+    Some(Glyph::Ecircumflex),
+    Some(Glyph::Edieresis),
+    Some(Glyph::Igrave),
+    Some(Glyph::Iacute),
+    Some(Glyph::Icircumflex),
+    Some(Glyph::Idieresis),
+    Some(Glyph::Eth),
+    Some(Glyph::Ntilde),
+    Some(Glyph::Ograve),
+    Some(Glyph::Oacute),
+    Some(Glyph::Ocircumflex),
+    Some(Glyph::Otilde),
+    Some(Glyph::Odieresis),
+    Some(Glyph::multiply),
+    Some(Glyph::Oslash),
+    Some(Glyph::Ugrave),
+    Some(Glyph::Uacute),
+    Some(Glyph::Ucircumflex),
+    Some(Glyph::Udieresis),
+    Some(Glyph::Yacute),
+    Some(Glyph::Thorn),
+    Some(Glyph::germandbls),
+    Some(Glyph::agrave),
+    Some(Glyph::aacute),
+    Some(Glyph::acircumflex),
+    Some(Glyph::atilde),
+    Some(Glyph::adieresis),
+    Some(Glyph::aring),
+    Some(Glyph::ae),
+    Some(Glyph::ccedilla),
+    Some(Glyph::egrave),
+    Some(Glyph::eacute),
+    Some(Glyph::ecircumflex),
+    Some(Glyph::edieresis),
+    Some(Glyph::igrave),
+    Some(Glyph::iacute),
+    Some(Glyph::icircumflex),
+    Some(Glyph::idieresis),
+    Some(Glyph::eth),
+    Some(Glyph::ntilde),
+    Some(Glyph::ograve),
+    Some(Glyph::oacute),
+    Some(Glyph::ocircumflex),
+    Some(Glyph::otilde),
+    Some(Glyph::odieresis),
+    Some(Glyph::divide),
+    Some(Glyph::oslash),
+    Some(Glyph::ugrave),
+    Some(Glyph::uacute),
+    Some(Glyph::ucircumflex),
+    Some(Glyph::udieresis),
+    Some(Glyph::yacute),
+    Some(Glyph::thorn),
+    Some(Glyph::ydieresis),
+];
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
 #[serde(rename = "camelCase")]
 pub struct PdfSaveOptions {
@@ -294,7 +775,6 @@ pub fn to_lopdf_doc(
                 &pdf.resources.xobjects.map,
                 opts.secure,
                 warnings,
-                pdf,
             ); // Vec<u8>
             let merged_layer_stream =
                 LoStream::new(LoDictionary::new(), layer_stream);
@@ -441,7 +921,6 @@ pub(crate) fn translate_operations(
     xobjects: &BTreeMap<XObjectId, XObject>,
     secure: bool,
     warnings: &mut Vec<PdfWarnMsg>,
-    pdf: &PdfDocument,
 ) -> Vec<u8> {
     let mut content = Vec::new();
 
@@ -490,14 +969,14 @@ pub(crate) fn translate_operations(
                 content.push(LoOp::new("ET", vec![]));
             }
             Op::WriteTextBuiltinFont { items, font } => {
-                encode_text_items_to_pdf::<PreparedFont>(items, None, None, Some(font), &mut content, pdf);
+                encode_text_items_to_pdf::<PreparedFont>(items, None, None, Some(font), &mut content);
             }
             Op::WriteText { items, font } => {
                 if let Some(prepared_font) = fonts.get(font) {
-                    encode_text_items_to_pdf(items, Some(prepared_font), None, None, &mut content, pdf);
+                    encode_text_items_to_pdf(items, Some(prepared_font), None, None, &mut content);
                 }
                 if let Some(prepared_subsetfont) = subsetfonts.get(font) {
-                    encode_text_items_to_pdf::<PreparedFont>(items, None, Some(prepared_subsetfont), None, &mut content, pdf);
+                    encode_text_items_to_pdf::<PreparedFont>(items, None, Some(prepared_subsetfont), None, &mut content);
                 }
             }
             Op::WriteCodepoints { font, cp } => {
@@ -735,7 +1214,6 @@ fn encode_text_items_to_pdf<T: PrepFont>(
     prepared_subsetfont: Option<&PreparedSubsetFont>,
     builtin_font: Option<&BuiltinFont>,
     content: &mut Vec<LoOp>,
-    pdf: &PdfDocument,
 ) {
     // Skip if no items
     if items.is_empty() {
@@ -816,9 +1294,8 @@ fn encode_text_items_to_pdf<T: PrepFont>(
                     tj_array.push(LoString(bytes, Hexadecimal));
                 } else if builtin_font.is_some() {
                     // For built-in fonts, use WinAnsiEncoding
-                    let tmp_font_dict = builtin_font_to_dict(builtin_font.unwrap());
                     let bytes = lopdf::Document::encode_text(
-                        &tmp_font_dict.get_font_encoding(&pdf.to_lopdf_document(&PdfSaveOptions::default(), &mut Vec::new())).unwrap(),
+                        &lopdf::Encoding::OneByteEncoding(&WIN_ANSI_ENCODING),
                         text,
                     );
 
