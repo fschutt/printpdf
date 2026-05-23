@@ -728,6 +728,15 @@ pub(crate) fn translate_operations(
 // IMPORTANT: This function uses ORIGINAL glyph IDs directly.
 // Font subsetting (if enabled) happens at font serialization time,
 // and the glyph ID remapping is done there, not here.
+/// Map an original glyph id to the subset's renumbered id when the font was
+/// subset; otherwise return it unchanged. Unmapped gids fall back to 0 (.notdef).
+fn remap_gid(font_info: Option<&RuntimeFontInfo>, gid: u16) -> u16 {
+    match font_info.and_then(|fi| fi.gid_remap.as_ref()) {
+        Some(map) => map.get(&gid).copied().unwrap_or(0),
+        None => gid,
+    }
+}
+
 fn encode_text_items_to_pdf(
     items: &[TextItem],
     font_info: Option<&RuntimeFontInfo>,
@@ -750,9 +759,8 @@ fn encode_text_items_to_pdf(
                     // Use original GIDs - subsetting remapping happens at font serialization
                     let bytes: Vec<u8> = text.chars()
                         .flat_map(|c| {
-                            font_info.parsed_font.lookup_glyph_index(c as u32)
-                                .unwrap_or(0)
-                                .to_be_bytes()
+                            let orig = font_info.parsed_font.lookup_glyph_index(c as u32).unwrap_or(0);
+                            remap_gid(Some(font_info), orig).to_be_bytes()
                         })
                         .collect();
 
@@ -782,7 +790,8 @@ fn encode_text_items_to_pdf(
                 // Use original glyph IDs directly
                 // Subsetting remapping happens at font serialization time
                 for codepoint in glyphs {
-                    let bytes = codepoint.gid.to_be_bytes().to_vec();
+                    let gid = remap_gid(font_info, codepoint.gid);
+                    let bytes = gid.to_be_bytes().to_vec();
                     tj_array.push(LoString(bytes, Hexadecimal));
                     if codepoint.offset != 0.0 {
                         tj_array.push(Real(codepoint.offset));
@@ -818,6 +827,12 @@ fn needs_hex_encoding(bytes: &[u8]) -> bool {
 #[derive(Debug, Clone)]
 pub(crate) struct RuntimeFontInfo {
     pub parsed_font: ParsedFont,
+    /// When the font is subset, maps each original glyph id -> the renumbered
+    /// subset glyph id. The content stream must emit the subset ids so they line
+    /// up with the renumbered font program, its `/W` widths and `/ToUnicode`
+    /// (all keyed by the new ids). `None` when the full font is embedded — then
+    /// the content keeps original gids (which match the un-renumbered font).
+    pub gid_remap: Option<BTreeMap<u16, u16>>,
 }
 
 /// Font subsetting information computed at serialization time (when subsetting is enabled)
@@ -829,6 +844,9 @@ pub(crate) struct RuntimeSubsetInfo {
     pub widths_list: Vec<lopdf::Object>,
     pub ascent: i64,
     pub descent: i64,
+    /// Original glyph id -> renumbered subset glyph id. Empty when the full font
+    /// is embedded (no renumbering). Used to remap content-stream glyph codes.
+    pub gid_remap: BTreeMap<u16, u16>,
 }
 
 /// Analyze all PDF operations to collect used glyph IDs for each font - now trivial with Codepoint!
@@ -1190,9 +1208,11 @@ pub(crate) fn prepare_fonts_for_serialization(
             continue; // Skip unused fonts
         }
         
-        // Always create RuntimeFontInfo for text encoding (uses original GIDs)
+        // Always create RuntimeFontInfo for text encoding. `gid_remap` is filled
+        // below iff this font is actually subset (renumbered).
         font_infos.insert(font_id.clone(), RuntimeFontInfo {
             parsed_font: pdf_font.parsed_font.clone(),
+            gid_remap: None,
         });
         
         // Create RuntimeSubsetInfo for font dictionary
@@ -1210,7 +1230,15 @@ pub(crate) fn prepare_fonts_for_serialization(
         
         #[cfg(not(feature = "text_layout"))]
         let subset_info = create_full_font_runtime_info(font_id, pdf_font, &glyph_usage);
-        
+
+        // If the font was actually subset (renumbered), the content stream must
+        // emit the subset glyph ids — thread the remap into the text encoder.
+        if !subset_info.gid_remap.is_empty() {
+            if let Some(fi) = font_infos.get_mut(font_id) {
+                fi.gid_remap = Some(subset_info.gid_remap.clone());
+            }
+        }
+
         subset_infos.insert(font_id.clone(), subset_info);
     }
     
@@ -1232,14 +1260,22 @@ fn create_subset_runtime_info(
             let mut font_warnings = Vec::new();
             if let Some(subset_font) = ParsedFont::from_bytes(&subset.bytes, 0, &mut font_warnings) {
                 
-                let new_glyph_ids: Vec<(u16, char)> = glyph_usage
-                    .iter()
-                    .filter_map(|(orig_gid, char)| 
-                        subset.glyph_mapping.get(orig_gid)
-                            .map(|(subset_gid, _)| (*subset_gid, *char))
-                    )
-                    .collect();
-                
+                // Recover the REAL original->new gid mapping from the subset font's
+                // own Unicode cmap, rather than assuming allsorts renumbers glyphs in
+                // input order (`new_gid = idx+1`). That assumption is wrong for many
+                // fonts: ToUnicode stays correct (copy/paste works) but the rendered
+                // outlines are scrambled. For each used glyph (known by its char), the
+                // subset cmap yields the actual gid whose outline draws that char, so
+                // content stream, /W and /ToUnicode all agree with the font program.
+                let mut gid_remap: BTreeMap<u16, u16> = BTreeMap::new();
+                let mut new_glyph_ids: Vec<(u16, char)> = Vec::new();
+                for (orig_gid, ch) in glyph_usage.iter() {
+                    if let Some(new_gid) = subset_font.lookup_glyph_index(*ch as u32) {
+                        gid_remap.insert(*orig_gid, new_gid);
+                        new_glyph_ids.push((new_gid, *ch));
+                    }
+                }
+
                 let cid_to_unicode_map = crate::font::generate_cmap_string(
                     &subset_font, 
                     font_id, 
@@ -1261,6 +1297,7 @@ fn create_subset_runtime_info(
                     widths_list: widths,
                     ascent: subset_font.font_metrics.ascent as i64,
                     descent: subset_font.font_metrics.descent as i64,
+                    gid_remap,
                 })
             } else {
                 warnings.push(PdfWarnMsg::error(0, 0, 
@@ -1314,6 +1351,8 @@ fn create_full_font_runtime_info(
         widths_list: widths,
         ascent: pdf_font.parsed_font.font_metrics.ascent as i64,
         descent: pdf_font.parsed_font.font_metrics.descent as i64,
+        // Full font: no renumbering, so the content keeps original gids.
+        gid_remap: BTreeMap::new(),
     }
 }
 
