@@ -294,6 +294,7 @@ pub fn to_lopdf_doc(
                 &pdf.resources.xobjects.map,
                 opts.secure,
                 warnings,
+                pdf,
             ); // Vec<u8>
             let merged_layer_stream =
                 LoStream::new(LoDictionary::new(), layer_stream);
@@ -440,6 +441,7 @@ pub(crate) fn translate_operations(
     xobjects: &BTreeMap<XObjectId, XObject>,
     secure: bool,
     warnings: &mut Vec<PdfWarnMsg>,
+    pdf: &PdfDocument,
 ) -> Vec<u8> {
     let mut content = Vec::new();
 
@@ -488,14 +490,14 @@ pub(crate) fn translate_operations(
                 content.push(LoOp::new("ET", vec![]));
             }
             Op::WriteTextBuiltinFont { items, font } => {
-                encode_text_items_to_pdf::<PreparedFont>(items, None, None, Some(font), &mut content);
+                encode_text_items_to_pdf::<PreparedFont>(items, None, None, Some(font), &mut content, pdf);
             }
             Op::WriteText { items, font } => {
                 if let Some(prepared_font) = fonts.get(font) {
-                    encode_text_items_to_pdf(items, Some(prepared_font), None, None, &mut content);
+                    encode_text_items_to_pdf(items, Some(prepared_font), None, None, &mut content, pdf);
                 }
                 if let Some(prepared_subsetfont) = subsetfonts.get(font) {
-                    encode_text_items_to_pdf::<PreparedFont>(items, None, Some(prepared_subsetfont), None, &mut content);
+                    encode_text_items_to_pdf::<PreparedFont>(items, None, Some(prepared_subsetfont), None, &mut content, pdf);
                 }
             }
             Op::WriteCodepoints { font, cp } => {
@@ -733,6 +735,7 @@ fn encode_text_items_to_pdf<T: PrepFont>(
     prepared_subsetfont: Option<&PreparedSubsetFont>,
     builtin_font: Option<&BuiltinFont>,
     content: &mut Vec<LoOp>,
+    pdf: &PdfDocument,
 ) {
     // Skip if no items
     if items.is_empty() {
@@ -813,8 +816,9 @@ fn encode_text_items_to_pdf<T: PrepFont>(
                     tj_array.push(LoString(bytes, Hexadecimal));
                 } else if builtin_font.is_some() {
                     // For built-in fonts, use WinAnsiEncoding
+                    let tmp_font_dict = builtin_font_to_dict(builtin_font.unwrap());
                     let bytes = lopdf::Document::encode_text(
-                        &lopdf::Encoding::OneByteEncoding(b"WinAnsiEncoding"),
+                        &tmp_font_dict.get_font_encoding(&pdf.to_lopdf_document(&PdfSaveOptions::default(), &mut Vec::new())).unwrap(),
                         text,
                     );
 

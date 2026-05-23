@@ -67,6 +67,7 @@ impl Svg {
             &BTreeMap::new(),
             true,
             warnings,
+            &pdf,
         );
 
         // Scale the PDF content down to a 1:1 unit square,
