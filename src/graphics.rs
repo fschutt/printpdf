@@ -1194,15 +1194,17 @@ pub fn extgstate_to_dict(val: &ExtendedGraphicsState) -> LoDictionary {
         gs_operations.push(("OPM".to_string(), Integer(val.overprint_mode.get_id())));
     }
 
+    // PDF ExtGState: `ca` is the nonstroking (fill) alpha, `CA` is the stroking
+    // (stroke) alpha. (Previously these two keys were swapped.)
     if val.changed_fields.contains(&ChangedField::CurrentFillAlpha) {
-        gs_operations.push(("CA".to_string(), Real(val.current_fill_alpha)));
+        gs_operations.push(("ca".to_string(), Real(val.current_fill_alpha)));
     }
 
     if val
         .changed_fields
         .contains(&ChangedField::CurrentStrokeAlpha)
     {
-        gs_operations.push(("ca".to_string(), Real(val.current_stroke_alpha)));
+        gs_operations.push(("CA".to_string(), Real(val.current_stroke_alpha)));
     }
 
     if val.changed_fields.contains(&ChangedField::BlendMode) {

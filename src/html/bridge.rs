@@ -242,12 +242,13 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
             // Convert rectangle to PDF polygon
             ops.push(Op::SaveGraphicsState);
 
-            // Convert DisplayList BorderRadius to border module BorderRadii
+            // Convert DisplayList BorderRadius (CSS px) to border-module BorderRadii,
+            // scaled to PDF pt to match the pt-space `b` computed below.
             let radii = crate::html::border::BorderRadii {
-                top_left: (border_radius.top_left, border_radius.top_left),
-                top_right: (border_radius.top_right, border_radius.top_right),
-                bottom_right: (border_radius.bottom_right, border_radius.bottom_right),
-                bottom_left: (border_radius.bottom_left, border_radius.bottom_left),
+                top_left: (border_radius.top_left * CSS_PX_TO_PT, border_radius.top_left * CSS_PX_TO_PT),
+                top_right: (border_radius.top_right * CSS_PX_TO_PT, border_radius.top_right * CSS_PX_TO_PT),
+                bottom_right: (border_radius.bottom_right * CSS_PX_TO_PT, border_radius.bottom_right * CSS_PX_TO_PT),
+                bottom_left: (border_radius.bottom_left * CSS_PX_TO_PT, border_radius.bottom_left * CSS_PX_TO_PT),
             };
             
             // Check if we have border radius
@@ -511,8 +512,59 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
             }
         }
 
+        DisplayListItem::PushClip { bounds, border_radius } => {
+            // Begin a clip scope: save the graphics state, then intersect the
+            // current clip path with this (optionally rounded) rectangle. The
+            // matching `PopClip` restores the state (un-clips). Nesting is handled
+            // by PDF's own q/Q graphics-state stack, so no separate clip stack is
+            // needed here. `PaintMode::Clip` makes `polygon_to_stream_ops` emit the
+            // path followed by `W`/`W*` + `n` instead of a fill/stroke.
+            ops.push(Op::SaveGraphicsState);
+
+            let radii = crate::html::border::BorderRadii {
+                top_left: (border_radius.top_left * CSS_PX_TO_PT, border_radius.top_left * CSS_PX_TO_PT),
+                top_right: (border_radius.top_right * CSS_PX_TO_PT, border_radius.top_right * CSS_PX_TO_PT),
+                bottom_right: (border_radius.bottom_right * CSS_PX_TO_PT, border_radius.bottom_right * CSS_PX_TO_PT),
+                bottom_left: (border_radius.bottom_left * CSS_PX_TO_PT, border_radius.bottom_left * CSS_PX_TO_PT),
+            };
+            let has_radius = radii.top_left.0 > 0.0 || radii.top_right.0 > 0.0
+                || radii.bottom_right.0 > 0.0 || radii.bottom_left.0 > 0.0;
+
+            let polygon = if has_radius {
+                let b = bounds_px_to_pt(bounds.inner());
+                let points = crate::html::border::create_rounded_rect_path_with_margins(
+                    b.origin.x, b.origin.y, b.size.width, b.size.height,
+                    &radii, page_height, margin_left, margin_top,
+                );
+                crate::graphics::Polygon {
+                    rings: vec![crate::graphics::PolygonRing { points }],
+                    mode: crate::graphics::PaintMode::Clip,
+                    winding_order: crate::graphics::WindingOrder::NonZero,
+                }
+            } else {
+                let x = transform.x(bounds.origin().x);
+                let y = transform.rect_y(bounds.origin().y, bounds.size().height);
+                let w = transform.dim(bounds.size().width);
+                let h = transform.dim(bounds.size().height);
+                let mut p = make_rect_polygon_pt(x, y, w, h);
+                p.mode = crate::graphics::PaintMode::Clip;
+                p
+            };
+            ops.push(Op::DrawPolygon { polygon });
+        }
+
+        DisplayListItem::PopClip => {
+            ops.push(Op::RestoreGraphicsState);
+        }
+
         _ => {
-            // Other display list items not yet implemented
+            // Remaining items not yet wired for PDF:
+            //  - PushImageMaskClip/PopImageMaskClip: alpha-mask clipping (would
+            //    need an SMask); content currently renders unclipped (graceful).
+            //  - PushScrollFrame/PushStackingContext/Push(Backdrop)Filter/
+            //    PushTextShadow and their Pops, VirtualView*, ScrollBar*,
+            //    Selection/Cursor (screen-only).
+            // These intentionally emit nothing (and crucially no unbalanced q/Q).
         }
     }
 }

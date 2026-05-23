@@ -139,28 +139,34 @@ impl Default for BorderStyles {
     }
 }
 
-/// Extract border widths from CSS property values
+/// CSS px → PDF pt conversion factor. The HTML border renderer operates entirely
+/// in PDF pt (its `bounds` are converted via `bounds_px_to_pt` before reaching it),
+/// so widths and radii — which CSS resolves to px — must be scaled the same way,
+/// otherwise borders/corners render ~1.333× too thick/large.
+const CSS_PX_TO_PT: f32 = 72.0 / 96.0;
+
+/// Extract border widths from CSS property values, scaled from CSS px to PDF pt.
 pub fn extract_border_widths(widths: &StyleBorderWidths) -> BorderWidths {
     BorderWidths {
         top: widths
             .top
             .and_then(|w| w.get_property().cloned())
-            .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
+            .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * CSS_PX_TO_PT)
             .unwrap_or(0.0),
         right: widths
             .right
             .and_then(|w| w.get_property().cloned())
-            .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
+            .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * CSS_PX_TO_PT)
             .unwrap_or(0.0),
         bottom: widths
             .bottom
             .and_then(|w| w.get_property().cloned())
-            .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
+            .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * CSS_PX_TO_PT)
             .unwrap_or(0.0),
         left: widths
             .left
             .and_then(|w| w.get_property().cloned())
-            .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
+            .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * CSS_PX_TO_PT)
             .unwrap_or(0.0),
     }
 }
@@ -273,10 +279,10 @@ pub fn extract_border_styles(styles: &StyleBorderStyles) -> BorderStyles {
 
 /// Extract border radii from CSS property values
 pub fn extract_border_radii(border_radius: &StyleBorderRadius) -> BorderRadii {
-    let tl = border_radius.top_left.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
-    let tr = border_radius.top_right.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
-    let br = border_radius.bottom_right.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
-    let bl = border_radius.bottom_left.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
+    let tl = border_radius.top_left.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * CSS_PX_TO_PT;
+    let tr = border_radius.top_right.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * CSS_PX_TO_PT;
+    let br = border_radius.bottom_right.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * CSS_PX_TO_PT;
+    let bl = border_radius.bottom_left.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * CSS_PX_TO_PT;
     
     BorderRadii {
         top_left: (tl, tl),      // Use same value for horizontal and vertical
