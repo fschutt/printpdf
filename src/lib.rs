@@ -467,7 +467,7 @@ impl PdfDocument {
 
         // Render XML to pages
         match crate::html::xml_to_pdf_pages(html, &xml_options) {
-            Ok((pages, font_data, images)) => {
+            Ok((pages, font_data, images, bridge_res)) => {
                 // Register fonts from font_data in pdf.resources.fonts
                 for (font_hash, parsed_font) in font_data.iter() {
                     // The font ID matches what the bridge generated
@@ -484,6 +484,10 @@ impl PdfDocument {
                         .map
                         .insert(xobject_id, crate::XObject::Image(raw_image));
                 }
+
+                // Register bridge-synthesized resources (alpha/opacity ExtGStates,
+                // gradient shadings, shadow XObjects) referenced by the page ops.
+                bridge_res.register_into(&mut pdf.resources);
 
                 pdf.pages.extend(pages);
                 Ok(pdf)
@@ -563,7 +567,7 @@ impl PdfDocument {
 
         // Render XML to pages with debug info
         match crate::html::xml_to_pdf_pages_debug(html, &xml_options) {
-            Ok((pages, font_data, debug_info)) => {
+            Ok((pages, font_data, debug_info, bridge_res)) => {
                 // Register fonts from font_data in pdf.resources.fonts
                 for (font_hash, parsed_font) in font_data.iter() {
                     let font_id = FontId(format!("F{}", font_hash.font_hash));
@@ -581,6 +585,8 @@ impl PdfDocument {
                         .map
                         .insert(xobject_id, crate::XObject::Image(raw_image));
                 }
+
+                bridge_res.register_into(&mut pdf.resources);
 
                 pdf.pages.extend(pages);
                 Ok((pdf, debug_info))

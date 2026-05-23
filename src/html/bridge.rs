@@ -22,7 +22,8 @@ use azul_layout::{
     text3::cache::{FontManager, ParsedFontTrait, UnifiedLayout},
 };
 
-use crate::{Color, Mm, Op, Pt, Rgb, FontId, RawImage, XObjectId, XObjectTransform};
+use crate::{Color, Mm, Op, Pt, Rgb, FontId, RawImage, XObjectId, XObjectTransform,
+    ExtendedGraphicsState, ExtendedGraphicsStateId, XObject};
 
 /// Resolved `<img>` resources keyed by the `src` value that appeared in the HTML.
 ///
@@ -31,6 +32,45 @@ use crate::{Color, Mm, Op, Pt, Rgb, FontId, RawImage, XObjectId, XObjectTransfor
 /// so the bridge can read the natural pixel size when building the placement
 /// transform).
 pub type ResolvedImages = BTreeMap<String, (XObjectId, RawImage)>;
+
+/// PDF resources synthesized by the bridge while translating a display list, to
+/// be registered on the destination [`crate::PdfDocument`] before serialization.
+///
+/// The bridge produces a flat `Vec<Op>` and has no access to the document, but
+/// several display-list features need *document-level* resources referenced by
+/// name from the content stream: alpha/opacity and soft masks need an
+/// `ExtGState`, and rasterized effects (conic gradients, blurred shadows) need
+/// image/form `XObject`s. The bridge mints a unique id (via `*::new()`) for each,
+/// emits the op that references it, and records the definition here;
+/// [`BridgeResources::register_into`] then drains them onto the document's
+/// `resources` (mirroring how `<img>` Image XObjects are registered).
+#[derive(Default)]
+pub struct BridgeResources {
+    /// Extended graphics states (fill/stroke alpha, soft masks).
+    pub extgstates: Vec<(ExtendedGraphicsStateId, ExtendedGraphicsState)>,
+    /// Image / form XObjects synthesized by the bridge.
+    pub xobjects: Vec<(XObjectId, XObject)>,
+}
+
+impl BridgeResources {
+    /// Allocate an `ExtGState`, record it, and return its id (for `LoadGraphicsState`).
+    fn add_extgstate(&mut self, gs: ExtendedGraphicsState) -> ExtendedGraphicsStateId {
+        let id = ExtendedGraphicsStateId::new();
+        self.extgstates.push((id.clone(), gs));
+        id
+    }
+
+    /// Drain the synthesized resources into a document's resource maps. Existing
+    /// entries are kept (`or_insert`), matching the merge semantics elsewhere.
+    pub fn register_into(self, resources: &mut crate::PdfResources) {
+        for (id, gs) in self.extgstates {
+            resources.extgstates.map.entry(id).or_insert(gs);
+        }
+        for (id, xobj) in self.xobjects {
+            resources.xobjects.map.entry(id).or_insert(xobj);
+        }
+    }
+}
 
 /// Build the deterministic [`XObjectId`] used to register an `<img src=KEY>`
 /// image on the document. Both the bridge (which emits `Op::UseXobject`) and the
@@ -74,6 +114,23 @@ fn convert_color(color: &ColorU) -> Color {
     })
 }
 
+/// If `color` is translucent (`a < 255`), mint an `ExtGState` carrying the
+/// fill+stroke alpha, record it on `bridge_res`, and emit `LoadGraphicsState`
+/// so the subsequent fill/stroke draws with that alpha. Call this *inside* a
+/// q/Q (Save/RestoreGraphicsState) scope so the alpha stays local to the
+/// current primitive. No-op for fully opaque colors.
+fn apply_fill_alpha(ops: &mut Vec<Op>, bridge_res: &mut BridgeResources, color: &ColorU) {
+    if color.a >= 255 {
+        return;
+    }
+    let alpha = color.a as f32 / 255.0;
+    let mut gs = ExtendedGraphicsState::default();
+    gs.set_current_fill_alpha(alpha);
+    gs.set_current_stroke_alpha(alpha);
+    let id = bridge_res.add_extgstate(gs);
+    ops.push(Op::LoadGraphicsState { gs: id });
+}
+
 /// Convert a display list directly to printpdf Ops with margin support.
 /// 
 /// This version applies margins during coordinate transformation:
@@ -91,6 +148,7 @@ pub fn display_list_to_printpdf_ops_with_margins<T: ParsedFontTrait + 'static>(
     margin_top_pt: f32,
     font_manager: &FontManager<T>,
     images: &ResolvedImages,
+    bridge_res: &mut BridgeResources,
 ) -> Result<Vec<Op>, String> {
     let mut ops = Vec::new();
     let page_height = page_size.height;
@@ -110,6 +168,7 @@ pub fn display_list_to_printpdf_ops_with_margins<T: ParsedFontTrait + 'static>(
             &mut current_text_layout,
             font_manager,
             images,
+            bridge_res,
         );
     }
 
@@ -124,7 +183,12 @@ pub fn display_list_to_printpdf_ops<T: ParsedFontTrait + 'static>(
     page_size: LogicalSize,
     font_manager: &FontManager<T>,
 ) -> Result<Vec<Op>, String> {
-    display_list_to_printpdf_ops_with_margins(display_list, page_size, 0.0, 0.0, font_manager, &ResolvedImages::new())
+    // Back-compat entry point: callers here do not collect bridge-synthesized
+    // resources (alpha/opacity/gradients/shadows), so those would not be
+    // registered. Prefer `display_list_to_printpdf_ops_with_margins` +
+    // `BridgeResources::register_into`.
+    let mut bridge_res = BridgeResources::default();
+    display_list_to_printpdf_ops_with_margins(display_list, page_size, 0.0, 0.0, font_manager, &ResolvedImages::new(), &mut bridge_res)
 }
 
 /// CSS px to PDF pt conversion factor.
@@ -225,6 +289,7 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
     current_text_layout: &mut Option<(&'a UnifiedLayout, LogicalRect)>,
     font_manager: &FontManager<T>,
     images: &ResolvedImages,
+    bridge_res: &mut BridgeResources,
 ) {
     let transform = CoordTransform::new(page_height, margin_left, margin_top);
     
@@ -241,6 +306,7 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
             
             // Convert rectangle to PDF polygon
             ops.push(Op::SaveGraphicsState);
+            apply_fill_alpha(ops, bridge_res, color);
 
             // Convert DisplayList BorderRadius (CSS px) to border-module BorderRadii,
             // scaled to PDF pt to match the pt-space `b` computed below.
@@ -506,10 +572,31 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
                 let h = transform.dim(bounds.size().height);
 
                 ops.push(Op::SaveGraphicsState);
+                apply_fill_alpha(ops, bridge_res, color);
                 ops.push(Op::SetFillColor { col: convert_color(color) });
                 ops.push(Op::DrawPolygon { polygon: make_rect_polygon_pt(x, y, w, h) });
                 ops.push(Op::RestoreGraphicsState);
             }
+        }
+
+        DisplayListItem::PushOpacity { opacity, .. } => {
+            // Approximate group opacity by setting fill+stroke alpha for the
+            // wrapped content until PopOpacity. (True isolated group opacity
+            // would need a transparency-group XObject; per-primitive alpha is
+            // correct for non-overlapping content, which is the common case.)
+            ops.push(Op::SaveGraphicsState);
+            let a = (*opacity).clamp(0.0, 1.0);
+            if a < 1.0 {
+                let mut gs = ExtendedGraphicsState::default();
+                gs.set_current_fill_alpha(a);
+                gs.set_current_stroke_alpha(a);
+                let id = bridge_res.add_extgstate(gs);
+                ops.push(Op::LoadGraphicsState { gs: id });
+            }
+        }
+
+        DisplayListItem::PopOpacity => {
+            ops.push(Op::RestoreGraphicsState);
         }
 
         DisplayListItem::PushClip { bounds, border_radius } => {
@@ -1001,7 +1088,7 @@ mod tests {
 
         let fm = empty_font_manager();
         let page = LogicalSize { width: 595.0, height: 842.0 }; // A4 pt
-        let ops = display_list_to_printpdf_ops_with_margins(&dl, page, 0.0, 0.0, &fm, &resolved)
+        let ops = display_list_to_printpdf_ops_with_margins(&dl, page, 0.0, 0.0, &fm, &resolved, &mut BridgeResources::default())
             .expect("bridge conversion");
 
         let use_xobject = ops.iter().find_map(|op| match op {
@@ -1058,6 +1145,7 @@ mod tests {
             0.0,
             &fm,
             &ResolvedImages::new(),
+            &mut BridgeResources::default(),
         )
         .expect("bridge conversion");
 
@@ -1065,6 +1153,65 @@ mod tests {
             !ops.iter().any(|op| matches!(op, Op::UseXobject { .. })),
             "no UseXobject when bytes are missing"
         );
+    }
+
+    /// A translucent Rect (alpha < 255) must emit a LoadGraphicsState op and
+    /// record exactly one ExtGState carrying the fill alpha on BridgeResources.
+    #[test]
+    fn translucent_rect_emits_extgstate_alpha() {
+        let bounds = WindowLogicalRect(LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: LogicalSize { width: 50.0, height: 50.0 },
+        });
+        let mut dl = DisplayList::default();
+        dl.items.push(DisplayListItem::Rect {
+            bounds,
+            color: ColorU { r: 255, g: 0, b: 0, a: 128 }, // 50% red
+            border_radius: BorderRadius::default(),
+        });
+
+        let fm = empty_font_manager();
+        let mut bridge_res = BridgeResources::default();
+        let ops = display_list_to_printpdf_ops_with_margins(
+            &dl,
+            LogicalSize { width: 595.0, height: 842.0 },
+            0.0,
+            0.0,
+            &fm,
+            &ResolvedImages::new(),
+            &mut bridge_res,
+        )
+        .expect("bridge conversion");
+
+        assert!(
+            ops.iter().any(|op| matches!(op, Op::LoadGraphicsState { .. })),
+            "translucent fill must load an ExtGState"
+        );
+        assert_eq!(bridge_res.extgstates.len(), 1, "one ExtGState recorded");
+        let (_, gs) = &bridge_res.extgstates[0];
+        assert!((gs.current_fill_alpha() - 128.0 / 255.0).abs() < 1e-3, "fill alpha set");
+    }
+
+    /// An opaque Rect (alpha == 255) must NOT create any ExtGState.
+    #[test]
+    fn opaque_rect_has_no_extgstate() {
+        let bounds = WindowLogicalRect(LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: LogicalSize { width: 50.0, height: 50.0 },
+        });
+        let mut dl = DisplayList::default();
+        dl.items.push(DisplayListItem::Rect {
+            bounds,
+            color: ColorU { r: 0, g: 0, b: 255, a: 255 },
+            border_radius: BorderRadius::default(),
+        });
+        let fm = empty_font_manager();
+        let mut bridge_res = BridgeResources::default();
+        let _ = display_list_to_printpdf_ops_with_margins(
+            &dl, LogicalSize { width: 595.0, height: 842.0 }, 0.0, 0.0, &fm,
+            &ResolvedImages::new(), &mut bridge_res,
+        ).expect("bridge conversion");
+        assert!(bridge_res.extgstates.is_empty(), "opaque fill needs no ExtGState");
     }
 
     /// End-to-end serialization: a document carrying the decoded image as an

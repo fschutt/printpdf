@@ -228,7 +228,7 @@ fn default_page_height() -> Mm {
 pub fn xml_to_pdf_pages(
     xml: &str,
     options: &XmlRenderOptions,
-) -> Result<(Vec<PdfPage>, BTreeMap<FontHash, ParsedFont>, bridge::ResolvedImages), Vec<PdfWarnMsg>> {
+) -> Result<(Vec<PdfPage>, BTreeMap<FontHash, ParsedFont>, bridge::ResolvedImages, bridge::BridgeResources), Vec<PdfWarnMsg>> {
     let mut warnings = Vec::new();
     // Type-safe preprocessing: RawHtml -> PreprocessedHtml
     let preprocessed = RawHtml::new(xml).preprocess();
@@ -395,6 +395,10 @@ pub fn xml_to_pdf_pages(
     // gets a deterministic XObject id so the bridge's `UseXobject` ops and the
     // document-side XObject registration agree.
     let resolved_images = bridge::resolve_html_images(&options.images);
+    // Resources synthesized by the bridge (alpha/opacity ExtGStates, gradient
+    // shadings, shadow XObjects), accumulated across pages and registered by
+    // the caller (`from_html*`) via `BridgeResources::register_into`.
+    let mut bridge_res = bridge::BridgeResources::default();
 
     // Convert each DisplayList to a PDF page
     let mut pages = Vec::new();
@@ -428,6 +432,7 @@ pub fn xml_to_pdf_pages(
             margin_top_pt,
             &font_manager,
             &resolved_images,
+            &mut bridge_res,
         ).map_err(|e| vec![PdfWarnMsg::warning(0, 0, format!("Failed to convert display list: {}", e))])?;
         
         // Extract fonts from TextLayout items by collecting font hashes from the layout
@@ -479,7 +484,7 @@ pub fn xml_to_pdf_pages(
     }
 
     // Always return Ok with pages, fonts, and decoded image resources
-    Ok((pages, font_data_map, resolved_images))
+    Ok((pages, font_data_map, resolved_images, bridge_res))
 }
 
 /// Debug information from PDF generation
@@ -497,7 +502,7 @@ pub struct PdfDebugInfo {
 pub fn xml_to_pdf_pages_debug(
     xml: &str,
     options: &XmlRenderOptions,
-) -> Result<(Vec<PdfPage>, BTreeMap<FontHash, ParsedFont>, PdfDebugInfo), Vec<PdfWarnMsg>> {
+) -> Result<(Vec<PdfPage>, BTreeMap<FontHash, ParsedFont>, PdfDebugInfo, bridge::BridgeResources), Vec<PdfWarnMsg>> {
     eprintln!("[DEBUG xml_to_pdf_pages_debug] Starting, xml length={}", xml.len());
     let mut warnings = Vec::new();
     let mut debug_info = PdfDebugInfo {
@@ -711,6 +716,7 @@ pub fn xml_to_pdf_pages_debug(
     // Decode embedded `<img>` bytes once (same deterministic ids as the
     // document-side XObject registration).
     let resolved_images = bridge::resolve_html_images(&options.images);
+    let mut bridge_res = bridge::BridgeResources::default();
 
     // Convert each DisplayList to a PDF page
     let mut pages = Vec::new();
@@ -772,6 +778,7 @@ pub fn xml_to_pdf_pages_debug(
             margin_top_pt,
             &font_manager,
             &resolved_images,
+            &mut bridge_res,
         ).map_err(|e| vec![PdfWarnMsg::warning(0, 0, format!("Failed to convert display list: {}", e))])?;
 
         // Debug: capture PDF ops for first page only
@@ -829,7 +836,7 @@ pub fn xml_to_pdf_pages_debug(
         pages.push(page);
     }
 
-    Ok((pages, font_data_map, debug_info))
+    Ok((pages, font_data_map, debug_info, bridge_res))
 }
 
 /// Add XML/HTML content to an existing PDF document
@@ -839,7 +846,7 @@ pub fn add_xml_to_document(
     options: &XmlRenderOptions,
 ) -> Result<(), Vec<PdfWarnMsg>> {
     match xml_to_pdf_pages(xml, options) {
-        Ok((pages, font_data, images)) => {
+        Ok((pages, font_data, images, bridge_res)) => {
             // Register fonts in the document
             for (font_hash, parsed_font) in font_data.into_iter() {
                 let font_id = crate::FontId(format!("F{}", font_hash.font_hash));
@@ -855,6 +862,7 @@ pub fn add_xml_to_document(
                     .map
                     .insert(xobject_id, crate::XObject::Image(raw_image));
             }
+            bridge_res.register_into(&mut document.resources);
             document.pages.extend(pages);
             Ok(())
         }
@@ -1127,7 +1135,7 @@ mod tests {
         let mut options = XmlRenderOptions::default();
         options.images.insert("cat.jpg".to_string(), cat_jpg.to_vec());
 
-        let (pages, _fonts, images) =
+        let (pages, _fonts, images, _bridge_res) =
             xml_to_pdf_pages(xml, &options).expect("xml_to_pdf_pages should succeed");
 
         // (a) the image was decoded and assigned the deterministic id.
