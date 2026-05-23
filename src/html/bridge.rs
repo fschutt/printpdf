@@ -194,7 +194,7 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
             border_radius,
         } => {
             // Skip rectangles with zero size (layout artifacts from empty inline elements)
-            if bounds.size.width == 0.0 || bounds.size.height == 0.0 {
+            if bounds.size().width == 0.0 || bounds.size().height == 0.0 {
                 return;
             }
             
@@ -218,7 +218,7 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
             if has_radius {
                 // Use rounded rectangle path for filling (with margin-adjusted coordinates)
                 // Convert layout coordinates from CSS px to PDF pt before passing
-                let b = bounds_px_to_pt(bounds);
+                let b = bounds_px_to_pt(bounds.inner());
                 let points = crate::html::border::create_rounded_rect_path_with_margins(
                     b.origin.x,
                     b.origin.y,
@@ -242,10 +242,10 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
                 ops.push(Op::DrawPolygon { polygon });
             } else {
                 // Simple rectangle without border radius
-                let x = transform.x(bounds.origin.x);
-                let y = transform.rect_y(bounds.origin.y, bounds.size.height);
-                let w = transform.dim(bounds.size.width);
-                let h = transform.dim(bounds.size.height);
+                let x = transform.x(bounds.origin().x);
+                let y = transform.rect_y(bounds.origin().y, bounds.size().height);
+                let w = transform.dim(bounds.size().width);
+                let h = transform.dim(bounds.size().height);
 
                 ops.push(Op::SetFillColor {
                     col: convert_color(color),
@@ -266,14 +266,14 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
             // Extract the UnifiedLayout from the type-erased Arc<dyn Any>
             if let Some(unified_layout) = layout.downcast_ref::<azul_layout::text3::cache::UnifiedLayout>() {
                 // Process this TextLayout immediately with margin support
-                render_unified_layout_with_margins(ops, unified_layout, bounds, *color, &transform, font_manager);
-                
+                render_unified_layout_with_margins(ops, unified_layout, bounds.inner(), *color, &transform, font_manager);
+
                 // Also update the current text layout for any subsequent processing
-                *current_text_layout = Some((unified_layout, *bounds));
+                *current_text_layout = Some((unified_layout, *bounds.inner()));
             }
         }
 
-        DisplayListItem::Text { glyphs, font_hash, font_size_px, color, clip_rect: _ } => {
+        DisplayListItem::Text { glyphs, font_hash, font_size_px, color, clip_rect: _, source_node_index: _ } => {
             // Render simple text items (used for headers/footers)
             // These use Unicode codepoints as glyph indices and a placeholder font hash (0)
             // 
@@ -382,7 +382,7 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
         } => {
             // Use comprehensive border rendering with margin support
             // Convert bounds from CSS px to PDF pt
-            let bounds_pt = bounds_px_to_pt(bounds);
+            let bounds_pt = bounds_px_to_pt(bounds.inner());
             let config = BorderConfig {
                 bounds: bounds_pt,
                 widths: extract_border_widths(widths),
@@ -397,7 +397,7 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
             render_border(ops, &config);
         }
 
-        DisplayListItem::Image { bounds: _, image: _ } => {
+        DisplayListItem::Image { bounds: _, image: _, border_radius: _ } => {
             // Image rendering - not yet implemented
         }
 
@@ -406,11 +406,11 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
         | DisplayListItem::Overline { bounds, color, thickness: _ } => {
             // Text decorations are rendered as simple filled rectangles.
             // The decoration thickness is already encoded in bounds.size.height.
-            if bounds.size.width > 0.0 && bounds.size.height > 0.0 {
-                let x = transform.x(bounds.origin.x);
-                let y = transform.rect_y(bounds.origin.y, bounds.size.height);
-                let w = transform.dim(bounds.size.width);
-                let h = transform.dim(bounds.size.height);
+            if bounds.size().width > 0.0 && bounds.size().height > 0.0 {
+                let x = transform.x(bounds.origin().x);
+                let y = transform.rect_y(bounds.origin().y, bounds.size().height);
+                let w = transform.dim(bounds.size().width);
+                let h = transform.dim(bounds.size().height);
 
                 ops.push(Op::SaveGraphicsState);
                 ops.push(Op::SetFillColor { col: convert_color(color) });

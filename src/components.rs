@@ -1,490 +1,245 @@
-use std::collections::BTreeMap;
+//! printpdf's custom XML/HTML components for the data-driven azul component system.
+//!
+//! As of azul-core 0.0.8 the old `XmlComponentTrait` was replaced by a data-driven
+//! [`ComponentDef`] model (id = `collection:name`, a typed `data_model`, and bare
+//! `render_fn` / `compile_fn` function pointers). The `builtin` library shipped with
+//! azul-core already renders ~90 standard HTML tags (html/body/div/h1-h6/p/span/table/
+//! tr/td/a/ul/li/…), so printpdf no longer needs to register those itself.
+//!
+//! This module therefore only defines printpdf's **custom** components — the ones that
+//! are *not* part of azul's builtin library:
+//!
+//! * [`img_component_def`] — `<img>` (PDF image embedding). `img` is not a builtin tag.
+//! * [`dynamic_xml_component_def`] — `<component name="…" args="…">` user-defined
+//!   reusable components (printpdf issue #268).
+//!
+//! [`printpdf_default_components`] returns azul's builtin [`ComponentMap`] with a small
+//! `"printpdf"` library (holding the two components above) appended.
+//!
+//! ## Runtime note
+//!
+//! The published azul-core `str_to_dom` rendering path (`render_dom_from_body_node_fast`
+//! → `xml_node_to_fast_dom`) maps tags straight to `NodeType` via `tag_to_node_type` and
+//! does **not** invoke any `ComponentDef::render_fn`. The `render_fn`/`compile_fn`
+//! machinery is only consumed by the code-generation / preview path (`str_to_rust_code`).
+//! These custom defs are therefore primarily descriptive for that path; see the crate
+//! notes / issue #268 for the image-embedding follow-up.
 
 use azul_core::{
-    dom::{Dom, NodeData, NodeType},
+    dom::{Dom, NodeType},
     styled_dom::StyledDom,
     xml::{
-        normalize_casing, CompileError, ComponentArguments,
-        FilteredComponentArguments, RenderDomError, XmlComponent, XmlComponentMap,
-        XmlComponentTrait, XmlNode, XmlTextContent,
+        ComponentDataField, ComponentDataModel, ComponentDef, ComponentFieldType, ComponentId,
+        ComponentLibrary, ComponentMap, ComponentSource, ComponentDefaultValue,
+        CompileTarget, OptionComponentDefaultValue, RenderDomError,
+        ResultStringCompileError, ResultStyledDomRenderDomError,
     },
 };
+use azul_css::{css::Css, AzString};
 
-/// Macro to generate HTML element components with default CSS
-/// Each HTML tag becomes a component that renders the corresponding DOM node
-macro_rules! html_component {
-    ($name:ident, $tag:expr, $node_type:expr) => {
-        html_component!($name, $tag, $node_type, "");
-    };
-    ($name:ident, $tag:expr, $node_type:expr, $default_css:expr) => {
-        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-        pub struct $name {
-            node: XmlNode,
-        }
-
-        impl $name {
-            pub fn new() -> Self {
-                Self {
-                    node: XmlNode::create($tag),
-                }
-            }
-        }
-
-        impl XmlComponentTrait for $name {
-            fn get_available_arguments(&self) -> ComponentArguments {
-                ComponentArguments::default()
-            }
-
-            fn render_dom(
-                &self,
-                _: &XmlComponentMap,
-                _: &FilteredComponentArguments,
-                text: &XmlTextContent,
-            ) -> Result<StyledDom, RenderDomError> {
-                // Create the DOM node manually
-                let node_data = NodeData::create_node($node_type);
-                let mut dom = Dom {
-                    root: node_data,
-                    children: Vec::new().into(),
-                    estimated_total_children: 0,
-                };
-                
-                // Add text content if present
-                if let Some(text_str) = text.as_ref() {
-                    if !text_str.is_empty() {
-                        let text_node = NodeData::create_text(text_str.as_str());
-                        let text_dom = Dom {
-                            root: text_node,
-                            children: Vec::new().into(),
-                            estimated_total_children: 0,
-                        };
-                        dom = dom.with_child(text_dom);
-                    }
-                }
-                
-                // Apply default CSS if provided
-                let css = if $default_css.is_empty() {
-                    azul_css::css::Css::default()
-                } else {
-                    azul_css::css::Css::from_string($default_css.into())
-                };
-                
-                Ok(dom.style(css))
-            }
-
-            fn compile_to_rust_code(
-                &self,
-                _: &XmlComponentMap,
-                _: &ComponentArguments,
-                _: &XmlTextContent,
-            ) -> Result<String, CompileError> {
-                Ok(format!("Dom::new(NodeType::{})", stringify!($node_type)))
-            }
-
-            fn get_xml_node(&self) -> XmlNode {
-                self.node.clone()
-            }
-        }
-    };
-}
-
-// Generate components for common HTML elements
-
-// Structural elements
-html_component!(HtmlRenderer, "html", NodeType::Html);
-html_component!(HeadRenderer, "head", NodeType::Head);
-html_component!(TitleRenderer, "title", NodeType::Title);
-html_component!(BodyRenderer, "body", NodeType::Body);
-
-// Block-level elements
-html_component!(DivRenderer, "div", NodeType::Div);
-html_component!(HeaderRenderer, "header", NodeType::Header);
-html_component!(FooterRenderer, "footer", NodeType::Footer);
-html_component!(SectionRenderer, "section", NodeType::Section);
-html_component!(ArticleRenderer, "article", NodeType::Article);
-html_component!(AsideRenderer, "aside", NodeType::Aside);
-html_component!(NavRenderer, "nav", NodeType::Nav);
-html_component!(MainRenderer, "main", NodeType::Main);
-
-// Heading elements
-html_component!(H1Renderer, "h1", NodeType::H1);
-html_component!(H2Renderer, "h2", NodeType::H2);
-html_component!(H3Renderer, "h3", NodeType::H3);
-html_component!(H4Renderer, "h4", NodeType::H4);
-html_component!(H5Renderer, "h5", NodeType::H5);
-html_component!(H6Renderer, "h6", NodeType::H6);
-
-// Text content elements
-html_component!(PRenderer, "p", NodeType::P);
-html_component!(SpanRenderer, "span", NodeType::Span);
-html_component!(PreRenderer, "pre", NodeType::Pre);
-html_component!(CodeRenderer, "code", NodeType::Code);
-html_component!(BlockquoteRenderer, "blockquote", NodeType::BlockQuote);
-
-// List elements
-html_component!(UlRenderer, "ul", NodeType::Ul);
-html_component!(OlRenderer, "ol", NodeType::Ol);
-html_component!(LiRenderer, "li", NodeType::Li);
-html_component!(DlRenderer, "dl", NodeType::Dl);
-html_component!(DtRenderer, "dt", NodeType::Dt);
-html_component!(DdRenderer, "dd", NodeType::Dd);
-
-// Table elements
-html_component!(TableRenderer, "table", NodeType::Table);
-html_component!(TheadRenderer, "thead", NodeType::THead);
-html_component!(TbodyRenderer, "tbody", NodeType::TBody);
-html_component!(TfootRenderer, "tfoot", NodeType::TFoot);
-html_component!(TrRenderer, "tr", NodeType::Tr);
-html_component!(ThRenderer, "th", NodeType::Th);
-html_component!(TdRenderer, "td", NodeType::Td);
-
-// Inline elements
-html_component!(ARenderer, "a", NodeType::A);
-html_component!(StrongRenderer, "strong", NodeType::Strong);
-html_component!(EmRenderer, "em", NodeType::Em);
-html_component!(BRenderer, "b", NodeType::B);
-html_component!(IRenderer, "i", NodeType::I);
-html_component!(URenderer, "u", NodeType::U);
-html_component!(SmallRenderer, "small", NodeType::Small);
-html_component!(MarkRenderer, "mark", NodeType::Mark);
-html_component!(SubRenderer, "sub", NodeType::Sub);
-html_component!(SupRenderer, "sup", NodeType::Sup);
-
-// Form elements
-html_component!(FormRenderer, "form", NodeType::Form);
-html_component!(LabelRenderer, "label", NodeType::Label);
-html_component!(ButtonRenderer, "button", NodeType::Button);
-
-// Other elements
-html_component!(BrRenderer, "br", NodeType::Br);
-html_component!(HrRenderer, "hr", NodeType::Hr);
-
-/// Image component for rendering images (not yet fully implemented)
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ImgComponent {}
-
-impl XmlComponentTrait for ImgComponent {
-    fn get_available_arguments(&self) -> ComponentArguments {
-        ComponentArguments {
-            accepts_text: false,
-            args: vec![
-                ("src".to_string(), "String".to_string()),
-                ("alt".to_string(), "String".to_string()),
-            ],
-        }
-    }
-
-    fn render_dom(
-        &self,
-        _: &XmlComponentMap,
-        _arguments: &FilteredComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<StyledDom, RenderDomError> {
-        // For now, just return an empty div - image rendering needs proper ImageRef support
-        Ok(Dom::create_div().style(azul_css::css::Css::default()))
-    }
-
-    fn compile_to_rust_code(
-        &self,
-        _: &XmlComponentMap,
-        _: &ComponentArguments,
-        _: &XmlTextContent,
-    ) -> Result<String, CompileError> {
-        Ok("Dom::div() /* Image not yet supported */".to_string())
-    }
-
-    fn get_xml_node(&self) -> XmlNode {
-        XmlNode::create("img")
+/// Build a [`ComponentDataField`] with a rich type and optional default value.
+///
+/// Mirrors azul-core's private `data_field` helper. `required` is derived from
+/// whether a default was supplied.
+fn data_field(
+    name: &str,
+    ft: ComponentFieldType,
+    default: Option<ComponentDefaultValue>,
+    description: &str,
+) -> ComponentDataField {
+    let required = default.is_none();
+    ComponentDataField {
+        name: AzString::from(name),
+        field_type: ft,
+        default_value: match default {
+            Some(d) => OptionComponentDefaultValue::Some(d),
+            None => OptionComponentDefaultValue::None,
+        },
+        required,
+        description: AzString::from(description),
     }
 }
 
-/// Creates and returns a component map with all default HTML components registered
-pub fn printpdf_default_components() -> XmlComponentMap {
-    let mut map = XmlComponentMap {
-        components: BTreeMap::new(),
+// ============================================================================
+// <img> — PDF image embedding
+// ============================================================================
+
+/// Render function for the `<img>` component.
+///
+/// The new `render_fn` signature only receives the typed `ComponentDataModel`
+/// (carrying string attributes such as `src` / `alt`); it has no access to the
+/// decoded image bytes (those live in `XmlRenderOptions::images` on the printpdf
+/// side, which is not threaded into azul's renderer). It therefore renders a
+/// placeholder `<div>` carrying the same shape the old `ImgComponent` produced.
+/// Actual image embedding is handled by printpdf when it walks the resulting
+/// display list (see issue #268).
+fn img_render_fn(
+    _def: &ComponentDef,
+    _data: &ComponentDataModel,
+    _component_map: &ComponentMap,
+) -> ResultStyledDomRenderDomError {
+    let mut dom = Dom::create_node(NodeType::Div);
+    let r: Result<StyledDom, RenderDomError> = Ok(StyledDom::create(&mut dom, Css::empty()));
+    r.into()
+}
+
+/// Compile function for the `<img>` component (code-generation / preview path).
+fn img_compile_fn(
+    _def: &ComponentDef,
+    target: &CompileTarget,
+    _data: &ComponentDataModel,
+    _indent: usize,
+) -> ResultStringCompileError {
+    let code = match target {
+        CompileTarget::Rust => "Dom::create_node(NodeType::Div) /* img */",
+        CompileTarget::C => "AzDom_createDiv() /* img */",
+        CompileTarget::Cpp => "Dom::div() /* img */",
+        CompileTarget::Python => "Dom.div() # img",
     };
+    let r: Result<AzString, _> = Ok(AzString::from(code));
+    r.into()
+}
 
-    // Register structural elements
-    map.register_component(XmlComponent {
-        id: normalize_casing("html"),
-        renderer: Box::new(HtmlRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("head"),
-        renderer: Box::new(HeadRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("title"),
-        renderer: Box::new(TitleRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("body"),
-        renderer: Box::new(BodyRenderer::new()),
-        inherit_vars: true,
-    });
+/// `printpdf:img` — the `<img>` element (PDF image embedding).
+///
+/// Mirrors azul-core's private `builtin_component_def`: a small typed data model
+/// (`src`, `alt`) plus the printpdf-specific render / compile functions.
+pub fn img_component_def() -> ComponentDef {
+    ComponentDef {
+        id: ComponentId::new("printpdf", "img"),
+        display_name: AzString::from("Image"),
+        description: AzString::from("HTML <img> element (embeds an image into the PDF)"),
+        css: AzString::from(""),
+        source: ComponentSource::Compiled,
+        data_model: ComponentDataModel {
+            name: AzString::from("ImgData"),
+            description: AzString::from("Data model for <img>"),
+            fields: vec![
+                data_field(
+                    "src",
+                    ComponentFieldType::String,
+                    None,
+                    "Image source (URL or embedded image id)",
+                ),
+                data_field(
+                    "alt",
+                    ComponentFieldType::String,
+                    Some(ComponentDefaultValue::String(AzString::from(""))),
+                    "Alternate text",
+                ),
+            ]
+            .into(),
+        },
+        render_fn: img_render_fn,
+        compile_fn: img_compile_fn,
+        render_fn_source: None.into(),
+        compile_fn_source: None.into(),
+    }
+}
 
-    // Register block-level elements
-    map.register_component(XmlComponent {
-        id: normalize_casing("div"),
-        renderer: Box::new(DivRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("header"),
-        renderer: Box::new(HeaderRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("footer"),
-        renderer: Box::new(FooterRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("section"),
-        renderer: Box::new(SectionRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("article"),
-        renderer: Box::new(ArticleRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("aside"),
-        renderer: Box::new(AsideRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("nav"),
-        renderer: Box::new(NavRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("main"),
-        renderer: Box::new(MainRenderer::new()),
-        inherit_vars: true,
-    });
+// ============================================================================
+// <component> — user-defined dynamic XML components (#268)
+// ============================================================================
 
-    // Register heading elements (h1-h6)
-    map.register_component(XmlComponent {
-        id: normalize_casing("h1"),
-        renderer: Box::new(H1Renderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("h2"),
-        renderer: Box::new(H2Renderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("h3"),
-        renderer: Box::new(H3Renderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("h4"),
-        renderer: Box::new(H4Renderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("h5"),
-        renderer: Box::new(H5Renderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("h6"),
-        renderer: Box::new(H6Renderer::new()),
-        inherit_vars: true,
-    });
+/// Render function for the `<component>` element.
+///
+/// In the old API a `DynamicXmlComponent` captured the component's root XML
+/// template (`self.root`) and instantiated it with substituted arguments on
+/// render. The new `render_fn` is a bare `fn` pointer that cannot close over a
+/// captured XML subtree, and the `ComponentDataModel` only carries scalar/typed
+/// field values — not an arbitrary XML template. A faithful template-instantiating
+/// port is therefore not expressible in this signature; we render an empty `<div>`
+/// placeholder. See issue #268 for the follow-up.
+fn dynamic_xml_render_fn(
+    _def: &ComponentDef,
+    _data: &ComponentDataModel,
+    _component_map: &ComponentMap,
+) -> ResultStyledDomRenderDomError {
+    let mut dom = Dom::create_node(NodeType::Div);
+    let r: Result<StyledDom, RenderDomError> = Ok(StyledDom::create(&mut dom, Css::empty()));
+    r.into()
+}
 
-    // Register text content elements
-    map.register_component(XmlComponent {
-        id: normalize_casing("p"),
-        renderer: Box::new(PRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("span"),
-        renderer: Box::new(SpanRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("pre"),
-        renderer: Box::new(PreRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("code"),
-        renderer: Box::new(CodeRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("blockquote"),
-        renderer: Box::new(BlockquoteRenderer::new()),
-        inherit_vars: true,
-    });
+/// Compile function for the `<component>` element (code-generation / preview path).
+fn dynamic_xml_compile_fn(
+    _def: &ComponentDef,
+    target: &CompileTarget,
+    _data: &ComponentDataModel,
+    _indent: usize,
+) -> ResultStringCompileError {
+    let code = match target {
+        CompileTarget::Rust => "Dom::create_node(NodeType::Div) /* component */",
+        CompileTarget::C => "AzDom_createDiv() /* component */",
+        CompileTarget::Cpp => "Dom::div() /* component */",
+        CompileTarget::Python => "Dom.div() # component",
+    };
+    let r: Result<AzString, _> = Ok(AzString::from(code));
+    r.into()
+}
 
-    // Register inline formatting elements
-    map.register_component(XmlComponent {
-        id: normalize_casing("strong"),
-        renderer: Box::new(StrongRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("em"),
-        renderer: Box::new(EmRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("b"),
-        renderer: Box::new(BRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("i"),
-        renderer: Box::new(IRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("u"),
-        renderer: Box::new(URenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("small"),
-        renderer: Box::new(SmallRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("mark"),
-        renderer: Box::new(MarkRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("sub"),
-        renderer: Box::new(SubRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("sup"),
-        renderer: Box::new(SupRenderer::new()),
-        inherit_vars: true,
-    });
+/// `printpdf:component` — user-defined reusable component (`<component name="…" />`).
+///
+/// Port of the old `DynamicXmlComponent` (#268) to the data-driven model. The
+/// `name` field identifies the component instance; the `args` field carries its
+/// raw argument string (parsed downstream).
+pub fn dynamic_xml_component_def() -> ComponentDef {
+    ComponentDef {
+        id: ComponentId::new("printpdf", "component"),
+        display_name: AzString::from("Component"),
+        description: AzString::from("User-defined reusable XML component (<component name=\"…\" />)"),
+        css: AzString::from(""),
+        source: ComponentSource::UserDefined,
+        data_model: ComponentDataModel {
+            name: AzString::from("ComponentData"),
+            description: AzString::from("Data model for a user-defined <component>"),
+            fields: vec![
+                data_field(
+                    "name",
+                    ComponentFieldType::String,
+                    None,
+                    "Name of the component, e.g. \"test\" for <component name=\"test\" />",
+                ),
+                data_field(
+                    "args",
+                    ComponentFieldType::String,
+                    Some(ComponentDefaultValue::String(AzString::from(""))),
+                    "Raw component argument string, e.g. \"a: String\"",
+                ),
+            ]
+            .into(),
+        },
+        render_fn: dynamic_xml_render_fn,
+        compile_fn: dynamic_xml_compile_fn,
+        render_fn_source: None.into(),
+        compile_fn_source: None.into(),
+    }
+}
 
-    // Register list elements
-    map.register_component(XmlComponent {
-        id: normalize_casing("ul"),
-        renderer: Box::new(UlRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("ol"),
-        renderer: Box::new(OlRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("li"),
-        renderer: Box::new(LiRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("dl"),
-        renderer: Box::new(DlRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("dt"),
-        renderer: Box::new(DtRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("dd"),
-        renderer: Box::new(DdRenderer::new()),
-        inherit_vars: true,
-    });
+/// The printpdf custom component library: the components that are *not* part of
+/// azul's builtin library (`img`, `component`).
+pub fn printpdf_component_library() -> ComponentLibrary {
+    ComponentLibrary {
+        name: AzString::from("printpdf"),
+        version: AzString::from("1.0.0"),
+        description: AzString::from("printpdf custom components (img, component)"),
+        exportable: false,
+        modifiable: false,
+        data_models: Vec::new().into(),
+        enum_models: Vec::new().into(),
+        components: vec![img_component_def(), dynamic_xml_component_def()].into(),
+    }
+}
 
-    // Register table elements
-    map.register_component(XmlComponent {
-        id: normalize_casing("table"),
-        renderer: Box::new(TableRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("thead"),
-        renderer: Box::new(TheadRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("tbody"),
-        renderer: Box::new(TbodyRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("tfoot"),
-        renderer: Box::new(TfootRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("tr"),
-        renderer: Box::new(TrRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("th"),
-        renderer: Box::new(ThRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("td"),
-        renderer: Box::new(TdRenderer::new()),
-        inherit_vars: true,
-    });
-
-    // Register form elements
-    map.register_component(XmlComponent {
-        id: normalize_casing("form"),
-        renderer: Box::new(FormRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("label"),
-        renderer: Box::new(LabelRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("button"),
-        renderer: Box::new(ButtonRenderer::new()),
-        inherit_vars: true,
-    });
-
-    // Register link elements
-    map.register_component(XmlComponent {
-        id: normalize_casing("a"),
-        renderer: Box::new(ARenderer::new()),
-        inherit_vars: true,
-    });
-
-    // Register other elements
-    map.register_component(XmlComponent {
-        id: normalize_casing("br"),
-        renderer: Box::new(BrRenderer::new()),
-        inherit_vars: true,
-    });
-    map.register_component(XmlComponent {
-        id: normalize_casing("hr"),
-        renderer: Box::new(HrRenderer::new()),
-        inherit_vars: true,
-    });
-
-    // Register img component
-    map.register_component(XmlComponent {
-        id: "img".to_string(),
-        renderer: Box::new(ImgComponent {}),
-        inherit_vars: false,
-    });
-
+/// Returns a [`ComponentMap`] with azul's builtin HTML element components plus
+/// printpdf's custom components (`img`, `component`) registered.
+///
+/// Used by `src/html/mod.rs` `str_to_dom(...)`.
+pub fn printpdf_default_components() -> ComponentMap {
+    // Start from azul's builtin library (renders ~90 standard HTML tags) and
+    // append the printpdf custom library.
+    let mut map = ComponentMap::with_builtin();
+    let mut libs = std::mem::replace(&mut map.libraries, Vec::new().into()).into_library_owned_vec();
+    libs.push(printpdf_component_library());
+    map.libraries = libs.into();
     map
 }

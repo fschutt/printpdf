@@ -1245,13 +1245,18 @@ fn create_full_font_runtime_info(
     pdf_font: &crate::font::PdfFont,
     glyph_usage: &BTreeMap<u16, char>,
 ) -> RuntimeSubsetInfo {
-    // `original_bytes` is now `Option<Arc<FontBytes>>`; the field wants `Vec<u8>`.
+    // With `text_layout`, `original_bytes` is `Option<Arc<FontBytes>>` (FontBytes
+    // exposes `as_slice()`). Without it, the stub `ParsedFont.original_bytes` is a
+    // plain `Vec<u8>`. The output field wants `Vec<u8>` either way.
+    #[cfg(feature = "text_layout")]
     let font_bytes = pdf_font
         .parsed_font
         .original_bytes
         .as_ref()
         .map(|fb| fb.as_slice().to_vec())
         .unwrap_or_default();
+    #[cfg(not(feature = "text_layout"))]
+    let font_bytes = pdf_font.parsed_font.original_bytes.clone();
     let glyph_ids: Vec<(u16, char)> = glyph_usage.iter()
         .map(|(gid, char)| (*gid, *char))
         .collect();

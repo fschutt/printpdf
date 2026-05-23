@@ -145,22 +145,22 @@ pub fn extract_border_widths(widths: &StyleBorderWidths) -> BorderWidths {
         top: widths
             .top
             .and_then(|w| w.get_property().cloned())
-            .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE))
+            .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
             .unwrap_or(0.0),
         right: widths
             .right
             .and_then(|w| w.get_property().cloned())
-            .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE))
+            .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
             .unwrap_or(0.0),
         bottom: widths
             .bottom
             .and_then(|w| w.get_property().cloned())
-            .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE))
+            .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
             .unwrap_or(0.0),
         left: widths
             .left
             .and_then(|w| w.get_property().cloned())
-            .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE))
+            .map(|w| w.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
             .unwrap_or(0.0),
     }
 }
@@ -273,10 +273,10 @@ pub fn extract_border_styles(styles: &StyleBorderStyles) -> BorderStyles {
 
 /// Extract border radii from CSS property values
 pub fn extract_border_radii(border_radius: &StyleBorderRadius) -> BorderRadii {
-    let tl = border_radius.top_left.to_pixels_internal(0.0, DEFAULT_FONT_SIZE);
-    let tr = border_radius.top_right.to_pixels_internal(0.0, DEFAULT_FONT_SIZE);
-    let br = border_radius.bottom_right.to_pixels_internal(0.0, DEFAULT_FONT_SIZE);
-    let bl = border_radius.bottom_left.to_pixels_internal(0.0, DEFAULT_FONT_SIZE);
+    let tl = border_radius.top_left.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
+    let tr = border_radius.top_right.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
+    let br = border_radius.bottom_right.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
+    let bl = border_radius.bottom_left.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
     
     BorderRadii {
         top_left: (tl, tl),      // Use same value for horizontal and vertical

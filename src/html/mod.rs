@@ -14,7 +14,7 @@ use azul_core::{
     dom::DomId,
     geom::{LogicalSize, LogicalRect, LogicalPosition},
     resources::RendererResources,
-    xml::{str_to_dom, DynamicXmlComponent},
+    xml::{str_to_dom, ComponentDef},
 };
 use azul_layout::{
     font::loading::build_font_cache,
@@ -179,13 +179,14 @@ pub fn build_font_pool(
     fonts: &BTreeMap<String, Vec<u8>>,
     families: Option<&[&str]>,
 ) -> SharedFontPool {
-    let mut fc_cache = match families {
+    let fc_cache = match families {
         Some(fams) => rust_fontconfig::FcFontCache::build_with_families(fams),
         None => build_font_cache(),
     };
 
     for (font_name, font_bytes) in fonts {
         if let Some(parsed_fonts) = rust_fontconfig::FcParseFontBytes(font_bytes, font_name) {
+            // `with_memory_fonts` uses interior mutability (returns `&Self`); called for side effect.
             fc_cache.with_memory_fonts(parsed_fonts);
         }
     }
@@ -264,11 +265,11 @@ pub fn xml_to_pdf_pages(
 
     // Convert XML nodes to StyledDom with registered HTML components
     // Use content width in CSS px (not pt) for layout
-    let mut component_map = crate::components::printpdf_default_components();
-    
+    let component_map = crate::components::printpdf_default_components();
+
     let styled_dom = match str_to_dom(
         root_nodes.as_ref(),
-        &mut component_map,
+        &component_map,
         Some(content_width_px),
     ) {
         Ok(dom) => dom,
@@ -292,7 +293,7 @@ pub fn xml_to_pdf_pages(
         (pool.fc_cache, pool.parsed_fonts)
     };
     
-    let mut font_manager = match FontManager::from_arc_shared(fc_cache_arc, parsed_fonts_arc) {
+    let mut font_manager = match FontManager::from_arc_shared((*fc_cache_arc).clone(), parsed_fonts_arc) {
         Ok(fm) => fm,
         Err(e) => {
             warnings.push(PdfWarnMsg::error(
@@ -306,22 +307,13 @@ pub fn xml_to_pdf_pages(
 
     // Use content size in CSS px for layout (converted from pt above)
     let content_size = LogicalSize::new(content_width_px, content_height_px);
-    
+
     // Create fragmentation context for paged layout using CONTENT size (in CSS px)
     // Page breaks happen at CSS px boundaries; the bridge converts back to pt.
     let fragmentation_context = FragmentationContext::new_paged(content_size);
-    
+
     // Create layout cache and text cache
-    let mut layout_cache = Solver3LayoutCache {
-        tree: None,
-        calculated_positions: Vec::new(),
-        viewport: None,
-        scroll_ids: std::collections::BTreeMap::new(),
-        scroll_id_to_node_id: std::collections::BTreeMap::new(),
-        counters: std::collections::BTreeMap::new(),
-        float_cache: std::collections::BTreeMap::new(),
-        cache_map: Default::default(),
-    };
+    let mut layout_cache = Solver3LayoutCache::default();
     let mut text_cache = TextLayoutCache::new();
     
     // Viewport is the content area in CSS px (layout is done within margins)
@@ -337,8 +329,10 @@ pub fn xml_to_pdf_pages(
     // Create font loader closure
     use azul_layout::text3::default::PathLoader;
     let loader = PathLoader::new();
-    let font_loader = |bytes: &[u8], index: usize| loader.load_font(bytes, index);
-    
+    let font_loader = |bytes: std::sync::Arc<rust_fontconfig::FontBytes>, index: usize| {
+        loader.load_font_shared(bytes, index)
+    };
+
     // Build page config from options
     // NOTE: Full CSS @page rule parsing is not yet implemented.
     // This uses FakePageConfig for programmatic control over headers/footers.
@@ -368,7 +362,6 @@ pub fn xml_to_pdf_pages(
         viewport,
         &mut font_manager,
         &std::collections::BTreeMap::new(), // No scroll offsets for PDF
-        &std::collections::BTreeMap::new(), // No selections for PDF
         &mut debug_messages,
         None, // No GPU cache for PDF
         &renderer_resources,
@@ -376,7 +369,9 @@ pub fn xml_to_pdf_pages(
         DomId::ROOT_ID,
         font_loader,
         page_config,
+        &azul_core::resources::ImageCache::default(), // No image cache for PDF
         azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+        false, // print_timing
     ) {
         Ok(lists) => lists,
         Err(e) => {
@@ -541,11 +536,11 @@ pub fn xml_to_pdf_pages_debug(
     // Convert XML nodes to StyledDom with registered HTML components
     eprintln!("[DEBUG xml_to_pdf_pages_debug] Converting to StyledDom...");
     // Use content width in CSS px (not pt) for layout
-    let mut component_map = crate::components::printpdf_default_components();
-    
+    let component_map = crate::components::printpdf_default_components();
+
     let styled_dom = match str_to_dom(
         root_nodes.as_ref(),
-        &mut component_map,
+        &component_map,
         Some(content_width_px),
     ) {
         Ok(dom) => {
@@ -573,7 +568,7 @@ pub fn xml_to_pdf_pages_debug(
     };
     
     eprintln!("[DEBUG xml_to_pdf_pages_debug] Creating font manager...");
-    let mut font_manager = match FontManager::from_arc_shared(fc_cache_arc, parsed_fonts_arc) {
+    let mut font_manager = match FontManager::from_arc_shared((*fc_cache_arc).clone(), parsed_fonts_arc) {
         Ok(fm) => fm,
         Err(e) => {
             warnings.push(PdfWarnMsg::error(
@@ -588,21 +583,12 @@ pub fn xml_to_pdf_pages_debug(
 
     // Use content size in CSS px for layout (converted from pt above)
     let content_size = LogicalSize::new(content_width_px, content_height_px);
-    
+
     // Create fragmentation context for paged layout using CONTENT size (in CSS px)
     let fragmentation_context = FragmentationContext::new_paged(content_size);
-    
+
     // Create layout cache and text cache
-    let mut layout_cache = Solver3LayoutCache {
-        tree: None,
-        calculated_positions: Vec::new(),
-        viewport: None,
-        scroll_ids: std::collections::BTreeMap::new(),
-        scroll_id_to_node_id: std::collections::BTreeMap::new(),
-        counters: std::collections::BTreeMap::new(),
-        float_cache: std::collections::BTreeMap::new(),
-        cache_map: Default::default(),
-    };
+    let mut layout_cache = Solver3LayoutCache::default();
     let mut text_cache = TextLayoutCache::new();
     
     // Viewport is the content area in CSS px (layout is done within margins)
@@ -618,8 +604,10 @@ pub fn xml_to_pdf_pages_debug(
     // Create font loader closure
     use azul_layout::text3::default::PathLoader;
     let loader = PathLoader::new();
-    let font_loader = |bytes: &[u8], index: usize| loader.load_font(bytes, index);
-    
+    let font_loader = |bytes: std::sync::Arc<rust_fontconfig::FontBytes>, index: usize| {
+        loader.load_font_shared(bytes, index)
+    };
+
     // Build page config from options
     let mut page_config = FakePageConfig::new();
     
@@ -648,7 +636,6 @@ pub fn xml_to_pdf_pages_debug(
         viewport,
         &mut font_manager,
         &std::collections::BTreeMap::new(),
-        &std::collections::BTreeMap::new(),
         &mut debug_messages,
         None,
         &renderer_resources,
@@ -656,7 +643,9 @@ pub fn xml_to_pdf_pages_debug(
         DomId::ROOT_ID,
         font_loader,
         page_config,
+        &azul_core::resources::ImageCache::default(),
         azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+        false, // print_timing
     ) {
         Ok(lists) => {
             eprintln!("[DEBUG xml_to_pdf_pages_debug] Paged layout completed, got {} pages", lists.len());
@@ -690,19 +679,13 @@ pub fn xml_to_pdf_pages_debug(
                     .unwrap_or_else(|| "anonymous".to_string());
                 
                 tree_debug.push_str(&format!(
-                    "Node {}: {} fc={:?} pos={:?} size={:?} inline_result={}\n",
+                    "Node {}: {} fc={:?} pos={:?} size={:?}\n",
                     idx,
                     dom_id_str,
                     node.formatting_context,
                     pos,
                     node.used_size,
-                    node.inline_layout_result.is_some()
                 ));
-                
-                // Show children
-                if !node.children.is_empty() {
-                    tree_debug.push_str(&format!("  children: {:?}\n", node.children));
-                }
             }
         } else {
             tree_debug.push_str("Layout tree is None!\n");
@@ -736,8 +719,8 @@ pub fn xml_to_pdf_pages_debug(
                 match item {
                     DisplayListItem::TextLayout { bounds, font_hash: _, font_size_px, color, .. } => {
                         text_layout_count += 1;
-                        dl_debug.push_str(&format!("Item {}: TextLayout at ({:.1}, {:.1}) size {:.1}x{:.1} font_size={:.1} color=({},{},{},{})\n", 
-                            item_idx, bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height,
+                        dl_debug.push_str(&format!("Item {}: TextLayout at ({:.1}, {:.1}) size {:.1}x{:.1} font_size={:.1} color=({},{},{},{})\n",
+                            item_idx, bounds.origin().x, bounds.origin().y, bounds.size().width, bounds.size().height,
                             font_size_px, color.r, color.g, color.b, color.a));
                     }
                     DisplayListItem::Text { glyphs, font_size_px, color, .. } => {
@@ -747,9 +730,9 @@ pub fn xml_to_pdf_pages_debug(
                     }
                     DisplayListItem::Rect { bounds, color, .. } => {
                         rect_count += 1;
-                        if item_idx < 20 || bounds.size.width > 100.0 {
-                            dl_debug.push_str(&format!("Item {}: Rect at ({:.1}, {:.1}) size {:.1}x{:.1} color=({},{},{},{})\n", 
-                                item_idx, bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height,
+                        if item_idx < 20 || bounds.size().width > 100.0 {
+                            dl_debug.push_str(&format!("Item {}: Rect at ({:.1}, {:.1}) size {:.1}x{:.1} color=({},{},{},{})\n",
+                                item_idx, bounds.origin().x, bounds.origin().y, bounds.size().width, bounds.size().height,
                                 color.r, color.g, color.b, color.a));
                         }
                     }
@@ -889,8 +872,8 @@ pub struct HtmlExtractedConfig {
     pub page_height: Option<f32>,
     /// PDF metadata from meta tags
     pub metadata: BTreeMap<String, String>,
-    /// Custom XML components (not cloneable, Debug not implemented in azul)
-    pub components: Vec<DynamicXmlComponent>,
+    /// Custom XML component definitions discovered in the document.
+    pub components: Vec<ComponentDef>,
 }
 
 /// Inline CSS rules into style attributes
