@@ -935,6 +935,28 @@ fn render_unified_layout_impl<T: ParsedFontTrait + 'static>(
 }
 
 /// Render UnifiedLayout to PDF operations with margin support
+/// Build a `BDC /Span << /ActualText (UTF-16BE) >>` marked-content op. Wrapping a
+/// run of individually-positioned glyphs in this span makes PDF text extraction
+/// (copy/paste, selection, accessibility) use `text` verbatim instead of trying to
+/// reconstruct it from per-glyph positions — which otherwise inserts a spurious
+/// space between every glyph. Close the span with `Op::EndMarkedContent`.
+fn actualtext_span_begin(text: &str) -> Op {
+    let mut data = vec![0xFE, 0xFF]; // UTF-16BE byte-order mark
+    for u in text.encode_utf16() {
+        data.push((u >> 8) as u8);
+        data.push((u & 0xFF) as u8);
+    }
+    let mut map = std::collections::BTreeMap::new();
+    map.insert(
+        "ActualText".to_string(),
+        crate::DictItem::String { data, literal: false },
+    );
+    Op::BeginMarkedContentWithProperties {
+        tag: "Span".to_string(),
+        properties: crate::DictItem::Dict { map },
+    }
+}
+
 fn render_unified_layout_with_margins<T: ParsedFontTrait + 'static>(
     ops: &mut Vec<Op>,
     layout: &UnifiedLayout,
@@ -1047,25 +1069,35 @@ fn render_unified_layout_with_margins<T: ParsedFontTrait + 'static>(
         // Start text section AFTER setting font and color
         ops.push(Op::StartTextSection);
 
+        // Wrap the run's glyphs in an /ActualText marked-content span so copy-paste,
+        // selection and accessibility use the real string. We position each glyph
+        // with its own text matrix for pixel-accurate layout, which otherwise makes
+        // extractors treat every glyph as a separate word.
+        let run_text: String = run.glyphs.iter().map(|g| g.unicode_codepoint.as_str()).collect();
+        let wrapped = !run_text.is_empty();
+        if wrapped {
+            ops.push(actualtext_span_begin(&run_text));
+        }
+
         // Position each glyph absolutely using SetTextMatrix + ShowText
         for glyph in &run.glyphs {
             // NOTE: Glyphs have already been filtered by the pagination/clipping code
             // in display_list.rs (clip_and_offset_display_item). The glyph positions
             // are page-relative and should be rendered directly.
-            // 
+            //
             // The bounds.origin represents where this TextLayout block starts on the page,
             // and glyph.position is relative to the block origin (after the clipping pass).
-            
+
             // Calculate absolute position for this glyph in layout space
             let glyph_x_layout = bounds.origin.x + glyph.position.x;
             let glyph_y_layout = bounds.origin.y + glyph.position.y;
-            
+
             // Transform to PDF coordinate system with margins:
             // - Add margin_left to X
             // - Flip Y and subtract margin_top
             let pdf_x = transform.x(glyph_x_layout);
             let pdf_y = transform.y(glyph_y_layout);
-            
+
             // Set the text matrix to position this specific glyph
             ops.push(Op::SetTextMatrix {
                 matrix: crate::matrix::TextMatrix::Raw([
@@ -1090,10 +1122,14 @@ fn render_unified_layout_with_margins<T: ParsedFontTrait + 'static>(
             });
         }
 
+        if wrapped {
+            ops.push(Op::EndMarkedContent);
+        }
+
         // End text section after this run
         ops.push(Op::EndTextSection);
     }
-    
+
 }
 
 /// Apply margin offset to all PDF operations.
