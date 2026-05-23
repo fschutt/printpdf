@@ -409,11 +409,19 @@ pub fn xml_to_pdf_pages(
     let full_page_size = LogicalSize::new(page_width_pt, page_height_pt);
 
     for display_list in display_lists.iter() {
-        // Skip pages that have no meaningful content (only background fills).
-        // A page is "real" if it has at least one TextLayout or Image item.
+        // Skip pages that have no meaningful content (only plain background
+        // fills). A page is "real" if it has text, an image, a gradient or a
+        // shadow — anything a reader would actually perceive as content.
         let has_real_content = display_list.items.iter().any(|item| {
             use azul_layout::solver3::display_list::DisplayListItem;
-            matches!(item, DisplayListItem::TextLayout { .. } | DisplayListItem::Image { .. })
+            matches!(item,
+                DisplayListItem::TextLayout { .. }
+                | DisplayListItem::Image { .. }
+                | DisplayListItem::LinearGradient { .. }
+                | DisplayListItem::RadialGradient { .. }
+                | DisplayListItem::ConicGradient { .. }
+                | DisplayListItem::BoxShadow { .. }
+            )
         });
 
         if !has_real_content {

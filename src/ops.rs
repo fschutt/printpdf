@@ -9,7 +9,7 @@ use crate::{
     },
     matrix::{CurTransMat, TextMatrix},
     units::{Mm, Pt},
-    BuiltinFont, DictItem, ExtendedGraphicsStateId, FontId, LayerInternalId, LinkAnnotation,
+    BuiltinFont, DictItem, ExtendedGraphicsStateId, ShadingId, FontId, LayerInternalId, LinkAnnotation,
     PdfResources, PdfToSvgOptions, PdfWarnMsg, RenderingIntent, XObjectId, XObjectTransform,
 };
 
@@ -410,6 +410,9 @@ pub enum Op {
         char_spacing: f32,
         text: String,
     },
+    /// `sh` operator: paint a registered shading (gradient) over the current clip
+    /// region. The shading must exist in `resources.shadings` under `id`.
+    PaintShading { id: ShadingId },
     /// Unknown, custom key / value operation
     Unknown { key: String, value: Vec<DictItem> },
 }

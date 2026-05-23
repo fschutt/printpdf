@@ -209,6 +209,11 @@ name = "html_image"
 path = "examples/html_image.rs"
 required-features = ["html", "images", "jpeg", "png"]
 
+[[example]]
+name = "html_gradient"
+path = "examples/html_gradient.rs"
+required-features = ["html"]
+
 # Local azul checkout: provides the `<img>` -> NodeType::Image mapping (with the
 # `src` carried as the image's tag) that the HTML `<img>` embedding relies on.
 # The crate versions match the published ones (azul-css/core 0.0.8, layout 0.0.9);

@@ -37,6 +37,9 @@ pub use shape::*;
 /// Point / line / polygon handling
 pub mod graphics;
 pub use graphics::*;
+/// Axial / radial shadings (gradients)
+pub mod shading;
+pub use shading::*;
 /// Page operations
 pub mod ops;
 pub use ops::*;
@@ -333,6 +336,14 @@ impl PdfDocument {
     pub fn add_graphics_state(&mut self, gs: ExtendedGraphicsState) -> ExtendedGraphicsStateId {
         let id = ExtendedGraphicsStateId::new();
         self.resources.extgstates.map.insert(id.clone(), gs);
+        id
+    }
+
+    /// Register an axial/radial shading (gradient), returning its id for use in
+    /// `Op::PaintShading`.
+    pub fn add_shading(&mut self, shading: crate::shading::Shading) -> crate::shading::ShadingId {
+        let id = crate::shading::ShadingId::new();
+        self.resources.shadings.map.insert(id.clone(), shading);
         id
     }
 
@@ -712,6 +723,9 @@ impl PdfDocument {
         for (id, gs) in other.extgstates.map {
             self.resources.extgstates.map.entry(id).or_insert(gs);
         }
+        for (id, sh) in other.shadings.map {
+            self.resources.shadings.map.entry(id).or_insert(sh);
+        }
         // Merge layers
         for (id, layer) in other.layers.map {
             self.resources.layers.map.entry(id).or_insert(layer);
@@ -775,6 +789,9 @@ pub struct PdfResources {
     /// Map of explicit extended graphics states
     #[serde(default)]
     pub extgstates: ExtendedGraphicsStateMap,
+    /// Map of axial/radial shadings (gradients)
+    #[serde(default)]
+    pub shadings: ShadingMap,
     /// Map of optional content groups
     #[serde(default)]
     pub layers: PdfLayerMap,
@@ -808,6 +825,12 @@ pub struct PageAnnotMap {
 #[serde(transparent)]
 pub struct ExtendedGraphicsStateMap {
     pub map: BTreeMap<ExtendedGraphicsStateId, ExtendedGraphicsState>,
+}
+
+#[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ShadingMap {
+    pub map: BTreeMap<ShadingId, crate::shading::Shading>,
 }
 
 /// This is a wrapper in order to keep shared data between the documents XMP metadata and

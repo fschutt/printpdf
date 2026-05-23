@@ -24,6 +24,11 @@ use azul_layout::{
 
 use crate::{Color, Mm, Op, Pt, Rgb, FontId, RawImage, XObjectId, XObjectTransform,
     ExtendedGraphicsState, ExtendedGraphicsStateId, XObject};
+use crate::shading::{GradientStop, Shading, ShadingGeometry, ShadingId};
+use azul_css::props::basic::{
+    color::ColorOrSystem,
+    geometry::{LayoutPoint, LayoutRect, LayoutSize},
+};
 
 /// Resolved `<img>` resources keyed by the `src` value that appeared in the HTML.
 ///
@@ -48,6 +53,8 @@ pub type ResolvedImages = BTreeMap<String, (XObjectId, RawImage)>;
 pub struct BridgeResources {
     /// Extended graphics states (fill/stroke alpha, soft masks).
     pub extgstates: Vec<(ExtendedGraphicsStateId, ExtendedGraphicsState)>,
+    /// Axial/radial shadings (linear/radial gradients).
+    pub shadings: Vec<(ShadingId, Shading)>,
     /// Image / form XObjects synthesized by the bridge.
     pub xobjects: Vec<(XObjectId, XObject)>,
 }
@@ -60,11 +67,21 @@ impl BridgeResources {
         id
     }
 
+    /// Allocate a shading, record it, and return its id (for `PaintShading`).
+    fn add_shading(&mut self, shading: Shading) -> ShadingId {
+        let id = ShadingId::new();
+        self.shadings.push((id.clone(), shading));
+        id
+    }
+
     /// Drain the synthesized resources into a document's resource maps. Existing
     /// entries are kept (`or_insert`), matching the merge semantics elsewhere.
     pub fn register_into(self, resources: &mut crate::PdfResources) {
         for (id, gs) in self.extgstates {
             resources.extgstates.map.entry(id).or_insert(gs);
+        }
+        for (id, sh) in self.shadings {
+            resources.shadings.map.entry(id).or_insert(sh);
         }
         for (id, xobj) in self.xobjects {
             resources.xobjects.map.entry(id).or_insert(xobj);
@@ -129,6 +146,74 @@ fn apply_fill_alpha(ops: &mut Vec<Op>, bridge_res: &mut BridgeResources, color: 
     gs.set_current_stroke_alpha(alpha);
     let id = bridge_res.add_extgstate(gs);
     ops.push(Op::LoadGraphicsState { gs: id });
+}
+
+/// Build a clip-mode polygon (for the `W n` clip operator) covering `bounds`
+/// (CSS px) with optional rounded corners `radii_px` = `[tl, tr, br, bl]` in
+/// CSS px. Coordinates are converted to PDF pt (with the Y-axis flip). Used to
+/// constrain a gradient `sh` paint (and box backgrounds) to the element box.
+fn make_clip_polygon(
+    transform: &CoordTransform,
+    bounds: &LogicalRect,
+    radii_px: [f32; 4],
+    page_height: f32,
+    margin_left: f32,
+    margin_top: f32,
+) -> crate::graphics::Polygon {
+    let radii = crate::html::border::BorderRadii {
+        top_left: (radii_px[0] * CSS_PX_TO_PT, radii_px[0] * CSS_PX_TO_PT),
+        top_right: (radii_px[1] * CSS_PX_TO_PT, radii_px[1] * CSS_PX_TO_PT),
+        bottom_right: (radii_px[2] * CSS_PX_TO_PT, radii_px[2] * CSS_PX_TO_PT),
+        bottom_left: (radii_px[3] * CSS_PX_TO_PT, radii_px[3] * CSS_PX_TO_PT),
+    };
+    if radii_px.iter().any(|r| *r > 0.0) {
+        let b = bounds_px_to_pt(bounds);
+        let points = crate::html::border::create_rounded_rect_path_with_margins(
+            b.origin.x, b.origin.y, b.size.width, b.size.height,
+            &radii, page_height, margin_left, margin_top,
+        );
+        crate::graphics::Polygon {
+            rings: vec![crate::graphics::PolygonRing { points }],
+            mode: crate::graphics::PaintMode::Clip,
+            winding_order: crate::graphics::WindingOrder::NonZero,
+        }
+    } else {
+        let x = transform.x(bounds.origin.x);
+        let y = transform.rect_y(bounds.origin.y, bounds.size.height);
+        let w = transform.dim(bounds.size.width);
+        let h = transform.dim(bounds.size.height);
+        let mut p = make_rect_polygon_pt(x, y, w, h);
+        p.mode = crate::graphics::PaintMode::Clip;
+        p
+    }
+}
+
+/// Resolve a gradient stop color to a concrete RGBA. System colors are
+/// theme-dependent; for static PDF output they fall back to opaque black
+/// (rare in document gradients).
+fn resolve_stop_color(c: &ColorOrSystem) -> ColorU {
+    match c {
+        ColorOrSystem::Color(col) => *col,
+        ColorOrSystem::System(_) => ColorU { r: 0, g: 0, b: 0, a: 255 },
+    }
+}
+
+/// Convert azul normalized linear color stops (offset 0..100%) to shading stops
+/// (offset 0..1, RGB 0..1). Per-stop alpha is dropped — PDF axial/radial
+/// shadings have no alpha channel (a translucent gradient would need a soft mask).
+fn normalize_gradient_stops(
+    stops: &azul_css::props::style::background::NormalizedLinearColorStopVec,
+) -> Vec<GradientStop> {
+    stops
+        .iter()
+        .map(|s| {
+            let c = resolve_stop_color(&s.color);
+            GradientStop {
+                offset: s.offset.normalized().clamp(0.0, 1.0),
+                color: [c.r as f32 / 255.0, c.g as f32 / 255.0, c.b as f32 / 255.0],
+            }
+        })
+        .collect()
 }
 
 /// Convert a display list directly to printpdf Ops with margin support.
@@ -579,6 +664,84 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
             }
         }
 
+        DisplayListItem::LinearGradient { bounds, gradient, border_radius } => {
+            let inner = bounds.inner();
+            if inner.size.width <= 0.0 || inner.size.height <= 0.0 {
+                return;
+            }
+            // Gradient-line endpoints in local px (azul's CSS direction math),
+            // mapped to absolute PDF pt (the transform applies px->pt + Y-flip).
+            let rect = LayoutRect::new(
+                LayoutPoint::new(0, 0),
+                LayoutSize::new(inner.size.width as isize, inner.size.height as isize),
+            );
+            let (p0, p1) = gradient.direction.to_points(&rect);
+            let coords = [
+                transform.x(inner.origin.x + p0.x as f32),
+                transform.y(inner.origin.y + p0.y as f32),
+                transform.x(inner.origin.x + p1.x as f32),
+                transform.y(inner.origin.y + p1.y as f32),
+            ];
+            let stops = normalize_gradient_stops(&gradient.stops);
+            if stops.is_empty() {
+                return;
+            }
+            let id = bridge_res.add_shading(Shading {
+                geometry: ShadingGeometry::Axial { coords },
+                stops,
+                extend: (true, true),
+            });
+            // Clip to the (optionally rounded) box, then paint the shading.
+            ops.push(Op::SaveGraphicsState);
+            ops.push(Op::DrawPolygon {
+                polygon: make_clip_polygon(
+                    &transform, inner,
+                    [border_radius.top_left, border_radius.top_right,
+                     border_radius.bottom_right, border_radius.bottom_left],
+                    page_height, margin_left, margin_top,
+                ),
+            });
+            ops.push(Op::PaintShading { id });
+            ops.push(Op::RestoreGraphicsState);
+        }
+
+        DisplayListItem::RadialGradient { bounds, gradient, border_radius } => {
+            let inner = bounds.inner();
+            if inner.size.width <= 0.0 || inner.size.height <= 0.0 {
+                return;
+            }
+            // v1: center the gradient in the box and use the farthest-corner
+            // radius (the CSS default). Explicit position/size keywords and
+            // ellipse aspect ratios are approximated as a centered circle.
+            let cx = inner.size.width / 2.0;
+            let cy = inner.size.height / 2.0;
+            let r_px = cx.max(inner.size.width - cx).hypot(cy.max(inner.size.height - cy));
+            let center_x = transform.x(inner.origin.x + cx);
+            let center_y = transform.y(inner.origin.y + cy);
+            let r_pt = r_px * CSS_PX_TO_PT;
+            let coords = [center_x, center_y, 0.0, center_x, center_y, r_pt];
+            let stops = normalize_gradient_stops(&gradient.stops);
+            if stops.is_empty() {
+                return;
+            }
+            let id = bridge_res.add_shading(Shading {
+                geometry: ShadingGeometry::Radial { coords },
+                stops,
+                extend: (true, true),
+            });
+            ops.push(Op::SaveGraphicsState);
+            ops.push(Op::DrawPolygon {
+                polygon: make_clip_polygon(
+                    &transform, inner,
+                    [border_radius.top_left, border_radius.top_right,
+                     border_radius.bottom_right, border_radius.bottom_left],
+                    page_height, margin_left, margin_top,
+                ),
+            });
+            ops.push(Op::PaintShading { id });
+            ops.push(Op::RestoreGraphicsState);
+        }
+
         DisplayListItem::PushOpacity { opacity, .. } => {
             // Approximate group opacity by setting fill+stroke alpha for the
             // wrapped content until PopOpacity. (True isolated group opacity
@@ -994,6 +1157,7 @@ pub fn apply_margin_offset(ops: &mut [Op], offset_x: crate::Mm, offset_y: crate:
             | Op::SaveGraphicsState
             | Op::RestoreGraphicsState
             | Op::LoadGraphicsState { .. }
+            | Op::PaintShading { .. }
             | Op::StartTextSection
             | Op::EndTextSection
             | Op::SetFont { .. }

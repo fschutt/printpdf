@@ -863,6 +863,10 @@ fn render_to_svg_internal(
                 ));
             }
 
+            // Gradients are not rendered in the SVG preview (the PDF output uses a
+            // `/Shading` resource painted with `sh`). Skip silently here.
+            Op::PaintShading { .. } => {}
+
             // Unknown operations
             Op::Unknown { key, value: _ } => {
                 // Add comment for debugging

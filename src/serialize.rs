@@ -228,6 +228,12 @@ pub fn to_lopdf_doc(
     }
     let global_extgstate_dict_id = doc.add_object(global_extgstate_dict);
 
+    let mut global_shading_dict = LoDictionary::new();
+    for (k, v) in pdf.resources.shadings.map.iter() {
+        global_shading_dict.set(k.0.clone(), v.to_dict());
+    }
+    let global_shading_dict_id = doc.add_object(global_shading_dict);
+
     let page_ids_reserved = pdf
         .pages
         .iter()
@@ -284,6 +290,7 @@ pub fn to_lopdf_doc(
             page_resources.set("Font", Reference(global_font_dict_id));
             page_resources.set("XObject", Reference(global_xobject_dict_id));
             page_resources.set("ExtGState", Reference(global_extgstate_dict_id));
+            page_resources.set("Shading", Reference(global_shading_dict_id));
 
             let layer_stream = translate_operations(
                 &page.ops,
@@ -486,6 +493,10 @@ pub(crate) fn translate_operations(
             }
             Op::LoadGraphicsState { gs } => {
                 content.push(LoOp::new("gs", vec![Name(gs.0.as_bytes().to_vec())]));
+            }
+            Op::PaintShading { id } => {
+                // `sh` paints the named shading over the current clip region.
+                content.push(LoOp::new("sh", vec![Name(id.0.as_bytes().to_vec())]));
             }
             Op::StartTextSection => {
                 content.push(LoOp::new("BT", vec![]));

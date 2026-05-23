@@ -261,6 +261,7 @@ fn parse_pdf_from_bytes_end(
             fonts: PdfFontMap { map: fonts },
             xobjects: XObjectMap { map: xobjects },
             extgstates: ExtendedGraphicsStateMap { map: extgstates },
+            shadings: Default::default(),
             layers: PdfLayerMap {
                 map: layers
                     .into_iter()
