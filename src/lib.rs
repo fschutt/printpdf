@@ -132,9 +132,6 @@ pub struct GeneratePdfOptions {
     /// Skip header/footer on the first page
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skip_first_page: Option<bool>,
-    /// Print timing information for each rendering phase to stderr
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub print_timing: Option<bool>,
 }
 
 impl Default for GeneratePdfOptions {
@@ -152,7 +149,6 @@ impl Default for GeneratePdfOptions {
             header_text: None,
             footer_text: None,
             skip_first_page: None,
-            print_timing: None,
         }
     }
 }
@@ -448,7 +444,6 @@ impl PdfDocument {
         xml_options.header_text = options.header_text.clone();
         xml_options.footer_text = options.footer_text.clone();
         xml_options.skip_first_page = options.skip_first_page.unwrap_or(false);
-        xml_options.print_timing = options.print_timing.unwrap_or(false);
         
         // Convert images and fonts
         for (key, img) in images {
@@ -537,7 +532,6 @@ impl PdfDocument {
         xml_options.header_text = options.header_text.clone();
         xml_options.footer_text = options.footer_text.clone();
         xml_options.skip_first_page = options.skip_first_page.unwrap_or(false);
-        xml_options.print_timing = options.print_timing.unwrap_or(false);
         
         // Convert images and fonts
         for (key, img) in images {
