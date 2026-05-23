@@ -648,10 +648,23 @@ fn render_border_side(
 
     ops.push(Op::SaveGraphicsState);
 
-    // Set color, width, and round line caps for smooth corner connections
     ops.push(Op::SetOutlineColor { col: convert_color(&color) });
     ops.push(Op::SetOutlineThickness { pt: Pt(width) });
-    ops.push(Op::SetLineCapStyle { cap: LineCapStyle::Round });
+    // Round caps only smooth a corner when the perpendicular neighbour borders are
+    // actually present. For an isolated side (e.g. only `border-left`) or two
+    // non-touching sides (top+bottom / left+right), round caps leave visually odd
+    // rounded ends, so use flat (butt) caps there instead. (Dotted borders override
+    // this with their own round caps to draw circular dots.)
+    let both_neighbours_present = match side {
+        BorderSide::Top | BorderSide::Bottom => widths.left > 0.0 && widths.right > 0.0,
+        BorderSide::Left | BorderSide::Right => widths.top > 0.0 && widths.bottom > 0.0,
+    };
+    let cap = if both_neighbours_present {
+        LineCapStyle::Round
+    } else {
+        LineCapStyle::Butt
+    };
+    ops.push(Op::SetLineCapStyle { cap });
 
     // Handle different border styles
     match style {
