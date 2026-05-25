@@ -746,7 +746,11 @@ mod test {
         ),
     ];
 
+    // Not a unit test: this REGENERATES `defaultfonts/*.subset.ttf` + the `FONTS`
+    // mapping table (the "subsetting example"). Ignored so CI doesn't rewrite
+    // committed assets / fail; run manually with `--ignored` to regenerate.
     #[test]
+    #[ignore = "regenerates bundled subset fonts + FONTS table; run manually with --ignored"]
     fn subset_test() {
         use std::collections::BTreeSet;
         

@@ -1123,6 +1123,7 @@ mod tests {
     /// End-to-end: `<img src="cat.jpg">` through the real azul layout + the
     /// printpdf bridge must (a) decode the image, (b) emit an `Op::UseXobject`
     /// referencing it on a page. Exercises the full `xml_to_pdf_pages` pipeline.
+    #[cfg(all(feature = "images", feature = "jpeg"))]
     #[test]
     fn test_html_img_embeds_through_pipeline() {
         let cat_jpg: &[u8] = include_bytes!("../../examples/assets/img/cat.jpg");

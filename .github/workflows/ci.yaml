@@ -89,7 +89,10 @@ jobs:
       - run: cargo check --verbose --target wasm32-wasip2 --examples
       - run: cargo check --verbose --target wasm32-wasip2
       - run: cargo check --verbose --target wasm32-wasip2 --no-default-features
-      - run: cargo check --verbose --target wasm32-wasip2 --all-features
+      # NOT --all-features: that pulls html_multithreaded + rayon
+      # (rust-fontconfig/multithreading, image/rayon) which require rayon and can't
+      # compile on wasm. Check the broad wasm-safe feature set instead.
+      - run: cargo check --verbose --target wasm32-wasip2 --features "gif,jpeg,png,pnm,tiff,bmp,ico,tga,hdr,dds,webp"
 
   generate-pdf-artifacts:
     name: Generate PDF artifacts

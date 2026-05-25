@@ -1253,6 +1253,7 @@ mod tests {
     /// The real cat.jpg used by the `html_image` example, decoded and placed in a
     /// display-list Image item, must produce an `Op::UseXobject` referencing the
     /// deterministic id and scaled to the item bounds.
+    #[cfg(all(feature = "images", feature = "jpeg"))]
     #[test]
     fn image_item_emits_use_xobject() {
         let cat_jpg: &[u8] = include_bytes!("../../examples/assets/img/cat.jpg");
@@ -1416,6 +1417,7 @@ mod tests {
 
     /// End-to-end serialization: a document carrying the decoded image as an
     /// Image XObject must serialize to a PDF containing `/Subtype /Image`.
+    #[cfg(all(feature = "images", feature = "jpeg"))]
     #[test]
     fn registered_image_serializes_as_xobject() {
         let cat_jpg: &[u8] = include_bytes!("../../examples/assets/img/cat.jpg");
