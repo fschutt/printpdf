@@ -3214,17 +3214,21 @@ mod extgstate {
             }
         }
 
+        // PDF spec: `CA` is the stroking (stroke) alpha, `ca` the nonstroking
+        // (fill) alpha. The write side (graphics.rs) emits them that way; parse
+        // them back to the matching fields (previously swapped — broke the
+        // ExtGState save->parse roundtrip).
         if let Some(obj) = dict.get(b"CA").ok() {
             if let Some(num) = parse_f32(obj) {
-                gs.current_fill_alpha = num;
-                changed.insert(ChangedField::CurrentFillAlpha);
+                gs.current_stroke_alpha = num;
+                changed.insert(ChangedField::CurrentStrokeAlpha);
             }
         }
 
         if let Some(obj) = dict.get(b"ca").ok() {
             if let Some(num) = parse_f32(obj) {
-                gs.current_stroke_alpha = num;
-                changed.insert(ChangedField::CurrentStrokeAlpha);
+                gs.current_fill_alpha = num;
+                changed.insert(ChangedField::CurrentFillAlpha);
             }
         }
 
