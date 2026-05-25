@@ -3,7 +3,12 @@ use printpdf::{
     Op, ParsedFont, PdfDocument, PdfPage, PdfParseOptions, PdfSaveOptions, TextItem,
 };
 
-/// Creates and parses a PDF file with a custom font
+/// Creates and parses a PDF file with a custom font.
+///
+/// Invariant: a font loaded via `ParsedFont::from_bytes` must survive a
+/// save->parse roundtrip and still be present as a font resource. This requires
+/// `from_bytes` to retain the source bytes (azul-layout `font.rs`), otherwise
+/// nothing embeds and the parse finds no font.
 #[test]
 fn test_custom_font_roundtrip() {
     // Load the RobotoMedium font
