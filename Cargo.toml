@@ -36,7 +36,6 @@ rust-fontconfig = { version = "4.4.0", default-features = false, features = ["st
 xmlparser = { version = "0.13.6", default-features = false, optional = true }
 web-sys = { version = "0.3.77", optional = true, default-features = false, features = ["console", "ImageData", "Window", "Document", "Blob", "CanvasRenderingContext2d", "HtmlCanvasElement", "HtmlImageElement", "ImageBitmap", "BlobPropertyBag"]}
 wasm-bindgen-futures = { version = "0.4.50", optional = true, default-features = false }
-kuchiki = { version = "0.8.1", optional = true }
 azul-css = { version = "0.0.8", default-features = false, features = ["parser"], optional = true }
 azul-core = { version = "0.0.8", default-features = false, features = ["std"], optional = true }
 azul-layout = { version = "0.0.9", default-features = false, optional = true }
@@ -56,7 +55,7 @@ text_layout = ["dep:azul-css", "dep:azul-core", "dep:azul-layout", "azul-layout/
 # Add hyphenation support
 text_layout_hyphenation = ["text_layout", "azul-layout/text_layout_hyphenation"]
 # HTML/CSS layout
-html = ["text_layout_hyphenation", "dep:kuchiki", "dep:xmlparser", "dep:rust-fontconfig", "azul-layout/xml", "azul-layout/pdf"]
+html = ["text_layout_hyphenation", "dep:xmlparser", "dep:rust-fontconfig", "azul-layout/xml", "azul-layout/pdf"]
 # HTML with multithreaded font loading (faster on desktop, not available on WASM)
 html_multithreaded = ["html", "rust-fontconfig/multithreading", "azul-layout/font_loading_multithreaded"]
 # SVG support
