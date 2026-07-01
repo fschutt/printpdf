@@ -291,24 +291,12 @@ pub fn encode_text_items(items: &[TextItem]) -> Vec<Object> {
     for item in items {
         match item {
             TextItem::Text(s) => {
-                let pdf_str = encode_pdf_string_minimal(s);
-                // Check if the encoding is hex or literal based on its delimiters.
-                if pdf_str.starts_with('<') {
-                    // For hex, remove the delimiters and convert back to bytes.
-                    let inner = &pdf_str[1..pdf_str.len() - 1];
-                    let mut bytes = Vec::new();
-                    for i in (0..inner.len()).step_by(2) {
-                        if i + 2 <= inner.len() {
-                            if let Ok(byte) = u8::from_str_radix(&inner[i..i + 2], 16) {
-                                bytes.push(byte);
-                            }
-                        }
-                    }
-                    objs.push(Object::String(bytes, StringFormat::Hexadecimal));
-                } else {
-                    // For literal strings, we assume a UTF-8 encoding.
-                    objs.push(Object::String(s.as_bytes().to_vec(), StringFormat::Literal));
-                }
+                // Built-in-font WinAnsi encoding (see serialize.rs). This encoder
+                // has no font context, so it assumes a built-in font; embedded
+                // fonts are encoded via glyph IDs on the serialize.rs path. Using
+                // s.as_bytes() here would emit raw UTF-8 into a WinAnsi font.
+                let (bytes, format) = crate::serialize::encode_builtin_text_winansi(s);
+                objs.push(Object::String(bytes, format));
             }
             TextItem::Offset(n) => {
                 objs.push(Object::Integer(*n as i64));

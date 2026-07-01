@@ -503,22 +503,9 @@ pub(crate) fn translate_operations(
                 ));
             }
             Op::ShowText { items } => {
-                // ShowText maps to Tj/TJ - font must be set via SetFont first
-                // Try to resolve font from current_font_resource
-                let builtin_font = current_font_resource
-                    .as_ref()
-                    .and_then(|r| BuiltinFont::from_id(r));
-                
-                let font_info = if builtin_font.is_none() {
-                    // Try to find external font by resource name
-                    current_font_resource
-                        .as_ref()
-                        .and_then(|r| font_infos.get(&FontId(r.clone())))
-                } else {
-                    None
-                };
-                
-                encode_text_items_to_pdf(items, font_info, builtin_font.as_ref(), &mut content);
+                // ShowText maps to Tj/TJ - font must be set via SetFont first.
+                let font_info = resolve_text_font(&current_font_resource, font_infos);
+                encode_text_items_to_pdf(items, font_info, &mut content);
             }
             Op::SetLineHeight { lh } => {
                 content.push(LoOp::new("TL", vec![Real(lh.0)]));
@@ -671,23 +658,22 @@ pub(crate) fn translate_operations(
                 content.push(LoOp::new("EX", vec![]));
             }
             Op::MoveToNextLineShowText { text } => {
-                content.push(LoOp::new(
-                    "'",
-                    vec![LoString(text.as_bytes().to_vec(), Hexadecimal)],
-                ));
+                // Same encoding path as Tj/TJ so built-in fonts get WinAnsi (not
+                // raw UTF-8) and embedded fonts get glyph IDs.
+                let font_info = resolve_text_font(&current_font_resource, font_infos);
+                let (bytes, format) = encode_text_run(text, font_info);
+                content.push(LoOp::new("'", vec![LoString(bytes, format)]));
             }
             Op::SetSpacingMoveAndShowText {
                 word_spacing,
                 char_spacing,
                 text,
             } => {
+                let font_info = resolve_text_font(&current_font_resource, font_infos);
+                let (bytes, format) = encode_text_run(text, font_info);
                 content.push(LoOp::new(
                     "\"",
-                    vec![
-                        Real(*word_spacing),
-                        Real(*char_spacing),
-                        LoString(text.as_bytes().to_vec(), Hexadecimal),
-                    ],
+                    vec![Real(*word_spacing), Real(*char_spacing), LoString(bytes, format)],
                 ));
             }
             Op::MoveTextCursorAndSetLeading { tx, ty } => {
@@ -720,7 +706,6 @@ pub(crate) fn translate_operations(
 fn encode_text_items_to_pdf(
     items: &[TextItem],
     font_info: Option<&RuntimeFontInfo>,
-    builtin_font: Option<&BuiltinFont>,
     content: &mut Vec<LoOp>,
 ) {
     // Skip if no items
@@ -734,35 +719,8 @@ fn encode_text_items_to_pdf(
     for item in items {
         match item {
             TextItem::Text(text) => {
-                if let Some(font_info) = font_info {
-                    // For custom fonts, convert each character to its glyph ID
-                    // Use original GIDs - subsetting remapping happens at font serialization
-                    let bytes: Vec<u8> = text.chars()
-                        .flat_map(|c| {
-                            font_info.parsed_font.lookup_glyph_index(c as u32)
-                                .unwrap_or(0)
-                                .to_be_bytes()
-                        })
-                        .collect();
-
-                    // Custom fonts must use hexadecimal encoding in PDF
-                    tj_array.push(LoString(bytes, Hexadecimal));
-                } else if builtin_font.is_some() {
-                    // For built-in fonts, use WinAnsiEncoding
-                    let bytes = lopdf::Document::encode_text(
-                        &lopdf::Encoding::SimpleEncoding(b"WinAnsiEncoding"),
-                        text,
-                    );
-
-                    // Choose appropriate string format based on content
-                    let string_format = if needs_hex_encoding(&bytes) {
-                        Hexadecimal
-                    } else {
-                        Literal
-                    };
-
-                    tj_array.push(LoString(bytes, string_format));
-                }
+                let (bytes, format) = encode_text_run(text, font_info);
+                tj_array.push(LoString(bytes, format));
             }
             TextItem::Offset(offset) => {
                 tj_array.push(Real(*offset));
@@ -800,6 +758,206 @@ fn needs_hex_encoding(bytes: &[u8]) -> bool {
         // - Special characters like (, ), \, etc.
         b < 32 || b > 126 || b == b'(' || b == b')' || b == b'\\' || b == b'%'
     })
+}
+
+/// Resolve the current font for a text-showing operator. Returns `Some` for an
+/// embedded (custom) font — whose text is encoded via glyph IDs — and `None`
+/// for a built-in font or when no font is set, both of which encode via
+/// WinAnsiEncoding.
+fn resolve_text_font<'a>(
+    current_font_resource: &Option<String>,
+    font_infos: &'a BTreeMap<FontId, RuntimeFontInfo>,
+) -> Option<&'a RuntimeFontInfo> {
+    let resource = current_font_resource.as_ref()?;
+    if BuiltinFont::from_id(resource).is_some() {
+        return None; // built-in font -> WinAnsi
+    }
+    font_infos.get(&FontId(resource.clone()))
+}
+
+/// Encode a text run for a built-in font using WinAnsiEncoding, matching the
+/// font dictionary's `/Encoding /WinAnsiEncoding`. Returns the bytes plus the
+/// PDF string format to serialize them with.
+///
+/// `OneByteEncoding` with the actual code table is required: lopdf does not
+/// recognize `SimpleEncoding(b"WinAnsiEncoding")` and silently falls back to raw
+/// UTF-8, which mojibakes every non-ASCII glyph (`é` -> `C3 A9` instead of `E9`).
+pub(crate) fn encode_builtin_text_winansi(text: &str) -> (Vec<u8>, lopdf::StringFormat) {
+    let bytes = lopdf::Document::encode_text(
+        &lopdf::Encoding::OneByteEncoding(&WIN_ANSI_ENCODING),
+        text,
+    );
+    let format = if needs_hex_encoding(&bytes) {
+        Hexadecimal
+    } else {
+        Literal
+    };
+    (bytes, format)
+}
+
+/// Encode a text run for whichever font is active: embedded fonts map each
+/// character to its glyph ID (hex-encoded); built-in fonts (and the no-font
+/// fallback) use WinAnsiEncoding. Shared by every text-showing operator
+/// (`Tj`/`TJ`, `'`, `"`) so they encode identically.
+fn encode_text_run(text: &str, font_info: Option<&RuntimeFontInfo>) -> (Vec<u8>, lopdf::StringFormat) {
+    match font_info {
+        Some(font_info) => {
+            // Custom fonts: convert each char to its glyph ID (hex). Original
+            // GIDs; subsetting remapping happens at font serialization time.
+            let bytes: Vec<u8> = text
+                .chars()
+                .flat_map(|c| {
+                    font_info
+                        .parsed_font
+                        .lookup_glyph_index(c as u32)
+                        .unwrap_or(0)
+                        .to_be_bytes()
+                })
+                .collect();
+            (bytes, Hexadecimal)
+        }
+        None => encode_builtin_text_winansi(text),
+    }
+}
+
+/// PDF `WinAnsiEncoding` as a byte -> Unicode code-point table (index = byte
+/// value), used with lopdf's `Encoding::OneByteEncoding` to encode built-in
+/// font text. It is identity with Latin-1 for `0x20..=0x7E` and `0xA0..=0xFF`;
+/// the `0x80..=0x9F` block follows Windows-1252 (its five undefined slots
+/// `0x81, 0x8D, 0x8F, 0x90, 0x9D` are `None`); and the C0 control range
+/// `0x00..=0x1F` is undefined (`None`), matching the standard encoding.
+///
+/// lopdf reverse-maps this (Unicode -> byte) when encoding; characters outside
+/// the table are dropped, which is the expected limitation of a single-byte
+/// built-in-font encoding (callers needing full Unicode should embed a font).
+pub(crate) static WIN_ANSI_ENCODING: [Option<u16>; 256] = build_win_ansi_encoding();
+
+const fn build_win_ansi_encoding() -> [Option<u16>; 256] {
+    let mut table = [None; 256];
+    // Latin-1 identity everywhere; the control and 0x80..=0x9F blocks below.
+    let mut i = 0;
+    while i < 256 {
+        table[i] = Some(i as u16);
+        i += 1;
+    }
+    // C0 controls (0x00..=0x1F) are undefined in WinAnsiEncoding.
+    let mut c = 0;
+    while c < 0x20 {
+        table[c] = None;
+        c += 1;
+    }
+    // Windows-1252 overrides for the 0x80..=0x9F control block.
+    table[0x80] = Some(0x20AC); // € EURO SIGN
+    table[0x81] = None;
+    table[0x82] = Some(0x201A); // ‚ SINGLE LOW-9 QUOTATION MARK
+    table[0x83] = Some(0x0192); // ƒ LATIN SMALL LETTER F WITH HOOK
+    table[0x84] = Some(0x201E); // „ DOUBLE LOW-9 QUOTATION MARK
+    table[0x85] = Some(0x2026); // … HORIZONTAL ELLIPSIS
+    table[0x86] = Some(0x2020); // † DAGGER
+    table[0x87] = Some(0x2021); // ‡ DOUBLE DAGGER
+    table[0x88] = Some(0x02C6); // ˆ MODIFIER LETTER CIRCUMFLEX ACCENT
+    table[0x89] = Some(0x2030); // ‰ PER MILLE SIGN
+    table[0x8A] = Some(0x0160); // Š LATIN CAPITAL LETTER S WITH CARON
+    table[0x8B] = Some(0x2039); // ‹ SINGLE LEFT-POINTING ANGLE QUOTATION MARK
+    table[0x8C] = Some(0x0152); // Œ LATIN CAPITAL LIGATURE OE
+    table[0x8D] = None;
+    table[0x8E] = Some(0x017D); // Ž LATIN CAPITAL LETTER Z WITH CARON
+    table[0x8F] = None;
+    table[0x90] = None;
+    table[0x91] = Some(0x2018); // ‘ LEFT SINGLE QUOTATION MARK
+    table[0x92] = Some(0x2019); // ’ RIGHT SINGLE QUOTATION MARK
+    table[0x93] = Some(0x201C); // “ LEFT DOUBLE QUOTATION MARK
+    table[0x94] = Some(0x201D); // ” RIGHT DOUBLE QUOTATION MARK
+    table[0x95] = Some(0x2022); // • BULLET
+    table[0x96] = Some(0x2013); // – EN DASH
+    table[0x97] = Some(0x2014); // — EM DASH
+    table[0x98] = Some(0x02DC); // ˜ SMALL TILDE
+    table[0x99] = Some(0x2122); // ™ TRADE MARK SIGN
+    table[0x9A] = Some(0x0161); // š LATIN SMALL LETTER S WITH CARON
+    table[0x9B] = Some(0x203A); // › SINGLE RIGHT-POINTING ANGLE QUOTATION MARK
+    table[0x9C] = Some(0x0153); // œ LATIN SMALL LIGATURE OE
+    table[0x9D] = None;
+    table[0x9E] = Some(0x017E); // ž LATIN SMALL LETTER Z WITH CARON
+    table[0x9F] = Some(0x0178); // Ÿ LATIN CAPITAL LETTER Y WITH DIAERESIS
+    table
+}
+
+#[cfg(test)]
+mod win_ansi_tests {
+    use super::{build_win_ansi_encoding, encode_builtin_text_winansi, encode_text_run};
+
+    /// Encode via the shared built-in-font path used by every text operator
+    /// (`Tj`/`TJ`, `'`, `"`).
+    fn encode(text: &str) -> Vec<u8> {
+        encode_builtin_text_winansi(text).0
+    }
+
+    #[test]
+    fn ascii_is_unchanged() {
+        assert_eq!(encode("Hello, World!"), b"Hello, World!".to_vec());
+    }
+
+    #[test]
+    fn accented_names_become_single_winansi_bytes() {
+        // These are the bytes any WinAnsi reader expects — NOT the UTF-8 bytes.
+        assert_eq!(encode("é"), vec![0xE9]);
+        assert_eq!(encode("ü"), vec![0xFC]);
+        assert_eq!(encode("ñ"), vec![0xF1]);
+        assert_eq!(encode("ç"), vec![0xE7]);
+        assert_eq!(encode("José"), vec![b'J', b'o', b's', 0xE9]);
+    }
+
+    #[test]
+    fn markdown_typography_becomes_single_winansi_bytes() {
+        assert_eq!(encode("“"), vec![0x93]); // left double quote
+        assert_eq!(encode("”"), vec![0x94]); // right double quote
+        assert_eq!(encode("’"), vec![0x92]); // right single quote
+        assert_eq!(encode("–"), vec![0x96]); // en dash
+        assert_eq!(encode("—"), vec![0x97]); // em dash
+        assert_eq!(encode("…"), vec![0x85]); // ellipsis
+        assert_eq!(encode("•"), vec![0x95]); // bullet
+        assert_eq!(encode("×"), vec![0xD7]); // multiplication sign
+        assert_eq!(encode("·"), vec![0xB7]); // middle dot
+        assert_eq!(encode("€"), vec![0x80]); // euro
+        assert_eq!(encode("™"), vec![0x99]); // trademark
+    }
+
+    #[test]
+    fn does_not_emit_utf8_for_non_ascii() {
+        // Regression guard: the old `SimpleEncoding(b"WinAnsiEncoding")` path made
+        // lopdf fall back to raw UTF-8, so `é` came out as `C3 A9`.
+        assert_ne!(encode("é"), vec![0xC3, 0xA9]);
+        assert_ne!(encode("–"), vec![0xE2, 0x80, 0x93]);
+    }
+
+    #[test]
+    fn text_run_without_font_uses_winansi() {
+        // `encode_text_run(_, None)` is the shared path taken by Tj/TJ, ' and "
+        // for built-in fonts. Proving it here proves all three operators encode
+        // WinAnsi (not raw UTF-8) for built-in text.
+        assert_eq!(encode_text_run("é", None).0, vec![0xE9]);
+        assert_eq!(encode_text_run("A–B", None).0, vec![b'A', 0x96, b'B']);
+        assert_eq!(encode_text_run("Hi", None).0, b"Hi".to_vec());
+    }
+
+    #[test]
+    fn table_shape_is_correct() {
+        let t = build_win_ansi_encoding();
+        // Printable ASCII + upper Latin-1 are identity.
+        for b in (0x20u16..=0x7E).chain(0xA0..=0xFF) {
+            assert_eq!(t[b as usize], Some(b), "byte 0x{b:02X} should be identity");
+        }
+        // C0 control range is undefined.
+        for b in 0x00usize..0x20 {
+            assert_eq!(t[b], None, "control byte 0x{b:02X} should be undefined");
+        }
+        // The five undefined CP1252 slots are None.
+        for b in [0x81usize, 0x8D, 0x8F, 0x90, 0x9D] {
+            assert_eq!(t[b], None, "byte 0x{b:02X} should be undefined");
+        }
+        // A representative override.
+        assert_eq!(t[0x96], Some(0x2013)); // en dash
+    }
 }
 
 /// Runtime font information for text encoding
