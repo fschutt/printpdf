@@ -1888,3 +1888,75 @@ mod tests {
         assert_eq!(operators(&ops), vec!["re", "n"]);
     }
 }
+
+/// WinAnsi encoding of built-in-font text (issue #273).
+///
+/// Test cases adapted from @JohnHarrison's PR #274, which reported and diagnosed the bug.
+/// The fix here differs — printpdf owns the encoding table rather than relying on lopdf's
+/// `SimpleEncoding` name lookup, so it stays correct across lopdf upgrades — but these
+/// assertions are the same contract.
+#[cfg(test)]
+mod win_ansi_tests {
+    use super::encode_win_ansi as encode;
+
+    #[test]
+    fn ascii_is_unchanged() {
+        assert_eq!(encode("Hello, World!"), b"Hello, World!".to_vec());
+    }
+
+    #[test]
+    fn accented_names_become_single_winansi_bytes() {
+        // These are the bytes any WinAnsi reader expects — NOT the UTF-8 bytes.
+        assert_eq!(encode("é"), vec![0xE9]);
+        assert_eq!(encode("ü"), vec![0xFC]);
+        assert_eq!(encode("ñ"), vec![0xF1]);
+        assert_eq!(encode("ç"), vec![0xE7]);
+        assert_eq!(encode("José"), vec![b'J', b'o', b's', 0xE9]);
+        assert_eq!(encode("Grüße"), vec![b'G', b'r', 0xFC, 0xDF, b'e']);
+    }
+
+    #[test]
+    fn typographic_punctuation_becomes_single_winansi_bytes() {
+        // 0x80..=0x9F is where WinAnsi diverges from Latin-1.
+        assert_eq!(encode("“"), vec![0x93]); // left double quote
+        assert_eq!(encode("”"), vec![0x94]); // right double quote
+        assert_eq!(encode("’"), vec![0x92]); // right single quote
+        assert_eq!(encode("–"), vec![0x96]); // en dash
+        assert_eq!(encode("—"), vec![0x97]); // em dash
+        assert_eq!(encode("…"), vec![0x85]); // ellipsis
+        assert_eq!(encode("•"), vec![0x95]); // bullet
+        assert_eq!(encode("€"), vec![0x80]); // euro
+        assert_eq!(encode("™"), vec![0x99]); // trademark
+        // ...while these live in the Latin-1 range and pass straight through.
+        assert_eq!(encode("×"), vec![0xD7]); // multiplication sign
+        assert_eq!(encode("·"), vec![0xB7]); // middle dot
+    }
+
+    #[test]
+    fn does_not_emit_utf8_for_non_ascii() {
+        // The regression guard. `Encoding::SimpleEncoding(b"WinAnsiEncoding")` is a name
+        // lopdf 0.39 does not recognise, so it fell through to `text.as_bytes()` and `é`
+        // came out as the two bytes `C3 A9` — mojibake in every reader.
+        assert_ne!(encode("é"), vec![0xC3, 0xA9]);
+        assert_ne!(encode("–"), vec![0xE2, 0x80, 0x93]);
+    }
+
+    #[test]
+    fn unrepresentable_characters_do_not_corrupt_the_stream() {
+        // WinAnsi is single-byte: a CJK character has no encoding. It must not silently
+        // become multiple bytes, which would shift every subsequent glyph.
+        assert_eq!(encode("世"), vec![b'?']);
+        assert_eq!(encode("a世b"), vec![b'a', b'?', b'b']);
+    }
+
+    #[test]
+    fn every_encoded_character_is_exactly_one_byte() {
+        for text in ["Hello", "José", "Grüße", "€ — …", "世界"] {
+            assert_eq!(
+                encode(text).len(),
+                text.chars().count(),
+                "WinAnsi is a single-byte encoding; {text:?} must not change length"
+            );
+        }
+    }
+}
