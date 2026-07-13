@@ -3653,14 +3653,10 @@ mod parsefont {
                 // Parse the font
                 let mut font_warnings = Vec::new();
                 if let Some(parsed_font) = ParsedFont::from_bytes(&font_data, 0, &mut font_warnings) {
-                    // Convert FontParseWarnings to PdfWarnMsg if needed
-                    #[cfg(feature = "text_layout")]
+                    // No cfg split needed any more: `from_bytes` now takes the same warning
+                    // type with and without `text_layout` (#260).
                     for fw in font_warnings {
-                        warnings.push(PdfWarnMsg::warning(page_num, 0, format!("{:?}", fw)));
-                    }
-                    #[cfg(not(feature = "text_layout"))]
-                    for fw in font_warnings {
-                        warnings.push(PdfWarnMsg::warning(page_num, 0, fw));
+                        warnings.push(PdfWarnMsg::warning(page_num, 0, format!("{fw:?}")));
                     }
                     return Some(parsed_font);
                 } else {

@@ -240,7 +240,13 @@ impl Default for PdfFontMetricsStub {
 
 #[cfg(not(feature = "text_layout"))]
 impl ParsedFont {
-    pub fn from_bytes(bytes: &[u8], index: usize, _warnings: &mut Vec<String>) -> Option<Self> {
+    /// Same signature as the `text_layout` build (#260), so calling code is portable
+    /// across the feature.
+    pub fn from_bytes(
+        bytes: &[u8],
+        index: usize,
+        _warnings: &mut Vec<PdfFontParseWarning>,
+    ) -> Option<Self> {
         Some(ParsedFont {
             original_bytes: bytes.to_vec(),
             font_index: index as u32,
@@ -313,11 +319,31 @@ pub enum FontType {
     OpenTypeCFF(()),
 }
 
+/// How serious a font-parse diagnostic is.
 #[cfg(not(feature = "text_layout"))]
-pub type FontParseWarning = String;
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FontParseSeverity {
+    Info,
+    Warning,
+    Error,
+}
+
+/// Stand-in for azul-layout's `FontParseWarning` when `text_layout` is off.
+///
+/// This used to be `type FontParseWarning = String`, which meant
+/// `ParsedFont::from_bytes` really did take a different type with and without the feature
+/// (#260): code that read `w.message` compiled with `text_layout` and failed without it.
+/// Mirroring the real shape keeps the signature — and the calling code — identical either
+/// way.
+#[cfg(not(feature = "text_layout"))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FontParseWarning {
+    pub severity: FontParseSeverity,
+    pub message: String,
+}
 
 #[cfg(not(feature = "text_layout"))]
-pub type PdfFontParseWarning = String;
+pub type PdfFontParseWarning = FontParseWarning;
 
 #[cfg(not(feature = "text_layout"))]
 pub type OwnedGlyph = ();
