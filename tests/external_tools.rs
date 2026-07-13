@@ -39,13 +39,31 @@ const NOTO_JP_OTF: &[u8] = include_bytes!("../examples/assets/fonts/NotoSansJP-R
 // poppler plumbing
 // ---------------------------------------------------------------------------
 
-fn have(tool: &str) -> bool {
-    Command::new(tool)
-        .arg("-v")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok()
+/// True only when *every* poppler tool these tests need is present and actually works.
+///
+/// A spawn-only check is not enough. The Windows CI runner has something called
+/// `pdftotext` on its PATH but no `pdffonts` at all, so a per-tool check let the tests
+/// start and then fail mid-run — some with "program not found", others with a broken pipe
+/// or silently empty output. Demand a real poppler version banner from each tool, and gate
+/// every test on all of them.
+fn poppler_ready() -> bool {
+    ["pdffonts", "pdftotext"].iter().all(|tool| {
+        Command::new(tool)
+            .arg("-v")
+            .output()
+            .map(|out| {
+                // poppler prints "<tool> version X.Y.Z / Copyright ... The Poppler
+                // Developers" — on stderr for most builds.
+                let banner = format!(
+                    "{}{}",
+                    String::from_utf8_lossy(&out.stdout),
+                    String::from_utf8_lossy(&out.stderr)
+                )
+                .to_lowercase();
+                banner.contains("poppler")
+            })
+            .unwrap_or(false)
+    })
 }
 
 /// Run a poppler tool with the PDF on stdin, returning (stdout, stderr).
@@ -188,9 +206,9 @@ fn pdf_with_builtin_font(builtin: BuiltinFont, text: &str) -> Vec<u8> {
 }
 
 macro_rules! require_poppler {
-    ($tool:literal) => {
-        if !have($tool) {
-            eprintln!("skipping: {} not installed (install poppler-utils)", $tool);
+    () => {
+        if !poppler_ready() {
+            eprintln!("skipping: poppler (pdffonts + pdftotext) not installed");
             return;
         }
     };
@@ -210,7 +228,7 @@ macro_rules! require_poppler {
 /// ```
 #[test]
 fn pdffonts_accepts_the_embedded_truetype_program() {
-    require_poppler!("pdffonts");
+    require_poppler!();
 
     for subset in [false, true] {
         let pdf = pdf_with_external_font(ROBOTO_TTF, "Roboto", subset);
@@ -234,7 +252,7 @@ fn pdffonts_accepts_the_embedded_truetype_program() {
 
 #[test]
 fn pdffonts_accepts_the_embedded_cff_program() {
-    require_poppler!("pdffonts");
+    require_poppler!();
 
     for subset in [false, true] {
         let pdf = pdf_with_external_font(NOTO_JP_OTF, "こんにちは", subset);
@@ -254,7 +272,7 @@ fn pdffonts_accepts_the_embedded_cff_program() {
 /// content stream (or vice versa), or a missing CMap entirely.
 #[test]
 fn pdftotext_roundtrips_external_font_text() {
-    require_poppler!("pdftotext");
+    require_poppler!();
 
     let cases = [
         ("latin", "Roboto"),
@@ -279,7 +297,7 @@ fn pdftotext_roundtrips_external_font_text() {
 
 #[test]
 fn pdftotext_roundtrips_cjk_text() {
-    require_poppler!("pdftotext");
+    require_poppler!();
 
     let text = "こんにちは世界";
     for subset in [false, true] {
@@ -300,7 +318,7 @@ fn pdftotext_roundtrips_cjk_text() {
 /// come back as mojibake (issue #273).
 #[test]
 fn pdftotext_roundtrips_builtin_font_text() {
-    require_poppler!("pdftotext");
+    require_poppler!();
 
     for text in ["Helvetica", "The quick brown fox"] {
         let pdf = pdf_with_builtin_font(BuiltinFont::Helvetica, text);
@@ -328,7 +346,7 @@ fn pdftotext_roundtrips_builtin_font_text() {
 /// recognise — it silently fell through to `text.as_bytes()`.
 #[test]
 fn pdftotext_roundtrips_builtin_font_non_ascii() {
-    require_poppler!("pdftotext");
+    require_poppler!();
 
     let text = "Grüße aus Köln";
     let pdf = pdf_with_builtin_font(BuiltinFont::Helvetica, text);
@@ -344,7 +362,7 @@ fn pdftotext_roundtrips_builtin_font_non_ascii() {
 /// Both fonts on one page, the layout from the issue. In 0.10.0 only Helvetica rendered.
 #[test]
 fn pdftotext_roundtrips_builtin_and_external_together() {
-    require_poppler!("pdftotext");
+    require_poppler!();
 
     let font = ParsedFont::from_bytes(ROBOTO_TTF, 0, &mut Vec::new()).expect("parse");
     let mut doc = PdfDocument::new("mixed");
@@ -393,7 +411,7 @@ fn pdftotext_roundtrips_builtin_and_external_together() {
 /// (where the bytes have to be glyph ids).
 #[test]
 fn pdftotext_roundtrips_quote_operators() {
-    require_poppler!("pdftotext");
+    require_poppler!();
 
     // Built-in font: bytes must be WinAnsi.
     let mut doc = PdfDocument::new("quote-ops-builtin");
@@ -477,7 +495,7 @@ fn pdftotext_roundtrips_quote_operators() {
 /// Text split across many `ShowText` ops and pages must still extract in order.
 #[test]
 fn pdftotext_roundtrips_multipage() {
-    require_poppler!("pdftotext");
+    require_poppler!();
 
     let font = ParsedFont::from_bytes(ROBOTO_TTF, 0, &mut Vec::new()).expect("parse");
     let mut doc = PdfDocument::new("multipage");

@@ -1,5 +1,71 @@
 # Changelog
 
+## `0.10.1` — font embedding hotfix
+
+**If you are on `0.10.0`, upgrade.** In 0.10.0 every external font embedded as an *empty*
+`/FontFile2`: readers reported "Cannot extract the embedded font", `pdffonts` reported
+"Embedded font file may be invalid", and no glyph rendered. A PDF that should have been
+165 KB came out at 2.7 KB. Nothing warned and nothing failed.
+
+0.10.0 cannot be repaired by releasing a fixed `azul-layout`. Cargo reads
+`azul-layout = "0.0.9"` as `^0.0.9` := `>=0.0.9, <0.0.10`, so for `0.0.z` versions *only*
+`0.0.9` ever satisfies it — 0.10.0 is permanently pinned to the broken dependency. The fix
+had to come from printpdf, and it does: printpdf now retains font bytes itself and no
+longer depends on azul's retention policy at all.
+
+### Fixed
+
+- **External fonts embed as an empty `/FontFile2`.** `azul_layout::ParsedFont::from_bytes`
+  does not retain the source bytes (a deliberate perf change — layout and rasterization
+  never read them, and retaining them duplicated a 4.27 MiB `.ttc` once per face).
+  printpdf read them straight off the struct and `.unwrap_or_default()`'d the `None` into
+  an empty `Vec`. `printpdf::ParsedFont` is now its own type, which attaches the source
+  bytes explicitly, so embedding is correct against any `azul-layout`.
+- **Subset fonts had no `.notdef`.** allsorts requires glyph 0 to be present and first in
+  the subset glyph list; printpdf passed only the used glyphs, so the first *real* glyph
+  was renumbered into slot 0. Subsetting "Roboto" produced `R→0, b→1, o→2, t→3`, and the
+  `R` was drawn as `.notdef`.
+- **CFF/OpenType fonts were mislabelled.** An `OTTO` font was written as `CIDFontType2` +
+  `/FontFile2`, both of which mean "TrueType `glyf` outlines". The descendant subtype is
+  now taken from the sfnt magic of the program actually being embedded, and a full `OTTO`
+  sfnt is written to `/FontFile3` as `/Subtype /OpenType`.
+- **Built-in fonts emitted UTF-8 into a `WinAnsiEncoding` stream** (#273). "Grüße aus Köln"
+  extracted as "GrÃ¼ÃŸe aus KÃ¶ln" — the text was not copy-able or searchable. printpdf now
+  owns the WinAnsi encoding table.
+- **The `'` and `"` operators ignored the selected font**, emitting raw UTF-8 — wrong for a
+  WinAnsi built-in font *and* for an Identity-H external font, where the bytes must be
+  glyph ids. The used-glyph collector also ignored them, so a page that drew text only via
+  `'`/`"` registered no glyphs, its font was skipped as unused, and the text disappeared
+  from the PDF entirely.
+- A font that cannot be embedded now raises a `PdfWarnMsg::error` and omits `/FontFile`
+  rather than writing a zero-length one. A missing font is a legal font that readers
+  substitute for; an empty font program is a corrupt one they reject.
+
+### Changed
+
+- `printpdf::ParsedFont` is now a printpdf type (a newtype over `azul_layout::ParsedFont`,
+  with `Deref`, so the existing API is unchanged). It guarantees the source bytes are
+  retained. `ParsedFont::from_bytes`, field access and method calls all work as before;
+  `into_inner()` / `as_azul()` reach the underlying azul face, and
+  `printpdf::font::AzulParsedFont` re-exports it.
+- `text_layout` now pulls in `rust-fontconfig`, which is needed to name the type that
+  carries the retained bytes.
+
+### Added
+
+- `tests/font_embedding.rs` — opens the produced PDF with `lopdf` (deliberately *not*
+  printpdf's own parser, where a symmetric writer/reader bug would cancel itself out) and
+  asserts on the bytes a real reader sees: the font program is a parseable sfnt, every
+  content-stream glyph id exists in it, and `/W` and `/ToUnicode` are keyed by those same
+  ids and round-trip the exact source text.
+- `tests/external_tools.rs` — verifies against poppler, which shares no code with printpdf:
+  `pdffonts` must accept the embedded program, and `pdftotext` must round-trip the source
+  text exactly (this is literally what copy/paste and search do).
+- CI job `published-deps` — rebuilds the *published* dependency graph by stripping
+  `[patch.crates-io]`, then runs the font tests against it. `cargo publish` strips that
+  section, so without this the local checkout and the published crate are different
+  programs. This is the gate that 0.10.0 needed and did not have.
+
 ## `0.5.2`
 
 - enable all features on docs.rs
