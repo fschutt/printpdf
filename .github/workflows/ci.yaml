@@ -94,6 +94,57 @@ jobs:
       # compile on wasm. Check the broad wasm-safe feature set instead.
       - run: cargo check --verbose --target wasm32-wasip2 --features "gif,jpeg,png,pnm,tiff,bmp,ico,tga,hdr,dds,webp"
 
+  # Verifies the produced PDFs with poppler, which shares no code with printpdf.
+  #
+  # Every other test in this repo checks printpdf against printpdf. That symmetry is how
+  # issue #277 shipped: the writer emitted an empty /FontFile2, the reader happily read a
+  # font resource back out, and the round-trip test stayed green while Acrobat refused the
+  # file. `pdffonts` and `pdftotext` are an independent oracle for the two things users
+  # actually care about — does the font embed, and is the text copy-able.
+  font-verification-external:
+    name: Verify fonts with external tools (poppler)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install poppler-utils
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+      - run: pdffonts -v && pdftotext -v
+      - run: cargo test --features html --test external_tools --test font_embedding --test font -- --nocapture
+
+  # THE RELEASE GATE.
+  #
+  # `cargo publish` STRIPS [patch.crates-io]. A crate published while that section exists
+  # is built against dependencies that nobody ever compiled or tested against — the local
+  # checkout and the published artifact are different programs. That is precisely how
+  # 0.10.0 shipped: locally azul-layout came from a git branch whose `ParsedFont::from_bytes`
+  # retains the source font bytes; on crates.io it resolved to azul-layout 0.0.9, whose
+  # `from_bytes` does not, so every embedded font became an empty /FontFile2.
+  #
+  # This job reconstructs the *published* dependency graph and runs the font tests against
+  # it. If it is red, the crate must not be published, whatever the other jobs say.
+  published-deps:
+    name: Test against published deps (simulates cargo publish)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install poppler-utils
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+      - name: Strip [patch.crates-io], as cargo publish does
+        run: |
+          python3 - <<'PY'
+          import pathlib, re
+          p = pathlib.Path("Cargo.toml")
+          src = p.read_text()
+          out = re.sub(r'(?ms)^\[patch\.[^\]]+\].*?(?=^\[[^p]|\Z)', '', src)
+          p.write_text(out)
+          print("stripped [patch]" if out != src else "no [patch] section (already publish-clean)")
+          PY
+      - name: Show the dependency versions a published printpdf would get
+        run: cargo tree --features html -i azul-layout || true
+      - run: cargo test --features html --test external_tools --test font_embedding --test font
+
   generate-pdf-artifacts:
     name: Generate PDF artifacts
     runs-on: ubuntu-latest

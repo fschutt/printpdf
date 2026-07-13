@@ -515,20 +515,9 @@ pub(crate) fn translate_operations(
             }
             Op::ShowText { items } => {
                 // ShowText maps to Tj/TJ - font must be set via SetFont first
-                // Try to resolve font from current_font_resource
-                let builtin_font = current_font_resource
-                    .as_ref()
-                    .and_then(|r| BuiltinFont::from_id(r));
-                
-                let font_info = if builtin_font.is_none() {
-                    // Try to find external font by resource name
-                    current_font_resource
-                        .as_ref()
-                        .and_then(|r| font_infos.get(&FontId(r.clone())))
-                } else {
-                    None
-                };
-                
+                let (builtin_font, font_info) =
+                    resolve_current_font(&current_font_resource, font_infos);
+
                 encode_text_items_to_pdf(items, font_info, builtin_font.as_ref(), &mut content);
             }
             Op::SetLineHeight { lh } => {
@@ -681,10 +670,16 @@ pub(crate) fn translate_operations(
             Op::EndCompatibilitySection => {
                 content.push(LoOp::new("EX", vec![]));
             }
+            // `'` and `"` show text just like Tj does, so they need the *same* encoding as
+            // the currently selected font — glyph ids for an external font, WinAnsi for a
+            // built-in one. They used to emit `text.as_bytes()` (raw UTF-8) unconditionally,
+            // which is wrong for both (issue #273).
             Op::MoveToNextLineShowText { text } => {
+                let (builtin_font, font_info) =
+                    resolve_current_font(&current_font_resource, font_infos);
                 content.push(LoOp::new(
                     "'",
-                    vec![LoString(text.as_bytes().to_vec(), Hexadecimal)],
+                    vec![encode_text_for_font(text, font_info, builtin_font.as_ref())],
                 ));
             }
             Op::SetSpacingMoveAndShowText {
@@ -692,12 +687,14 @@ pub(crate) fn translate_operations(
                 char_spacing,
                 text,
             } => {
+                let (builtin_font, font_info) =
+                    resolve_current_font(&current_font_resource, font_infos);
                 content.push(LoOp::new(
                     "\"",
                     vec![
                         Real(*word_spacing),
                         Real(*char_spacing),
-                        LoString(text.as_bytes().to_vec(), Hexadecimal),
+                        encode_text_for_font(text, font_info, builtin_font.as_ref()),
                     ],
                 ));
             }
@@ -728,6 +725,28 @@ pub(crate) fn translate_operations(
 // IMPORTANT: This function uses ORIGINAL glyph IDs directly.
 // Font subsetting (if enabled) happens at font serialization time,
 // and the glyph ID remapping is done there, not here.
+/// Resolve the font selected by the most recent `Tf` into either a built-in face or an
+/// embedded one. Every text-showing operator (`Tj`, `TJ`, `'`, `"`) needs this, because
+/// the two classes encode their strings completely differently.
+fn resolve_current_font<'a>(
+    current_font_resource: &Option<String>,
+    font_infos: &'a BTreeMap<FontId, RuntimeFontInfo>,
+) -> (Option<BuiltinFont>, Option<&'a RuntimeFontInfo>) {
+    let builtin = current_font_resource
+        .as_ref()
+        .and_then(|r| BuiltinFont::from_id(r));
+
+    let info = if builtin.is_none() {
+        current_font_resource
+            .as_ref()
+            .and_then(|r| font_infos.get(&FontId(r.clone())))
+    } else {
+        None
+    };
+
+    (builtin, info)
+}
+
 /// Map an original glyph id to the subset's renumbered id when the font was
 /// subset; otherwise return it unchanged. Unmapped gids fall back to 0 (.notdef).
 fn remap_gid(font_info: Option<&RuntimeFontInfo>, gid: u16) -> u16 {
@@ -754,34 +773,7 @@ fn encode_text_items_to_pdf(
     for item in items {
         match item {
             TextItem::Text(text) => {
-                if let Some(font_info) = font_info {
-                    // For custom fonts, convert each character to its glyph ID
-                    // Use original GIDs - subsetting remapping happens at font serialization
-                    let bytes: Vec<u8> = text.chars()
-                        .flat_map(|c| {
-                            let orig = font_info.parsed_font.lookup_glyph_index(c as u32).unwrap_or(0);
-                            remap_gid(Some(font_info), orig).to_be_bytes()
-                        })
-                        .collect();
-
-                    // Custom fonts must use hexadecimal encoding in PDF
-                    tj_array.push(LoString(bytes, Hexadecimal));
-                } else if builtin_font.is_some() {
-                    // For built-in fonts, use WinAnsiEncoding
-                    let bytes = lopdf::Document::encode_text(
-                        &lopdf::Encoding::SimpleEncoding(b"WinAnsiEncoding"),
-                        text,
-                    );
-
-                    // Choose appropriate string format based on content
-                    let string_format = if needs_hex_encoding(&bytes) {
-                        Hexadecimal
-                    } else {
-                        Literal
-                    };
-
-                    tj_array.push(LoString(bytes, string_format));
-                }
+                tj_array.push(encode_text_for_font(text, font_info, builtin_font));
             }
             TextItem::Offset(offset) => {
                 tj_array.push(Real(*offset));
@@ -820,6 +812,106 @@ fn needs_hex_encoding(bytes: &[u8]) -> bool {
         // - Special characters like (, ), \, etc.
         b < 32 || b > 126 || b == b'(' || b == b')' || b == b'\\' || b == b'%'
     })
+}
+
+/// Encode `text` as `WinAnsiEncoding` bytes (PDF 32000-1 Annex D.2 — effectively CP1252).
+///
+/// The 14 built-in fonts are written with `/Encoding /WinAnsiEncoding`, which is a
+/// *single-byte* encoding. Their content streams must therefore carry WinAnsi bytes.
+/// Emitting the raw UTF-8 instead means `ü` (U+00FC, UTF-8 `C3 BC`) reaches the reader as
+/// the two WinAnsi characters `Ã¼`, so every non-ASCII character comes out as mojibake
+/// and the text is not copy-able (issue #273).
+///
+/// We do this ourselves rather than via `lopdf::Document::encode_text`, because lopdf
+/// 0.39 does not recognise the `WinAnsiEncoding` name and silently falls through to
+/// `text.as_bytes()` — which is exactly the bug. Owning the table also keeps the encoding
+/// correct across lopdf upgrades.
+///
+/// Characters WinAnsi cannot represent are replaced with `?`.
+fn encode_win_ansi(text: &str) -> Vec<u8> {
+    text.chars()
+        .map(|c| win_ansi_byte(c).unwrap_or(b'?'))
+        .collect()
+}
+
+/// The single WinAnsi byte for `c`, or `None` if the encoding has no such character.
+fn win_ansi_byte(c: char) -> Option<u8> {
+    // WinAnsi agrees with ASCII in 0x20..=0x7E and with Latin-1 in 0xA0..=0xFF. It differs
+    // only in 0x80..=0x9F, where Latin-1 has C1 control codes and WinAnsi has typographic
+    // punctuation — those are spelled out below.
+    match c as u32 {
+        cp @ 0x20..=0x7E => return Some(cp as u8),
+        cp @ 0xA0..=0xFF => return Some(cp as u8),
+        _ => {}
+    }
+
+    Some(match c {
+        '\u{20AC}' => 0x80, // € euro
+        '\u{201A}' => 0x82, // ‚ single low-9 quote
+        '\u{0192}' => 0x83, // ƒ florin
+        '\u{201E}' => 0x84, // „ double low-9 quote
+        '\u{2026}' => 0x85, // … ellipsis
+        '\u{2020}' => 0x86, // † dagger
+        '\u{2021}' => 0x87, // ‡ double dagger
+        '\u{02C6}' => 0x88, // ˆ circumflex
+        '\u{2030}' => 0x89, // ‰ per mille
+        '\u{0160}' => 0x8A, // Š S caron
+        '\u{2039}' => 0x8B, // ‹ single left angle quote
+        '\u{0152}' => 0x8C, // Œ OE ligature
+        '\u{017D}' => 0x8E, // Ž Z caron
+        '\u{2018}' => 0x91, // ' left single quote
+        '\u{2019}' => 0x92, // ' right single quote
+        '\u{201C}' => 0x93, // " left double quote
+        '\u{201D}' => 0x94, // " right double quote
+        '\u{2022}' => 0x95, // • bullet
+        '\u{2013}' => 0x96, // – en dash
+        '\u{2014}' => 0x97, // — em dash
+        '\u{02DC}' => 0x98, // ˜ small tilde
+        '\u{2122}' => 0x99, // ™ trademark
+        '\u{0161}' => 0x9A, // š s caron
+        '\u{203A}' => 0x9B, // › single right angle quote
+        '\u{0153}' => 0x9C, // œ oe ligature
+        '\u{017E}' => 0x9E, // ž z caron
+        '\u{0178}' => 0x9F, // Ÿ Y diaeresis
+        _ => return None,
+    })
+}
+
+/// Encode a run of text for whichever font is currently selected.
+///
+/// The two font classes have completely different byte-level contracts, and getting them
+/// crossed is silent — the page still renders, it just renders the wrong thing:
+///
+/// - **External fonts** are Identity-H CID fonts, so the string is a sequence of
+///   big-endian `u16` glyph ids (renumbered when the font was subset).
+/// - **Built-in fonts** are `/WinAnsiEncoding`, so the string is single-byte WinAnsi.
+fn encode_text_for_font(
+    text: &str,
+    font_info: Option<&RuntimeFontInfo>,
+    builtin_font: Option<&BuiltinFont>,
+) -> lopdf::Object {
+    if let Some(font_info) = font_info {
+        let bytes: Vec<u8> = text
+            .chars()
+            .flat_map(|c| {
+                let orig = font_info.parsed_font.lookup_glyph_index(c as u32).unwrap_or(0);
+                remap_gid(Some(font_info), orig).to_be_bytes()
+            })
+            .collect();
+        // CID strings are always hex — a raw glyph id byte pair is not printable text.
+        return LoString(bytes, Hexadecimal);
+    }
+
+    // No external font selected: the 14 standard fonts (and the "no font set" fallback)
+    // are all WinAnsi.
+    let _ = builtin_font;
+    let bytes = encode_win_ansi(text);
+    let format = if needs_hex_encoding(&bytes) {
+        Hexadecimal
+    } else {
+        Literal
+    };
+    LoString(bytes, format)
 }
 
 /// Runtime font information for text encoding
@@ -918,13 +1010,35 @@ fn collect_used_glyphs_from_pages(
                         }
                     }
                 }
+                // `'` and `"` show text just as `Tj` does. They were missing here, so a
+                // page that drew text *only* through them registered zero used glyphs for
+                // its font — and `prepare_fonts_for_serialization` skips fonts with no used
+                // glyphs, so the font was never embedded and the text silently vanished.
+                Op::MoveToNextLineShowText { text }
+                | Op::SetSpacingMoveAndShowText { text, .. } => {
+                    if let Some(ref font_id) = current_font_id {
+                        if let Some(pdf_font) = fonts.get(font_id) {
+                            let font_glyphs = used_glyphs
+                                .entry(font_id.clone())
+                                .or_insert_with(BTreeMap::new);
+
+                            for c in text.chars() {
+                                if let Some(glyph_id) =
+                                    pdf_font.parsed_font.lookup_glyph_index(c as u32)
+                                {
+                                    font_glyphs.insert(glyph_id, c);
+                                }
+                            }
+                        }
+                    }
+                }
                 _ => {
                     // Other operations don't affect glyph usage
                 }
             }
         }
     }
-    
+
     used_glyphs
 }
 
@@ -1221,15 +1335,17 @@ pub(crate) fn prepare_fonts_for_serialization(
                              pdf_font.meta.requires_subsetting &&
                              pdf_font.meta.embedding_mode == crate::font::FontEmbeddingMode::Subset {
             // Try subsetting, fall back to full font if it fails
-            create_subset_runtime_info(font_id, pdf_font, &glyph_usage, warnings)
-                .unwrap_or_else(|| create_full_font_runtime_info(font_id, pdf_font, &glyph_usage))
+            match create_subset_runtime_info(font_id, pdf_font, &glyph_usage, warnings) {
+                Some(info) => info,
+                None => create_full_font_runtime_info(font_id, pdf_font, &glyph_usage, warnings),
+            }
         } else {
             // Use full font without subsetting
-            create_full_font_runtime_info(font_id, pdf_font, &glyph_usage)
+            create_full_font_runtime_info(font_id, pdf_font, &glyph_usage, warnings)
         };
-        
+
         #[cfg(not(feature = "text_layout"))]
-        let subset_info = create_full_font_runtime_info(font_id, pdf_font, &glyph_usage);
+        let subset_info = create_full_font_runtime_info(font_id, pdf_font, &glyph_usage, warnings);
 
         // If the font was actually subset (renumbered), the content stream must
         // emit the subset glyph ids — thread the remap into the text encoder.
@@ -1319,19 +1435,34 @@ fn create_full_font_runtime_info(
     font_id: &FontId,
     pdf_font: &crate::font::PdfFont,
     glyph_usage: &BTreeMap<u16, char>,
+    warnings: &mut Vec<PdfWarnMsg>,
 ) -> RuntimeSubsetInfo {
-    // With `text_layout`, `original_bytes` is `Option<Arc<FontBytes>>` (FontBytes
-    // exposes `as_slice()`). Without it, the stub `ParsedFont.original_bytes` is a
-    // plain `Vec<u8>`. The output field wants `Vec<u8>` either way.
+    // The font program embedded as /FontFile2 (or /FontFile3) *is* these bytes.
+    // `ParsedFont::from_bytes` guarantees they're retained; a face that lost them
+    // cannot be embedded, and writing a zero-length font stream produces a PDF that
+    // readers reject outright ("Cannot extract the embedded font"). Report it as an
+    // error and let the caller decide — never embed silently-empty font data.
     #[cfg(feature = "text_layout")]
     let font_bytes = pdf_font
         .parsed_font
-        .original_bytes
-        .as_ref()
+        .source_bytes()
         .map(|fb| fb.as_slice().to_vec())
         .unwrap_or_default();
     #[cfg(not(feature = "text_layout"))]
     let font_bytes = pdf_font.parsed_font.original_bytes.clone();
+
+    if font_bytes.is_empty() {
+        warnings.push(PdfWarnMsg::error(
+            0,
+            0,
+            format!(
+                "font {} has no source bytes and will NOT be embedded; construct it with \
+                 printpdf::ParsedFont::from_bytes so the sfnt bytes are retained",
+                font_id.0
+            ),
+        ));
+    }
+
     let glyph_ids: Vec<(u16, char)> = glyph_usage.iter()
         .map(|(gid, char)| (*gid, *char))
         .collect();
@@ -1422,32 +1553,45 @@ fn add_subset_font_to_pdf(
 
     let face_name = format!("{}+{}", font_id.0.clone().get(0..6).unwrap_or(&font_id.0), font_name);
 
-    // Font stream and CID subtype depend on whether this is TrueType or CFF
-    let (sub_type, font_tuple) = match &subset_info.original_font.font_type {
-        FontType::OpenTypeCFF(_) => {
-            // CFF font stream must not be compressed
+    // The descendant subtype and the /FontFile key must describe what the embedded bytes
+    // ACTUALLY are, so decide from the sfnt magic of the program we are about to write —
+    // not from `ParsedFont::font_type`, which reports `TrueType` even for `OTTO` faces
+    // and so mislabelled every CFF font as `CIDFontType2` + `/FontFile2` (both of which
+    // mean "TrueType `glyf` outlines").
+    //
+    // `font_tuple` is None when there is no font program to embed at all. A FontDescriptor
+    // with *no* /FontFile entry is a legal non-embedded font that readers substitute for;
+    // a /FontFile entry pointing at a zero-length stream is a corrupt font that they refuse
+    // ("Cannot extract the embedded font ..."). Never emit the latter —
+    // `create_full_font_runtime_info` has already logged that as an error.
+    let program = &subset_info.subset_font_bytes;
+    let has_font_program = !program.is_empty();
+    let is_cff = program.starts_with(b"OTTO");
+
+    let (sub_type, font_tuple) = if is_cff {
+        // A whole OTTO sfnt goes in /FontFile3 as /Subtype /OpenType (PDF 1.6+).
+        // /CIDFontType0C would be a lie: that name means a *bare* CFF table, not an sfnt.
+        let font_tuple = has_font_program.then(|| {
             let font_stream = LoStream::new(
-                LoDictionary::from_iter(vec![("Subtype", Name("CIDFontType0C".into()))]),
-                subset_info.subset_font_bytes.clone(),
+                LoDictionary::from_iter(vec![("Subtype", Name("OpenType".into()))]),
+                program.clone(),
             )
             .with_compression(false);
 
-            (
-                "CIDFontType0",
-                ("FontFile3", Reference(doc.add_object(font_stream))),
-            )
-        }
-        FontType::TrueType => {
-            // TrueType font stream must not be compressed
-            let font_stream =
-                LoStream::new(LoDictionary::new(), subset_info.subset_font_bytes.clone())
-                    .with_compression(false);
+            ("FontFile3", Reference(doc.add_object(font_stream)))
+        });
 
-            (
-                "CIDFontType2",
-                ("FontFile2", Reference(doc.add_object(font_stream))),
-            )
-        }
+        ("CIDFontType0", font_tuple)
+    } else {
+        // TrueType font stream must not be compressed
+        let font_tuple = has_font_program.then(|| {
+            let font_stream = LoStream::new(LoDictionary::new(), program.clone())
+                .with_compression(false);
+
+            ("FontFile2", Reference(doc.add_object(font_stream)))
+        });
+
+        ("CIDFontType2", font_tuple)
     };
 
     // #271: PDF font descriptor metrics (Ascent/Descent/FontBBox/CapHeight) must be
@@ -1508,8 +1652,8 @@ fn add_subset_font_to_pdf(
                 ("DW", Integer(DEFAULT_CHARACTER_WIDTH)),
                 (
                     "FontDescriptor",
-                    Reference(
-                        doc.add_object(LoDictionary::from_iter(vec![
+                    Reference(doc.add_object(LoDictionary::from_iter(
+                        [
                             ("Type", Name("FontDescriptor".into())),
                             ("FontName", Name(font_name.clone().into_bytes())),
                             ("Ascent", Integer(ascent_scaled)),
@@ -1518,7 +1662,6 @@ fn add_subset_font_to_pdf(
                             ("ItalicAngle", Integer(0)),
                             ("Flags", Integer(32)),
                             ("StemV", Integer(80)),
-                            font_tuple,
                             (
                                 "FontBBox",
                                 Array(vec![
@@ -1528,8 +1671,10 @@ fn add_subset_font_to_pdf(
                                     Integer(bbox_y_max),
                                 ]),
                             ),
-                        ])),
-                    ),
+                        ]
+                        .into_iter()
+                        .chain(font_tuple),
+                    ))),
                 ),
             ]))]),
         ),

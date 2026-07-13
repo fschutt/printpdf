@@ -12,8 +12,184 @@ use crate::{
 // Use azul-layout's types instead of redefining them
 #[cfg(feature = "text_layout")]
 pub use azul_layout::{
-    PdfFontMetrics as FontMetrics, FontParseWarning as PdfFontParseWarning, FontType, OwnedGlyph, ParsedFont,
+    PdfFontMetrics as FontMetrics, FontParseWarning as PdfFontParseWarning, FontType, OwnedGlyph,
 };
+
+/// azul-layout's raw font face.
+///
+/// Prefer printpdf's [`ParsedFont`], which wraps this and guarantees the source
+/// bytes stay attached — PDF embedding cannot work without them.
+#[cfg(feature = "text_layout")]
+pub use azul_layout::ParsedFont as AzulParsedFont;
+
+#[cfg(feature = "text_layout")]
+pub use self::parsed_font::ParsedFont;
+
+#[cfg(feature = "text_layout")]
+mod parsed_font {
+    use std::{
+        ops::{Deref, DerefMut},
+        sync::Arc,
+    };
+
+    use super::{AzulParsedFont, PdfFontParseWarning};
+
+    /// The `data:` URI prefix azul-layout (de)serializes a font face as.
+    ///
+    /// Duplicated here on purpose: printpdf needs its *own* `Deserialize`, because
+    /// azul's routes through `AzulParsedFont::from_bytes`, which drops the source
+    /// bytes on azul-layout 0.0.9 (see [`ParsedFont`]). Round-tripping a `PdfFont`
+    /// through serde would otherwise silently produce an unembeddable font.
+    const FONT_B64_START: &str = "data:font/ttf;base64,";
+
+    /// A parsed font face whose source bytes are guaranteed to still be attached.
+    ///
+    /// # Why this is a newtype rather than a re-export of `azul_layout::ParsedFont`
+    ///
+    /// azul-layout deliberately does not retain the source bytes in
+    /// `ParsedFont::from_bytes`: layout, shaping and the rasterizer never read them,
+    /// and keeping them duplicated a 4.27 MiB `.ttc` once per parsed face. PDF
+    /// embedding is the one consumer that *does* need them — the raw bytes literally
+    /// *are* the `/FontFile2` stream, and subsetting reads the sfnt tables back out
+    /// of them.
+    ///
+    /// So printpdf attaches them itself, via `AzulParsedFont::with_source_bytes`.
+    /// Doing that here — instead of trusting whatever the linked azul-layout happens
+    /// to default to — is what makes font embedding correct against *any*
+    /// azul-layout version, including the published 0.0.9, whose `from_bytes` yields
+    /// `original_bytes: None`. That default is exactly why every external font in
+    /// printpdf 0.10.0 embedded as an empty, corrupt `/FontFile2` (issue #277).
+    ///
+    /// Deref gives you the full `AzulParsedFont` API (`lookup_glyph_index`,
+    /// `num_glyphs`, `font_metrics`, …) unchanged.
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct ParsedFont(AzulParsedFont);
+
+    impl ParsedFont {
+        /// Parse a font face from raw sfnt bytes, retaining those bytes for embedding.
+        ///
+        /// `font_index` selects the face inside a TrueType/OpenType *collection*
+        /// (`.ttc`/`.otc`); pass `0` for a plain single-face `.ttf`/`.otf`.
+        pub fn from_bytes(
+            bytes: &[u8],
+            font_index: usize,
+            warnings: &mut Vec<PdfFontParseWarning>,
+        ) -> Option<Self> {
+            let inner = AzulParsedFont::from_bytes(bytes, font_index, warnings)?;
+            Some(Self::attach_source_bytes(inner, bytes))
+        }
+
+        /// Adopt a face that azul already parsed (e.g. one handed back by the HTML
+        /// layout font cache).
+        ///
+        /// The cache builds faces through `from_bytes_shared`, which keeps the source
+        /// `Arc<FontBytes>` alive in its lazy loca/glyf slot, so those already satisfy
+        /// the byte-retention invariant and are adopted as-is. A face that somehow
+        /// arrives without bytes is returned unchanged — [`ParsedFont::has_source_bytes`]
+        /// reports that, and serialization refuses to embed it rather than writing an
+        /// empty font program.
+        pub fn from_azul(inner: AzulParsedFont) -> Self {
+            Self(inner)
+        }
+
+        /// Re-attach `bytes` unless the face already carries its source bytes.
+        fn attach_source_bytes(inner: AzulParsedFont, bytes: &[u8]) -> Self {
+            if inner.source_bytes_for_subset().is_some() {
+                return Self(inner);
+            }
+            Self(inner.with_source_bytes(Arc::new(rust_fontconfig::FontBytes::Owned(
+                Arc::from(bytes.to_vec()),
+            ))))
+        }
+
+        /// The sfnt bytes this face was parsed from, if still available.
+        ///
+        /// Always `Some` for faces built by [`ParsedFont::from_bytes`]. Checks both
+        /// places azul may keep them: the explicit `original_bytes` slot and the lazy
+        /// loca/glyf slot used by the font cache.
+        pub fn source_bytes(&self) -> Option<Arc<rust_fontconfig::FontBytes>> {
+            self.0.source_bytes_for_subset()
+        }
+
+        /// Whether this face can still be embedded into a PDF.
+        pub fn has_source_bytes(&self) -> bool {
+            self.source_bytes().is_some()
+        }
+
+        /// Borrow the underlying azul face.
+        pub fn as_azul(&self) -> &AzulParsedFont {
+            &self.0
+        }
+
+        /// Unwrap to the underlying azul face.
+        pub fn into_inner(self) -> AzulParsedFont {
+            self.0
+        }
+    }
+
+    impl Deref for ParsedFont {
+        type Target = AzulParsedFont;
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
+    impl DerefMut for ParsedFont {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.0
+        }
+    }
+
+    impl From<AzulParsedFont> for ParsedFont {
+        fn from(inner: AzulParsedFont) -> Self {
+            Self::from_azul(inner)
+        }
+    }
+
+    impl serde::Serialize for ParsedFont {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            use base64::Engine;
+
+            // Same wire format as azul, but it must not silently emit an empty font:
+            // a `ParsedFont` that can't produce its bytes cannot be embedded, and a
+            // caller round-tripping one through serde needs to hear about it here
+            // rather than get a corrupt PDF later.
+            let bytes = self
+                .0
+                .to_bytes(None)
+                .map_err(|e| serde::ser::Error::custom(format!("font has no source bytes: {e}")))?;
+            let s = format!(
+                "{FONT_B64_START}{}",
+                base64::prelude::BASE64_STANDARD.encode(&bytes)
+            );
+            s.serialize(serializer)
+        }
+    }
+
+    impl<'de> serde::Deserialize<'de> for ParsedFont {
+        fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            use base64::Engine;
+
+            let s = String::deserialize(deserializer)?;
+            let b64 = s.strip_prefix(FONT_B64_START).ok_or_else(|| {
+                serde::de::Error::custom(format!(
+                    "font must be a {FONT_B64_START}… data URI, got {:.32?}",
+                    s
+                ))
+            })?;
+            let bytes = base64::prelude::BASE64_STANDARD
+                .decode(b64)
+                .map_err(serde::de::Error::custom)?;
+
+            // Route through *our* `from_bytes`, not azul's: this is what re-attaches
+            // the source bytes, so a deserialized font is still embeddable.
+            let mut warnings = Vec::new();
+            ParsedFont::from_bytes(&bytes, 0, &mut warnings).ok_or_else(|| {
+                serde::de::Error::custom(format!("font deserialization error: {warnings:?}"))
+            })
+        }
+    }
+}
 
 // Stub types when text_layout is disabled
 #[cfg(not(feature = "text_layout"))]
@@ -529,20 +705,30 @@ impl Font {
 pub fn subset_font(font: &ParsedFont, glyph_ids: &BTreeMap<u16, char>) -> Result<SubsetFont, String> {
     use allsorts::{binary::read::ReadScope, font_data::FontData, subset::CmapTarget};
 
-    // azul-layout's `ParsedFont.original_bytes` is now `Option<Arc<FontBytes>>`.
+    // Subsetting reads the sfnt tables straight out of the source bytes. `source_bytes`
+    // finds them wherever azul kept them (the explicit slot, or the font cache's lazy
+    // loca/glyf slot); `ParsedFont::from_bytes` guarantees they're there at all.
     let original_bytes = font
-        .original_bytes
-        .as_ref()
-        .ok_or_else(|| "ParsedFont has no original_bytes to subset".to_string())?;
+        .source_bytes()
+        .ok_or_else(|| "ParsedFont has no source bytes to subset".to_string())?;
     let scope = ReadScope::new(original_bytes.as_slice());
     let font_file = scope.read::<FontData<'_>>().map_err(|e| e.to_string())?;
     let provider = font_file
         .table_provider(font.original_index)
         .map_err(|e| e.to_string())?;
 
-    // Collect glyph IDs in a consistent order (BTreeMap gives sorted order)
-    let ids: Vec<_> = glyph_ids.keys().copied().collect();
-    
+    // Glyph 0 (.notdef) must be the first entry, and there must be no duplicates —
+    // allsorts documents both as hard requirements of `subset()`.
+    //
+    // Omitting it does not fail loudly: allsorts happily renumbers, and the *first used
+    // glyph* lands in slot 0. The subset then has no .notdef at all, and its cmap maps a
+    // real character to glyph 0 — which every reader treats as "missing glyph". Roboto's
+    // "Roboto" subsetted to `R->0, b->1, o->2, t->3`, so the R was drawn as .notdef.
+    // (BTreeMap keys are already sorted and unique.)
+    let ids: Vec<u16> = std::iter::once(0)
+        .chain(glyph_ids.keys().copied().filter(|gid| *gid != 0))
+        .collect();
+
     // Use SubsetProfile::Pdf for PDF embedding and CmapTarget::Unicode for Unicode cmap
     let bytes = allsorts::subset::subset(
         &provider,
@@ -765,7 +951,7 @@ mod test {
             let glyph_ids: Vec<(u16, char)> = charmap.iter()
                 .filter_map(|&ch| font.lookup_glyph_index(ch as u32).map(|gid| (gid, ch)))
                 .collect();
-            let (subset_bytes, glyph_mapping) = font.subset(&glyph_ids, allsorts::subset::CmapTarget::Unicode).unwrap();
+            let (subset_bytes, glyph_mapping) = font.subset(&glyph_ids, azul_layout::CmapTarget::Unicode).unwrap();
             let subset = crate::font::SubsetFont { bytes: subset_bytes, glyph_mapping };
             tm2.insert(name.clone(), subset.bytes.len());
             let _ = std::fs::write(

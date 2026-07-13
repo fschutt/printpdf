@@ -491,7 +491,15 @@ pub fn xml_to_pdf_pages(
         pages.push(page);
     }
 
-    // Always return Ok with pages, fonts, and decoded image resources
+    // Always return Ok with pages, fonts, and decoded image resources.
+    // The layout cache hands back azul faces; adopt them as printpdf `ParsedFont`s. They
+    // come from `from_bytes_shared`, so they already carry their source bytes and stay
+    // embeddable.
+    let font_data_map = font_data_map
+        .into_iter()
+        .map(|(hash, font)| (hash, ParsedFont::from_azul(font)))
+        .collect();
+
     Ok((pages, font_data_map, resolved_images, bridge_res))
 }
 
@@ -843,6 +851,12 @@ pub fn xml_to_pdf_pages_debug(
         let page = PdfPage::new(options.page_width, options.page_height, Vec::new());
         pages.push(page);
     }
+
+    // See the sibling function: adopt azul's faces as printpdf `ParsedFont`s.
+    let font_data_map = font_data_map
+        .into_iter()
+        .map(|(hash, font)| (hash, ParsedFont::from_azul(font)))
+        .collect();
 
     Ok((pages, font_data_map, debug_info, bridge_res))
 }

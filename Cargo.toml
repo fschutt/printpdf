@@ -47,11 +47,18 @@ serde_json = { version = "1" }
 [dev-dependencies]
 pretty_assertions = "1.4.1"
 text-diff = "0.4.0"
+# Tests inspect the generated PDF structurally (font dicts, /FontFile2 streams, /W
+# widths, /ToUnicode) rather than trusting printpdf's own parser to round-trip.
+lopdf = { version = "0.39.0", default-features = false, features = ["time"] }
 
 [features]
 default = ["html"]
 # Basic text layout without hyphenation
-text_layout = ["dep:azul-css", "dep:azul-core", "dep:azul-layout", "azul-layout/std", "azul-layout/text_layout", "azul-layout/font_loading"]
+# `dep:rust-fontconfig` is required (not just by `html`): printpdf attaches the source
+# font bytes to every ParsedFont via `with_source_bytes(Arc<rust_fontconfig::FontBytes>)`,
+# so it has to be able to name that type. Without it, fonts embed as empty /FontFile2
+# streams — see src/font.rs `ParsedFont` and issue #277.
+text_layout = ["dep:azul-css", "dep:azul-core", "dep:azul-layout", "dep:rust-fontconfig", "azul-layout/std", "azul-layout/text_layout", "azul-layout/font_loading"]
 # Add hyphenation support
 text_layout_hyphenation = ["text_layout", "azul-layout/text_layout_hyphenation"]
 # HTML/CSS layout
@@ -213,15 +220,29 @@ name = "html_gradient"
 path = "examples/html_gradient.rs"
 required-features = ["html"]
 
-# azul is pulled from the `mobile-ios-android` branch on GitHub — it carries the
-# `<img>` -> NodeType::Image mapping, the layout SIGSEGV fix and the font-cache
-# introspection API that the published azul-css/core 0.0.8 / layout 0.0.9 lack.
-# NOTE: that branch must be PUSHED to GitHub for this to resolve to the current
-# code (until then cargo fetches the older remote tip). For local development
-# against the working tree, swap these back to `{ path = "../azul-mobile/<crate>" }`
-# (the `azul-mobile-parsedfont-compat` branch keeps the local-path patch).
+# azul is pulled from `master`. The published azul-css/core 0.0.8 and azul-layout 0.0.9
+# are a broken WIP publish: 0.0.9 SIGSEGVs at runtime in the layout path, and its
+# `ParsedFont::from_bytes` returns `original_bytes: None` (a deliberate perf change — see
+# src/font.rs `ParsedFont`).
+#
+# !! RELEASE BLOCKER — READ BEFORE PUBLISHING !!
+#
+# `cargo publish` STRIPS `[patch.crates-io]`. A crate published while this section exists
+# is built against the *unpatched* crates.io dependencies — i.e. against code that nobody
+# ever compiled or tested. The local checkout and the published artifact are different
+# programs. That is exactly how the broken 0.10.0 shipped (issue #277).
+#
+# printpdf therefore MUST NOT be published until azul-{css,core,layout} are released to
+# crates.io with these fixes and this entire section is deleted.
+#
+# The `published-deps` CI job reconstructs the published dependency graph (by stripping
+# this section) and runs the font tests against it. If that job is red, do not publish,
+# whatever the other jobs say.
+# Pinned to a rev, not a branch: azul master moves constantly and a floating branch would
+# silently change what printpdf builds against from one `cargo update` to the next. This
+# is the exact commit the font-embedding tests were verified green on.
 [patch.crates-io]
-azul-css = { git = "https://github.com/fschutt/azul", branch = "mobile-ios-android" }
-azul-core = { git = "https://github.com/fschutt/azul", branch = "mobile-ios-android" }
-azul-layout = { git = "https://github.com/fschutt/azul", branch = "mobile-ios-android" }
+azul-css = { git = "https://github.com/fschutt/azul", rev = "d11181c671f2ea0ff4291be034d7b4112ae834f0" }
+azul-core = { git = "https://github.com/fschutt/azul", rev = "d11181c671f2ea0ff4291be034d7b4112ae834f0" }
+azul-layout = { git = "https://github.com/fschutt/azul", rev = "d11181c671f2ea0ff4291be034d7b4112ae834f0" }
 
