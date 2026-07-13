@@ -49,7 +49,7 @@ pretty_assertions = "1.4.1"
 text-diff = "0.4.0"
 # Tests inspect the generated PDF structurally (font dicts, /FontFile2 streams, /W
 # widths, /ToUnicode) rather than trusting printpdf's own parser to round-trip.
-lopdf = { version = "0.39.0", default-features = false, features = ["time"] }
+lopdf = { version = "0.42.0", default-features = false, features = ["time"] }
 
 [features]
 default = ["html"]
