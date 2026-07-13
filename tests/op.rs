@@ -270,12 +270,7 @@ fn test_op_line_style() {
 
     assert!(test_op(
         Op::SetLineDashPattern {
-            dash: LineDashPattern {
-                offset: 0,
-                dash_1: Some(5),
-                gap_1: Some(5),
-                ..Default::default()
-            }
+            dash: LineDashPattern::new(0.0, &[5.0, 5.0]),
         },
         "set_line_dash_pattern"
     ));

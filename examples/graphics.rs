@@ -475,17 +475,9 @@ fn main() {
                 is_closed: false,
             },
         },
-        // Draw a dashed line
+        // Draw a dashed line: 10pt dash, 5pt gap
         Op::SetLineDashPattern {
-            dash: LineDashPattern {
-                offset: 0,
-                dash_1: Some(10),
-                gap_1: Some(5),
-                dash_2: None,
-                gap_2: None,
-                dash_3: None,
-                gap_3: None,
-            },
+            dash: LineDashPattern::new(0.0, &[10.0, 5.0]),
         },
         Op::DrawLine {
             line: Line {
@@ -510,15 +502,7 @@ fn main() {
         },
         // Draw a dotted line
         Op::SetLineDashPattern {
-            dash: LineDashPattern {
-                offset: 0,
-                dash_1: Some(2),
-                gap_1: Some(5),
-                dash_2: None,
-                gap_2: None,
-                dash_3: None,
-                gap_3: None,
-            },
+            dash: LineDashPattern::new(0.0, &[2.0, 5.0]),
         },
         Op::DrawLine {
             line: Line {
@@ -543,15 +527,7 @@ fn main() {
         },
         // Draw a dash-dot-dash line
         Op::SetLineDashPattern {
-            dash: LineDashPattern {
-                offset: 0,
-                dash_1: Some(10),
-                gap_1: Some(5),
-                dash_2: Some(2),
-                gap_2: Some(5),
-                dash_3: None,
-                gap_3: None,
-            },
+            dash: LineDashPattern::new(0.0, &[10.0, 5.0, 2.0, 5.0]),
         },
         Op::DrawLine {
             line: Line {
@@ -614,15 +590,7 @@ fn main() {
         Op::SetOutlineThickness { pt: Pt(1.0) },
         // Reset line dash pattern
         Op::SetLineDashPattern {
-            dash: LineDashPattern {
-                offset: 0,
-                dash_1: None,
-                gap_1: None,
-                dash_2: None,
-                gap_2: None,
-                dash_3: None,
-                gap_3: None,
-            },
+            dash: LineDashPattern::new(0.0, &[]),
         },
         // Draw a star with even-odd winding
         Op::DrawPolygon {

@@ -985,23 +985,14 @@ fn render_dashed_border_side(
 ) {
     // Set dash pattern
     ops.push(Op::SetLineDashPattern {
-        dash: LineDashPattern {
-            offset: 0.0,
-            pattern: [
-                width * 3.0,    // dash
-                width * 2.0     // gap
-            ].into()
-        },
+        dash: LineDashPattern::new(0.0, &[width * 3.0, width * 2.0]),
     });
     
     render_solid_border_side(ops, side, bounds, widths, radii, page_height, margin_left, margin_top);
     
     // Reset dash pattern
     ops.push(Op::SetLineDashPattern {
-        dash: LineDashPattern {
-            offset: 0.0,
-            pattern: [].into()
-        },
+        dash: LineDashPattern::solid(),
     });
 }
 
@@ -1019,13 +1010,7 @@ fn render_dotted_border_side(
 ) {
     // Set dot pattern (dash = width, gap = width)
     ops.push(Op::SetLineDashPattern {
-        dash: LineDashPattern {
-            offset: 0.0,
-            pattern: [
-                width,      // dash
-                width       // gap
-            ].into()
-        },
+        dash: LineDashPattern::new(0.0, &[width, width]),
     });
     
     // Set round line cap for dots
@@ -1036,10 +1021,7 @@ fn render_dotted_border_side(
     // Reset to default
     ops.push(Op::SetLineCapStyle { cap: LineCapStyle::Butt });
     ops.push(Op::SetLineDashPattern {
-        dash: LineDashPattern {
-            offset: 0.0,
-            pattern: [].into()
-        },
+        dash: LineDashPattern::solid(),
     });
 }
 

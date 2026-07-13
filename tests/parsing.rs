@@ -93,16 +93,10 @@ fn test_extgstate_parsing() {
     // Create a document
     let mut doc = PdfDocument::new("ExtGState Parsing Test");
 
-    // Create a dash pattern for testing
-    let dash_pattern = LineDashPattern {
-        offset: 0,
-        dash_1: Some(5),
-        gap_1: Some(3),
-        dash_2: Some(2),
-        gap_2: Some(1),
-        dash_3: None,
-        gap_3: None,
-    };
+    // Create a dash pattern for testing.
+    // `LineDashPattern` is now an arbitrary-length dash/gap array of reals, rather than
+    // three fixed `Option<i64>` dash/gap pairs (#262).
+    let dash_pattern = LineDashPattern::new(0.0, &[5.0, 3.0, 2.0, 1.0]);
 
     // Create an extended graphics state with various properties
     let gs = ExtendedGraphicsState::default()

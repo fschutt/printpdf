@@ -353,6 +353,28 @@ pub struct LineDashPattern {
 }
 
 impl LineDashPattern {
+    /// A dash pattern of alternating dash and gap lengths, starting at `offset`.
+    ///
+    /// `LineDashPattern { pattern }` is a `SmallVec`, which callers would otherwise have to
+    /// take a `smallvec` dependency to name. Build one from a plain slice instead:
+    ///
+    /// ```
+    /// # use printpdf::LineDashPattern;
+    /// let dashed = LineDashPattern::new(0.0, &[5.0, 3.0]);
+    /// let solid = LineDashPattern::solid();
+    /// ```
+    pub fn new(offset: f32, pattern: &[f32]) -> Self {
+        Self {
+            offset,
+            pattern: smallvec::SmallVec::from_slice(pattern),
+        }
+    }
+
+    /// An empty pattern — i.e. an unbroken line. This is what resets dashing.
+    pub fn solid() -> Self {
+        Self::default()
+    }
+
     pub fn get_svg_id(&self) -> String {
         self.pattern
             .iter()

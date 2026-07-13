@@ -302,17 +302,9 @@ fn main() {
                 is_closed: false,
             },
         },
-        // Set line dash pattern and draw another line
+        // Set line dash pattern and draw another line: 10pt dash, 5pt gap
         Op::SetLineDashPattern {
-            dash: LineDashPattern {
-                offset: 0,
-                dash_1: Some(10),
-                gap_1: Some(5),
-                dash_2: None,
-                gap_2: None,
-                dash_3: None,
-                gap_3: None,
-            },
+            dash: LineDashPattern::new(0.0, &[10.0, 5.0]),
         },
         Op::DrawLine {
             line: Line {
