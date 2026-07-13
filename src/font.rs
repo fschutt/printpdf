@@ -717,6 +717,27 @@ pub fn subset_font(font: &ParsedFont, glyph_ids: &BTreeMap<u16, char>) -> Result
         .table_provider(font.original_index)
         .map_err(|e| e.to_string())?;
 
+    // allsorts builds the subset's `cmap` from the original font's cmap restricted to the
+    // glyphs we keep — and if that mapping comes out empty it does not return an error, it
+    // *panics*: `CmapSubtableFormat4::from_mappings` does `mappings.iter().next().unwrap()`
+    // under a "safe as mappings is non-empty" comment.
+    //
+    // That happens whenever none of the used glyphs are reachable from the cmap, which the
+    // HTML path can easily produce: shaping emits glyph ids directly, and ligatures and
+    // substituted glyphs have no character of their own. Refuse to subset in that case and
+    // let the caller fall back to embedding the full font, rather than taking the process
+    // down with us.
+    let reachable_from_cmap = glyph_ids
+        .iter()
+        .any(|(gid, ch)| font.lookup_glyph_index(*ch as u32) == Some(*gid));
+    if !reachable_from_cmap {
+        return Err(
+            "no used glyph is reachable from the font's cmap, so the subset would have an \
+             empty cmap (allsorts panics on that) — embedding the full font instead"
+                .to_string(),
+        );
+    }
+
     // Glyph 0 (.notdef) must be the first entry, and there must be no duplicates —
     // allsorts documents both as hard requirements of `subset()`.
     //
