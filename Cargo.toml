@@ -100,6 +100,10 @@ name = "customfont"
 required-features = []
 
 [[example]]
+name = "variable_font"
+required-features = ["text_layout"]
+
+[[example]]
 name = "graphics"
 required-features = []
 

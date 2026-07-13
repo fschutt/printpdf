@@ -1,5 +1,7 @@
 use std::{
     collections::btree_map::BTreeMap,
+    fmt,
+    str::FromStr,
     vec::Vec,
 };
 
@@ -151,6 +153,563 @@ pub type OwnedGlyph = ();
 pub struct FontMetrics {
     pub ascent: i16,
     pub descent: i16,
+}
+
+/// A four-byte OpenType variation-axis tag such as `wght` or `opsz`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FontVariationTag([u8; 4]);
+
+impl FontVariationTag {
+    pub const WGHT: Self = Self(*b"wght");
+    pub const WDTH: Self = Self(*b"wdth");
+    pub const OPSZ: Self = Self(*b"opsz");
+    pub const SLNT: Self = Self(*b"slnt");
+    pub const ITAL: Self = Self(*b"ital");
+
+    /// Construct a tag after validating the OpenType tag syntax.
+    pub fn new(bytes: [u8; 4]) -> Result<Self, VariableFontError> {
+        validate_variation_tag(bytes)?;
+        Ok(Self(bytes))
+    }
+
+    pub const fn as_bytes(&self) -> &[u8; 4] {
+        &self.0
+    }
+
+    pub const fn as_u32(&self) -> u32 {
+        u32::from_be_bytes(self.0)
+    }
+}
+
+impl TryFrom<&str> for FontVariationTag {
+    type Error = VariableFontError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let bytes: [u8; 4] = value
+            .as_bytes()
+            .try_into()
+            .map_err(|_| VariableFontError::InvalidTag(value.to_string()))?;
+        Self::new(bytes)
+    }
+}
+
+impl FromStr for FontVariationTag {
+    type Err = VariableFontError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from(s)
+    }
+}
+
+impl fmt::Display for FontVariationTag {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Construction guarantees ASCII bytes.
+        let tag = std::str::from_utf8(&self.0).map_err(|_| fmt::Error)?;
+        f.write_str(tag)
+    }
+}
+
+fn validate_variation_tag(bytes: [u8; 4]) -> Result<(), VariableFontError> {
+    let first_is_letter = bytes[0].is_ascii_alphabetic();
+    let valid_bytes = bytes
+        .iter()
+        .all(|byte| byte.is_ascii_alphanumeric() || *byte == b' ');
+    let spaces_are_trailing = bytes
+        .iter()
+        .position(|byte| *byte == b' ')
+        .map(|first_space| bytes[first_space..].iter().all(|byte| *byte == b' '))
+        .unwrap_or(true);
+
+    if first_is_letter && valid_bytes && spaces_are_trailing {
+        Ok(())
+    } else {
+        Err(VariableFontError::InvalidTag(
+            String::from_utf8_lossy(&bytes).into_owned(),
+        ))
+    }
+}
+
+/// Metadata for one axis declared by a variable font's `fvar` table.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FontVariationAxis {
+    pub tag: FontVariationTag,
+    pub name: Option<String>,
+    pub min_value: f32,
+    pub default_value: f32,
+    pub max_value: f32,
+    pub hidden: bool,
+}
+
+/// User-space coordinates selecting an instance of a variable font.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct FontVariationSettings {
+    pub coordinates: BTreeMap<FontVariationTag, f32>,
+}
+
+impl FontVariationSettings {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn insert(&mut self, tag: FontVariationTag, value: f32) -> Option<f32> {
+        self.coordinates.insert(tag, value)
+    }
+
+    pub fn with(mut self, tag: FontVariationTag, value: f32) -> Self {
+        self.insert(tag, value);
+        self
+    }
+}
+
+/// A parsed, PDF-compatible static instance derived from a variable font.
+#[cfg(feature = "text_layout")]
+#[derive(Debug, Clone)]
+pub struct VariableFontInstance {
+    pub font: ParsedFont,
+    /// Effective coordinates after defaults, clamping, and Fixed 16.16 rounding.
+    pub resolved_coordinates: BTreeMap<FontVariationTag, f32>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum VariableFontError {
+    InvalidFont(String),
+    InvalidCollectionIndex { index: usize },
+    NotVariable,
+    InvalidTag(String),
+    UnknownAxis(FontVariationTag),
+    NonFiniteValue { tag: FontVariationTag, value: f32 },
+    UnsupportedOutlineFormat(String),
+    Instancing(String),
+    StaticFontParse(String),
+    PdfConversion(String),
+}
+
+impl fmt::Display for VariableFontError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidFont(error) => write!(f, "invalid font: {error}"),
+            Self::InvalidCollectionIndex { index } => {
+                write!(f, "invalid font collection index {index}")
+            }
+            Self::NotVariable => f.write_str("font does not contain a usable fvar table"),
+            Self::InvalidTag(tag) => write!(f, "invalid OpenType variation tag {tag:?}"),
+            Self::UnknownAxis(tag) => write!(f, "font does not declare variation axis {tag}"),
+            Self::NonFiniteValue { tag, value } => {
+                write!(f, "variation axis {tag} has non-finite value {value}")
+            }
+            Self::UnsupportedOutlineFormat(format) => {
+                write!(f, "unsupported variable-font outline format: {format}")
+            }
+            Self::Instancing(error) => write!(f, "variable-font instancing failed: {error}"),
+            Self::StaticFontParse(error) => {
+                write!(f, "failed to parse generated static font: {error}")
+            }
+            Self::PdfConversion(error) => {
+                write!(f, "failed to create a PDF-compatible static font: {error}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for VariableFontError {}
+
+/// Inspect the axes declared by one face of a variable font.
+pub fn font_variation_axes(
+    bytes: &[u8],
+    font_index: usize,
+) -> Result<Vec<FontVariationAxis>, VariableFontError> {
+    use allsorts::{
+        binary::read::ReadScope,
+        font_data::FontData,
+        tables::{variable_fonts::fvar::FvarTable, FontTableProvider, NameTable},
+        tag,
+    };
+
+    let scope = ReadScope::new(bytes);
+    let font_file = scope
+        .read::<FontData<'_>>()
+        .map_err(|error| VariableFontError::InvalidFont(error.to_string()))?;
+    validate_font_collection_index(&font_file, font_index)?;
+    let provider = font_file
+        .table_provider(font_index)
+        .map_err(|_| VariableFontError::InvalidCollectionIndex { index: font_index })?;
+    let fvar_data = provider
+        .table_data(tag::FVAR)
+        .map_err(|error| VariableFontError::InvalidFont(error.to_string()))?
+        .ok_or(VariableFontError::NotVariable)?;
+    let fvar = ReadScope::new(&fvar_data)
+        .read::<FvarTable<'_>>()
+        .map_err(|error| VariableFontError::InvalidFont(error.to_string()))?;
+
+    if fvar.axis_count() == 0 {
+        return Err(VariableFontError::NotVariable);
+    }
+
+    let name_data = provider.table_data(tag::NAME).ok().flatten();
+    let name_table = name_data
+        .as_ref()
+        .and_then(|data| ReadScope::new(data).read::<NameTable<'_>>().ok());
+
+    fvar.axes()
+        .map(|axis| {
+            let tag = FontVariationTag::new(axis.axis_tag.to_be_bytes())?;
+            let min_value = f32::from(axis.min_value);
+            let default_value = f32::from(axis.default_value);
+            let max_value = f32::from(axis.max_value);
+            if !(min_value <= default_value && default_value <= max_value) {
+                return Err(VariableFontError::InvalidFont(format!(
+                    "variation axis {tag} has invalid range {min_value}..={max_value} with default {default_value}"
+                )));
+            }
+            Ok(FontVariationAxis {
+                tag,
+                name: name_table
+                    .as_ref()
+                    .and_then(|table| table.string_for_id(axis.axis_name_id)),
+                min_value,
+                default_value,
+                max_value,
+                hidden: axis.flags & 0x0001 != 0,
+            })
+        })
+        .collect()
+}
+
+/// Materialize a variable font as static sfnt bytes suitable for parsing and PDF embedding.
+///
+/// Omitted axes use their font-defined defaults. Out-of-range values are clamped and reported
+/// through `warnings`. CFF2 input is converted to a static CFF1-flavored OpenType font.
+pub fn instantiate_variable_font_bytes(
+    bytes: &[u8],
+    font_index: usize,
+    settings: &FontVariationSettings,
+    warnings: &mut Vec<crate::PdfWarnMsg>,
+) -> Result<(Vec<u8>, BTreeMap<FontVariationTag, f32>), VariableFontError> {
+    use allsorts::{
+        binary::read::ReadScope,
+        font_data::FontData,
+        tables::{variable_fonts::fvar::FvarTable, Fixed, FontTableProvider},
+        tag,
+    };
+
+    let scope = ReadScope::new(bytes);
+    let font_file = scope
+        .read::<FontData<'_>>()
+        .map_err(|error| VariableFontError::InvalidFont(error.to_string()))?;
+    validate_font_collection_index(&font_file, font_index)?;
+    let provider = font_file
+        .table_provider(font_index)
+        .map_err(|_| VariableFontError::InvalidCollectionIndex { index: font_index })?;
+    let fvar_data = provider
+        .table_data(tag::FVAR)
+        .map_err(|error| VariableFontError::InvalidFont(error.to_string()))?
+        .ok_or(VariableFontError::NotVariable)?;
+    let fvar = ReadScope::new(&fvar_data)
+        .read::<FvarTable<'_>>()
+        .map_err(|error| VariableFontError::InvalidFont(error.to_string()))?;
+
+    if fvar.axis_count() == 0 {
+        return Err(VariableFontError::NotVariable);
+    }
+
+    let declared_tags = fvar
+        .axes()
+        .map(|axis| FontVariationTag::new(axis.axis_tag.to_be_bytes()))
+        .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
+
+    for (&tag, &value) in &settings.coordinates {
+        if !declared_tags.contains(&tag) {
+            return Err(VariableFontError::UnknownAxis(tag));
+        }
+        if !value.is_finite() {
+            return Err(VariableFontError::NonFiniteValue { tag, value });
+        }
+    }
+
+    let mut user_instance = Vec::with_capacity(usize::from(fvar.axis_count()));
+    let mut resolved_coordinates = BTreeMap::new();
+    for axis in fvar.axes() {
+        let axis_tag = FontVariationTag::new(axis.axis_tag.to_be_bytes())?;
+        let min = f32::from(axis.min_value);
+        let default = f32::from(axis.default_value);
+        let max = f32::from(axis.max_value);
+        if !(min <= default && default <= max) {
+            return Err(VariableFontError::InvalidFont(format!(
+                "variation axis {axis_tag} has invalid range {min}..={max} with default {default}"
+            )));
+        }
+        let requested = settings
+            .coordinates
+            .get(&axis_tag)
+            .copied()
+            .unwrap_or(default);
+        let clamped = requested.clamp(min, max);
+
+        if requested != clamped {
+            warnings.push(crate::PdfWarnMsg::warning(
+                0,
+                0,
+                format!(
+                    "Variable font axis {axis_tag} value {requested} was clamped to {clamped} (supported range {min}..={max})"
+                ),
+            ));
+        }
+
+        let fixed = Fixed::from(clamped);
+        user_instance.push(fixed);
+        resolved_coordinates.insert(axis_tag, f32::from(fixed));
+    }
+
+    let source_is_cff2 = provider.has_table(tag::CFF2);
+    let source_is_truetype = provider.has_table(tag::GLYF) && provider.has_table(tag::GVAR);
+    if !source_is_cff2 && !source_is_truetype {
+        return Err(VariableFontError::UnsupportedOutlineFormat(
+            "expected glyf/gvar or CFF2 tables".to_string(),
+        ));
+    }
+
+    let (mut static_bytes, _) = allsorts::variations::instance(&provider, &user_instance)
+        .map_err(|error| VariableFontError::Instancing(error.to_string()))?;
+
+    if source_is_cff2 {
+        static_bytes = convert_static_cff2_to_cff1(&static_bytes)?;
+    }
+    validate_static_font_for_pdf(&static_bytes)?;
+
+    Ok((static_bytes, resolved_coordinates))
+}
+
+fn validate_font_collection_index(
+    font_file: &allsorts::font_data::FontData<'_>,
+    font_index: usize,
+) -> Result<(), VariableFontError> {
+    use allsorts::{font_data::FontData, tables::OpenTypeData};
+
+    let definitely_single_face = match font_file {
+        FontData::OpenType(font) => matches!(&font.data, OpenTypeData::Single(_)),
+        FontData::Woff(_) => true,
+        FontData::Woff2(font) => font.collection_directory.is_none(),
+    };
+    if definitely_single_face && font_index != 0 {
+        Err(VariableFontError::InvalidCollectionIndex { index: font_index })
+    } else {
+        Ok(())
+    }
+}
+
+/// Instantiate and parse a variable font before it enters the text/PDF pipeline.
+#[cfg(feature = "text_layout")]
+pub fn instantiate_variable_font(
+    bytes: &[u8],
+    font_index: usize,
+    settings: &FontVariationSettings,
+    warnings: &mut Vec<crate::PdfWarnMsg>,
+) -> Result<VariableFontInstance, VariableFontError> {
+    let (static_bytes, resolved_coordinates) =
+        instantiate_variable_font_bytes(bytes, font_index, settings, warnings)?;
+    let mut font_warnings = Vec::new();
+    let mut parsed_font =
+        ParsedFont::from_bytes(&static_bytes, 0, &mut font_warnings).ok_or_else(|| {
+            VariableFontError::StaticFontParse(format_font_parse_warnings(&font_warnings))
+        })?;
+
+    forward_font_parse_warnings(font_warnings, warnings);
+    set_parsed_font_type_from_bytes(&mut parsed_font, &static_bytes)?;
+
+    Ok(VariableFontInstance {
+        font: parsed_font,
+        resolved_coordinates,
+    })
+}
+
+#[cfg(feature = "text_layout")]
+impl crate::PdfDocument {
+    /// Add a selected variable-font instance as a static PDF font resource.
+    pub fn add_variable_font(
+        &mut self,
+        bytes: &[u8],
+        font_index: usize,
+        settings: &FontVariationSettings,
+        warnings: &mut Vec<crate::PdfWarnMsg>,
+    ) -> Result<FontId, VariableFontError> {
+        let instance = instantiate_variable_font(bytes, font_index, settings, warnings)?;
+        Ok(self.add_font(&instance.font))
+    }
+}
+
+fn convert_static_cff2_to_cff1(bytes: &[u8]) -> Result<Vec<u8>, VariableFontError> {
+    use allsorts::{
+        binary::read::ReadScope,
+        font_data::FontData,
+        subset::{CmapTarget, SubsetProfile},
+        tables::{FontTableProvider, MaxpTable},
+        tag,
+    };
+
+    let scope = ReadScope::new(bytes);
+    let font_file = scope
+        .read::<FontData<'_>>()
+        .map_err(|error| VariableFontError::PdfConversion(error.to_string()))?;
+    let provider = font_file
+        .table_provider(0)
+        .map_err(|error| VariableFontError::PdfConversion(error.to_string()))?;
+    let maxp_data = provider
+        .read_table_data(tag::MAXP)
+        .map_err(|error| VariableFontError::PdfConversion(error.to_string()))?;
+    let maxp = ReadScope::new(&maxp_data)
+        .read::<MaxpTable>()
+        .map_err(|error| VariableFontError::PdfConversion(error.to_string()))?;
+    let glyph_ids = (0..maxp.num_glyphs).collect::<Vec<_>>();
+    let profile = SubsetProfile::Custom(vec![
+        tag::CMAP,
+        tag::HEAD,
+        tag::HHEA,
+        tag::HMTX,
+        tag::MAXP,
+        tag::NAME,
+        tag::OS_2,
+        tag::POST,
+        tag::GPOS,
+        tag::GSUB,
+        tag::GDEF,
+        tag::VHEA,
+        tag::VMTX,
+        tag::CVT,
+        tag::FPGM,
+        tag::PREP,
+    ]);
+
+    allsorts::subset::subset(&provider, &glyph_ids, &profile, CmapTarget::Unicode)
+        .map_err(|error| VariableFontError::PdfConversion(error.to_string()))
+}
+
+pub(crate) fn validate_static_font_for_pdf(bytes: &[u8]) -> Result<(), VariableFontError> {
+    validate_static_font_face_for_pdf(bytes, 0)
+}
+
+pub(crate) fn validate_static_font_face_for_pdf(
+    bytes: &[u8],
+    font_index: usize,
+) -> Result<(), VariableFontError> {
+    use allsorts::{binary::read::ReadScope, font_data::FontData, tables::FontTableProvider, tag};
+
+    let scope = ReadScope::new(bytes);
+    let font_file = scope
+        .read::<FontData<'_>>()
+        .map_err(|error| VariableFontError::PdfConversion(error.to_string()))?;
+    let provider = font_file
+        .table_provider(font_index)
+        .map_err(|error| VariableFontError::PdfConversion(error.to_string()))?;
+    if let Some(table) = unresolved_variation_table(&provider) {
+        return Err(VariableFontError::PdfConversion(format!(
+            "font still contains unresolved variation table {}",
+            allsorts::tag::DisplayTag(table)
+        )));
+    }
+    if !provider.has_table(tag::GLYF) && !provider.has_table(tag::CFF) {
+        return Err(VariableFontError::PdfConversion(
+            "generated font has neither glyf nor CFF outlines".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn unresolved_variation_table(provider: &impl allsorts::tables::FontTableProvider) -> Option<u32> {
+    use allsorts::tag;
+
+    [
+        tag::FVAR,
+        tag::GVAR,
+        tag::CVAR,
+        tag::HVAR,
+        tag::MVAR,
+        tag::AVAR,
+        tag::CFF2,
+        u32::from_be_bytes(*b"VVAR"),
+    ]
+    .into_iter()
+    .find(|table| provider.has_table(*table))
+}
+
+pub(crate) fn unresolved_variation_table_in_font(
+    bytes: &[u8],
+    font_index: usize,
+) -> Result<Option<u32>, VariableFontError> {
+    use allsorts::{binary::read::ReadScope, font_data::FontData};
+
+    let scope = ReadScope::new(bytes);
+    let font_file = scope
+        .read::<FontData<'_>>()
+        .map_err(|error| VariableFontError::PdfConversion(error.to_string()))?;
+    let provider = font_file
+        .table_provider(font_index)
+        .map_err(|error| VariableFontError::PdfConversion(error.to_string()))?;
+    Ok(unresolved_variation_table(&provider))
+}
+
+pub(crate) fn set_parsed_font_type_from_bytes(
+    parsed_font: &mut ParsedFont,
+    bytes: &[u8],
+) -> Result<(), VariableFontError> {
+    use allsorts::{binary::read::ReadScope, font_data::FontData, tables::FontTableProvider, tag};
+
+    let scope = ReadScope::new(bytes);
+    let font_file = scope
+        .read::<FontData<'_>>()
+        .map_err(|error| VariableFontError::StaticFontParse(error.to_string()))?;
+    let provider = font_file
+        .table_provider(0)
+        .map_err(|error| VariableFontError::StaticFontParse(error.to_string()))?;
+
+    if let Some(cff) = provider
+        .table_data(tag::CFF)
+        .map_err(|error| VariableFontError::StaticFontParse(error.to_string()))?
+    {
+        #[cfg(feature = "text_layout")]
+        {
+            parsed_font.font_type = FontType::OpenTypeCFF(cff.into_owned());
+            parsed_font.index_to_cid = (0..parsed_font.num_glyphs)
+                .map(|glyph_id| (glyph_id, glyph_id))
+                .collect();
+        }
+        #[cfg(not(feature = "text_layout"))]
+        {
+            let _ = cff;
+            parsed_font.font_type = FontType::OpenTypeCFF(());
+        }
+    } else {
+        parsed_font.font_type = FontType::TrueType;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "text_layout")]
+fn format_font_parse_warnings(warnings: &[PdfFontParseWarning]) -> String {
+    warnings
+        .iter()
+        .map(|warning| warning.message.as_str())
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+#[cfg(feature = "text_layout")]
+fn forward_font_parse_warnings(
+    font_warnings: Vec<PdfFontParseWarning>,
+    warnings: &mut Vec<crate::PdfWarnMsg>,
+) {
+    use azul_layout::font::parsed::FontParseWarningSeverity;
+
+    warnings.extend(font_warnings.into_iter().filter_map(|warning| {
+        match warning.severity {
+            FontParseWarningSeverity::Info => None,
+            FontParseWarningSeverity::Warning => {
+                Some(crate::PdfWarnMsg::warning(0, 0, warning.message))
+            }
+            FontParseWarningSeverity::Error => {
+                Some(crate::PdfWarnMsg::error(0, 0, warning.message))
+            }
+        }
+    }));
 }
 
 /// Result of subsetting a font
@@ -535,9 +1094,11 @@ pub fn subset_font(font: &ParsedFont, glyph_ids: &BTreeMap<u16, char>) -> Result
         .table_provider(font.original_index)
         .map_err(|e| e.to_string())?;
 
-    // Collect glyph IDs in a consistent order (BTreeMap gives sorted order)
-    let ids: Vec<_> = glyph_ids.keys().copied().collect();
-    
+    // allsorts requires .notdef (GID 0) first. Remaining IDs stay sorted.
+    let ids: Vec<_> = std::iter::once(0)
+        .chain(glyph_ids.keys().copied().filter(|glyph_id| *glyph_id != 0))
+        .collect();
+
     // Use SubsetProfile::Pdf for PDF embedding and CmapTarget::Unicode for Unicode cmap
     let bytes = allsorts::subset::subset(
         &provider,
@@ -546,15 +1107,13 @@ pub fn subset_font(font: &ParsedFont, glyph_ids: &BTreeMap<u16, char>) -> Result
         CmapTarget::Unicode,
     ).map_err(|e| e.to_string())?;
 
-    // Build glyph mapping: allsorts subset assigns new GIDs starting at 1
-    // (GID 0 is always .notdef), following the order of input glyph IDs
+    // allsorts assigns new GIDs in input order, with .notdef remaining GID 0.
     let glyph_mapping: BTreeMap<u16, (u16, char)> = ids
         .iter()
         .enumerate()
         .filter_map(|(idx, &original_gid)| {
             glyph_ids.get(&original_gid).map(|&ch| {
-                // New GID = index + 1 (because GID 0 is .notdef)
-                let new_gid = (idx + 1) as u16;
+                let new_gid = idx as u16;
                 (original_gid, (new_gid, ch))
             })
         })
