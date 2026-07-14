@@ -223,6 +223,11 @@ pub struct PdfFontMetricsStub {
     pub y_min: i16,
     pub x_max: i16,
     pub y_max: i16,
+    /// hhea caret slope — the FontDescriptor's `/ItalicAngle` is derived from it.
+    pub caret_slope_rise: i16,
+    pub caret_slope_run: i16,
+    /// OS/2 usWeightClass (100–900). `/StemV` is estimated from it. 0 when OS/2 is absent.
+    pub us_weight_class: u16,
 }
 
 #[cfg(not(feature = "text_layout"))]
@@ -234,6 +239,10 @@ impl Default for PdfFontMetricsStub {
             y_min: -200,
             x_max: 1000,
             y_max: 800,
+            // Upright (rise 1, run 0) and "no OS/2", which /StemV falls back on.
+            caret_slope_rise: 1,
+            caret_slope_run: 0,
+            us_weight_class: 0,
         }
     }
 }
@@ -333,6 +342,19 @@ impl ParsedFont {
             FontType::TrueType
         };
 
+        // OS/2 usWeightClass drives the FontDescriptor's /StemV estimate. The table is
+        // optional (0 means "absent", and /StemV falls back to a constant).
+        let os2_data = provider.read_table_data(tag::OS_2).ok();
+        let us_weight_class = os2_data
+            .as_deref()
+            .and_then(|d| {
+                ReadScope::new(d)
+                    .read_dep::<allsorts::tables::os2::Os2>(d.len())
+                    .ok()
+            })
+            .map(|os2| os2.us_weight_class)
+            .unwrap_or(0);
+
         Some(ParsedFont {
             original_bytes: bytes.to_vec(),
             font_index: index as u32,
@@ -351,6 +373,9 @@ impl ParsedFont {
                 y_min: head.y_min,
                 x_max: head.x_max,
                 y_max: head.y_max,
+                caret_slope_rise: hhea.caret_slope_rise,
+                caret_slope_run: hhea.caret_slope_run,
+                us_weight_class,
             },
         })
     }

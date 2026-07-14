@@ -1,5 +1,68 @@
 # Changelog
 
+## `0.11.0`
+
+The headline is that **printpdf no longer carries a `[patch.crates-io]` section**. It builds
+against exactly the crates it publishes. `cargo publish` silently strips `[patch]`, so a
+crate released while one exists is compiled against dependencies nobody ever tested — the
+local checkout and the published artifact are different programs. That is precisely how
+0.10.0 shipped with every embedded font empty (#277), and the trap bit azul twice more on
+the way out. It is now a CI failure for a `[patch]` section to exist at all.
+
+That required releasing the dependencies for real: **azul-css 0.0.9**, **azul-core 0.0.9**,
+**azul-layout 0.0.10** and **allsorts-azul 0.17.1**. The published `azul-layout 0.0.9`
+SIGSEGVs on any hosted OS — it carried 48 ungated
+`core::ptr::write_volatile(0x400EC as *mut u32, …)` calls (web-lift diagnostic markers
+writing to a hardcoded absolute address, unmapped on native targets). 0.0.10 routes them
+through a no-op unless the `web_lift` feature is on, so the HTML/layout path works again.
+
+### Breaking
+
+- `LineDashPattern` is now `{ offset: f32, pattern: SmallVec<[f32; 8]> }` — an
+  arbitrary-length array of reals — rather than three fixed `Option<i64>` dash/gap pairs.
+  The PDF spec always allowed this (#262, PR #263 by @tower120). Build one with
+  `LineDashPattern::new(offset, &[dash, gap, …])` or `LineDashPattern::solid()`; you do not
+  need a `smallvec` dependency of your own.
+- `printpdf::ParsedFont` is a printpdf type (a newtype over `azul_layout::ParsedFont`, with
+  `Deref`), which guarantees the source bytes stay attached. Field access and method calls
+  are unchanged; `into_inner()` / `as_azul()` reach the azul face.
+- Without `text_layout`, `FontParseWarning` is a struct rather than a `String` alias, so
+  `ParsedFont::from_bytes` has the same signature with and without the feature (#260).
+- `lopdf` 0.39 → 0.44, and `allsorts-azul` 0.16 → 0.17. Both appear in printpdf's public
+  API, so pinning either yourself means bumping in step.
+
+### Fixed
+
+- **RUSTSEC-2026-0187** (unbounded-recursion DoS) — lopdf is on 0.44 (#272, PR #275 by
+  @Zynora-fr).
+- **The HTML renderer could take the process down.** `allsorts::subset()` builds the
+  subset's cmap from the original font's cmap restricted to the kept glyphs, and *panics*
+  — not errors — when that comes out empty (`mappings.iter().next().unwrap()`, under a
+  "safe as mappings is non-empty" comment). Shaping emits glyph ids directly, and ligatures
+  have no character of their own, so a page whose glyphs were all unreachable from the cmap
+  aborted. printpdf now declines to subset in that case and embeds the full font.
+- **External fonts did nothing without `text_layout`** (#258). The fallback
+  `ParsedFont::from_bytes` never parsed the cmap, so every glyph resolved to `.notdef` and
+  pages came out blank — while the font embedded perfectly, which is why it looked so
+  baffling. And `PdfDocument::parse`'s `Type0` branch was feature-gated, so it could not
+  read an external font back either. The fallback now parses cmap/hmtx/head/hhea/OS-2 with
+  allsorts, which is a non-optional dependency and was there all along.
+- **FontDescriptor `/ItalicAngle`, `/Flags` and `/StemV`** were hardcoded to `0 / 32 / 80`
+  for every font — "upright, non-symbolic, medium weight", whatever you embedded. Readers
+  use these to synthesise or substitute a face. They are derived from the hhea caret slope
+  and OS/2 `usWeightClass` now (#271, residual).
+- wasm builds broke on the lopdf bump: `getrandom` must have `wasm_js` enabled per major
+  version, and lopdf pulls 0.4 alongside the 0.3 other deps use.
+
+### Changed
+
+- CI runs the full suite on Linux again. It had been commented out as "fails because of
+  SIMD issues, test on Windows only", so the suite only ever ran on Windows — which is why
+  a Linux-only font-resolution panic sat undetected. The no-default-features job runs the
+  whole suite too, not just `--lib`, which is why the blank-page bug above went unnoticed.
+- `tests/no_text_layout.rs` covers the fallback font path; `tests/external_tools.rs` checks
+  the output with poppler (`pdffonts`, `pdftotext`), which shares no code with printpdf.
+
 ## `0.10.1` — font embedding hotfix
 
 **If you are on `0.10.0`, upgrade.** In 0.10.0 every external font embedded as an *empty*

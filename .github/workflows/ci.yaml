@@ -124,35 +124,39 @@ jobs:
   # THE RELEASE GATE.
   #
   # `cargo publish` STRIPS [patch.crates-io]. A crate published while that section exists
-  # is built against dependencies that nobody ever compiled or tested against — the local
-  # checkout and the published artifact are different programs. That is precisely how
-  # 0.10.0 shipped: locally azul-layout came from a git branch whose `ParsedFont::from_bytes`
-  # retains the source font bytes; on crates.io it resolved to azul-layout 0.0.9, whose
-  # `from_bytes` does not, so every embedded font became an empty /FontFile2.
+  # is built against dependencies nobody ever compiled or tested against — the local
+  # checkout and the published artifact are different programs. That is exactly how 0.10.0
+  # shipped broken: locally azul-layout came from a git branch whose
+  # `ParsedFont::from_bytes` retains the source font bytes; on crates.io it resolved to
+  # azul-layout 0.0.9, whose `from_bytes` does not, so every embedded font became an empty
+  # /FontFile2 (#277). The same trap then bit azul itself twice while releasing 0.0.10.
   #
-  # This job reconstructs the *published* dependency graph and runs the font tests against
-  # it. If it is red, the crate must not be published, whatever the other jobs say.
-  published-deps:
-    name: Test against published deps (simulates cargo publish)
+  # printpdf carries no [patch] any more. This job keeps it that way: it fails outright if
+  # one reappears, then runs the font suite against the real registry dependency graph —
+  # which is now, by construction, the one users get.
+  publish-safety:
+    name: No [patch], and the published dep graph passes the font suite
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Install poppler-utils
         run: sudo apt-get update && sudo apt-get install -y poppler-utils
-      - name: Strip [patch.crates-io], as cargo publish does
+      - name: Refuse to build with a [patch.crates-io] section
         run: |
-          python3 - <<'PY'
-          import pathlib, re
-          p = pathlib.Path("Cargo.toml")
-          src = p.read_text()
-          out = re.sub(r'(?ms)^\[patch\.[^\]]+\].*?(?=^\[[^p]|\Z)', '', src)
-          p.write_text(out)
-          print("stripped [patch]" if out != src else "no [patch] section (already publish-clean)")
-          PY
-      - name: Show the dependency versions a published printpdf would get
+          if grep -q '^\[patch\.' Cargo.toml; then
+            echo "::error::Cargo.toml has a [patch] section. cargo publish strips it, so the"
+            echo "::error::published crate would be built against untested dependencies."
+            echo "::error::Publish the patched dependency to crates.io and pin it instead."
+            grep -n '^\[patch\.' -A5 Cargo.toml
+            exit 1
+          fi
+          echo "no [patch] section — what we build is what we publish"
+      - name: Dependency versions a published printpdf resolves to
         run: cargo tree --features html -i azul-layout || true
+      - run: cargo test --features html --test external_tools --test font_embedding --test font --test no_text_layout || true
       - run: cargo test --features html --test external_tools --test font_embedding --test font
+      - run: cargo test --no-default-features --test no_text_layout
 
   generate-pdf-artifacts:
     name: Generate PDF artifacts

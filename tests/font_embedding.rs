@@ -281,10 +281,9 @@ fn content_stream_gids(pdf: &[u8]) -> Vec<u16> {
     let mut gids = Vec::new();
 
     for (page_num, _) in doc.get_pages() {
-        let content = lopdf::content::Content::decode(
-            &doc.get_page_content(doc.get_pages()[&page_num]).expect("content"),
-        )
-        .expect("decode content stream");
+        let content =
+            lopdf::content::Content::decode(&doc.get_page_content(doc.get_pages()[&page_num]))
+                .expect("decode content stream");
 
         for op in content.operations {
             let strings: Vec<&[u8]> = match op.operator.as_str() {
@@ -590,6 +589,50 @@ fn font_descriptor_metrics_are_normalised_to_1000_em() {
     assert!(
         bbox[2] > bbox[0] && bbox[3] > bbox[1],
         "/FontBBox is degenerate: {bbox:?}"
+    );
+
+    // #271 (residual): these were hardcoded to 0 / 32 / 80 for every font. Readers use
+    // them when substituting or synthesising a face, so they have to describe the real one.
+    // Roboto Medium is upright (angle 0) and weight 500 => StemV = 50 + (500/65)^2 = 109.
+    let stem_v = int("StemV");
+    assert_eq!(
+        stem_v, 109,
+        "/StemV should be derived from OS/2 usWeightClass (500 for Roboto Medium), not the \
+         hardcoded 80"
+    );
+    assert_eq!(int("ItalicAngle"), 0, "Roboto Medium is upright");
+
+    // Nonsymbolic (bit 6 = 32), not italic.
+    let flags = int("Flags");
+    assert_eq!(flags & (1 << 5), 1 << 5, "/Flags must set Nonsymbolic");
+    assert_eq!(flags & (1 << 6), 0, "/Flags must not claim Roboto Medium is italic");
+}
+
+/// An italic face must be *described* as italic: readers synthesise a slant from
+/// `/ItalicAngle` and `/Flags` when they have to substitute the font.
+#[test]
+fn italic_font_descriptor_reports_the_slant() {
+    const TIMES_ITALIC: &[u8] = include_bytes!("../examples/assets/fonts/Times-Oblique.ttf");
+
+    let (pdf, _) = pdf_with_font(TIMES_ITALIC, "Slanted", true);
+    let d = &fonts_in(&pdf)[0].descriptor;
+
+    let int = |k: &str| -> i64 { d.get(k.as_bytes()).unwrap().as_i64().unwrap() };
+
+    let angle = int("ItalicAngle");
+    assert!(
+        angle < 0,
+        "/ItalicAngle is {angle}; an italic face slants right, which is a NEGATIVE angle \
+         (it was hardcoded to 0 for every font)"
+    );
+    assert!(
+        (-45..0).contains(&angle),
+        "/ItalicAngle {angle} is out of any plausible range"
+    );
+    assert_eq!(
+        int("Flags") & (1 << 6),
+        1 << 6,
+        "/Flags must set the Italic bit for an italic face"
     );
 }
 

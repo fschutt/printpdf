@@ -1622,6 +1622,38 @@ fn add_subset_font_to_pdf(
     #[cfg(not(feature = "text_layout"))]
     let cap_height = ascent_scaled;
 
+    // #271 (residual): ItalicAngle, Flags and StemV used to be hardcoded to 0 / 32 / 80,
+    // i.e. "upright, non-symbolic, medium weight" for every font ever embedded. Readers
+    // use these when they have to synthesise or substitute a face, so a bold italic that
+    // claims to be upright and regular gets substituted badly.
+    let m = &subset_info.original_font.pdf_font_metrics;
+
+    // ItalicAngle is the slant in degrees, counter-clockwise from vertical — so an italic
+    // face is *negative*. hhea gives the caret slope as a rise/run vector.
+    let italic_angle = if m.caret_slope_rise == 0 {
+        0
+    } else {
+        (-(m.caret_slope_run as f32).atan2(m.caret_slope_rise as f32).to_degrees()).round() as i64
+    };
+
+    // FontDescriptor /Flags (PDF 32000-1 Table 123).
+    //
+    // Italic is decided from the caret slope alone. `pdf_font_metrics.font_flags` is
+    // head.*flags*, NOT head.macStyle — its bit 1 means "left sidebearing point at x=0",
+    // which most fonts set, so testing it flags every font as italic.
+    const FLAG_NONSYMBOLIC: i64 = 1 << 5; // uses the standard Latin character set
+    const FLAG_ITALIC: i64 = 1 << 6;
+    let flags = FLAG_NONSYMBOLIC | if italic_angle != 0 { FLAG_ITALIC } else { 0 };
+
+    // StemV is the vertical stem thickness. No font table carries it, so estimate it from
+    // OS/2 usWeightClass the way PDF producers conventionally do: ~88 at weight 400,
+    // ~166 at 700. Fall back to the old constant when OS/2 is absent (usWeightClass 0).
+    let stem_v = if m.us_weight_class == 0 {
+        80
+    } else {
+        50 + ((m.us_weight_class as f32 / 65.0).powi(2)).round() as i64
+    };
+
     LoDictionary::from_iter(vec![
         ("Type", Name("Font".into())),
         ("Subtype", Name("Type0".into())),
@@ -1659,9 +1691,9 @@ fn add_subset_font_to_pdf(
                             ("Ascent", Integer(ascent_scaled)),
                             ("Descent", Integer(descent_scaled)),
                             ("CapHeight", Integer(cap_height)),
-                            ("ItalicAngle", Integer(0)),
-                            ("Flags", Integer(32)),
-                            ("StemV", Integer(80)),
+                            ("ItalicAngle", Integer(italic_angle)),
+                            ("Flags", Integer(flags)),
+                            ("StemV", Integer(stem_v)),
                             (
                                 "FontBBox",
                                 Array(vec![
