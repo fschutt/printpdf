@@ -94,7 +94,12 @@ all-features = true
 [target.'cfg(all(target_arch="wasm32",target_os="unknown"))'.dependencies]
 js-sys = { version = "0.3.40", optional = true }
 wasm-bindgen-futures = { version = "0.4.50", default-features = false }
+# getrandom refuses to build for wasm32-unknown-unknown unless `wasm_js` is on, and it has
+# to be enabled per major version. lopdf 0.42 pulls 0.4 (directly and via rand 0.10) while
+# other deps are still on 0.3, so both need the feature or the wasm build fails with
+# "The wasm32/64-unknown-unknown are not supported by default".
 getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom_v04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
 
 [[example]]
 name = "advanced"
