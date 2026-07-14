@@ -862,3 +862,45 @@ fn roundtrip_recovers_font_resource_and_text() {
     }
 }
 
+
+/// printpdf must link exactly ONE copy of the font parser.
+///
+/// It used to link two: `allsorts-azul 0.17` directly, and `0.16` again underneath
+/// `rust-fontconfig`. Two copies of a font parser means two incompatible `ParsedFont`,
+/// `CmapTarget`, `FontData` … so a type from one cannot cross into the other, and the
+/// binary carries the whole parser twice. rust-fontconfig 4.4.5 moved to 0.17 to fix it;
+/// this keeps it fixed.
+#[test]
+fn only_one_allsorts_is_linked() {
+    let out = std::process::Command::new(env!("CARGO"))
+        .args(["tree", "--features", "html", "--prefix", "none"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output();
+
+    let Ok(out) = out else {
+        eprintln!("skipping: could not run `cargo tree`");
+        return;
+    };
+    if !out.status.success() {
+        eprintln!("skipping: `cargo tree` failed");
+        return;
+    }
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let mut versions: Vec<&str> = stdout
+        .lines()
+        .filter_map(|l| l.strip_prefix("allsorts-azul "))
+        .map(|v| v.split_whitespace().next().unwrap_or(v))
+        .collect();
+    versions.sort_unstable();
+    versions.dedup();
+
+    assert_eq!(
+        versions.len(),
+        1,
+        "printpdf links {} copies of allsorts-azul: {versions:?}. Two font parsers means two \
+         incompatible sets of font types and a needlessly fat binary — check what pulled the \
+         extra one in with `cargo tree -i allsorts-azul@<version>`.",
+        versions.len()
+    );
+}

@@ -1,6 +1,6 @@
 [package]
 name = "printpdf"
-version = "0.11.0"
+version = "0.11.1"
 authors = [
     "Felix Schütt <felix.schuett@maps4print.com>",
     "Julien Schminke <julien.schminke@web.de",
@@ -33,7 +33,7 @@ flate2 = "1.0.35" # for decompression of builtin fonts
 serde_json = { version = "1" }
 smallvec = { version = "1.15.1", features = ["serde"] }
 # Feature-gated dependencies
-rust-fontconfig = { version = "4.4.4", default-features = false, features = ["std", "parsing"], optional = true }
+rust-fontconfig = { version = "4.4.5", default-features = false, features = ["std", "parsing"], optional = true }
 xmlparser = { version = "0.13.6", default-features = false, optional = true }
 web-sys = { version = "0.3.77", optional = true, default-features = false, features = ["console", "ImageData", "Window", "Document", "Blob", "CanvasRenderingContext2d", "HtmlCanvasElement", "HtmlImageElement", "ImageBitmap", "BlobPropertyBag"]}
 wasm-bindgen-futures = { version = "0.4.50", optional = true, default-features = false }

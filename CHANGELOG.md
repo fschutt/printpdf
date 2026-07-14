@@ -1,5 +1,27 @@
 # Changelog
 
+## `0.11.1`
+
+printpdf linked **two copies of allsorts** — `0.17` directly, and `0.16` again underneath
+`rust-fontconfig`. Two font parsers means two incompatible `ParsedFont` / `CmapTarget` /
+`FontData`, so a type from one cannot cross into the other, and the binary carries the whole
+parser twice. `rust-fontconfig 4.4.5` moves to allsorts 0.17, and printpdf now requires it,
+so exactly one copy is linked. `only_one_allsorts_is_linked` keeps it that way.
+
+The subset-cmap panic reported in 0.11.0's notes was fixed upstream rather than worked
+around: it only ever existed in `allsorts-azul` ≤ 0.16.5
+(`CmapSubtableFormat4::from_mappings` did `mappings.iter().next().unwrap()` under a "safe as
+mappings is non-empty" comment — it isn't). 0.17 handles an empty mapping set correctly,
+emitting just the mandatory `0xFFFF` sentinel segment. printpdf still declines to subset a
+font whose used glyphs are all unreachable from its cmap, but for a different reason: the
+glyph renumbering is recovered *from the subset's own cmap*, so an empty one would leave the
+content stream emitting original glyph ids against a renumbered font.
+
+Upstream, `azul` no longer patches `allsorts-azul` to a vendored tree — the drift between
+that tree and the published crate, while both claimed version 0.17.0, is what shipped
+azul-layout 0.0.9 broken. It is consumed from the registry now, and azul CI fails if a
+`[patch]` is placed on anything its published crates depend on.
+
 ## `0.11.0`
 
 The headline is that **printpdf no longer carries a `[patch.crates-io]` section**. It builds

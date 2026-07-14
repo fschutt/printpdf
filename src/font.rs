@@ -861,22 +861,30 @@ pub fn subset_font(font: &ParsedFont, glyph_ids: &BTreeMap<u16, char>) -> Result
         .map_err(|e| e.to_string())?;
 
     // allsorts builds the subset's `cmap` from the original font's cmap restricted to the
-    // glyphs we keep — and if that mapping comes out empty it does not return an error, it
-    // *panics*: `CmapSubtableFormat4::from_mappings` does `mappings.iter().next().unwrap()`
-    // under a "safe as mappings is non-empty" comment.
+    // glyphs we keep. If none of the used glyphs are reachable from the cmap, that mapping
+    // comes out empty and the subset gets a cmap with nothing in it but the mandatory
+    // 0xFFFF sentinel segment.
     //
-    // That happens whenever none of the used glyphs are reachable from the cmap, which the
-    // HTML path can easily produce: shaping emits glyph ids directly, and ligatures and
-    // substituted glyphs have no character of their own. Refuse to subset in that case and
-    // let the caller fall back to embedding the full font, rather than taking the process
-    // down with us.
+    // (Up to allsorts-azul 0.16.5 this did not merely produce an empty cmap, it *panicked*
+    // — `CmapSubtableFormat4::from_mappings` did `mappings.iter().next().unwrap()` under a
+    // "safe as mappings is non-empty" comment. It isn't. 0.17 handles it.)
+    //
+    // An empty cmap is still no good to us: `create_subset_runtime_info` recovers the
+    // original->subset glyph renumbering by looking each character up in the *subset's* own
+    // cmap, so an empty one yields an empty remap, and the content stream would then emit
+    // the original glyph ids against a renumbered font — every glyph silently wrong.
+    //
+    // The HTML path reaches this easily: shaping emits glyph ids directly, and ligatures
+    // and substituted glyphs have no character of their own. Decline to subset, and let the
+    // caller fall back to embedding the full font, whose glyph ids still line up.
     let reachable_from_cmap = glyph_ids
         .iter()
         .any(|(gid, ch)| font.lookup_glyph_index(*ch as u32) == Some(*gid));
     if !reachable_from_cmap {
         return Err(
-            "no used glyph is reachable from the font's cmap, so the subset would have an \
-             empty cmap (allsorts panics on that) — embedding the full font instead"
+            "no used glyph is reachable from the font's cmap, so the subset's cmap would be \
+             empty and the glyph renumbering could not be recovered — embedding the full \
+             font instead"
                 .to_string(),
         );
     }
