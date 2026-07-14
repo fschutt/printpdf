@@ -1,3 +1,6 @@
+// HTML layout — only compiled with the `html` feature.
+#![cfg(feature = "html")]
+
 // tests/wasm_api_tests.rs
 
 use std::collections::BTreeMap;

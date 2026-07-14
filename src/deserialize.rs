@@ -3406,7 +3406,10 @@ mod parsefont {
 
             // Handle different font types
             if &font_type == b"Type0" {
-                #[cfg(feature = "text_layout")]
+                // Not gated on `text_layout`: an external font is a Type0 (CID) font, and
+                // this branch being empty without the feature is why `PdfDocument::parse`
+                // silently returned zero font resources for any PDF with an embedded font
+                // (#258).
                 if let Some(parsed_font) =
                     process_type0_font(doc, font_dict, &font_id, warnings, page_num)
                 {
@@ -3529,7 +3532,6 @@ mod parsefont {
     }
 
     /// Process a Type0 (composite) font
-    #[cfg(feature = "text_layout")]
     fn process_type0_font(
         doc: &Document,
         font_dict: &Dictionary,
@@ -3550,7 +3552,6 @@ mod parsefont {
     }
 
     /// Get the descendant font dictionary for a Type0 font
-    #[cfg(feature = "text_layout")]
     fn get_descendant_font_dict<'a>(
         doc: &'a Document,
         font_dict: &'a Dictionary,
@@ -3593,7 +3594,6 @@ mod parsefont {
     }
 
     /// Get the font descriptor dictionary
-    #[cfg(feature = "text_layout")]
     fn get_font_descriptor<'a>(
         doc: &'a Document,
         font_dict: &'a Dictionary,
@@ -3695,7 +3695,6 @@ mod parsefont {
     }
 
     /// Process a Type1 font
-    #[cfg(feature = "text_layout")]
     fn process_type1_font(
         doc: &Document,
         font_dict: &Dictionary,

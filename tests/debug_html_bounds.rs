@@ -1,3 +1,6 @@
+// HTML layout — only compiled with the `html` feature.
+#![cfg(feature = "html")]
+
 use std::collections::BTreeMap;
 use printpdf::{GeneratePdfOptions, PdfDocument};
 

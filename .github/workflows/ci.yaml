@@ -10,7 +10,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo check --no-default-features --verbose
-      - run: cargo test --no-default-features --lib --verbose
+      # Not just `--lib`: the no-`text_layout` fallback font parser is only compiled in
+      # this configuration, and it was returning a blank shell (no cmap, no widths) so that
+      # external fonts rendered nothing at all (#258). `tests/no_text_layout.rs` covers it,
+      # and only runs here.
+      - run: cargo test --no-default-features --verbose
 
   check-feature-combinations:
     name: Check feature combinations

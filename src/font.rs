@@ -240,26 +240,118 @@ impl Default for PdfFontMetricsStub {
 
 #[cfg(not(feature = "text_layout"))]
 impl ParsedFont {
+    /// Parse a font face from raw sfnt bytes.
+    ///
     /// Same signature as the `text_layout` build (#260), so calling code is portable
     /// across the feature.
+    ///
+    /// This used to return a shell: `codepoint_to_glyph` was left **empty**, so
+    /// `lookup_glyph_index` returned `None` for every character, every glyph in the
+    /// content stream came out as `.notdef`, and no text rendered at all — which is
+    /// issue #258 ("external fonts + `default-features = false` show no text").
+    /// `glyph_widths` and the metrics were empty/hardcoded for the same reason.
+    ///
+    /// It parses the font properly now. `allsorts` is a non-optional dependency, so it is
+    /// available in every build, `text_layout` or not — there was never a reason to guess.
     pub fn from_bytes(
         bytes: &[u8],
         index: usize,
-        _warnings: &mut Vec<PdfFontParseWarning>,
+        warnings: &mut Vec<PdfFontParseWarning>,
     ) -> Option<Self> {
+        use allsorts::{
+            binary::read::ReadScope,
+            font_data::FontData,
+            tables::{cmap::Cmap, FontTableProvider, HeadTable, HheaTable, HmtxTable, MaxpTable},
+            tag,
+        };
+
+        let mut warn = |msg: &str| {
+            warnings.push(PdfFontParseWarning {
+                severity: FontParseSeverity::Warning,
+                message: msg.to_string(),
+            })
+        };
+
+        let font_file = ReadScope::new(bytes).read::<FontData<'_>>().ok()?;
+        let provider = font_file.table_provider(index).ok()?;
+
+        let head = provider
+            .read_table_data(tag::HEAD)
+            .ok()
+            .and_then(|d| ReadScope::new(&d).read::<HeadTable>().ok())?;
+        let maxp = provider
+            .read_table_data(tag::MAXP)
+            .ok()
+            .and_then(|d| ReadScope::new(&d).read::<MaxpTable>().ok())?;
+        let hhea = provider
+            .read_table_data(tag::HHEA)
+            .ok()
+            .and_then(|d| ReadScope::new(&d).read::<HheaTable>().ok())?;
+
+        // Character -> glyph. Without this every glyph id is 0 and the page is blank.
+        // (The table data has to outlive the parsed view that borrows it.)
+        let mut codepoint_to_glyph = BTreeMap::new();
+        let cmap_data = provider.read_table_data(tag::CMAP).ok();
+        match cmap_data
+            .as_deref()
+            .and_then(|d| ReadScope::new(d).read::<Cmap<'_>>().ok())
+            .and_then(|cmap| allsorts::font::read_cmap_subtable(&cmap).ok().flatten())
+        {
+            Some((_encoding, subtable)) => {
+                let _ = subtable.mappings_fn(|cp, gid| {
+                    codepoint_to_glyph.insert(cp, gid);
+                });
+            }
+            None => warn("font has no usable Unicode cmap subtable; text will not map to glyphs"),
+        }
+
+        // Advance widths, in font units. `/W` scales these to 1/1000 em at write time.
+        let mut glyph_widths = BTreeMap::new();
+        let hmtx_data = provider.read_table_data(tag::HMTX).ok();
+        match hmtx_data.as_deref().and_then(|d| {
+            ReadScope::new(d)
+                .read_dep::<HmtxTable<'_>>((
+                    usize::from(maxp.num_glyphs),
+                    usize::from(hhea.num_h_metrics),
+                ))
+                .ok()
+        }) {
+            Some(hmtx) => {
+                for gid in 0..maxp.num_glyphs {
+                    if let Ok(advance) = hmtx.horizontal_advance(gid) {
+                        glyph_widths.insert(gid, advance);
+                    }
+                }
+            }
+            None => warn("font has no hmtx table; glyph advances will be zero"),
+        }
+
+        // CFF outlines live in a `CFF ` table; TrueType outlines in `glyf`.
+        let font_type = if provider.has_table(tag::CFF) {
+            FontType::OpenTypeCFF(())
+        } else {
+            FontType::TrueType
+        };
+
         Some(ParsedFont {
             original_bytes: bytes.to_vec(),
             font_index: index as u32,
             font_name: None,
-            codepoint_to_glyph: BTreeMap::new(),
-            glyph_widths: BTreeMap::new(),
-            units_per_em: 1000,
+            codepoint_to_glyph,
+            glyph_widths,
+            units_per_em: head.units_per_em,
             font_metrics: FontMetrics {
-                ascent: 800,
-                descent: -200,
+                ascent: hhea.ascender,
+                descent: hhea.descender,
             },
-            font_type: FontType::TrueType,
-            pdf_font_metrics: PdfFontMetricsStub::default(),
+            font_type,
+            pdf_font_metrics: PdfFontMetricsStub {
+                units_per_em: head.units_per_em,
+                x_min: head.x_min,
+                y_min: head.y_min,
+                x_max: head.x_max,
+                y_max: head.y_max,
+            },
         })
     }
 
