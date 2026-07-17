@@ -237,13 +237,60 @@ pub fn display_list_to_printpdf_ops_with_margins<T: ParsedFontTrait + 'static>(
 ) -> Result<Vec<Op>, String> {
     let mut ops = Vec::new();
     let page_height = page_size.height;
-    
+    let transform = CoordTransform::new(page_height, margin_left_pt, margin_top_pt);
+
     // Track the current TextLayout for glyph-to-unicode mapping
     let mut current_text_layout: Option<(&azul_layout::text3::cache::UnifiedLayout, LogicalRect)> = None;
 
-    let _text_layout_count = display_list.items.iter().filter(|item| matches!(item, DisplayListItem::TextLayout { .. })).count();
+    // Deferred text emission (#220 F4). In azul's display lists a text block is
+    // sequenced as
+    //
+    //   TextLayout (shaping data) .. Rect/Border/.. (element backgrounds) .. Text runs
+    //
+    // — screen renderers draw the trailing `Text` items, so inline backgrounds
+    // (e.g. `<span style="background-color: yellow">`) correctly paint *under*
+    // their text. The PDF bridge instead draws all text from the `TextLayout`
+    // item (the `Text` runs carry no shaping/cid data) — and doing so at the
+    // `TextLayout`'s own position painted the intervening background rects OVER
+    // the text, leaving e.g. an opaque highlight box with invisible text.
+    //
+    // Fix: hold the `TextLayout` here and emit its ops at the position of the
+    // first subsequent `Text` item — the exact place azul's own painting order
+    // draws that text — or, if no `Text` item follows, before the next
+    // `TextLayout` / any graphics-state scope change / the end of the list.
+    let mut pending_text: Option<(&azul_layout::text3::cache::UnifiedLayout, LogicalRect, ColorU)> = None;
 
-    for (_idx, item) in display_list.items.iter().enumerate() {
+    for item in display_list.items.iter() {
+        // Flush the deferred text before (a) the `Text` items that mark where
+        // azul's painting order draws it, (b) the next `TextLayout`, and (c) any
+        // clip/opacity scope push/pop, so the text stays inside the same
+        // graphics-state scope it was laid out in.
+        if matches!(
+            item,
+            DisplayListItem::TextLayout { .. }
+                | DisplayListItem::Text { .. }
+                | DisplayListItem::PushClip { .. }
+                | DisplayListItem::PopClip
+                | DisplayListItem::PushOpacity { .. }
+                | DisplayListItem::PopOpacity
+        ) {
+            if let Some((layout, bounds, color)) = pending_text.take() {
+                render_unified_layout_with_margins(
+                    &mut ops, layout, &bounds, color, &transform, font_manager,
+                );
+            }
+        }
+
+        if let DisplayListItem::TextLayout { layout, bounds, color, .. } = item {
+            if let Some(unified_layout) =
+                layout.downcast_ref::<azul_layout::text3::cache::UnifiedLayout>()
+            {
+                pending_text = Some((unified_layout, *bounds.inner(), *color));
+                current_text_layout = Some((unified_layout, *bounds.inner()));
+            }
+            continue;
+        }
+
         convert_display_list_item_with_margins(
             &mut ops,
             item,
@@ -255,6 +302,11 @@ pub fn display_list_to_printpdf_ops_with_margins<T: ParsedFontTrait + 'static>(
             images,
             bridge_res,
         );
+    }
+
+    // Trailing TextLayout without any following Text item / scope change.
+    if let Some((layout, bounds, color)) = pending_text.take() {
+        render_unified_layout_with_margins(&mut ops, layout, &bounds, color, &transform, font_manager);
     }
 
     Ok(ops)
@@ -372,7 +424,9 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
     margin_left: f32,
     margin_top: f32,
     current_text_layout: &mut Option<(&'a UnifiedLayout, LogicalRect)>,
-    font_manager: &FontManager<T>,
+    // Kept in the signature (T is the FontManager's font type); text emission moved
+    // to the deferred flush in `display_list_to_printpdf_ops_with_margins`.
+    _font_manager: &FontManager<T>,
     images: &ResolvedImages,
     bridge_res: &mut BridgeResources,
 ) {
@@ -454,14 +508,14 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
             bounds,
             font_hash: _,
             font_size_px: _,
-            color,
+            color: _,
         } => {
-            // Extract the UnifiedLayout from the type-erased Arc<dyn Any>
+            // Not rendered here: `display_list_to_printpdf_ops_with_margins`
+            // intercepts TextLayout items and defers their emission so that
+            // element background rects that azul sequences between the
+            // TextLayout and its Text runs paint UNDER the text (#220 F4).
+            // Only keep the tracking side effect for direct callers.
             if let Some(unified_layout) = layout.downcast_ref::<azul_layout::text3::cache::UnifiedLayout>() {
-                // Process this TextLayout immediately with margin support
-                render_unified_layout_with_margins(ops, unified_layout, bounds.inner(), *color, &transform, font_manager);
-
-                // Also update the current text layout for any subsequent processing
                 *current_text_layout = Some((unified_layout, *bounds.inner()));
             }
         }
@@ -641,6 +695,9 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
                     scale_x: Some(scale_x),
                     scale_y: Some(scale_y),
                     dpi: Some(IMAGE_DPI),
+                    // The scale math above is expressed against the automatic
+                    // unit-square -> natural-size mapping, so keep it enabled.
+                    no_auto_scale: false,
                 },
             });
         }

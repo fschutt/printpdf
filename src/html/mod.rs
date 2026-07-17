@@ -223,6 +223,57 @@ pub fn build_font_pool_with_memory_fonts(
     pool
 }
 
+/// Named-family registration. Fonts placed into the FcFontCache (via
+/// `options.fonts` / `build_font_pool*`) are invisible to azul's font-family
+/// resolution, which consults only `FontManager::memory_families` — populated
+/// exclusively by `register_named_font`, which nothing called until now. The
+/// symptom: every custom `font-family` in the input HTML was UNRESOLVED and text
+/// silently fell back (on wasm: to azul's builtin mock fonts), making
+/// user-supplied fonts dead weight. Register each font under its map key AND
+/// under the family names stored in the font file itself, so HTML can reference
+/// either. `register_named_font` is idempotent and reuses the cache entries
+/// `with_memory_fonts` already created for these bytes.
+fn register_input_fonts<T: azul_layout::font_traits::ParsedFontTrait>(
+    font_manager: &mut FontManager<T>,
+    fonts: &BTreeMap<String, Vec<u8>>,
+) {
+    // Multi-word family names arrive at the resolver still wrapped in CSS quotes
+    // (`"Roboto Medium"`, literal quote characters — the html pipeline fails to
+    // strip them somewhere after azul-css parsing, see issue #220). The resolver
+    // looks up the *quoted* string, so until that is fixed upstream, register
+    // every name under its quoted spellings too — lookups then succeed from
+    // either direction.
+    fn register_all_spellings<T: azul_layout::font_traits::ParsedFontTrait>(
+        fm: &mut FontManager<T>,
+        family: &str,
+        bytes: &[u8],
+        coverage: &[rust_fontconfig::UnicodeRange],
+    ) {
+        let _ = fm.register_named_font(family, bytes, coverage.to_vec());
+        for quoted in [format!("\"{family}\""), format!("'{family}'")] {
+            let _ = fm.register_named_font(&quoted, bytes, coverage.to_vec());
+        }
+    }
+
+    for (name, bytes) in fonts.iter() {
+        register_all_spellings(font_manager, name, bytes, &[]);
+        if let Some(parsed) = rust_fontconfig::FcParseFontBytes(bytes, name) {
+            for (pattern, _) in &parsed {
+                if let Some(fam) = pattern.family.as_deref() {
+                    if !fam.eq_ignore_ascii_case(name) {
+                        register_all_spellings(
+                            font_manager,
+                            fam,
+                            bytes,
+                            &pattern.unicode_ranges,
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Build a font cache suitable for use with [`XmlRenderOptions::font_pool`].
 ///
 /// **Deprecated**: prefer [`build_font_pool`] which also shares parsed fonts.
@@ -337,6 +388,7 @@ pub fn xml_to_pdf_pages(
             return Err(warnings);
         }
     };
+    register_input_fonts(&mut font_manager, &options.fonts);
 
     // Use content size in CSS px for layout (converted from pt above)
     let content_size = LogicalSize::new(content_width_px, content_height_px);
@@ -640,6 +692,7 @@ pub fn xml_to_pdf_pages_debug(
             return Err(warnings);
         }
     };
+    register_input_fonts(&mut font_manager, &options.fonts);
     eprintln!("[DEBUG xml_to_pdf_pages_debug] Font manager created");
 
     // Use content size in CSS px for layout (converted from pt above)
