@@ -94,10 +94,23 @@ impl PdfPage {
     }
 
     pub fn get_external_font_ids(&self) -> Vec<FontId> {
-        // Note: With the new API, fonts are set via SetFont operation
-        // This function now returns an empty vec as external fonts are referenced by resource name
-        // To get font usage, parse SetFont operations and resolve resource names
-        Vec::new()
+        // This was a `Vec::new()` stub for a long time, which broke every consumer
+        // that copies per-page resources by id — most visibly the wasm demo's page
+        // preview: `resources_for_page` reported no fonts, so `Pdf_PageToSvg`
+        // rendered text without its fonts.
+        let mut ids = Vec::new();
+        for op in &self.ops {
+            if let Op::SetFont {
+                font: PdfFontHandle::External(id),
+                ..
+            } = op
+            {
+                if !ids.contains(id) {
+                    ids.push(id.clone());
+                }
+            }
+        }
+        ids
     }
 
     pub fn get_layers(&self) -> Vec<LayerInternalId> {
@@ -132,7 +145,13 @@ impl PdfPage {
             x: Pt(0.0),
             y: Pt(0.0),
         };
+        let mut cur_text_matrix_y: Option<f32> = None;
         let mut current_font: Option<&ParsedFont> = None;
+        let mut cur_font_size: f32 = 12.0;
+        // Where the previously shown run *ended* horizontally (text space).
+        // Lets us tell an intra-word positioning move from a real word gap
+        // when a document places every run with its own Tm.
+        let mut pen_x: Option<f32> = None;
 
         for op in &self.ops {
             match op {
@@ -146,20 +165,59 @@ impl PdfPage {
                         current_chunk = String::new();
                     }
                 }
-                Op::SetFont { font, size: _ } => {
+                Op::SetFont { font, size } => {
+                    cur_font_size = size.0;
                     // Track the current font for glyph ID decoding
-                    if let crate::ops::PdfFontHandle::External(font_id) = font {
-                        current_font = resources.fonts.map.get(font_id).map(|pf| &pf.parsed_font);
+                    match font {
+                        crate::ops::PdfFontHandle::External(font_id) => {
+                            current_font =
+                                resources.fonts.map.get(font_id).map(|pf| &pf.parsed_font);
+                        }
+                        crate::ops::PdfFontHandle::Builtin(_) => {
+                            // Builtin text arrives as TextItem::Text; a stale
+                            // external font must not be used for glyph decode.
+                            current_font = None;
+                        }
                     }
                 }
-                Op::SetTextMatrix { .. } => {
-                    current_chunk.push_str("\r\n");
+                Op::SetTextMatrix { matrix } => {
+                    // Only a *vertical* move is a line break. Documents that
+                    // position every run with its own Tm (common with shaped
+                    // text) used to produce one line per glyph run here.
+                    let m = matrix.as_array();
+                    let (new_x, new_y) = (m[4], m[5]);
+                    match cur_text_matrix_y {
+                        Some(prev_y) if (prev_y - new_y).abs() > 0.5 => {
+                            current_chunk.push_str("\r\n");
+                        }
+                        Some(_) => {
+                            // Same baseline: horizontal move. A word gap is a
+                            // move that lands visibly past where the previous
+                            // run ended; per-glyph positioning moves land
+                            // exactly at the pen position.
+                            let gap_threshold = (cur_font_size * 0.15).max(0.1);
+                            let is_gap = match pen_x {
+                                Some(px) => new_x - px > gap_threshold,
+                                None => false,
+                            };
+                            if is_gap
+                                && !current_chunk.is_empty()
+                                && !current_chunk.ends_with(char::is_whitespace)
+                            {
+                                current_chunk.push(' ');
+                            }
+                        }
+                        None => {}
+                    }
+                    cur_text_matrix_y = Some(new_y);
+                    pen_x = Some(new_x);
                 }
                 Op::SetTextCursor { pos } => {
                     if (cur_text_cursor.y.0.abs() - pos.y.0.abs()).abs() > 3.0 {
                         current_chunk.push_str("\r\n");
                     }
                     cur_text_cursor = *pos;
+                    pen_x = None;
                 }
                 Op::ShowText { items } if in_text_section => {
                     for item in items {
@@ -168,23 +226,48 @@ impl PdfPage {
                                 if *o < -100.0 {
                                     current_chunk.push(' ');
                                 }
+                                if let Some(px) = pen_x.as_mut() {
+                                    *px -= o / 1000.0 * cur_font_size;
+                                }
                             }
-                            TextItem::Text(t) => current_chunk.push_str(t),
-                            TextItem::GlyphIds(glyphs) => {
-                                // Convert glyph IDs to Unicode using the current font's cmap
-                                if let Some(font) = current_font {
-                                    for codepoint in glyphs {
-                                        // Check if we have unicode mapping for this glyph ID
-                                        let unicode_codepoint = codepoint.cid
-                                            .as_ref()
-                                            .and_then(|s| s.chars().next())
-                                            .or_else(|| Self::glyph_id_to_char(font, codepoint.gid))
-                                            .unwrap_or('\u{FFFD}');
-                                        current_chunk.push(unicode_codepoint);
+                            TextItem::Text(t) => {
+                                current_chunk.push_str(t);
+                                if let Some(px) = pen_x.as_mut() {
+                                    let mut adv_em = 0.0f32;
+                                    for c in t.chars() {
+                                        adv_em += current_font
+                                            .and_then(|f| {
+                                                f.lookup_glyph_index(c as u32)
+                                                    .map(|gid| glyph_advance_em(f, gid))
+                                            })
+                                            .unwrap_or(0.5);
                                     }
-                                } else {
-                                    // No font set, use placeholder
-                                    current_chunk.push_str("[glyphs]");
+                                    *px += adv_em * cur_font_size;
+                                }
+                            }
+                            TextItem::GlyphIds(glyphs) => {
+                                // Prefer the per-glyph Unicode attached at
+                                // parse time (from the font's ToUnicode CMap):
+                                // it handles ligatures/multi-char mappings and
+                                // works even when the font resource itself is
+                                // unavailable.
+                                for codepoint in glyphs {
+                                    if let Some(cid) = codepoint.cid.as_ref() {
+                                        current_chunk.push_str(cid);
+                                    } else if let Some(c) = current_font
+                                        .and_then(|font| Self::glyph_id_to_char(font, codepoint.gid))
+                                    {
+                                        current_chunk.push(c);
+                                    } else {
+                                        current_chunk.push('\u{FFFD}');
+                                    }
+                                    if let Some(px) = pen_x.as_mut() {
+                                        let adv_em = current_font
+                                            .map(|f| glyph_advance_em(f, codepoint.gid))
+                                            .unwrap_or(0.5);
+                                        *px += adv_em * cur_font_size
+                                            - codepoint.offset / 1000.0 * cur_font_size;
+                                    }
                                 }
                             }
                         }
@@ -192,9 +275,11 @@ impl PdfPage {
                 }
                 Op::AddLineBreak if in_text_section => {
                     current_chunk.push_str("\r\n");
+                    pen_x = None;
                 }
                 Op::MoveTextCursorAndSetLeading { .. } if in_text_section => {
                     current_chunk.push_str("\r\n");
+                    pen_x = None;
                 }
                 Op::MoveToNextLineShowText { text } if in_text_section => {
                     current_chunk.push_str("\r\n");
@@ -231,6 +316,37 @@ impl PdfPage {
             }
         }
         None
+    }
+}
+
+/// Horizontal advance of one glyph, in em (relative to font size).
+/// Used by text extraction to distinguish per-glyph positioning moves from
+/// real word gaps. Falls back to 0.5em when the metric is unavailable.
+#[cfg(feature = "text_layout")]
+fn glyph_advance_em(font: &ParsedFont, gid: u16) -> f32 {
+    let upm = font.font_metrics.units_per_em as f32;
+    if upm <= 0.0 {
+        return 0.5;
+    }
+    let adv = font.get_horizontal_advance(gid) as f32;
+    if adv <= 0.0 {
+        0.5
+    } else {
+        adv / upm
+    }
+}
+
+/// See the `text_layout` variant above; the stub `ParsedFont` stores widths in
+/// `glyph_widths` (already in font units) with `units_per_em` alongside.
+#[cfg(not(feature = "text_layout"))]
+fn glyph_advance_em(font: &ParsedFont, gid: u16) -> f32 {
+    let upm = font.units_per_em as f32;
+    if upm <= 0.0 {
+        return 0.5;
+    }
+    match font.get_glyph_width(gid) {
+        Some(w) if w > 0 => w as f32 / upm,
+        _ => 0.5,
     }
 }
 
