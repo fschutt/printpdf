@@ -220,8 +220,41 @@ fn parse_pdf_from_bytes_end(
         objs_to_search_for_resources,
         page_refs,
         document_info,
-        link_annots: _, // TODO
+        link_annots,
     } = initial_pdf;
+
+    // Build the per-resource-name text decode map used by the content stream
+    // parser. Keys are the resource names that `Tf` operators reference.
+    let font_decode: BTreeMap<String, FontTextDecodeKind> = fonts
+        .iter()
+        .filter_map(|(id, pf)| {
+            let name = match id {
+                BuiltinOrExternalFontId::External(fid) => fid.0.clone(),
+                // Builtin entries are keyed by their enum, not by a resource
+                // name from this document; `Tf` falls back to
+                // `BuiltinFont::from_id` for the F1-F14 naming convention.
+                BuiltinOrExternalFontId::Builtin(_) => return None,
+            };
+            let kind = match pf {
+                ParsedOrBuiltinFont::B(b) => FontTextDecodeKind::Builtin(*b),
+                ParsedOrBuiltinFont::P(p) => {
+                    if p.is_cid {
+                        FontTextDecodeKind::Cid {
+                            to_unicode: p.to_unicode.clone(),
+                        }
+                    } else {
+                        FontTextDecodeKind::Simple {
+                            to_unicode: p.to_unicode.clone(),
+                        }
+                    }
+                }
+                ParsedOrBuiltinFont::CidStub(to_unicode) => FontTextDecodeKind::Cid {
+                    to_unicode: to_unicode.clone(),
+                },
+            };
+            Some((name, kind))
+        })
+        .collect();
 
     for (i, page_ref) in page_refs.into_iter().enumerate() {
         let page_obj = doc
@@ -283,26 +316,71 @@ fn parse_pdf_from_bytes_end(
     Ok(pdf_doc)
 }
 
+/// An external font parsed out of the PDF, together with everything the
+/// content-stream text decoder needs to know about it.
+pub struct ParsedExternalFont {
+    pub font: ParsedFont,
+    /// The font's ToUnicode CMap (parsed, or synthesized from the font's cmap
+    /// table when the PDF has none). Keyed by content-stream code: CID for
+    /// composite fonts, single byte for simple fonts.
+    pub to_unicode: Option<Arc<ToUnicodeCMap>>,
+    /// `true` when the PDF font dictionary was a `/Subtype /Type0` (composite)
+    /// font: text-showing operators carry 2-byte big-endian codes. `false` for
+    /// simple fonts (TrueType/Type1): one byte per code.
+    pub is_cid: bool,
+}
+
 pub enum ParsedOrBuiltinFont {
-    P(ParsedFont, Option<ToUnicodeCMap>),
+    P(ParsedExternalFont),
     B(BuiltinFont),
+    /// A composite (Type0) font whose font program could not be extracted or
+    /// parsed (e.g. not embedded). It cannot be re-embedded, but its 2-byte
+    /// code layout and ToUnicode CMap are kept so the text still *decodes*
+    /// correctly for extraction.
+    CidStub(Option<Arc<ToUnicodeCMap>>),
 }
 
 impl ParsedOrBuiltinFont {
     fn as_parsed_font(self) -> Option<ParsedFont> {
         match self {
-            ParsedOrBuiltinFont::P(p, _) => Some(p),
+            ParsedOrBuiltinFont::P(p) => Some(p.font),
             ParsedOrBuiltinFont::B(_) => None,
+            ParsedOrBuiltinFont::CidStub(_) => None,
         }
     }
 
     #[allow(dead_code)]
     fn cmap(&self) -> Option<&ToUnicodeCMap> {
         match self {
-            ParsedOrBuiltinFont::P(_, cmap) => cmap.as_ref(),
+            ParsedOrBuiltinFont::P(p) => p.to_unicode.as_deref(),
             ParsedOrBuiltinFont::B(_) => None,
+            ParsedOrBuiltinFont::CidStub(c) => c.as_deref(),
         }
     }
+}
+
+/// How the bytes of text-showing operators (`Tj`, `TJ`, `'`, `"`) must be
+/// decoded for one font resource. Resolved once per page from the parsed font
+/// resources, then tracked across `Tf` operators in [`PageState`].
+///
+/// Getting this wrong garbles text: the pre-0.12 parser guessed the code width
+/// from the *byte length parity* of each string, so `(Hi) Tj` in Helvetica
+/// (2 bytes, even) was decoded as one 16-bit CID 0x4869 instead of "Hi".
+#[derive(Debug, Clone)]
+pub enum FontTextDecodeKind {
+    /// One of the 14 standard fonts: one-byte WinAnsi codes.
+    Builtin(BuiltinFont),
+    /// Simple external font (TrueType/Type1): one-byte codes, decoded through
+    /// the ToUnicode CMap when present, WinAnsi otherwise.
+    Simple {
+        to_unicode: Option<Arc<ToUnicodeCMap>>,
+    },
+    /// Composite (Type0) font: two-byte big-endian CIDs. With the Identity-H
+    /// encoding printpdf writes (and virtually every PDF producer uses for
+    /// embedded fonts), CID == GID.
+    Cid {
+        to_unicode: Option<Arc<ToUnicodeCMap>>,
+    },
 }
 
 // Returns the dictionary, or resolves the reference
@@ -829,6 +907,13 @@ pub struct PageState {
     /// Current font resource name (e.g., "F5") - tracked only to emit warnings if text appears without Tf
     pub current_font_resource: Option<String>,
 
+    /// How text-showing operator bytes decode for each font resource name of
+    /// this page's resources. Filled in by `parse_page` before the ops run.
+    pub font_decode: BTreeMap<String, FontTextDecodeKind>,
+
+    /// The decode kind of the currently selected font (set by `Tf`).
+    pub current_font_decode: Option<FontTextDecodeKind>,
+
     /// Current transformation matrix stack. Each entry is a 6-float array [a b c d e f].
     pub transform_stack: Vec<[f32; 6]>,
 
@@ -1324,6 +1409,113 @@ fn test_bezier_path_parsing() {
     }
 }
 
+/// Decode the byte string of one text-showing operator according to the
+/// currently selected font (see [`FontTextDecodeKind`]).
+///
+/// * Built-in / simple fonts: one byte per code → decoded to a
+///   [`crate::text::TextItem::Text`] (ToUnicode CMap first, WinAnsi fallback),
+///   which the serializer re-encodes correctly for whichever font ends up
+///   selected at save time.
+/// * Composite (Type0) fonts: two-byte big-endian CIDs → [`crate::text::TextItem::GlyphIds`]
+///   with each glyph's Unicode string attached from the ToUnicode CMap, so
+///   text extraction and regenerated ToUnicode CMaps stay correct.
+/// * Unknown font: fall back to the historic length-parity heuristic.
+fn decode_show_text_string(
+    bytes: &[u8],
+    kind: Option<&FontTextDecodeKind>,
+    page: usize,
+    op_id: usize,
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> crate::text::TextItem {
+    use crate::text::{decode_simple_font_bytes, Codepoint, TextItem};
+    match kind {
+        Some(FontTextDecodeKind::Builtin(_)) => {
+            TextItem::Text(decode_simple_font_bytes(bytes, None))
+        }
+        Some(FontTextDecodeKind::Simple { to_unicode }) => TextItem::Text(
+            decode_simple_font_bytes(bytes, to_unicode.as_deref()),
+        ),
+        Some(FontTextDecodeKind::Cid { to_unicode }) => {
+            if bytes.len() % 2 != 0 {
+                warnings.push(PdfWarnMsg::warning(
+                    page,
+                    op_id,
+                    format!(
+                        "CID font string has odd byte length {}, dropping trailing byte",
+                        bytes.len()
+                    ),
+                ));
+            }
+            let glyphs = bytes
+                .chunks_exact(2)
+                .map(|c| {
+                    let gid = u16::from_be_bytes([c[0], c[1]]);
+                    let cid_str = to_unicode
+                        .as_deref()
+                        .and_then(|cmap| cmap.lookup_string(gid as u32));
+                    match cid_str {
+                        Some(s) => Codepoint::with_cid(gid, 0.0, s),
+                        None => Codepoint::new(gid, 0.0),
+                    }
+                })
+                .collect();
+            TextItem::GlyphIds(glyphs)
+        }
+        None => {
+            // No font information: keep the old behavior for these (rare)
+            // streams that show text before any usable `Tf`.
+            let items = crate::text::decode_tj_string_as_glyph_ids(bytes);
+            items
+                .into_iter()
+                .next()
+                .unwrap_or(TextItem::GlyphIds(Vec::new()))
+        }
+    }
+}
+
+/// Decode a whole `TJ` array (strings interleaved with kerning offsets).
+fn decode_show_text_array(
+    arr: &[Object],
+    kind: Option<&FontTextDecodeKind>,
+    page: usize,
+    op_id: usize,
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> Vec<crate::text::TextItem> {
+    use crate::text::TextItem;
+    let mut items = Vec::new();
+    for obj in arr {
+        match obj {
+            Object::String(bytes, _) => {
+                items.push(decode_show_text_string(bytes, kind, page, op_id, warnings));
+            }
+            Object::Integer(i) => items.push(TextItem::Offset(*i as f32)),
+            Object::Real(r) => items.push(TextItem::Offset(*r)),
+            _ => {}
+        }
+    }
+    items
+}
+
+/// Decode a text-showing string to a plain String (for the `'` and `"`
+/// operators, whose printpdf ops carry `String` text).
+fn decode_show_text_to_string(
+    bytes: &[u8],
+    kind: Option<&FontTextDecodeKind>,
+    page: usize,
+    op_id: usize,
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> String {
+    use crate::text::TextItem;
+    match decode_show_text_string(bytes, kind, page, op_id, warnings) {
+        TextItem::Text(s) => s,
+        TextItem::GlyphIds(glyphs) => glyphs
+            .iter()
+            .map(|g| g.cid.clone().unwrap_or_else(|| '\u{FFFD}'.to_string()))
+            .collect(),
+        TextItem::Offset(_) => String::new(),
+    }
+}
+
 /// Convert a single lopdf Operation into zero, one, or many `printpdf::Op`.
 /// We maintain / mutate `PageState` so that repeated path operators (`m`, `l`, `c`, etc.)
 /// accumulate subpaths, and we only emit path-based Ops at stroke or fill time.
@@ -1625,9 +1817,15 @@ pub fn parse_op(
                     ));
                 }
 
-                // Use raw glyph IDs instead of decoding to Unicode
-                // This is more efficient and preserves the original PDF structure
-                let text_items = crate::text::decode_tj_operands_as_glyph_ids(arr);
+                // Decode according to the *current font*: 1-byte WinAnsi codes
+                // for builtin/simple fonts, 2-byte CIDs for composite fonts.
+                let text_items = decode_show_text_array(
+                    arr,
+                    state.current_font_decode.as_ref(),
+                    page,
+                    op_id,
+                    warnings,
+                );
 
                 // Emit new ShowText operation (1:1 PDF mapping)
                 out_ops.push(Op::ShowText {
@@ -1667,8 +1865,14 @@ pub fn parse_op(
                     ));
                 }
 
-                // Use raw glyph IDs instead of decoding to Unicode
-                let text_items = crate::text::decode_tj_string_as_glyph_ids(bytes);
+                // Decode according to the current font (see decode_show_text_string).
+                let text_items = vec![decode_show_text_string(
+                    bytes,
+                    state.current_font_decode.as_ref(),
+                    page,
+                    op_id,
+                    warnings,
+                )];
 
                 // Emit new ShowText operation (1:1 PDF mapping)
                 out_ops.push(Op::ShowText {
@@ -1852,19 +2056,44 @@ pub fn parse_op(
                 if let Some(font_name) = as_name(&op.operands[0]) {
                     state.current_font = Some(BuiltinOrExternalFontId::from_str(&font_name));
                     state.current_font_resource = Some(font_name.clone());
+                    // Resolve how this font's text bytes decode. The document's
+                    // *actual* font resources take priority: a foreign PDF may
+                    // name an embedded font "F1", which the F1-F14 builtin
+                    // naming heuristic would otherwise mis-claim as
+                    // Times-Roman and destroy both decode and re-encode.
+                    state.current_font_decode = match state.font_decode.get(&font_name) {
+                        Some(kind) => Some(kind.clone()),
+                        None => {
+                            BuiltinFont::from_id(&font_name).map(FontTextDecodeKind::Builtin)
+                        }
+                    };
                 }
                 let size_val = to_f32(&op.operands[1]);
                 state.current_font_size = Some(crate::units::Pt(size_val));
 
                 // Emit new SetFont operation (1:1 PDF mapping)
                 if let (Some(font_resource), Some(sz)) = (&state.current_font_resource, &state.current_font_size) {
-                    // Parse font_resource to determine if it's builtin or external
-                    let font_handle = if let Some(builtin) = BuiltinFont::from_id(font_resource) {
-                        crate::ops::PdfFontHandle::Builtin(builtin)
-                    } else {
-                        crate::ops::PdfFontHandle::External(crate::FontId(font_resource.clone()))
+                    // Builtin or external is decided by the resolved decode
+                    // kind (falling back to the F1-F14 name heuristic when the
+                    // document's resources don't describe the font).
+                    let font_handle = match &state.current_font_decode {
+                        Some(FontTextDecodeKind::Builtin(b)) => {
+                            crate::ops::PdfFontHandle::Builtin(*b)
+                        }
+                        Some(_) => {
+                            crate::ops::PdfFontHandle::External(crate::FontId(font_resource.clone()))
+                        }
+                        None => {
+                            if let Some(builtin) = BuiltinFont::from_id(font_resource) {
+                                crate::ops::PdfFontHandle::Builtin(builtin)
+                            } else {
+                                crate::ops::PdfFontHandle::External(crate::FontId(
+                                    font_resource.clone(),
+                                ))
+                            }
+                        }
                     };
-                    
+
                     out_ops.push(Op::SetFont {
                         font: font_handle,
                         size: *sz,
@@ -3363,6 +3592,29 @@ mod parsefont {
         BuiltinFont, FontId,
     };
 
+    /// Build a gid -> unicode map from the font's own cmap table, for fonts
+    /// that ship without a usable `/ToUnicode` CMap. Under Identity-H
+    /// (CID == GID) this makes glyph runs extractable and lets the serializer
+    /// regenerate a correct ToUnicode CMap instead of mapping every glyph to
+    /// U+FFFD.
+    fn synthesize_to_unicode(font: &ParsedFont) -> Option<ToUnicodeCMap> {
+        let mut mappings: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+        for cp in 0x0000..=0xFFFFu32 {
+            // skip UTF-16 surrogate range, not scalar values
+            if (0xD800..=0xDFFF).contains(&cp) {
+                continue;
+            }
+            if let Some(gid) = font.lookup_glyph_index(cp) {
+                mappings.entry(gid as u32).or_insert_with(|| vec![cp]);
+            }
+        }
+        if mappings.is_empty() {
+            None
+        } else {
+            Some(ToUnicodeCMap { mappings })
+        }
+    }
+
     /// Main function to parse fonts from PDF resources
     pub(crate) fn parse_fonts_enhanced(
         doc: &Document,
@@ -3410,13 +3662,40 @@ mod parsefont {
                 // this branch being empty without the feature is why `PdfDocument::parse`
                 // silently returned zero font resources for any PDF with an embedded font
                 // (#258).
-                if let Some(parsed_font) =
-                    process_type0_font(doc, font_dict, &font_id, warnings, page_num)
-                {
-                    fonts_map.insert(
-                        font_id,
-                        ParsedOrBuiltinFont::P(parsed_font, to_unicode_cmap),
-                    );
+                match process_type0_font(doc, font_dict, &font_id, warnings, page_num) {
+                    Some(parsed_font) => {
+                        // Without a ToUnicode CMap, glyph runs would extract as
+                        // U+FFFD and the re-saved ToUnicode would be garbage;
+                        // synthesize one from the font's own cmap table.
+                        let to_unicode = to_unicode_cmap
+                            .or_else(|| synthesize_to_unicode(&parsed_font))
+                            .map(Arc::new);
+                        fonts_map.insert(
+                            font_id,
+                            ParsedOrBuiltinFont::P(ParsedExternalFont {
+                                font: parsed_font,
+                                to_unicode,
+                                is_cid: true,
+                            }),
+                        );
+                    }
+                    None => {
+                        // Keep the code layout + ToUnicode for decoding even
+                        // though the font itself cannot be re-embedded.
+                        warnings.push(PdfWarnMsg::warning(
+                            page_num,
+                            0,
+                            format!(
+                                "Type0 font {} has no parsable font program; text will decode \
+                                 via its ToUnicode CMap but the font cannot be re-embedded",
+                                font_id.0
+                            ),
+                        ));
+                        fonts_map.insert(
+                            font_id,
+                            ParsedOrBuiltinFont::CidStub(to_unicode_cmap.map(Arc::new)),
+                        );
+                    }
                 }
             } else {
                 match process_standard_font(doc, font_dict, &font_id, warnings, page_num) {

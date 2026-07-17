@@ -84,6 +84,67 @@ pub trait CMap {
     fn map_bytes(&self, bytes: &[u8]) -> String;
 }
 
+/// Decode a single WinAnsiEncoding (CP1252) byte to its Unicode character.
+///
+/// This is the exact inverse of the encoder used for the 14 built-in fonts
+/// (`/Encoding /WinAnsiEncoding`, PDF 32000-1 Annex D.2). WinAnsi agrees with
+/// ASCII in 0x20..=0x7E and with Latin-1 in 0xA0..=0xFF; 0x80..=0x9F holds
+/// typographic punctuation. Unassigned bytes decode to U+FFFD.
+pub fn win_ansi_char(b: u8) -> char {
+    match b {
+        0x20..=0x7E => b as char,
+        0xA0..=0xFF => b as char,
+        0x80 => '\u{20AC}', // € euro
+        0x82 => '\u{201A}', // ‚ single low-9 quote
+        0x83 => '\u{0192}', // ƒ florin
+        0x84 => '\u{201E}', // „ double low-9 quote
+        0x85 => '\u{2026}', // … ellipsis
+        0x86 => '\u{2020}', // † dagger
+        0x87 => '\u{2021}', // ‡ double dagger
+        0x88 => '\u{02C6}', // ˆ circumflex
+        0x89 => '\u{2030}', // ‰ per mille
+        0x8A => '\u{0160}', // Š S caron
+        0x8B => '\u{2039}', // ‹ single left angle quote
+        0x8C => '\u{0152}', // Œ OE ligature
+        0x8E => '\u{017D}', // Ž Z caron
+        0x91 => '\u{2018}', // ' left single quote
+        0x92 => '\u{2019}', // ' right single quote
+        0x93 => '\u{201C}', // " left double quote
+        0x94 => '\u{201D}', // " right double quote
+        0x95 => '\u{2022}', // • bullet
+        0x96 => '\u{2013}', // – en dash
+        0x97 => '\u{2014}', // — em dash
+        0x98 => '\u{02DC}', // ˜ small tilde
+        0x99 => '\u{2122}', // ™ trademark
+        0x9A => '\u{0161}', // š s caron
+        0x9B => '\u{203A}', // › single right angle quote
+        0x9C => '\u{0153}', // œ oe ligature
+        0x9E => '\u{017E}', // ž z caron
+        0x9F => '\u{0178}', // Ÿ Y diaeresis
+        // 0x00..=0x1F control range and the unassigned 0x81/0x8D/0x8F/0x90/0x9D:
+        // tab/newline pass through so text extraction keeps whitespace.
+        b'\t' | b'\n' | b'\r' => b as char,
+        _ => '\u{FFFD}',
+    }
+}
+
+/// Decode the bytes of a text-showing operator for a *simple* (one-byte-code)
+/// font: each byte is one character code. Codes are looked up in the font's
+/// ToUnicode CMap when one exists, falling back to WinAnsiEncoding — the
+/// standard encoding of the built-in fonts and the most common simple-font
+/// encoding in the wild.
+pub fn decode_simple_font_bytes(bytes: &[u8], to_unicode: Option<&crate::cmap::ToUnicodeCMap>) -> String {
+    let mut out = String::with_capacity(bytes.len());
+    for &b in bytes {
+        if let Some(s) = to_unicode.and_then(|c| c.lookup_string(b as u32)) {
+            out.push_str(&s);
+        } else {
+            out.push(win_ansi_char(b));
+        }
+    }
+    out
+}
+
 /// Decode a PDF string (literal or hexadecimal) into a Rust UTF‑8 String.
 /// If a ToUnicode CMap is provided, use it to map the raw bytes; otherwise, fallback
 /// to assuming the bytes are encoded in WinAnsi (or UTF‑8 when possible).
