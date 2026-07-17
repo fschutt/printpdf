@@ -17,101 +17,275 @@ pub struct ToUnicodeCMap {
     pub mappings: BTreeMap<u32, Vec<u32>>,
 }
 
+/// One whitespace-separated CMap token.
+#[derive(Debug, Clone, PartialEq)]
+enum CMapToken {
+    /// `<...>` hex string (raw hex digits, without the delimiters)
+    Hex(String),
+    /// `[`
+    ArrayOpen,
+    /// `]`
+    ArrayClose,
+    /// any other token (keywords, numbers, names, ...)
+    Word(String),
+}
+
+/// Tokenize a CMap stream. PostScript is whitespace/delimiter separated, so
+/// `1 beginbfchar<0003><0020>endbfchar` on a single line is legal — a line-based
+/// parser silently loses those mappings. Comments (`%` to end of line) are skipped.
+fn tokenize_cmap(input: &str) -> Vec<CMapToken> {
+    let mut tokens = Vec::new();
+    let mut chars = input.char_indices().peekable();
+
+    while let Some(&(i, c)) = chars.peek() {
+        match c {
+            '%' => {
+                // comment until end of line
+                while let Some(&(_, c2)) = chars.peek() {
+                    if c2 == '\n' {
+                        break;
+                    }
+                    chars.next();
+                }
+            }
+            '<' => {
+                chars.next();
+                let start = i + 1;
+                let mut end = start;
+                while let Some(&(j, c2)) = chars.peek() {
+                    if c2 == '>' {
+                        chars.next();
+                        break;
+                    }
+                    // `<<` starts a dictionary, not a hex string — treat like a word
+                    end = j + c2.len_utf8();
+                    chars.next();
+                }
+                tokens.push(CMapToken::Hex(
+                    input[start..end].split_whitespace().collect::<String>(),
+                ));
+            }
+            '[' => {
+                chars.next();
+                tokens.push(CMapToken::ArrayOpen);
+            }
+            ']' => {
+                chars.next();
+                tokens.push(CMapToken::ArrayClose);
+            }
+            c if c.is_whitespace() => {
+                chars.next();
+            }
+            _ => {
+                let start = i;
+                let mut end = i;
+                while let Some(&(j, c2)) = chars.peek() {
+                    if c2.is_whitespace() || c2 == '<' || c2 == '[' || c2 == ']' || c2 == '%' {
+                        break;
+                    }
+                    end = j + c2.len_utf8();
+                    chars.next();
+                }
+                tokens.push(CMapToken::Word(input[start..end].to_string()));
+            }
+        }
+    }
+
+    tokens
+}
+
+/// Parse a hex string token used as a *code* (CID): a single big-endian number.
+fn hex_to_u32(hex: &str) -> Result<u32, String> {
+    if hex.is_empty() {
+        return Err("empty hex token".to_string());
+    }
+    u32::from_str_radix(hex, 16).map_err(|e| format!("Failed to parse hex token <{}>: {}", hex, e))
+}
+
+/// Parse a hex string token used as a *target*: UTF-16BE code units, possibly
+/// several characters (ligatures like `<004600660069>` = "ffi") and possibly
+/// surrogate pairs (`<D835DC56>` = U+1D456). Returns Unicode scalar values.
+///
+/// Tokens of up to 4 hex digits (the overwhelmingly common case) decode exactly
+/// like the old single-number path.
+fn hex_to_unicode_scalars(hex: &str) -> Result<Vec<u32>, String> {
+    if hex.is_empty() {
+        return Err("empty hex token".to_string());
+    }
+    if hex.len() <= 4 {
+        // single UTF-16 code unit (or fewer digits, e.g. `<20>`)
+        return Ok(vec![hex_to_u32(hex)?]);
+    }
+    if hex.len() % 4 != 0 {
+        // Not a whole number of UTF-16BE units; historic behavior parsed the
+        // token as one number, keep that as a fallback for short odd tokens.
+        return hex_to_u32(hex).map(|v| vec![v]);
+    }
+    let mut units = Vec::with_capacity(hex.len() / 4);
+    for i in (0..hex.len()).step_by(4) {
+        units.push(
+            u16::from_str_radix(&hex[i..i + 4], 16)
+                .map_err(|e| format!("Failed to parse hex token <{}>: {}", hex, e))?,
+        );
+    }
+    let scalars: Vec<u32> = char::decode_utf16(units.iter().copied())
+        .map(|r| r.map(|c| c as u32).unwrap_or(0xFFFD))
+        .collect();
+    Ok(scalars)
+}
+
 impl ToUnicodeCMap {
     /// Parses a ToUnicode CMap from the given input string.
     pub fn parse(input: &str) -> Result<ToUnicodeCMap, String> {
         let mut mappings = BTreeMap::new();
-        let mut lines = input.lines().map(|l| l.trim()).filter(|l| !l.is_empty());
-        while let Some(line) = lines.next() {
-            if line.contains("beginbfchar") {
-                // Process each bfchar mapping line until "endbfchar"
-                while let Some(l) = lines.next() {
-                    if l.contains("endbfchar") {
-                        break;
-                    }
-                    // Expect a line like: "<0041> <0041>"
-                    let tokens: Vec<&str> = l.split_whitespace().collect();
-                    if tokens.len() < 2 {
-                        continue; // skip bad lines
-                    }
-                    let cid = parse_hex_token(tokens[0])?;
-                    let uni = parse_hex_token(tokens[1])?;
-                    mappings.insert(cid, vec![uni]);
-                }
-            } else if line.contains("beginbfrange") {
-                // Process each bfrange mapping line until "endbfrange"
-                while let Some(l) = lines.next() {
-                    if l.contains("endbfrange") {
-                        break;
-                    }
-                    // There are two forms:
-                    //   form1: <start> <end> <startUnicode>
-                    //   form2: <start> <end> [ <unicode1> <unicode2> ... ]
-                    let tokens: Vec<&str> = l.split_whitespace().collect();
-                    if tokens.len() < 3 {
-                        continue;
-                    }
-                    let start = parse_hex_token(tokens[0])?;
-                    let end = parse_hex_token(tokens[1])?;
-                    // Reject reversed and oversized ranges instead of expanding them:
-                    // `end - start + 1` underflows (panics with overflow checks on) when
-                    // end < start, and an unbounded span is a decompression-bomb-style
-                    // DoS. The caller (extract_to_unicode_cmap) downgrades the Err to a
-                    // warning, so a hostile CMap costs the font its ToUnicode map but
-                    // never the whole document.
-                    if end < start {
-                        return Err(format!("bfrange: end {:04X} < start {:04X}", end, start));
-                    }
-                    let span = end - start;
-                    if span as u64 + 1 > MAX_BFRANGE_ENTRIES {
-                        return Err(format!(
-                            "bfrange spans {} CIDs (max {})",
-                            span as u64 + 1,
-                            MAX_BFRANGE_ENTRIES
-                        ));
-                    }
-                    if tokens[2].starts_with('[') {
-                        // form2: rebuild the array of tokens.
-                        let mut arr_tokens = Vec::new();
-                        // Remove the leading '[' from the first token.
-                        let first = tokens[2].trim_start_matches('[');
-                        arr_tokens.push(first);
-                        // Process the rest tokens until one ends with ']'.
-                        for token in tokens.iter().skip(3) {
-                            if token.ends_with(']') {
-                                arr_tokens.push(token.trim_end_matches(']'));
-                                break;
-                            } else {
-                                arr_tokens.push(token);
+        let tokens = tokenize_cmap(input);
+        let mut i = 0;
+
+        while i < tokens.len() {
+            match &tokens[i] {
+                CMapToken::Word(w) if w == "beginbfchar" => {
+                    i += 1;
+                    // Each mapping is: <code> <target>
+                    while i < tokens.len() {
+                        match (&tokens[i], tokens.get(i + 1)) {
+                            (CMapToken::Word(w), _) if w == "endbfchar" => break,
+                            (CMapToken::Hex(code), Some(CMapToken::Hex(target))) => {
+                                let cid = hex_to_u32(code)?;
+                                let uni = hex_to_unicode_scalars(target)?;
+                                mappings.insert(cid, uni);
+                                i += 2;
+                            }
+                            _ => {
+                                // skip malformed token
+                                i += 1;
                             }
                         }
-                        let expected = span + 1;
-                        if arr_tokens.len() != expected as usize {
-                            return Err(format!(
-                                "bfrange array length mismatch: expected {} but got {}",
-                                expected,
-                                arr_tokens.len()
-                            ));
-                        }
-                        for (i, token) in arr_tokens.iter().enumerate() {
-                            let uni = parse_hex_token(token)?;
-                            mappings.insert(start + i as u32, vec![uni]);
-                        }
-                    } else {
-                        // form1: a single starting unicode value.
-                        let start_uni = parse_hex_token(tokens[2])?;
-                        if start_uni.checked_add(span).is_none() {
-                            return Err("bfrange: target unicode values overflow u32".to_string());
-                        }
-                        for i in 0..=span {
-                            mappings.insert(start + i, vec![start_uni + i]);
+                    }
+                }
+                CMapToken::Word(w) if w == "beginbfrange" => {
+                    i += 1;
+                    while i < tokens.len() {
+                        // Two forms:
+                        //   form1: <start> <end> <startUnicode>
+                        //   form2: <start> <end> [ <unicode1> <unicode2> ... ]
+                        match &tokens[i] {
+                            CMapToken::Word(w) if w == "endbfrange" => break,
+                            CMapToken::Hex(start_tok) => {
+                                let Some(CMapToken::Hex(end_tok)) = tokens.get(i + 1) else {
+                                    i += 1;
+                                    continue;
+                                };
+                                let start = hex_to_u32(start_tok)?;
+                                let end = hex_to_u32(end_tok)?;
+                                // Reject reversed and oversized ranges instead of expanding
+                                // them: `end - start + 1` underflows (panics with overflow
+                                // checks on) when end < start, and an unbounded span is a
+                                // decompression-bomb-style DoS. The caller
+                                // (extract_to_unicode_cmap) downgrades the Err to a warning,
+                                // so a hostile CMap costs the font its ToUnicode map but
+                                // never the whole document.
+                                if end < start {
+                                    return Err(format!(
+                                        "bfrange: end {:04X} < start {:04X}",
+                                        end, start
+                                    ));
+                                }
+                                let span = end - start;
+                                if span as u64 + 1 > MAX_BFRANGE_ENTRIES {
+                                    return Err(format!(
+                                        "bfrange spans {} CIDs (max {})",
+                                        span as u64 + 1,
+                                        MAX_BFRANGE_ENTRIES
+                                    ));
+                                }
+                                match tokens.get(i + 2) {
+                                    Some(CMapToken::ArrayOpen) => {
+                                        // form2: one target per CID.
+                                        i += 3;
+                                        let mut offset = 0u32;
+                                        while i < tokens.len() {
+                                            match &tokens[i] {
+                                                CMapToken::ArrayClose => {
+                                                    i += 1;
+                                                    break;
+                                                }
+                                                CMapToken::Hex(target) => {
+                                                    // Ignore surplus entries beyond the
+                                                    // declared range instead of erroring:
+                                                    // partial data beats no data.
+                                                    if offset <= span {
+                                                        let uni = hex_to_unicode_scalars(target)?;
+                                                        mappings.insert(start + offset, uni);
+                                                    }
+                                                    offset += 1;
+                                                    i += 1;
+                                                }
+                                                _ => {
+                                                    i += 1;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Some(CMapToken::Hex(target)) => {
+                                        // form1: single starting value, incremented over
+                                        // the range. Increment applies to the *last*
+                                        // character of the target string (ISO 32000-1,
+                                        // 9.10.3).
+                                        let unis = hex_to_unicode_scalars(target)?;
+                                        let last = unis.last().copied().unwrap_or(0);
+                                        if last.checked_add(span).is_none() {
+                                            return Err(
+                                                "bfrange: target unicode values overflow u32"
+                                                    .to_string(),
+                                            );
+                                        }
+                                        for off in 0..=span {
+                                            let mut target = unis.clone();
+                                            if let Some(l) = target.last_mut() {
+                                                *l = last + off;
+                                            }
+                                            mappings.insert(start + off, target);
+                                        }
+                                        i += 3;
+                                    }
+                                    _ => {
+                                        // malformed entry, skip the start token
+                                        i += 1;
+                                    }
+                                }
+                                continue;
+                            }
+                            _ => {
+                                i += 1;
+                            }
                         }
                     }
                 }
+                _ => {}
             }
-            // (Other lines, e.g. codespacerange, can be skipped for now.)
+            i += 1;
         }
+
         Ok(ToUnicodeCMap { mappings })
+    }
+
+    /// Look up a single code/CID, returning its Unicode scalar values.
+    pub fn lookup(&self, cid: u32) -> Option<&Vec<u32>> {
+        self.mappings.get(&cid)
+    }
+
+    /// Map a single code/CID to a String (empty when unmapped).
+    pub fn lookup_string(&self, cid: u32) -> Option<String> {
+        let unis = self.mappings.get(&cid)?;
+        let s: String = unis
+            .iter()
+            .filter_map(|&u| std::char::from_u32(u))
+            .collect();
+        if s.is_empty() {
+            None
+        } else {
+            Some(s)
+        }
     }
 
     /// Generates a CMap string representation suitable for embedding in a PDF.
@@ -128,16 +302,17 @@ impl ToUnicodeCMap {
         );
 
         // Group mappings by high byte for better organization
-        let mut grouped_by_high_byte: BTreeMap<u8, Vec<(u32, u32)>> = BTreeMap::new();
+        let mut grouped_by_high_byte: BTreeMap<u8, Vec<(u32, &Vec<u32>)>> = BTreeMap::new();
 
         for (&cid, unicode_values) in &self.mappings {
-            if let Some(&unicode) = unicode_values.first() {
-                let high_byte = ((cid >> 8) & 0xFF) as u8;
-                grouped_by_high_byte
-                    .entry(high_byte)
-                    .or_insert_with(Vec::new)
-                    .push((cid, unicode));
+            if unicode_values.is_empty() {
+                continue;
             }
+            let high_byte = ((cid >> 8) & 0xFF) as u8;
+            grouped_by_high_byte
+                .entry(high_byte)
+                .or_insert_with(Vec::new)
+                .push((cid, unicode_values));
         }
 
         // Generate bfchar blocks with at most 100 entries each
@@ -148,8 +323,22 @@ impl ToUnicodeCMap {
             // Process in chunks of 100
             for chunk in entries.chunks(100) {
                 result.push_str(&format!("{} beginbfchar\n", chunk.len()));
-                for &(cid, unicode) in chunk {
-                    result.push_str(&format!("<{:04X}> <{:04X}>\n", cid, unicode));
+                for &(cid, unicode_values) in chunk {
+                    // Encode the full target as UTF-16BE so multi-char mappings
+                    // (ligatures) and non-BMP chars survive the round trip.
+                    let mut target_hex = String::new();
+                    for &u in unicode_values {
+                        match std::char::from_u32(u) {
+                            Some(c) => {
+                                let mut buf = [0u16; 2];
+                                for unit in c.encode_utf16(&mut buf) {
+                                    target_hex.push_str(&format!("{:04X}", unit));
+                                }
+                            }
+                            None => target_hex.push_str(&format!("{:04X}", u)),
+                        }
+                    }
+                    result.push_str(&format!("<{:04X}> <{}>\n", cid, target_hex));
                 }
                 result.push_str("endbfchar\n");
             }
@@ -162,21 +351,6 @@ impl ToUnicodeCMap {
         );
 
         result
-    }
-}
-
-/// Helper: Parse a hex token of the form "<...>" and return the number.
-fn parse_hex_token(token: &str) -> Result<u32, String> {
-    let token = token.trim();
-    if token.len() < 2 {
-        return Err("Hex token too short".into());
-    }
-    if token.starts_with('<') && token.ends_with('>') {
-        let inner = &token[1..token.len() - 1];
-        u32::from_str_radix(inner, 16)
-            .map_err(|e| format!("Failed to parse hex token {}: {}", token, e))
-    } else {
-        Err(format!("Expected token enclosed in <>: {}", token))
     }
 }
 
@@ -230,4 +404,84 @@ pub fn get_to_unicode_cmap_from_font(
         String::from_utf8(content).map_err(|e| format!("UTF-8 conversion error: {}", e))?;
 
     ToUnicodeCMap::parse(&cmap_str)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn single_line_bfchar_is_parsed() {
+        // PostScript does not require newlines; a line-based parser lost these.
+        let cmap = "begincmap 1 beginbfchar <0003> <0020> endbfchar endcmap";
+        let parsed = ToUnicodeCMap::parse(cmap).unwrap();
+        assert_eq!(parsed.mappings.get(&3), Some(&vec![0x20]));
+    }
+
+    #[test]
+    fn multi_codepoint_bfchar_target() {
+        // <00660066> is the two-character target "ff". The old parser tried to
+        // read it as one u32 (0x00660066) and produced garbage, and 12-digit
+        // targets made the whole CMap fail to parse.
+        let cmap = "beginbfchar\n<0001> <00660066>\n<0002> <004600660069>\nendbfchar";
+        let parsed = ToUnicodeCMap::parse(cmap).unwrap();
+        assert_eq!(parsed.mappings.get(&1), Some(&vec![0x66, 0x66]));
+        assert_eq!(parsed.mappings.get(&2), Some(&vec![0x46, 0x66, 0x69]));
+    }
+
+    #[test]
+    fn surrogate_pair_bfchar_target() {
+        // <D835DC56> is U+1D456 (mathematical italic small i) as UTF-16BE.
+        let cmap = "beginbfchar\n<0001> <D835DC56>\nendbfchar";
+        let parsed = ToUnicodeCMap::parse(cmap).unwrap();
+        assert_eq!(parsed.mappings.get(&1), Some(&vec![0x1D456]));
+    }
+
+    #[test]
+    fn bfrange_form1_still_works() {
+        let cmap = "beginbfrange\n<0041> <0043> <0061>\nendbfrange";
+        let parsed = ToUnicodeCMap::parse(cmap).unwrap();
+        assert_eq!(parsed.mappings.get(&0x41), Some(&vec![0x61]));
+        assert_eq!(parsed.mappings.get(&0x42), Some(&vec![0x62]));
+        assert_eq!(parsed.mappings.get(&0x43), Some(&vec![0x63]));
+    }
+
+    #[test]
+    fn bfrange_form2_array_still_works() {
+        let cmap = "beginbfrange\n<0001> <0002> [<0041> <0042>]\nendbfrange";
+        let parsed = ToUnicodeCMap::parse(cmap).unwrap();
+        assert_eq!(parsed.mappings.get(&1), Some(&vec![0x41]));
+        assert_eq!(parsed.mappings.get(&2), Some(&vec![0x42]));
+    }
+
+    #[test]
+    fn bfrange_reversed_is_error() {
+        // Guard: keep rejecting reversed ranges (underflow / DoS protection).
+        let cmap = "beginbfrange\n<0002> <0001> [<0041>]\nendbfrange";
+        assert!(ToUnicodeCMap::parse(cmap).is_err());
+    }
+
+    #[test]
+    fn bfrange_huge_range_is_bounded() {
+        // Guard: a hostile few-byte bfrange must not allocate 2^21 entries.
+        let cmap = "beginbfrange\n<000000> <1FFFFF> <0041>\nendbfrange";
+        match ToUnicodeCMap::parse(cmap) {
+            Ok(m) => assert!(m.mappings.len() <= 65_536),
+            Err(_) => {}
+        }
+    }
+
+    #[test]
+    fn roundtrip_through_cmap_string() {
+        let mut mappings = BTreeMap::new();
+        mappings.insert(1, vec![0x66, 0x66]); // "ff" ligature
+        mappings.insert(2, vec![0x1D456]); // non-BMP char
+        mappings.insert(3, vec![0x41]);
+        let cmap = ToUnicodeCMap { mappings };
+        let s = cmap.to_cmap_string("TESTFONT");
+        let reparsed = ToUnicodeCMap::parse(&s).unwrap();
+        assert_eq!(reparsed.mappings.get(&1), Some(&vec![0x66, 0x66]));
+        assert_eq!(reparsed.mappings.get(&2), Some(&vec![0x1D456]));
+        assert_eq!(reparsed.mappings.get(&3), Some(&vec![0x41]));
+    }
 }
