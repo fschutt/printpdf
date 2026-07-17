@@ -317,8 +317,14 @@ button.ghost { box-shadow: none; background: transparent; }
     background: white;
     box-shadow: 0 2px 12px rgba(0,0,0,0.18);
     max-width: 100%;
+    /* Clip any SVG content that renders outside the page box so it can't
+       overflow the viewer and paint over the controls / warnings above. */
+    overflow: hidden;
 }
 .pdf-viewer .page svg { display: block; width: 100%; height: auto; }
+
+/* Keep the controls (and the warnings badge/drawer in them) above the viewer. */
+.viewer-controls, .warnings-drawer { position: relative; z-index: 1; }
 .pdf-viewer .placeholder { color: var(--text-dim); margin: auto; text-align: center; }
 
 .sidebar {
