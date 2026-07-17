@@ -53,6 +53,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 
 html, body {
     margin: 0;
@@ -419,3 +420,24 @@ button.ghost { box-shadow: none; background: transparent; }
 .res-kind { color: var(--text-dim); min-width: 42px; }
 .res-id { flex: 1; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .res-row button { padding: 2px 9px; }
+
+/* ---------- PDF / HTML preview toggle ---------- */
+.view-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.view-toggle button {
+    all: unset;
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    color: var(--text-dim);
+    background: var(--bg-panel);
+}
+.view-toggle button.active { background: var(--accent); color: var(--accent-text); }
+
+.preview-stack { position: relative; min-width: 0; display: flex; }
+.preview-stack > * { flex: 1; min-width: 0; }
+.html-preview {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: #fff;
+    width: 100%;
+}

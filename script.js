@@ -94,6 +94,7 @@ const state = {
     // signatureReady flips when the uploaded signature image finished decoding.
     renderCount: 0,
     signatureReady: false,
+    view: 'pdf',        // 'pdf' (printpdf output) or 'html' (browser reference)
 };
 
 // ---------------------------------------------------------------- helpers
@@ -319,7 +320,41 @@ async function renderHtmlTab() {
     state.doc = data.doc;
     state.warnings = data.warnings ?? [];
     syncJsonEditor();
+    updateHtmlPreview();
     await refreshViewer();
+}
+
+// The browser's own rendering of the input HTML, as a reference for what the
+// printpdf output should look like. Fonts are injected as @font-face so the
+// reference uses the same faces the PDF embeds. Sandboxed: no scripts run.
+function fontFaceCss() {
+    const all = { ...defaultFonts, ...state.userFonts };
+    return Object.entries(all).map(([name, b64]) => {
+        const fam = name.replace(/\.[a-z0-9]+$/i, '');
+        return `@font-face{font-family:"${fam}";src:url(data:font/ttf;base64,${b64});}`;
+    }).join('');
+}
+function updateHtmlPreview() {
+    let html = $('html-editor').value;
+    // Inline uploaded images: the sandboxed iframe can't resolve the relative
+    // src names the PDF path resolves from state.userImages.
+    for (const [name, b64] of Object.entries(state.userImages)) {
+        const mime = /\.png$/i.test(name) ? 'image/png'
+            : /\.jpe?g$/i.test(name) ? 'image/jpeg'
+            : /\.gif$/i.test(name) ? 'image/gif' : 'application/octet-stream';
+        const uri = `data:${mime};base64,${b64}`;
+        html = html.split(`"${name}"`).join(`"${uri}"`).split(`'${name}'`).join(`'${uri}'`);
+    }
+    const doc = `<style>${fontFaceCss()}body{margin:16px;}</style>${html}`;
+    $('html-preview').srcdoc = doc;
+}
+function setPreviewView(view) {
+    state.view = view;
+    $('pdf-viewer').hidden = view !== 'pdf';
+    $('html-preview').hidden = view !== 'html';
+    document.querySelectorAll('#view-toggle button').forEach(b =>
+        b.classList.toggle('active', b.dataset.view === view));
+    if (view === 'html') updateHtmlPreview();
 }
 
 // Renders every page of state.doc to SVG and fills viewer + minimap.
@@ -530,7 +565,17 @@ document.querySelectorAll('.tabbar .tab').forEach(btn => {
         for (const id of ['html-to-pdf-tab', 'parse-edit-pdf-tab', 'sign-pdf-tab']) {
             $(id).hidden = id !== `${btn.dataset.tab}-tab`;
         }
+        // The HTML reference view only exists for the HTML input tab; elsewhere
+        // there is no source HTML, so force the PDF preview.
+        const isHtml = btn.dataset.tab === 'html-to-pdf';
+        $('view-toggle').hidden = !isHtml;
+        if (!isHtml) setPreviewView('pdf');
     });
+});
+
+// PDF / HTML preview toggle.
+document.querySelectorAll('#view-toggle button').forEach(btn => {
+    btn.addEventListener('click', () => setPreviewView(btn.dataset.view));
 });
 
 // Sidebar mode switcher (Pages / Layers / Bookmarks). These buttons had no
@@ -745,6 +790,7 @@ on('save-pdf', 'click', () => render(async () => {
 // ---------------------------------------------------------------- go
 $('html-editor').value = EXAMPLES.invoice;
 syncGutter('html-editor', 'html-gutter');
+$('view-toggle').hidden = false; // default tab is HTML input
 render(renderHtmlTab);
 
 // Test hook: the headless e2e suite (tests/e2e/) asserts on internal state.

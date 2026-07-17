@@ -94,6 +94,10 @@
 
         <section class="output-panel">
             <div class="viewer-controls">
+                <div class="view-toggle" id="view-toggle" hidden>
+                    <button data-view="pdf" class="active">PDF</button>
+                    <button data-view="html">HTML</button>
+                </div>
                 <button id="prev-page" title="Previous page">&lsaquo;</button>
                 <span class="page-indicator">
                     <input type="number" id="page-number" value="1" min="1"> / <span id="page-count">0</span>
@@ -105,7 +109,10 @@
             </div>
             <div id="viewer-error" class="error-bar" hidden></div>
             <div class="viewer-split">
-                <div class="pdf-viewer" id="pdf-viewer" aria-label="PDF preview"></div>
+                <div class="preview-stack">
+                    <div class="pdf-viewer" id="pdf-viewer" aria-label="PDF preview"></div>
+                    <iframe id="html-preview" class="html-preview" sandbox title="Browser rendering of the HTML" hidden></iframe>
+                </div>
                 <aside class="sidebar">
                     <div class="sidebar-modes">
                         <button data-mode="minimap" class="active">Pages</button>
