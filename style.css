@@ -441,3 +441,45 @@ button.ghost { box-shadow: none; background: transparent; }
     background: #fff;
     width: 100%;
 }
+
+/* ---------- JSON tree editor ---------- */
+.json-tree {
+    flex: 1;
+    overflow: auto;
+    min-height: 160px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-panel);
+    padding: 8px 6px;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.6;
+}
+.tnode { padding-left: 12px; }
+.tnode > summary {
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.tnode > summary::-webkit-details-marker { display: none; }
+.tnode > summary::before { content: '\25B8'; color: var(--text-dim); font-size: 10px; width: 8px; }
+.tnode[open] > summary::before { content: '\25BE'; }
+.tleaf { display: flex; align-items: center; gap: 6px; padding-left: 14px; }
+.tkey { color: var(--accent); }
+.tmeta { color: var(--text-dim); }
+.tval {
+    flex: 0 1 260px;
+    min-width: 50px;
+    font: inherit;
+    padding: 0 5px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg);
+    color: var(--text);
+}
+.tstub { color: var(--text-dim); font-style: italic; }
+.tbtn { all: unset; cursor: pointer; color: var(--text-dim); padding: 0 5px; border-radius: 3px; }
+.tbtn:hover { color: var(--accent); background: var(--bg-inset); }
+.tdel:hover { color: var(--error-text); }

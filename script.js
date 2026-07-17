@@ -493,23 +493,111 @@ async function render(tabRenderer) {
 }
 
 // ---------------------------------------------------------------- JSON editor sync
-function syncJsonEditor() {
-    const editor = $('json-editor');
-    if (document.activeElement === editor) return; // don't clobber typing
-    // Multi-megabyte documents (full embedded fonts/images) freeze the tab if
-    // pretty-printed into a textarea wholesale - compact-print large ones and
-    // hard-cap the editor payload.
-    let text = '';
-    if (state.doc) {
-        const compact = JSON.stringify(state.doc);
-        text = compact.length > 4_000_000
-            ? `// ${(compact.length / 1e6).toFixed(1)} MB of embedded resources; extract fonts/images above or Download PDF.\n`
-            : compact.length > 2_000_000
-                ? compact
-                : JSON.stringify(state.doc, null, 2);
+// The editor shows the document STRUCTURE with the multi-MB font/image byte
+// payloads replaced by short placeholders, so it stays small and hand-editable
+// (add layers, bookmarks, ops, ...). The real bytes live in `state.doc` and are
+// re-injected by id when the edited JSON is parsed back.
+const FONT_STUB = '@@font (bytes elided; extract via the list above)';
+const imgStub = x => `@@image ${x?.data?.width ?? '?'}x${x?.data?.height ?? '?'} (bytes elided)`;
+
+function stripResources(doc) {
+    const d = JSON.parse(JSON.stringify(doc));
+    for (const [id] of mapEntries(d.resources?.fonts)) mapInsert(d.resources.fonts, id, FONT_STUB);
+    for (const [id, x] of mapEntries(d.resources?.xobjects)) {
+        if (x && x.type === 'image') mapInsert(d.resources.xobjects, id, { ...x, data: imgStub(x) });
     }
-    editor.value = text;
-    syncGutter('json-editor', 'json-gutter');
+    return d;
+}
+function restoreResources(edited, full) {
+    const fonts = new Map(mapEntries(full?.resources?.fonts));
+    for (const [id, v] of mapEntries(edited.resources?.fonts)) {
+        if (typeof v === 'string' && v.startsWith('@@font') && fonts.has(id)) mapInsert(edited.resources.fonts, id, fonts.get(id));
+    }
+    const xobj = new Map(mapEntries(full?.resources?.xobjects));
+    for (const [id, x] of mapEntries(edited.resources?.xobjects)) {
+        if (x && x.type === 'image' && typeof x.data === 'string' && x.data.startsWith('@@image') && xobj.has(id)) {
+            mapInsert(edited.resources.xobjects, id, xobj.get(id));
+        }
+    }
+    return edited;
+}
+
+const scheduleDocRender = debounce(() => render(refreshViewer), 400);
+const isResourceStub = v => typeof v === 'string' && (v.startsWith('@@font') || v.startsWith('@@image'));
+function getByPath(p) { let o = state.doc; for (const k of p) o = o?.[k]; return o; }
+function setByPath(p, v) { let o = state.doc; for (let i = 0; i < p.length - 1; i++) o = o[p[i]]; o[p[p.length - 1]] = v; scheduleDocRender(); }
+function delByPath(p) {
+    let o = state.doc; for (let i = 0; i < p.length - 1; i++) o = o[p[i]];
+    const k = p[p.length - 1];
+    if (Array.isArray(o)) o.splice(k, 1); else delete o[k];
+    renderJsonTree(); scheduleDocRender();
+}
+function coerceLike(str, orig) {
+    if (typeof orig === 'number') { const n = Number(str); return Number.isNaN(n) ? orig : n; }
+    if (typeof orig === 'boolean') return str === 'true';
+    if (orig === null) return str === 'null' ? null : str;
+    return str;
+}
+function addChild(path) {
+    const c = getByPath(path);
+    if (Array.isArray(c)) {
+        c.push(c.length ? JSON.parse(JSON.stringify(c[c.length - 1])) : '');
+    } else if (c && typeof c === 'object') {
+        const k = prompt('New key');
+        if (!k) return;
+        c[k] = '';
+    }
+    renderJsonTree(); scheduleDocRender();
+}
+// Collapsible, editable tree over the document STRUCTURE (resource bytes shown
+// as stubs). Leaf edits and add/remove mutate state.doc by path.
+function treeNode(value, path, key) {
+    if (value !== null && typeof value === 'object' && !isResourceStub(value)) {
+        const isArr = Array.isArray(value);
+        const det = document.createElement('details');
+        det.className = 'tnode';
+        if (path.length <= 1) det.open = true;
+        const sum = document.createElement('summary');
+        sum.innerHTML = `<span class="tkey">${escapeHtml(String(key))}</span>` +
+            `<span class="tmeta">${isArr ? `[${value.length}]` : `{${Object.keys(value).length}}`}</span>`;
+        const add = document.createElement('button');
+        add.className = 'tbtn'; add.textContent = '+'; add.title = 'Add child';
+        add.addEventListener('click', e => { e.preventDefault(); addChild(path); });
+        sum.appendChild(add);
+        det.appendChild(sum);
+        const entries = isArr ? value.map((v, i) => [i, v]) : Object.entries(value);
+        for (const [k, v] of entries) det.appendChild(treeNode(v, [...path, k], k));
+        return det;
+    }
+    const row = document.createElement('div');
+    row.className = 'tleaf';
+    row.innerHTML = `<span class="tkey">${escapeHtml(String(key))}</span>`;
+    if (isResourceStub(value)) {
+        const s = document.createElement('span'); s.className = 'tstub'; s.textContent = value;
+        row.appendChild(s);
+    } else {
+        const inp = document.createElement('input');
+        inp.className = 'tval';
+        inp.value = value === null ? 'null' : String(value);
+        inp.addEventListener('change', () => setByPath(path, coerceLike(inp.value, value)));
+        row.appendChild(inp);
+    }
+    if (path.length) {
+        const del = document.createElement('button');
+        del.className = 'tbtn tdel'; del.textContent = '×'; del.title = 'Remove';
+        del.addEventListener('click', () => delByPath(path));
+        row.appendChild(del);
+    }
+    return row;
+}
+function renderJsonTree() {
+    const root = $('json-tree');
+    root.innerHTML = '';
+    if (state.doc) root.appendChild(treeNode(stripResources(state.doc), [], 'document'));
+}
+
+function syncJsonEditor() {
+    renderJsonTree();
     const summary = $('parse-summary');
     if (state.doc) {
         summary.hidden = false;
@@ -615,11 +703,9 @@ on('html-examples', 'change', () => {
     debouncedHtmlRender();
 });
 
-// Keep both editors' line-number gutters in sync while typing and scrolling.
-for (const [ed, g] of [['html-editor', 'html-gutter'], ['json-editor', 'json-gutter']]) {
-    on(ed, 'input', () => syncGutter(ed, g));
-    on(ed, 'scroll', () => { $(g).scrollTop = $(ed).scrollTop; });
-}
+// Keep the HTML editor's line-number gutter in sync while typing and scrolling.
+on('html-editor', 'input', () => syncGutter('html-editor', 'html-gutter'));
+on('html-editor', 'scroll', () => { $('html-gutter').scrollTop = $('html-editor').scrollTop; });
 
 function renderResourceChips() {
     const box = $('html-resources');
@@ -696,15 +782,6 @@ async function uploadPdf(fileInputEvent) {
 on('upload-pdf', 'click', () => $('pdf-file-upload').click());
 on('sign-upload-pdf', 'click', () => $('pdf-file-upload').click());
 on('pdf-file-upload', 'change', uploadPdf);
-
-on('json-editor', 'input', debounce(() => {
-    try {
-        state.doc = JSON.parse($('json-editor').value);
-        render(refreshViewer);
-    } catch (e) {
-        showError(new Error(`document JSON: ${e.message}`));
-    }
-}, 800));
 
 // ---------------------------------------------------------------- events: sign tab
 let signatureImage = null; // decoded RawImage JSON
