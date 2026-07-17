@@ -328,8 +328,10 @@ async function renderHtmlTab() {
 // printpdf output should look like. Fonts are injected as @font-face so the
 // reference uses the same faces the PDF embeds. Sandboxed: no scripts run.
 function fontFaceCss() {
-    const all = { ...defaultFonts, ...state.userFonts };
-    return Object.entries(all).map(([name, b64]) => {
+    // Only user-uploaded fonts: the standard defaults (Helvetica/Times/Courier)
+    // have system equivalents, and inlining the ~9 MB default set (incl. 4.4 MB
+    // NotoSansJP) into the iframe srcdoc stalled it to blank.
+    return Object.entries(state.userFonts).map(([name, b64]) => {
         const fam = name.replace(/\.[a-z0-9]+$/i, '');
         return `@font-face{font-family:"${fam}";src:url(data:font/ttf;base64,${b64});}`;
     }).join('');
