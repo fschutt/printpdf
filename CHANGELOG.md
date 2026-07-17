@@ -1,5 +1,71 @@
 # Changelog
 
+## `0.11.2`
+
+0.11.0 and 0.11.1 could be **impossible to install**, depending entirely on the
+consumer's dependency resolution (#279). printpdf asked for lopdf's `time` feature, and
+lopdf 0.43/0.44's `time` code only compiles against `time` >= 0.3.48, where
+`FormatItem::StringLiteral` first exists (J-F-Liu/lopdf#518). A fresh resolution on a
+current toolchain lands on `time` 0.3.53 and works — which is exactly why CI and the
+release builds stayed green — but any workspace whose lockfile predates `time` 0.3.48
+(June 2026), or whose MSRV-aware resolver walks below it, got a compile error inside
+lopdf. printpdf never used anything the feature gates (PDF dates are formatted and
+parsed in printpdf itself), so the feature is simply dropped. If you need lopdf's
+`Object <-> time` conversions, enable lopdf's `time` feature from your own manifest
+once a lopdf ships in which it compiles.
+
+Three more "the declared floor admits versions that cannot build" bugs of the same
+class: `time` is now `>= 0.3.36` (0.3.25–0.3.35 fail type inference on rustc >= 1.80),
+`image` is `>= 0.25.2` (`image::ImageReader` first exists there), and
+`rust-version = "1.88"` is declared (it was already the effective floor via lopdf 0.44,
+just invisible to MSRV-aware resolvers). weezl moved to 0.2 so consumer graphs stop
+linking two copies of the LZW coder, and a vestigial getrandom 0.3 dependency — whose
+only remaining dependent was printpdf itself — is gone from wasm builds.
+
+The reason this bug class kept shipping is that every CI job proved only "today's
+freshest resolution on this runner compiles". Two new guards close that gap. In
+ci.yaml, `consumer-resolution` builds the tree the way a consumer resolves it (fresh
+project, fresh lockfile, path dependency on the checkout) and then re-pins the
+known-bad lines — `time` 0.3.47, `image` 0.25.2 — so every breakage that ever shipped
+stays red forever. And the new `post-release.yml` verifies the **published artifact**:
+on every master push it `cargo add printpdf@=<Cargo.toml version>`s into a pristine
+project (no checkout, no lockfile) across Linux/Windows/macOS/wasm32 and the feature
+matrix; pushes whose commit message starts with "release" wait up to 20 minutes for
+crates.io and then **fail if the version never appears**. A daily cron re-checks the
+newest published version, so a dependency release that breaks resolution within our
+semver ranges turns CI red the next morning instead of waiting for an issue report.
+publish-safety also now fails if the .crate approaches crates.io's 10 MiB cap, which
+the package sits at ~87% of (the examples/assets tree is include_bytes!'d by tests and
+examples, so it must ship).
+
+Fonts can now be passed in from the outside on every path that needs them.
+`Svg::parse_with_fonts` feeds caller-supplied fonts into SVG `<text>` conversion —
+previously that path only ever saw system fonts, and on wasm (where there is no system
+database to scan) no fonts at all. For the HTML/text-layout path,
+`build_font_pool_with_memory_fonts` registers pre-patterned `rust_fontconfig` memory
+fonts with their metadata intact instead of re-deriving patterns from the bytes, and
+`printpdf::html` re-exports `rust_fontconfig` so the pattern types are constructible
+without version-matching the crate yourself. Related wasm/dependency cleanups: the
+js-sys browser fast paths (canvas decode/encode) are compiled out on wasi targets,
+whose binaries otherwise carried `window`/canvas imports no wasi runtime can satisfy;
+`time`'s unused serde features are dropped; `rust-fontconfig` is bounded `< 4.5`
+(4.4.4 was the double-allsorts release); and CI now builds `text_layout` alone,
+`js-sys` on wasip2, `svg` on wasm, and runs the svg test suite — configurations that
+previously had zero coverage.
+
+Hostile PDFs are also harder to crash now. A `/CreationDate` containing any non-ASCII
+byte panicked `PdfDocument::parse` (string slicing at byte offsets asserts char
+boundaries); parsing works on raw bytes now. A `/ToUnicode` bfrange with `end < start`
+panicked under overflow checks, and a single `<00000000> <FFFFFFFF> <0041>` line
+expanded to 2^32 map entries — an OOM from a few bytes of input; both now error, which
+costs the hostile font its ToUnicode map and nothing else. PDF/A / PDF/X XMP metadata
+wrote single-digit months (`D:2018-9-19T...` — veraPDF rejects it) because the `Month`
+enum's `Display` ignored the `{:02}` width. And `unix_timestamp` /
+`from_unix_timestamp` are now the same pure calendar arithmetic on every target: the
+old wasm implementations went through the JS `Date`, which interpreted the fields in
+the browser's local timezone, ignored the stored offset, and rejected pre-1970 dates
+(wasi builds just returned 0).
+
 ## `0.11.1`
 
 printpdf linked **two copies of allsorts** — `0.17` directly, and `0.16` again underneath
