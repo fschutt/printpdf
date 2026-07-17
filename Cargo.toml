@@ -84,7 +84,7 @@ web-sys = { version = "0.3.77", optional = true, default-features = false, featu
 wasm-bindgen-futures = { version = "0.4.50", optional = true, default-features = false }
 azul-css = { version = "0.0.9", default-features = false, features = ["parser"], optional = true }
 azul-core = { version = "0.0.9", default-features = false, features = ["std"], optional = true }
-azul-layout = { version = "0.0.10", default-features = false, optional = true }
+azul-layout = { version = "0.0.11", default-features = false, optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 wasm-bindgen = { version = "0.2" }
