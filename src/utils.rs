@@ -83,7 +83,10 @@ pub(crate) fn to_pdf_xmp_date(date: &OffsetDateTime) -> String {
     format!(
         "D:{:04}-{:02}-{:02}T{:02}:{:02}:{:02}+00'00'",
         date.year(),
-        date.month(),
+        // u8, not the Month enum: Month's Display ignores the {:02} width, so months
+        // 1–9 rendered single-digit — an XMP date veraPDF rejects, defeating the
+        // PDF/A / PDF/X conformance the metadata exists for.
+        u8::from(date.month()),
         date.day(),
         date.hour(),
         date.minute(),
@@ -113,4 +116,34 @@ pub(crate) fn uncompress(bytes: &[u8]) -> Vec<u8> {
     let mut s = Vec::<u8>::new();
     let _ = gz.read_to_end(&mut s);
     s
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(not(target_family = "wasm"))]
+    #[test]
+    fn xmp_date_zero_pads_single_digit_month() {
+        use crate::date::{Date, DateTime, Offset, Time};
+
+        let d = DateTime::new_in_offset(
+            Date {
+                year: 2018,
+                month: 9,
+                day: 3,
+            },
+            Time {
+                hour: 1,
+                minute: 2,
+                second: 3,
+                millisecond: 0,
+            },
+            Offset {
+                hours: 0,
+                minutes: 0,
+                seconds: 0,
+                milliseconds: 0,
+            },
+        );
+        assert_eq!(super::to_pdf_xmp_date(&d), "D:2018-09-03T01:02:03+00'00'");
+    }
 }
