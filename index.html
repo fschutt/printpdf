@@ -65,6 +65,8 @@
             <div id="parse-edit-pdf-tab" class="tab-content" hidden>
                 <div class="toolbar">
                     <button id="upload-pdf">Upload PDF</button>
+                    <button id="save-json" class="ghost">Save JSON</button>
+                    <button id="load-json" class="ghost">Load JSON</button>
                     <span id="parse-summary" class="doc-summary" hidden></span>
                 </div>
                 <div id="pdf-resources" class="res-list" hidden></div>
@@ -129,6 +131,7 @@
     <input type="file" id="font-upload" accept=".ttf,.otf,.woff,.woff2" hidden>
     <input type="file" id="pdf-file-upload" accept=".pdf,application/pdf" hidden>
     <input type="file" id="config-upload" accept=".json,application/json" hidden>
+    <input type="file" id="json-upload" accept=".json,application/json" hidden>
 
     <script src="./script.js" type="module"></script>
 </body>

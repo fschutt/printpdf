@@ -780,6 +780,26 @@ async function uploadPdf(fileInputEvent) {
     });
 }
 on('upload-pdf', 'click', () => $('pdf-file-upload').click());
+
+// Save / load the document JSON itself (full, with embedded resources, so it
+// round-trips back to a renderable document).
+on('save-json', 'click', () => {
+    if (!state.doc) { showError(new Error('Nothing to save yet.')); return; }
+    download(new Blob([JSON.stringify(state.doc)], { type: 'application/json' }), 'document.json');
+});
+on('load-json', 'click', () => $('json-upload').click());
+on('json-upload', 'change', async e => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    try {
+        state.doc = JSON.parse(await f.text());
+        state.warnings = [];
+        state.page = 1;
+        syncJsonEditor();
+        await render(refreshViewer);
+    } catch (err) { showError(new Error(`document JSON: ${err.message ?? err}`)); }
+});
 on('sign-upload-pdf', 'click', () => $('pdf-file-upload').click());
 on('pdf-file-upload', 'change', uploadPdf);
 
