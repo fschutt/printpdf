@@ -30,6 +30,11 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::{font::ParsedFont, Mm, PdfDocument, PdfPage, PdfWarnMsg};
 
+/// Re-export so callers of [`build_font_pool_with_memory_fonts`] can construct
+/// `FcPattern` / `FcFont` values without depending on (and version-matching)
+/// rust-fontconfig themselves.
+pub use rust_fontconfig;
+
 /// Shared font state that can be reused across multiple `xml_to_pdf_pages` calls.
 ///
 /// Holds both the fontconfig cache (system font paths / metadata) and
@@ -195,6 +200,27 @@ pub fn build_font_pool(
         fc_cache: Arc::new(fc_cache),
         parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
     }
+}
+
+/// Like [`build_font_pool`], but additionally registers caller-supplied
+/// rust-fontconfig memory fonts *exactly as given* — pattern metadata (family,
+/// weight, style, unicode ranges, …) included — instead of re-deriving patterns
+/// from the font bytes like the `fonts` map does. Use this when you already
+/// curate an in-memory font set, e.g. on wasm where there are no system fonts
+/// to scan.
+///
+/// The `rust_fontconfig` types are re-exported as [`crate::html::rust_fontconfig`],
+/// so building the patterns does not require depending on (and version-matching)
+/// the crate yourself.
+pub fn build_font_pool_with_memory_fonts(
+    memory_fonts: Vec<(rust_fontconfig::FcPattern, rust_fontconfig::FcFont)>,
+    fonts: &BTreeMap<String, Vec<u8>>,
+    families: Option<&[&str]>,
+) -> SharedFontPool {
+    let pool = build_font_pool(fonts, families);
+    // Interior mutability; called for the side effect (see build_font_pool).
+    pool.fc_cache.with_memory_fonts(memory_fonts);
+    pool
 }
 
 /// Build a font cache suitable for use with [`XmlRenderOptions::font_pool`].
@@ -1251,5 +1277,38 @@ mod tests {
         assert!(inlined.contains("<style>"));
         // The function just returns the XML as-is now
         assert!(inlined.contains("<div>Test</div>"));
+    }
+}
+
+#[cfg(test)]
+mod memory_font_tests {
+    use super::*;
+
+    #[test]
+    fn memory_fonts_passed_from_outside_are_queryable() {
+        let bytes =
+            include_bytes!("../../examples/assets/fonts/RobotoMedium.ttf").to_vec();
+        let pattern = rust_fontconfig::FcPattern {
+            name: Some("PrintpdfMemoryFontTest".to_string()),
+            family: Some("PrintpdfMemoryFontTest".to_string()),
+            ..Default::default()
+        };
+        let font = rust_fontconfig::FcFont {
+            bytes,
+            font_index: 0,
+            id: "printpdf-memory-font-test".to_string(),
+        };
+        // families = Some(&[]): skip the system scan — the test asserts on the
+        // injected font alone, and must behave identically on a fontless CI box.
+        let pool = build_font_pool_with_memory_fonts(
+            vec![(pattern.clone(), font)],
+            &BTreeMap::new(),
+            Some(&[]),
+        );
+        let mut trace = Vec::new();
+        assert!(
+            pool.fc_cache.query(&pattern, &mut trace).is_some(),
+            "externally-supplied memory font must be queryable from the pool"
+        );
     }
 }
