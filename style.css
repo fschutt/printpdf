@@ -1,4 +1,4 @@
-/* printpdf wasm playground — no external assets, light+dark. */
+/* printpdf wasm playground - no external assets, light+dark. */
 
 :root {
     --bg: #f6f7f9;
@@ -149,7 +149,7 @@ body { display: flex; flex-direction: column; }
     flex-direction: column;
     min-height: 0;
     min-width: 0;
-    /* A tab whose content is taller than the panel must scroll inside it —
+    /* A tab whose content is taller than the panel must scroll inside it -
        without this the sign tab's controls painted over the viewer row below
        (and swallowed its clicks) at narrow viewports. */
     overflow: auto;
@@ -378,3 +378,44 @@ button.ghost { box-shadow: none; background: transparent; }
 .warnings-drawer .w:last-child { border-bottom: none; }
 .warnings-drawer .sev { min-width: 60px; color: var(--warn-text); }
 .warnings-drawer .sev.error { color: var(--error-text); }
+
+/* ---------- line-number gutter ---------- */
+.editor-wrap { position: relative; }
+.gutter {
+    flex: 0 0 auto;
+    min-width: 2.4em;
+    padding: 9px 7px 9px 9px;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.45;
+    text-align: right;
+    color: var(--text-dim);
+    background: var(--bg-inset);
+    border-right: 1px solid var(--border);
+    white-space: pre;
+    overflow: hidden;
+    user-select: none;
+}
+
+/* ---------- extracted resources ---------- */
+.res-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 7px;
+    max-height: 150px;
+    overflow: auto;
+}
+.res-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    padding: 3px 6px 3px 9px;
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+}
+.res-kind { color: var(--text-dim); min-width: 42px; }
+.res-id { flex: 1; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.res-row button { padding: 2px 9px; }

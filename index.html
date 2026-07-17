@@ -2,21 +2,15 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>printpdf — WASM playground</title>
+    <title>printpdf</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Create, parse, edit and sign PDFs in the browser with printpdf (Rust → WebAssembly)">
     <link rel="stylesheet" href="./style.css">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📄</text></svg>">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='3' fill='%23b7410e'/></svg>">
 </head>
 <body>
     <header class="topbar">
-        <div class="brand">
-            <span class="brand-icon">📄</span>
-            <h1>printpdf</h1>
-            <span class="tagline">PDF engine in your browser — Rust → WebAssembly</span>
-        </div>
+        <div class="brand"><h1>printpdf</h1></div>
         <nav class="links">
-            <span id="wasm-status" class="badge badge-loading" title="WebAssembly module status">loading wasm…</span>
             <a href="https://github.com/fschutt/printpdf" target="_blank" rel="noopener">GitHub</a>
             <a href="https://crates.io/crates/printpdf" target="_blank" rel="noopener">crates.io</a>
             <a href="https://docs.rs/printpdf" target="_blank" rel="noopener">docs.rs</a>
@@ -25,22 +19,21 @@
     </header>
 
     <nav class="tabbar" role="tablist">
-        <button class="tab active" role="tab" data-tab="html-to-pdf" id="tab-html">HTML → PDF</button>
-        <button class="tab" role="tab" data-tab="parse-edit-pdf" id="tab-parse">Parse &amp; Edit PDF</button>
-        <button class="tab" role="tab" data-tab="sign-pdf" id="tab-sign">Sign PDF</button>
+        <button class="tab active" role="tab" data-tab="html-to-pdf" id="tab-html">HTML to PDF</button>
+        <button class="tab" role="tab" data-tab="parse-edit-pdf" id="tab-parse">Parse &amp; edit</button>
+        <button class="tab" role="tab" data-tab="sign-pdf" id="tab-sign">Sign</button>
     </nav>
 
     <main class="workspace">
         <section class="input-panel">
-            <!-- ============ HTML → PDF ============ -->
             <div id="html-to-pdf-tab" class="tab-content">
                 <div class="toolbar">
                     <label class="field">
                         <span>Example</span>
                         <select id="html-examples">
                             <option value="invoice">Invoice</option>
-                            <option value="recipe">Recipe card</option>
-                            <option value="report">Business report</option>
+                            <option value="recipe">Recipe</option>
+                            <option value="report">Report</option>
                             <option value="blank">Blank</option>
                         </select>
                     </label>
@@ -59,56 +52,53 @@
                     <span class="spacer"></span>
                     <button id="add-font-html" class="ghost">+ Font</button>
                     <button id="add-image-html" class="ghost">+ Image</button>
-                    <button id="save-config" class="ghost" title="Download editor + resources as JSON">Export</button>
-                    <button id="load-config" class="ghost" title="Load a previously exported JSON config">Import</button>
+                    <button id="save-config" class="ghost">Export</button>
+                    <button id="load-config" class="ghost">Import</button>
                 </div>
                 <div id="html-resources" class="chips" hidden></div>
                 <div class="editor-wrap">
-                    <textarea id="html-editor" class="editor" spellcheck="false"
-                        aria-label="HTML source"></textarea>
+                    <div class="gutter" id="html-gutter" aria-hidden="true"></div>
+                    <textarea id="html-editor" class="editor" spellcheck="false" wrap="off" aria-label="HTML source"></textarea>
                 </div>
             </div>
 
-            <!-- ============ Parse & Edit ============ -->
             <div id="parse-edit-pdf-tab" class="tab-content" hidden>
                 <div class="toolbar">
-                    <button id="upload-pdf">Upload PDF…</button>
-                    <span class="hint">The parsed document appears below as editable JSON; edits re-render live.</span>
+                    <button id="upload-pdf">Upload PDF</button>
+                    <span id="parse-summary" class="doc-summary" hidden></span>
                 </div>
-                <div id="parse-summary" class="doc-summary" hidden></div>
+                <div id="pdf-resources" class="res-list" hidden></div>
                 <div class="editor-wrap">
-                    <textarea id="json-editor" class="editor" spellcheck="false"
-                        aria-label="Parsed PDF document as JSON"></textarea>
+                    <div class="gutter" id="json-gutter" aria-hidden="true"></div>
+                    <textarea id="json-editor" class="editor" spellcheck="false" wrap="off" aria-label="PDF document as JSON"></textarea>
                 </div>
             </div>
 
-            <!-- ============ Sign ============ -->
             <div id="sign-pdf-tab" class="tab-content" hidden>
                 <div class="toolbar column">
-                    <button id="sign-upload-pdf">1 · Upload PDF…</button>
+                    <button id="sign-upload-pdf">Upload PDF</button>
                     <label class="field file">
-                        <span>2 · Signature image</span>
+                        <span>Signature image</span>
                         <input type="file" id="signature-image-upload" accept="image/*">
                     </label>
                     <div class="sign-grid">
                         <label class="field"><span>Page</span><input type="number" id="signature-page" value="1" min="1"></label>
-                        <label class="field"><span>X (pt)</span><input type="number" id="signature-x" value="50"></label>
-                        <label class="field"><span>Y (pt)</span><input type="number" id="signature-y" value="50"></label>
+                        <label class="field"><span>X</span><input type="number" id="signature-x" value="50"></label>
+                        <label class="field"><span>Y</span><input type="number" id="signature-y" value="50"></label>
                         <label class="field"><span>Scale</span><input type="number" id="signature-scale" value="0.5" step="0.1" min="0.05"></label>
                     </div>
                     <button id="apply-signature" class="primary">Place signature</button>
-                    <p class="hint">The signature is stamped as an image XObject onto the chosen page — inspect the result in the Parse&nbsp;&amp;&nbsp;Edit tab, preview it on the right, then Save.</p>
                 </div>
             </div>
         </section>
 
         <section class="output-panel">
             <div class="viewer-controls">
-                <button id="prev-page" title="Previous page">‹</button>
+                <button id="prev-page" title="Previous page">&lsaquo;</button>
                 <span class="page-indicator">
                     <input type="number" id="page-number" value="1" min="1"> / <span id="page-count">0</span>
                 </span>
-                <button id="next-page" title="Next page">›</button>
+                <button id="next-page" title="Next page">&rsaquo;</button>
                 <span class="spacer"></span>
                 <span id="warnings-badge" class="badge badge-warn" hidden>0 warnings</span>
                 <button id="save-pdf" class="primary">Download PDF</button>
@@ -131,7 +121,6 @@
         </section>
     </main>
 
-    <!-- Hidden inputs -->
     <input type="file" id="image-upload" accept="image/*" hidden>
     <input type="file" id="font-upload" accept=".ttf,.otf,.woff,.woff2" hidden>
     <input type="file" id="pdf-file-upload" accept=".pdf,application/pdf" hidden>

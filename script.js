@@ -20,6 +20,62 @@ import init, {
     Pdf_DecodeImage,
 } from './pkg/printpdf.js';
 
+// Decode a RawImage's pixel payload to 8-bit bytes (handles the base64 and the
+// legacy array wire formats; 16-bit/float are downconverted).
+function pixelBytesU8(px) {
+    const fromB64 = s => { const b = atob(s); const a = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; };
+    if (px.u8b64 != null) return fromB64(px.u8b64);
+    if (px.u8 != null) return Uint8Array.from(px.u8);
+    if (px.u16b64 != null) { const b = fromB64(px.u16b64); const a = new Uint8Array(b.length >> 1); for (let i = 0; i < a.length; i++) a[i] = b[i * 2 + 1]; return a; }
+    if (px.u16 != null) return Uint8Array.from(px.u16, v => v >> 8);
+    if (px.f32 != null) return Uint8Array.from(px.f32, v => Math.max(0, Math.min(255, v * 255)));
+    return new Uint8Array();
+}
+
+// Encode a RawImage to a PNG blob in the browser (canvas), no wasm round-trip.
+function rawImageToPngBlob(img) {
+    const w = img.width, h = img.height;
+    const src = pixelBytesU8(img.pixels);
+    const fmt = String(img.data_format ?? img.dataFormat ?? 'rgba8').toLowerCase();
+    let nc, alpha, bgr;
+    if (fmt.startsWith('rgba')) { nc = 4; alpha = true; bgr = false; }
+    else if (fmt.startsWith('bgra')) { nc = 4; alpha = true; bgr = true; }
+    else if (fmt.startsWith('rgb')) { nc = 3; alpha = false; bgr = false; }
+    else if (fmt.startsWith('bgr')) { nc = 3; alpha = false; bgr = true; }
+    else if (fmt.startsWith('rg')) { nc = 2; alpha = true; bgr = false; }
+    else { nc = 1; alpha = false; bgr = false; }
+    const rgba = new Uint8ClampedArray(w * h * 4);
+    for (let i = 0, p = 0; i < w * h; i++, p += nc) {
+        let r, g, b, a = 255;
+        if (nc >= 3) { if (bgr) { b = src[p]; g = src[p + 1]; r = src[p + 2]; } else { r = src[p]; g = src[p + 1]; b = src[p + 2]; } if (alpha) a = src[p + 3]; }
+        else if (nc === 2) { r = g = b = src[p]; a = src[p + 1]; }
+        else { r = g = b = src[p]; }
+        const o = i * 4; rgba[o] = r; rgba[o + 1] = g; rgba[o + 2] = b; rgba[o + 3] = a;
+    }
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    c.getContext('2d').putImageData(new ImageData(rgba, w, h), 0, 0);
+    return new Promise(res => c.toBlob(res, 'image/png'));
+}
+
+// Line-number gutter for an editor textarea.
+function syncGutter(editorId, gutterId) {
+    const ed = $(editorId), g = $(gutterId);
+    const n = ed.value.split('\n').length;
+    if (g._n !== n) {
+        g._n = n;
+        let s = '';
+        for (let i = 1; i <= n; i++) s += i + '\n';
+        g.textContent = s;
+    }
+    g.scrollTop = ed.scrollTop;
+}
+
+function downloadB64(b64, name, mime) {
+    const bin = atob(b64);
+    const arr = Uint8Array.from(bin, c => c.charCodeAt(0));
+    download(new Blob([arr], { type: mime }), name);
+}
+
 const $ = id => document.getElementById(id);
 const on = (id, ev, fn) => $(id).addEventListener(ev, fn);
 
@@ -96,18 +152,11 @@ function mapInsert(container, id, value) {
 }
 
 // ---------------------------------------------------------------- boot
-const bootError = (msg) => {
-    const badge = $('wasm-status');
-    badge.textContent = 'wasm failed';
-    badge.className = 'badge badge-error';
-    badge.title = String(msg);
-};
+const bootError = (msg) => { showError(new Error("WASM failed to load: " + msg)); };
 
 let DEFAULT_FONT_NAMES = [];
 try {
     await init();
-    $('wasm-status').textContent = 'wasm ready';
-    $('wasm-status').className = 'badge badge-ok';
 } catch (e) {
     bootError(e);
     throw e;
@@ -121,7 +170,7 @@ try {
     const mod = await import('./default-fonts.js');
     defaultFonts = mod.DEFAULT_FONTS ?? {};
 } catch {
-    console.log('no default-fonts.js (dev mode) — HTML examples fall back to generic families');
+    console.log('no default-fonts.js (dev mode) - HTML examples fall back to generic families');
 }
 DEFAULT_FONT_NAMES = Object.keys(defaultFonts);
 if (DEFAULT_FONT_NAMES.length) {
@@ -162,7 +211,7 @@ const EXAMPLES = {
     <tr><td>Font subsetting support</td><td>3 h</td><td>€120</td><td>€360</td></tr>
   </table>
   <p class="total">Total: €2,760</p>
-  <p class="muted">Generated entirely in your browser by printpdf — no server involved.</p>
+  <p class="muted">Generated entirely in your browser by printpdf, no server involved.</p>
 </body></html>`,
 
     recipe: `<html>
@@ -195,7 +244,7 @@ const EXAMPLES = {
         <li>Simmer the stock; whisk in the miso off the heat.</li>
         <li>Cook noodles 90 seconds; drain well.</li>
         <li>Assemble bowls: noodles, broth, toppings.</li>
-        <li>Eat immediately — ramen waits for no one.</li>
+        <li>Eat immediately.</li>
       </ol>
     </div>
   </div>
@@ -213,7 +262,7 @@ const EXAMPLES = {
   h2 { border-bottom: 1px solid #d7dce2; padding-bottom: 4px; margin-top: 22px; }
 </style></head>
 <body>
-  <h1>Q2 2026 — Engineering Report</h1>
+  <h1>Q2 2026 Engineering Report</h1>
   <p class="sub">printpdf project · rendered from HTML in the browser</p>
   <div class="kpis">
     <div class="kpi"><span>Open issues</span><b class="down">6</b></div>
@@ -246,7 +295,7 @@ const EXAMPLES = {
             state.userImages['cat.jpg'] = btoa(bin);
             renderResourceChips();
         }
-    } catch { /* dev without the asset — the example renders without the image */ }
+    } catch { /* dev without the asset - the example renders without the image */ }
 })();
 
 // ---------------------------------------------------------------- render pipeline
@@ -322,7 +371,7 @@ async function refreshViewer() {
         const thumb = document.createElement('div');
         thumb.className = 'minimap-page' + (i + 1 === state.page ? ' current' : '');
         // Don't duplicate multi-MB SVGs (embedded fonts/images) into the
-        // minimap — that doubles renderer memory and can stall the tab.
+        // minimap - that doubles renderer memory and can stall the tab.
         thumb.innerHTML = (svg.length < 1_500_000 ? svg : '') +
             `<div class="pageno">${i + 1}</div>`;
         thumb.addEventListener('click', () => gotoPage(i + 1));
@@ -344,7 +393,7 @@ function renderSidebarMeta() {
     for (const [id, layer] of mapEntries(state.doc?.resources?.layers)) {
         const el = document.createElement('div');
         el.className = 'sidebar-item';
-        el.textContent = `◧ ${layer?.name ?? id}`;
+        el.textContent = `${layer?.name ?? id}`;
         layers.appendChild(el);
     }
     if (!layers.children.length) layers.innerHTML = '<div class="hint">No layers in this document.</div>';
@@ -352,8 +401,8 @@ function renderSidebarMeta() {
     for (const [, bm] of Object.entries(state.doc?.bookmarks?.map ?? state.doc?.bookmarks ?? {})) {
         const el = document.createElement('div');
         el.className = 'sidebar-item';
-        // Bookmark shape is { name, page } — page is 1-based.
-        el.textContent = `🔖 ${bm?.name ?? 'bookmark'} (p. ${bm?.page ?? '?'})`;
+        // Bookmark shape is { name, page } - page is 1-based.
+        el.textContent = `${bm?.name ?? 'bookmark'} (p. ${bm?.page ?? '?'})`;
         el.addEventListener('click', () => gotoPage(Number(bm?.page ?? 1)));
         bookmarks.appendChild(el);
     }
@@ -411,29 +460,66 @@ function syncJsonEditor() {
     const editor = $('json-editor');
     if (document.activeElement === editor) return; // don't clobber typing
     // Multi-megabyte documents (full embedded fonts/images) freeze the tab if
-    // pretty-printed into a textarea wholesale — compact-print large ones and
+    // pretty-printed into a textarea wholesale - compact-print large ones and
     // hard-cap the editor payload.
     let text = '';
     if (state.doc) {
         const compact = JSON.stringify(state.doc);
         text = compact.length > 4_000_000
-            ? `// document JSON is ${(compact.length / 1e6).toFixed(1)} MB — too large to edit here.\n` +
-              `// Use Download PDF for the full document.\n`
-            : compact.length > 500_000
+            ? `// ${(compact.length / 1e6).toFixed(1)} MB of embedded resources; extract fonts/images above or Download PDF.\n`
+            : compact.length > 2_000_000
                 ? compact
                 : JSON.stringify(state.doc, null, 2);
     }
     editor.value = text;
+    syncGutter('json-editor', 'json-gutter');
     const summary = $('parse-summary');
     if (state.doc) {
         summary.hidden = false;
         const fonts = mapEntries(state.doc.resources?.fonts).length;
         const xobjs = mapEntries(state.doc.resources?.xobjects).length;
         summary.textContent =
-            `${state.doc.pages?.length ?? 0} page(s) · ${fonts} font(s) · ${xobjs} xobject(s) · ` +
-            `title: ${state.doc.metadata?.info?.document_title || state.doc.metadata?.info?.title || '(none)'}`;
+            `${state.doc.pages?.length ?? 0} pages, ${fonts} fonts, ${xobjs} xobjects`;
     } else {
         summary.hidden = true;
+    }
+    renderPdfResources();
+}
+
+// Font/image extraction: list embedded fonts and images from the parsed doc,
+// each downloadable. Fonts come out as their original sfnt (data URI), images
+// are re-encoded to PNG through the wasm encoder.
+function renderPdfResources() {
+    const box = $('pdf-resources');
+    box.innerHTML = '';
+    const doc = state.doc;
+    const fonts = doc ? mapEntries(doc.resources?.fonts) : [];
+    const images = (doc ? mapEntries(doc.resources?.xobjects) : [])
+        .filter(([, x]) => x && x.type === 'image' && x.data);
+    if (!fonts.length && !images.length) { box.hidden = true; return; }
+    box.hidden = false;
+
+    const row = (kind, id, onClick) => {
+        const el = document.createElement('div');
+        el.className = 'res-row';
+        el.innerHTML = `<span class="res-kind">${kind}</span><span class="res-id">${escapeHtml(id)}</span>`;
+        const btn = document.createElement('button');
+        btn.className = 'ghost';
+        btn.textContent = 'Save';
+        btn.addEventListener('click', onClick);
+        el.appendChild(btn);
+        box.appendChild(el);
+    };
+
+    for (const [id, val] of fonts) {
+        const b64 = typeof val === 'string' ? (val.split(',', 2)[1] ?? '') : '';
+        row('font', id, () => downloadB64(b64, `${id}.ttf`, 'font/ttf'));
+    }
+    for (const [id, x] of images) {
+        row('image', id, async () => {
+            try { download(await rawImageToPngBlob(x.data), `${id}.png`); }
+            catch (e) { showError(e); }
+        });
     }
 }
 
@@ -478,8 +564,15 @@ on('page-size', 'change', debouncedHtmlRender);
 on('opt-page-numbers', 'change', debouncedHtmlRender);
 on('html-examples', 'change', () => {
     $('html-editor').value = EXAMPLES[$('html-examples').value] ?? EXAMPLES.blank;
+    syncGutter('html-editor', 'html-gutter');
     debouncedHtmlRender();
 });
+
+// Keep both editors' line-number gutters in sync while typing and scrolling.
+for (const [ed, g] of [['html-editor', 'html-gutter'], ['json-editor', 'json-gutter']]) {
+    on(ed, 'input', () => syncGutter(ed, g));
+    on(ed, 'scroll', () => { $(g).scrollTop = $(ed).scrollTop; });
+}
 
 function renderResourceChips() {
     const box = $('html-resources');
@@ -651,6 +744,7 @@ on('save-pdf', 'click', () => render(async () => {
 
 // ---------------------------------------------------------------- go
 $('html-editor').value = EXAMPLES.invoice;
+syncGutter('html-editor', 'html-gutter');
 render(renderHtmlTab);
 
 // Test hook: the headless e2e suite (tests/e2e/) asserts on internal state.
