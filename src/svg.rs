@@ -21,17 +21,28 @@ impl Svg {
         svg_string: &str,
         warnings: &mut Vec<PdfWarnMsg>,
     ) -> Result<ExternalXObject, String> {
+        Self::parse_with_fonts(svg_string, &BTreeMap::new(), warnings)
+    }
+
+    /// Same as [`Svg::parse`], but `<text>` elements resolve against fonts supplied
+    /// by the caller, in addition to the system fonts where those exist. On wasm this
+    /// is the only way to get SVG text rendered at all — there is no system font
+    /// database to scan there. Map keys are informational; family names are read from
+    /// the font data itself.
+    pub fn parse_with_fonts(
+        svg_string: &str,
+        fonts: &BTreeMap<String, Vec<u8>>,
+        warnings: &mut Vec<PdfWarnMsg>,
+    ) -> Result<ExternalXObject, String> {
         // Parses the SVG, converts it to a PDF document using the svg2pdf crate,
         // parses the resulting PDF again, then extracts the first pages PDF content operations.
 
         // Let's first convert the SVG into an independent chunk.
-        #[cfg(target_arch = "wasm32")]
-        let options = usvg::Options::default();
-        #[cfg(not(target_arch = "wasm32"))]
         let mut options = usvg::Options::default();
         #[cfg(not(target_arch = "wasm32"))]
-        {
-            options.fontdb_mut().load_system_fonts();
+        options.fontdb_mut().load_system_fonts();
+        for bytes in fonts.values() {
+            options.fontdb_mut().load_font_data(bytes.clone());
         }
 
         let dpi = 300.0;
