@@ -286,17 +286,19 @@ impl GraphicsStateVec {
         Some(())
     }
     pub fn set_font_size(&mut self, font: &FontId, c: Pt) -> Option<()> {
-        self._internal
-            .last_mut()?
-            .font_sizes
-            .insert(BuiltinOrExternalFontId::External(font.clone()), c);
+        let last = self._internal.last_mut()?;
+        let id = BuiltinOrExternalFontId::External(font.clone());
+        last.font_sizes.insert(id.clone(), c);
+        // SetFont selects the current font for subsequent ShowText ops. Without
+        // this, get_current_font() returns None and text falls back to Times.
+        last.current_font = Some(id);
         Some(())
     }
     pub fn set_font_size_builtin(&mut self, font: &BuiltinFont, c: Pt) -> Option<()> {
-        self._internal
-            .last_mut()?
-            .font_sizes
-            .insert(BuiltinOrExternalFontId::Builtin(*font), c);
+        let last = self._internal.last_mut()?;
+        let id = BuiltinOrExternalFontId::Builtin(*font);
+        last.font_sizes.insert(id.clone(), c);
+        last.current_font = Some(id);
         Some(())
     }
     pub fn set_miter_limit(&mut self, c: Pt) -> Option<()> {
@@ -522,11 +524,29 @@ fn render_to_svg_internal(
     if !subset_fonts.is_empty() {
         // Embed fonts via a <style> block
         svg.push_str("<style>\n");
-        // Iterate over PDF fonts and embed each via an @font-face rule
+        // Iterate over PDF fonts and embed each via an @font-face rule.
+        //
+        // Prefer the *original* full sfnt bytes over the PDF subset. The subset
+        // fonts printpdf writes for the PDF font program drop OS/2, name and post
+        // tables (they are not needed inside a PDF /FontFile2). Browsers, however,
+        // run webfonts through the OpenType Sanitizer, which rejects a face that
+        // is missing OS/2 — so an @font-face built from the subset silently fails
+        // to load and the browser falls back to a default serif. The <text>
+        // elements carry real unicode content, so the original font's cmap maps
+        // them directly and no subsetting/gid remap is needed for the preview.
         for (font_id, font) in subset_fonts.iter() {
+            let original = resources
+                .fonts
+                .map
+                .get(font_id)
+                .and_then(|f| f.parsed_font.source_bytes());
+            let bytes: &[u8] = match &original {
+                Some(b) => b.as_slice(),
+                None => &font.subset_font_bytes,
+            };
             svg.push_str(&format!(
                 r#"@font-face {{ font-family: "{}"; src: url("data:font/otf;charset=utf-8;base64,{}"); }}"#,
-                font_id.0, base64::prelude::BASE64_STANDARD.encode(&font.subset_font_bytes),
+                font_id.0, base64::prelude::BASE64_STANDARD.encode(bytes),
             ));
         }
         svg.push_str("</style>\n");
@@ -929,30 +949,6 @@ fn escape_xml_text(text: &str) -> String {
         .replace('\'', "&apos;")
 }
 
-// Helper to transform a point from PDF to SVG coordinates
-fn transform_point(
-    point: &Point,
-    ctm: &CurTransMat,
-    text_matrix: &TextMatrix,
-    page_height: f32,
-) -> (f32, f32) {
-    // First apply text matrix if present
-    let (mut tx, mut ty) = (point.x.0, point.y.0);
-
-    // Apply CTM first
-    let ctm_array = ctm.as_array();
-    tx = ctm_array[0] * tx + ctm_array[2] * ty + ctm_array[4];
-    ty = ctm_array[1] * tx + ctm_array[3] * ty + ctm_array[5];
-
-    // Apply text matrix
-    let tm_array = text_matrix.as_array();
-    tx = tm_array[0] * tx + tm_array[2] * ty + tm_array[4];
-    ty = tm_array[1] * tx + tm_array[3] * ty + tm_array[5];
-
-    // Convert to SVG coordinates (flip Y)
-    (tx, page_height - ty)
-}
-
 // Gets combined transform string for SVG elements
 fn get_svg_transform(
     ctm: &CurTransMat,
@@ -996,6 +992,36 @@ fn get_svg_transform(
     transform
 }
 
+// Compose two affine transforms stored as PDF matrix arrays [a,b,c,d,e,f],
+// each mapping (x,y) -> (a*x + c*y + e, b*x + d*y + f). Returns `outer` applied
+// after `inner` (i.e. outer ∘ inner).
+fn compose_matrix(outer: &[f32; 6], inner: &[f32; 6]) -> [f32; 6] {
+    let [pa, pb, pc, pd, pe, pf] = *outer;
+    let [qa, qb, qc, qd, qe, qf] = *inner;
+    [
+        pa * qa + pc * qb,
+        pb * qa + pd * qb,
+        pa * qc + pc * qd,
+        pb * qc + pd * qd,
+        pa * qe + pc * qf + pe,
+        pb * qe + pd * qf + pf,
+    ]
+}
+
+// Builds the SVG `transform` matrix that maps PDF text space (y-up, origin at
+// bottom-left) to SVG user space (y-down, origin at top-left) while keeping the
+// glyphs upright (not mirrored).
+//
+// PDF maps a text-space point through M = CTM ∘ Tm to a device point, which we
+// then flip with (x, y) -> (x, H - y). SVG glyph outlines are already y-down,
+// so the required transform is Flip ∘ M ∘ Flip0 (Flip0 = diag(1,-1)), which
+// works out to [a, -b, -c, d, e, H - f]. For the common translate-only case
+// (a=d=1, b=c=0) this is a plain translate(e, H - f) with upright glyphs.
+fn text_svg_transform(ctm: &CurTransMat, text_matrix: &TextMatrix, page_height: f32) -> [f32; 6] {
+    let m = compose_matrix(&ctm.as_array(), &text_matrix.as_array());
+    [m[0], -m[1], -m[2], m[3], m[4], page_height - m[5]]
+}
+
 // Renders text items (with offsets) to SVG
 fn render_text_items_to_svg(
     items: &[TextItem],
@@ -1015,16 +1041,12 @@ fn render_text_items_to_svg(
                                                                    * family name */
     };
 
-    // Get current text cursor position
-    let cursor = gst.get_text_cursor();
-
-    // Apply transformations: convert from PDF to SVG coordinates
-    let (x, y) = transform_point(
-        &cursor,
-        &gst.get_transform_matrix(),
-        &gst.get_text_matrix(),
-        page_height,
-    );
+    // Build the PDF->SVG text transform. The glyph position lives entirely in
+    // this matrix (translation part), so the <text> x/y attributes stay at 0 to
+    // avoid double-applying the offset.
+    let text_transform =
+        text_svg_transform(&gst.get_transform_matrix(), &gst.get_text_matrix(), page_height);
+    let (x, y) = (0.0f32, 0.0f32);
 
     // Get text rendering mode styling
     let text_mode = gst.get_text_rendering_mode();
@@ -1112,11 +1134,17 @@ fn render_text_items_to_svg(
     // Get scaling factor if set
     let h_scale = gst.get_horizontal_scaling() / 100.0; // Convert percentage to multiplier
 
-    // Get transform combining CTM and text matrix
-    let transform = get_svg_transform(
-        &gst.get_transform_matrix(),
-        &gst.get_current().and_then(|gs| gs.text_matrix.clone()),
-        page_height,
+    // Get transform combining CTM and text matrix (already y-flipped, upright).
+    // Fold horizontal scaling into the matrix (text-space x-axis, innermost) so
+    // we emit a single valid `transform` attribute instead of a duplicate one.
+    let transform = format!(
+        "matrix({} {} {} {} {} {})",
+        text_transform[0] * h_scale,
+        text_transform[1] * h_scale,
+        text_transform[2],
+        text_transform[3],
+        text_transform[4],
+        text_transform[5]
     );
 
     // Create the SVG text element
@@ -1137,11 +1165,6 @@ fn render_text_items_to_svg(
 
     if word_spacing != 0.0 {
         result.push_str(&format!(" word-spacing=\"{}\"", word_spacing));
-    }
-
-    if h_scale != 1.0 {
-        // Apply horizontal scaling via transform
-        result.push_str(&format!(" transform=\"scale({}, 1)\"", h_scale));
     }
 
     // Close tag opening and add content
