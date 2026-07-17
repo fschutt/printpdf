@@ -265,3 +265,16 @@ fn test_edge_cases() {
     let result = parse_pdf_date(invalid_pdf_date);
     assert!(result.is_err());
 }
+
+#[test]
+fn test_parse_pdf_date_multibyte_does_not_panic() {
+    // The byte-length guard followed by `&str` range indexing panicked on multibyte
+    // UTF-8 (char-boundary assertion). The from_utf8_lossy line reproduces the exact
+    // PdfDocument::parse path for a /CreationDate containing an invalid byte
+    // (0xFF becomes the 3-byte U+FFFD).
+    assert!(parse_pdf_date("2020\u{20AC}0505150224").is_err());
+    let lossy = String::from_utf8_lossy(b"2020\xFF0505150224").into_owned();
+    assert!(parse_pdf_date(&lossy).is_err());
+    // Control: a normal date still parses.
+    assert!(parse_pdf_date("D:20250319143045+02'30'").is_ok());
+}

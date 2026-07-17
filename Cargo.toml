@@ -1,6 +1,6 @@
 [package]
 name = "printpdf"
-version = "0.11.1"
+version = "0.11.2"
 authors = [
     "Felix Schütt <felix.schuett@maps4print.com>",
     "Julien Schminke <julien.schminke@web.de",
@@ -12,21 +12,59 @@ readme = "README.md"
 description = "Rust library for reading and writing PDF files"
 keywords = ["pdf", "gui", "graphics", "wkhtmltopdf"]
 categories = ["gui"]
-exclude = ["./assets/*", "./doc/*", "./examples/*"]
+# Only the top-level web-demo/dev files are excluded (leading "/" = repo-root-anchored,
+# gitignore syntax; the old "./..."-prefixed globs matched nothing at all). Everything
+# under examples/assets and tests/ SHIPS ON PURPOSE despite being ~9 MB of the package:
+# lib tests and examples include_bytes!/include_str! those files, so excluding them
+# breaks `cargo test` of the published crate (distro packagers run it). The package is
+# at ~87% of crates.io's 10 MiB cap — publish-safety in ci.yaml watches the size; do
+# not add large assets.
+exclude = [
+    "/index.html",
+    "/script.js",
+    "/style.css",
+    "/subset.ttf",
+    "/build.sh",
+    "/gen.sh",
+    "/API.md",
+    "/COMPARISON.md",
+    "/STRUCTS.md",
+    "/SYNTAX.md",
+    "/CHANGELOG2.md",
+]
 autoexamples = false
 edition = "2021"
+# lopdf 0.44 is edition-2024 code with rust-version 1.88, so that is printpdf's true
+# floor too. Declaring it lets MSRV-aware resolvers see it instead of failing deep
+# inside the dependency tree on older toolchains.
+rust-version = "1.88"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-lopdf = { version = "0.44.0", default-features = false, features = ["time"]}
-time = { version = "0.3.25", default-features = false, features = ["std", "serde", "serde-human-readable"] }
+# No lopdf `time` feature: it only gates lopdf's `Object <-> time` From-impls, which
+# printpdf never calls (dates are formatted/parsed in src/utils.rs and src/date.rs), and
+# lopdf 0.43/0.44's `time` feature only compiles against `time` >= 0.3.48, where
+# `FormatItem::StringLiteral` first exists (0.3.48 and 0.3.50 are yanked, so 0.3.49 is
+# the first usable one) — J-F-Liu/lopdf#518. Enabling it made printpdf 0.11.0/0.11.1
+# uninstallable for every consumer whose lockfile or MSRV-aware resolution picked
+# time <= 0.3.47 (#279).
+lopdf = { version = "0.44.0", default-features = false }
+# Floor 0.3.36: `time` 0.3.25–0.3.35 no longer passes type inference on rustc >= 1.80
+# (E0282 on `Box<_>`), so the old 0.3.25 floor admitted resolutions that cannot compile —
+# the same breakage class as #279, just via our own requirement instead of lopdf's.
+time = { version = "0.3.36", default-features = false, features = ["std", "serde", "serde-human-readable"] }
 allsorts = { package = "allsorts-azul", version = "0.17.1", default-features = false, features = ["flate2_rust"] }
-image = { version = "0.25", default-features = false, optional = true, features = ["jpeg"] }
+# Floor 0.25.2: src/image.rs uses `image::ImageReader`, a re-export that first appears
+# in 0.25.2 (0.25.0/0.25.1 only have `image::io::Reader`), so an older pin in a
+# consumer's lockfile would fail to compile printpdf — the #279 breakage class again.
+image = { version = "0.25.2", default-features = false, optional = true, features = ["jpeg"] }
 svg2pdf = { version = "0.13.0", optional = true }
 base64 = "0.22.1"
-weezl = "0.1.8"
+# 0.2, not 0.1: lopdf 0.44 pulls weezl ^0.2, so a 0.1 pin here linked a second copy of
+# the LZW coder into every consumer graph. The API printpdf uses is identical in 0.2.
+weezl = "0.2"
 serde = { version = "1" }
 serde_derive = { version = "1" }
 flate2 = "1.0.35" # for decompression of builtin fonts
@@ -50,7 +88,9 @@ pretty_assertions = "1.4.1"
 text-diff = "0.4.0"
 # Tests inspect the generated PDF structurally (font dicts, /FontFile2 streams, /W
 # widths, /ToUnicode) rather than trusting printpdf's own parser to round-trip.
-lopdf = { version = "0.44.0", default-features = false, features = ["time"] }
+# No `time` feature here either — feature unification would re-enable the broken lopdf
+# code for every `cargo test` build (see the [dependencies] entry and #279).
+lopdf = { version = "0.44.0", default-features = false }
 
 [features]
 default = ["html"]
@@ -94,11 +134,11 @@ all-features = true
 [target.'cfg(all(target_arch="wasm32",target_os="unknown"))'.dependencies]
 js-sys = { version = "0.3.40", optional = true }
 wasm-bindgen-futures = { version = "0.4.50", default-features = false }
-# getrandom refuses to build for wasm32-unknown-unknown unless `wasm_js` is on, and it has
-# to be enabled per major version. lopdf 0.42 pulls 0.4 (directly and via rand 0.10) while
-# other deps are still on 0.3, so both need the feature or the wasm build fails with
-# "The wasm32/64-unknown-unknown are not supported by default".
-getrandom = { version = "0.3", features = ["wasm_js"] }
+# getrandom refuses to build for wasm32-unknown-unknown unless `wasm_js` is on. Only the
+# 0.4 line is in the graph now (lopdf 0.44 pulls it directly and via rand 0.10) — the
+# getrandom-0.3 entry that used to sit here had printpdf itself as its only remaining
+# dependent, i.e. it did nothing but link a second getrandom into every wasm build.
+# Floor 0.4.0 is safe: feature-only backend selection works from the first 0.4 release.
 getrandom_v04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
 
 [[example]]

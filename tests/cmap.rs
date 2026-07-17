@@ -195,4 +195,24 @@ end
         let expected = "Привет, как дела?";
         assert_eq!(result, expected, "TJ operator decoding failed");
     }
+
+    #[test]
+    fn to_unicode_bfrange_reversed_range_is_error_not_panic() {
+        // end < start made `end - start + 1` underflow (a panic under overflow checks,
+        // i.e. in every `cargo test` build).
+        let cmap = "begincmap\nbeginbfrange\n<0002> <0001> [<0041>]\nendbfrange\nendcmap\n";
+        assert!(ToUnicodeCMap::parse(cmap).is_err());
+    }
+
+    #[test]
+    fn to_unicode_bfrange_huge_range_is_bounded() {
+        // A single 3-token bfrange line used to expand to one map entry per CID in the
+        // range — scaled to <FFFFFFFF> that is a 2^32-entry allocation from a
+        // few-byte input. The parser must refuse, not allocate.
+        let cmap = "begincmap\nbeginbfrange\n<000000> <1FFFFF> <0041>\nendbfrange\nendcmap\n";
+        match ToUnicodeCMap::parse(cmap) {
+            Ok(m) => assert!(m.mappings.len() <= 65_536),
+            Err(_) => {}
+        }
+    }
 }

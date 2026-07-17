@@ -198,7 +198,12 @@ impl DateTime {
         )
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
+    // One implementation for every target: this is pure calendar arithmetic on the
+    // stored fields — no clock involved (unlike `now()`), so the `time` crate handles
+    // it on wasm just as well as natively. The old js-sys variant built a JS `Date`
+    // from the components in the *browser's local timezone* and ignored `self.offset`,
+    // so the same DateTime yielded a different timestamp per client TZ/DST; the wasi
+    // variant just returned 0.
     pub fn unix_timestamp(&self) -> i64 {
         use time::{Date as TimeDate, Month as TimeMonth, PrimitiveDateTime, Time as TimeTime};
 
@@ -248,35 +253,9 @@ impl DateTime {
         offset_dt.unix_timestamp()
     }
 
-    #[cfg(all(
-        feature = "js-sys",
-        target_arch = "wasm32",
-        not(any(target_env = "p1", target_env = "p2"))
-    ))]
-    pub fn unix_timestamp(&self) -> i64 {
-        use js_sys::Date as JsDate;
-
-        let js_date = JsDate::new_with_year_month_day_hr_min_sec(
-            self.date.year as u32,
-            (self.date.month - 1) as i32,
-            self.date.day as i32,
-            self.time.hour as i32,
-            self.time.minute as i32,
-            self.time.second as i32,
-        );
-
-        (js_date.get_time() / 1000.0) as i64
-    }
-
-    #[cfg(any(
-        all(target_arch = "wasm32", any(target_env = "p1", target_env = "p2")),
-        all(not(feature = "js-sys"), target_arch = "wasm32")
-    ))]
-    pub fn unix_timestamp(&self) -> i64 {
-        0
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
+    // Also one implementation for every target, for the same reason as
+    // `unix_timestamp`. The old js-sys variant rejected pre-1970 timestamps and
+    // returned the instant re-expressed in the browser's local timezone.
     pub fn from_unix_timestamp(timestamp: i64) -> Result<Self, &'static str> {
         use time::OffsetDateTime;
 
@@ -301,54 +280,6 @@ impl DateTime {
                 milliseconds: 0,
             },
         })
-    }
-
-    #[cfg(all(
-        feature = "js-sys",
-        target_arch = "wasm32",
-        not(any(target_env = "p1", target_env = "p2"))
-    ))]
-    pub fn from_unix_timestamp(timestamp: i64) -> Result<Self, &'static str> {
-        use js_sys::Date as JsDate;
-
-        if timestamp < 0 {
-            return Err("Invalid timestamp");
-        }
-
-        let js_date = JsDate::new(&((timestamp as f64) * 1000.0).into());
-
-        let month = (js_date.get_month() + 1) as u8;
-        let tz_offset_minutes = js_date.get_timezone_offset() as i16;
-        let offset_hours = -(tz_offset_minutes / 60) as i8;
-        let offset_minutes = -(tz_offset_minutes % 60) as i8;
-
-        Ok(Self {
-            date: Date {
-                year: js_date.get_full_year() as i32,
-                month,
-                day: js_date.get_date() as u8,
-            },
-            time: Time {
-                hour: js_date.get_hours() as u8,
-                minute: js_date.get_minutes() as u8,
-                second: js_date.get_seconds() as u8,
-                millisecond: js_date.get_milliseconds() as u16,
-            },
-            offset: Offset {
-                hours: offset_hours,
-                minutes: offset_minutes,
-                seconds: 0,
-                milliseconds: 0,
-            },
-        })
-    }
-
-    #[cfg(any(
-        all(target_arch = "wasm32", any(target_env = "p1", target_env = "p2")),
-        all(not(feature = "js-sys"), target_arch = "wasm32")
-    ))]
-    pub fn from_unix_timestamp(_timestamp: i64) -> Result<Self, &'static str> {
-        Ok(Self::epoch())
     }
 
     pub fn year(&self) -> i32 {
@@ -812,39 +743,55 @@ pub fn parse_pdf_date(s: &str) -> Result<OffsetDateTime, String> {
 fn parse_pdf_date_inner(s: &str) -> Result<OffsetDateTime, String> {
     // Remove a leading "D:" if present.
     let s = if s.starts_with("D:") { &s[2..] } else { s };
-    if s.len() < 14 {
+    // Work on bytes: `&str` range indexing panics when a bound lands inside a
+    // multibyte UTF-8 character, and this gets fed /CreationDate strings from
+    // arbitrary PDFs (deserialize.rs runs the raw bytes through from_utf8_lossy,
+    // which turns every invalid byte into a 3-byte U+FFFD). Byte slicing below a
+    // length check cannot panic.
+    let b = s.as_bytes();
+    if b.len() < 14 {
         return Err("Date string too short".to_string());
     }
 
-    let year: i32 = s[0..4].parse::<i32>().map_err(|e| e.to_string())?;
-    let month: u8 = s[4..6].parse::<u8>().map_err(|e| e.to_string())?;
-    let day: u8 = s[6..8].parse::<u8>().map_err(|e| e.to_string())?;
-    let hour: u8 = s[8..10].parse::<u8>().map_err(|e| e.to_string())?;
-    let minute: u8 = s[10..12].parse::<u8>().map_err(|e| e.to_string())?;
-    let second: u8 = s[12..14].parse::<u8>().map_err(|e| e.to_string())?;
+    fn digits<T: core::str::FromStr>(b: &[u8]) -> Result<T, String>
+    where
+        T::Err: core::fmt::Display,
+    {
+        core::str::from_utf8(b)
+            .map_err(|e| e.to_string())?
+            .parse::<T>()
+            .map_err(|e| e.to_string())
+    }
+
+    let year: i32 = digits(&b[0..4])?;
+    let month: u8 = digits(&b[4..6])?;
+    let day: u8 = digits(&b[6..8])?;
+    let hour: u8 = digits(&b[8..10])?;
+    let minute: u8 = digits(&b[10..12])?;
+    let second: u8 = digits(&b[12..14])?;
 
     // Parse timezone offset if available
     let mut offset_hours = 0i8;
     let mut offset_minutes = 0i8;
     let mut offset_seconds = 0i8;
 
-    if s.len() > 14 {
-        let tz_sign = match &s[14..15] {
-            "+" => 1i8,
-            "-" => -1i8,
+    if b.len() > 14 {
+        let tz_sign = match b[14] {
+            b'+' => 1i8,
+            b'-' => -1i8,
             _ => 0i8,
         };
 
-        if s.len() >= 17 {
-            offset_hours = tz_sign * s[15..17].parse::<i8>().unwrap_or(0);
+        if b.len() >= 17 {
+            offset_hours = tz_sign * digits::<i8>(&b[15..17]).unwrap_or(0);
 
             // Check for minutes offset (format: +02'00')
-            if s.len() >= 20 && s.chars().nth(17) == Some('\'') {
-                offset_minutes = tz_sign * s[18..20].parse::<i8>().unwrap_or(0);
+            if b.len() >= 20 && b[17] == b'\'' {
+                offset_minutes = tz_sign * digits::<i8>(&b[18..20]).unwrap_or(0);
 
                 // Check for seconds offset if present
-                if s.len() >= 23 && s.chars().nth(20) == Some('\'') {
-                    offset_seconds = tz_sign * s[21..23].parse::<i8>().unwrap_or(0);
+                if b.len() >= 23 && b[20] == b'\'' {
+                    offset_seconds = tz_sign * digits::<i8>(&b[21..23]).unwrap_or(0);
                 }
             }
         }

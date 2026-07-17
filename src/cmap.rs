@@ -5,6 +5,12 @@ use lopdf::{Dictionary, Document, Object};
 
 use crate::text::CMap;
 
+/// A single bfrange line may cover at most this many CIDs. Real CMaps map 1–4 byte
+/// codes, so no legitimate range spans more than 64k entries — but the CMap stream of
+/// a parsed PDF is attacker-controlled, and one hostile 3-token line like
+/// `<00000000> <FFFFFFFF> <0041>` would otherwise expand to 2^32 map insertions.
+const MAX_BFRANGE_ENTRIES: u64 = 65_536;
+
 /// The mapping from a CID to one or more Unicode code points.
 #[derive(Debug)]
 pub struct ToUnicodeCMap {
@@ -47,6 +53,23 @@ impl ToUnicodeCMap {
                     }
                     let start = parse_hex_token(tokens[0])?;
                     let end = parse_hex_token(tokens[1])?;
+                    // Reject reversed and oversized ranges instead of expanding them:
+                    // `end - start + 1` underflows (panics with overflow checks on) when
+                    // end < start, and an unbounded span is a decompression-bomb-style
+                    // DoS. The caller (extract_to_unicode_cmap) downgrades the Err to a
+                    // warning, so a hostile CMap costs the font its ToUnicode map but
+                    // never the whole document.
+                    if end < start {
+                        return Err(format!("bfrange: end {:04X} < start {:04X}", end, start));
+                    }
+                    let span = end - start;
+                    if span as u64 + 1 > MAX_BFRANGE_ENTRIES {
+                        return Err(format!(
+                            "bfrange spans {} CIDs (max {})",
+                            span as u64 + 1,
+                            MAX_BFRANGE_ENTRIES
+                        ));
+                    }
                     if tokens[2].starts_with('[') {
                         // form2: rebuild the array of tokens.
                         let mut arr_tokens = Vec::new();
@@ -62,7 +85,7 @@ impl ToUnicodeCMap {
                                 arr_tokens.push(token);
                             }
                         }
-                        let expected = end - start + 1;
+                        let expected = span + 1;
                         if arr_tokens.len() != expected as usize {
                             return Err(format!(
                                 "bfrange array length mismatch: expected {} but got {}",
@@ -77,10 +100,11 @@ impl ToUnicodeCMap {
                     } else {
                         // form1: a single starting unicode value.
                         let start_uni = parse_hex_token(tokens[2])?;
-                        let mut cur = start_uni;
-                        for cid in start..=end {
-                            mappings.insert(cid, vec![cur]);
-                            cur += 1;
+                        if start_uni.checked_add(span).is_none() {
+                            return Err("bfrange: target unicode values overflow u32".to_string());
+                        }
+                        for i in 0..=span {
+                            mappings.insert(start + i, vec![start_uni + i]);
                         }
                     }
                 }
