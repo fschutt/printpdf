@@ -465,35 +465,377 @@ fn get_stream_or_resolve_ref<'a>(
     }
 }
 
+/// Intermediate result of scanning the XObject resources: either an encoded
+/// image that still needs to go through the (possibly async) image decoder, or
+/// an XObject that is already fully represented.
+pub(crate) enum PendingXObject {
+    /// An image in a self-describing container format (JPEG via `DCTDecode`,
+    /// JPEG2000 via `JPXDecode`, ...). `fallback` preserves the original
+    /// stream verbatim in case the decoder does not understand the bytes, so
+    /// that re-saving the document never silently drops the image (#216).
+    DecodeImage {
+        bytes: Vec<u8>,
+        smask: Option<SMaskData>,
+        fallback: ExternalXObject,
+    },
+    /// Fully parsed (raw bitmaps we can construct directly, preserved Form
+    /// XObjects, unknown subtypes kept verbatim, ...).
+    Ready(XObject),
+}
+
+/// A decoded (uncompressed) SMask alpha channel: 8-bit gray, `width * height` bytes.
+pub(crate) struct SMaskData {
+    pub width: usize,
+    pub height: usize,
+    pub gray: Vec<u8>,
+}
+
+/// Merge an 8-bit gray SMask into a decoded [`RawImage`], turning RGB8 into
+/// RGBA8 and R8 into RG8 (gray+alpha). Returns the image unchanged when the
+/// dimensions do not match or the pixel format has no 8-bit alpha companion.
+fn apply_smask_to_rawimage(mut img: RawImage, smask: SMaskData) -> RawImage {
+    use crate::image_types::{RawImageData, RawImageFormat};
+    if smask.width != img.width || smask.height != img.height {
+        return img;
+    }
+    let expected = img.width * img.height;
+    if smask.gray.len() < expected {
+        return img;
+    }
+    match (&img.data_format, &img.pixels) {
+        (RawImageFormat::RGB8, RawImageData::U8(rgb)) => {
+            if rgb.len() < expected * 3 {
+                return img;
+            }
+            let mut rgba = Vec::with_capacity(expected * 4);
+            for i in 0..expected {
+                rgba.extend_from_slice(&rgb[i * 3..i * 3 + 3]);
+                rgba.push(smask.gray[i]);
+            }
+            img.pixels = RawImageData::U8(rgba);
+            img.data_format = RawImageFormat::RGBA8;
+            img
+        }
+        (RawImageFormat::R8, RawImageData::U8(gray)) => {
+            if gray.len() < expected {
+                return img;
+            }
+            let mut ga = Vec::with_capacity(expected * 2);
+            for i in 0..expected {
+                ga.push(gray[i]);
+                ga.push(smask.gray[i]);
+            }
+            img.pixels = RawImageData::U8(ga);
+            img.data_format = RawImageFormat::RG8;
+            img
+        }
+        _ => img,
+    }
+}
+
 fn process_xobjects(
-    xobjects: BTreeMap<XObjectId, Vec<u8>>,
+    xobjects: BTreeMap<XObjectId, PendingXObject>,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> BTreeMap<XObjectId, XObject> {
     let mut map = BTreeMap::new();
-    for (xobject_id, content) in xobjects {
-        warnings.push(PdfWarnMsg::info(
-            0,
-            0,
-            format!("process XObject {} ({} bytes)", xobject_id.0, content.len()),
-        ));
-        match RawImage::decode_from_bytes(&content, warnings) {
-            Ok(o) => {
-                map.insert(xobject_id, XObject::Image(o));
+    for (xobject_id, pending) in xobjects {
+        match pending {
+            PendingXObject::Ready(x) => {
+                map.insert(xobject_id, x);
             }
-            Err(e) => {
-                warnings.push(PdfWarnMsg::error(
+            PendingXObject::DecodeImage {
+                bytes,
+                smask,
+                fallback,
+            } => {
+                warnings.push(PdfWarnMsg::info(
                     0,
                     0,
-                    format!(
-                        "failed to decode XObject {} ({} bytes): {e}",
-                        xobject_id.0,
-                        content.len()
-                    ),
+                    format!("process XObject {} ({} bytes)", xobject_id.0, bytes.len()),
                 ));
+                match RawImage::decode_from_bytes(&bytes, warnings) {
+                    Ok(mut o) => {
+                        if let Some(sm) = smask {
+                            o = apply_smask_to_rawimage(o, sm);
+                        }
+                        map.insert(xobject_id, XObject::Image(o));
+                    }
+                    Err(e) => {
+                        warnings.push(PdfWarnMsg::warning(
+                            0,
+                            0,
+                            format!(
+                                "could not decode image XObject {} ({} bytes): {e}; preserving \
+                                 original stream",
+                                xobject_id.0,
+                                bytes.len()
+                            ),
+                        ));
+                        map.insert(xobject_id, XObject::External(fallback));
+                    }
+                }
             }
         }
     }
     map
+}
+
+/// Extract `/Shading` resources (axial/radial gradients) into the typed
+/// [`crate::Shading`] model. Shading types other than 2 (axial) and 3 (radial),
+/// and function types other than 2 (exponential) / 3 (stitching), are reported
+/// as warnings and skipped — those are exactly the shapes printpdf itself
+/// writes, so its own gradients round-trip. Before this existed, `/Shading`
+/// resources were dropped entirely and every `sh` op became `Op::Unknown`,
+/// which the default (`secure`) save then deleted — gradients silently
+/// vanished on re-save.
+fn extract_shadings(
+    doc: &LopdfDocument,
+    objs_to_search_for_resources: &[(LopdfObject, Option<usize>)],
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> BTreeMap<crate::ShadingId, crate::Shading> {
+    let mut map = BTreeMap::new();
+    for (obj, page_idx) in objs_to_search_for_resources {
+        let page_num = page_idx.unwrap_or(0);
+        let dict = match obj {
+            LopdfObject::Dictionary(d) => Some(d),
+            LopdfObject::Reference(r) => doc.get_dictionary(*r).ok(),
+            _ => None,
+        };
+        let Some(dict) = dict else { continue };
+        let resources = if let Ok(res) = dict.get(b"Resources") {
+            get_dict_or_resolve_ref(
+                &format!("extract_shadings Resources page {page_num}"),
+                doc,
+                res,
+                warnings,
+                Some(page_num),
+            )
+        } else {
+            Some(dict)
+        };
+        let Some(resources) = resources else { continue };
+        let Ok(shading_res) = resources.get(b"Shading") else { continue };
+        let Some(shading_dict) = get_dict_or_resolve_ref(
+            &format!("extract_shadings Shading page {page_num}"),
+            doc,
+            shading_res,
+            warnings,
+            Some(page_num),
+        ) else {
+            continue;
+        };
+        for (key, value) in shading_dict.iter() {
+            let id = crate::ShadingId(String::from_utf8_lossy(key).to_string());
+            if map.contains_key(&id) {
+                continue; // first definition wins, consistent with other resources
+            }
+            let Some(sh) = get_dict_or_resolve_ref(
+                &format!("extract_shadings entry page {page_num}"),
+                doc,
+                value,
+                warnings,
+                Some(page_num),
+            ) else {
+                continue;
+            };
+            match parse_shading_dict(doc, sh) {
+                Ok(parsed) => {
+                    map.insert(id, parsed);
+                }
+                Err(e) => warnings.push(PdfWarnMsg::warning(
+                    page_num,
+                    0,
+                    format!("shading {:?} not preserved: {e}", id.0),
+                )),
+            }
+        }
+    }
+    map
+}
+
+/// Translate a ShadingType 2/3 dictionary (with an exponential or stitching
+/// function) into [`crate::Shading`] — the exact inverse of `Shading::to_dict`.
+fn parse_shading_dict(
+    doc: &LopdfDocument,
+    dict: &LopdfDictionary,
+) -> Result<crate::Shading, String> {
+    fn as_f32(o: &LopdfObject) -> Option<f32> {
+        match o {
+            LopdfObject::Integer(i) => Some(*i as f32),
+            LopdfObject::Real(r) => Some(*r),
+            _ => None,
+        }
+    }
+    fn num_array(doc: &LopdfDocument, o: &LopdfObject, n: usize) -> Option<Vec<f32>> {
+        let o = match o {
+            LopdfObject::Reference(r) => doc.get_object(*r).ok()?,
+            other => other,
+        };
+        let arr = o.as_array().ok()?;
+        let v: Vec<f32> = arr.iter().filter_map(as_f32).collect();
+        (v.len() == n).then_some(v)
+    }
+    fn rgb(v: &[f32]) -> [f32; 3] {
+        match v.len() {
+            1 => [v[0], v[0], v[0]], // DeviceGray
+            3 => [v[0], v[1], v[2]],
+            _ => [0.0, 0.0, 0.0],
+        }
+    }
+    fn resolve<'a>(doc: &'a LopdfDocument, o: &'a LopdfObject) -> &'a LopdfObject {
+        match o {
+            LopdfObject::Reference(r) => doc.get_object(*r).unwrap_or(o),
+            other => other,
+        }
+    }
+    fn fn_dict<'a>(o: &'a LopdfObject) -> Option<&'a LopdfDictionary> {
+        match o {
+            LopdfObject::Dictionary(d) => Some(d),
+            LopdfObject::Stream(s) => Some(&s.dict),
+            _ => None,
+        }
+    }
+
+    let shading_type = dict
+        .get(b"ShadingType")
+        .ok()
+        .and_then(as_f32)
+        .ok_or("missing ShadingType")? as i64;
+
+    let geometry = match shading_type {
+        2 => {
+            let c = dict
+                .get(b"Coords")
+                .ok()
+                .and_then(|o| num_array(doc, o, 4))
+                .ok_or("axial shading without 4-element Coords")?;
+            crate::ShadingGeometry::Axial {
+                coords: [c[0], c[1], c[2], c[3]],
+            }
+        }
+        3 => {
+            let c = dict
+                .get(b"Coords")
+                .ok()
+                .and_then(|o| num_array(doc, o, 6))
+                .ok_or("radial shading without 6-element Coords")?;
+            crate::ShadingGeometry::Radial {
+                coords: [c[0], c[1], c[2], c[3], c[4], c[5]],
+            }
+        }
+        other => return Err(format!("unsupported ShadingType {other}")),
+    };
+
+    let extend = dict
+        .get(b"Extend")
+        .ok()
+        .map(|o| resolve(doc, o))
+        .and_then(|o| o.as_array().ok())
+        .map(|a| {
+            let b = |i: usize| matches!(a.get(i), Some(LopdfObject::Boolean(true)));
+            (b(0), b(1))
+        })
+        .unwrap_or((false, false));
+
+    let func_obj = resolve(
+        doc,
+        dict.get(b"Function").map_err(|_| "shading without Function")?,
+    );
+    let func = fn_dict(func_obj).ok_or("shading Function is not a dictionary/stream")?;
+    let func_type = func
+        .get(b"FunctionType")
+        .ok()
+        .and_then(as_f32)
+        .ok_or("Function without FunctionType")? as i64;
+
+    // One exponential segment over [t0, t1] → two stops.
+    fn exponential_stops(
+        doc: &LopdfDocument,
+        f: &LopdfDictionary,
+        t0: f32,
+        t1: f32,
+    ) -> Result<Vec<crate::GradientStop>, String> {
+        let get = |k: &[u8]| -> Vec<f32> {
+            f.get(k)
+                .ok()
+                .and_then(|o| {
+                    let o = match o {
+                        LopdfObject::Reference(r) => doc.get_object(*r).ok()?,
+                        other => other,
+                    };
+                    o.as_array().ok()
+                })
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| match x {
+                            LopdfObject::Integer(i) => Some(*i as f32),
+                            LopdfObject::Real(r) => Some(*r),
+                            _ => None,
+                        })
+                        .collect()
+                })
+                .unwrap_or_else(|| vec![0.0])
+        };
+        let c0 = get(b"C0");
+        let c1 = get(b"C1");
+        Ok(vec![
+            crate::GradientStop {
+                offset: t0,
+                color: rgb(&c0),
+            },
+            crate::GradientStop {
+                offset: t1,
+                color: rgb(&c1),
+            },
+        ])
+    }
+
+    let mut stops = match func_type {
+        2 => exponential_stops(doc, func, 0.0, 1.0)?,
+        3 => {
+            let bounds = func
+                .get(b"Bounds")
+                .ok()
+                .map(|o| resolve(doc, o))
+                .and_then(|o| o.as_array().ok())
+                .map(|a| a.iter().filter_map(as_f32).collect::<Vec<_>>())
+                .unwrap_or_default();
+            let funcs = func
+                .get(b"Functions")
+                .ok()
+                .map(|o| resolve(doc, o))
+                .and_then(|o| o.as_array().ok())
+                .ok_or("stitching function without Functions array")?;
+            let mut edges = Vec::with_capacity(funcs.len() + 1);
+            edges.push(0.0);
+            edges.extend(bounds.iter().copied());
+            edges.push(1.0);
+            let mut all = Vec::new();
+            for (i, sub) in funcs.iter().enumerate() {
+                let sub = resolve(doc, sub);
+                let sub = fn_dict(sub).ok_or("stitching sub-function is not a dictionary")?;
+                let (t0, t1) = (
+                    edges.get(i).copied().unwrap_or(0.0),
+                    edges.get(i + 1).copied().unwrap_or(1.0),
+                );
+                all.extend(exponential_stops(doc, sub, t0, t1)?);
+            }
+            all
+        }
+        other => return Err(format!("unsupported FunctionType {other}")),
+    };
+
+    // Merge duplicate boundary stops (segment N's end == segment N+1's start).
+    stops.dedup_by(|b, a| (a.offset - b.offset).abs() < 1e-6 && a.color == b.color);
+    if stops.is_empty() {
+        return Err("shading function produced no stops".to_string());
+    }
+
+    Ok(crate::Shading {
+        geometry,
+        stops,
+        extend,
+    })
 }
 
 // Extract all extended graphics states from the document using the extgstate module
@@ -564,27 +906,354 @@ fn extract_extgstates(
 }
 
 async fn process_xobjects_async(
-    xobjects: BTreeMap<XObjectId, Vec<u8>>,
+    xobjects: BTreeMap<XObjectId, PendingXObject>,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> BTreeMap<XObjectId, XObject> {
     let mut map = BTreeMap::new();
-    for (xobject_id, content) in xobjects {
-        if let Ok(o) = RawImage::decode_from_bytes_async(&content, warnings).await {
-            map.insert(xobject_id, XObject::Image(o));
+    for (xobject_id, pending) in xobjects {
+        match pending {
+            PendingXObject::Ready(x) => {
+                map.insert(xobject_id, x);
+            }
+            PendingXObject::DecodeImage {
+                bytes,
+                smask,
+                fallback,
+            } => match RawImage::decode_from_bytes_async(&bytes, warnings).await {
+                Ok(mut o) => {
+                    if let Some(sm) = smask {
+                        o = apply_smask_to_rawimage(o, sm);
+                    }
+                    map.insert(xobject_id, XObject::Image(o));
+                }
+                Err(e) => {
+                    warnings.push(PdfWarnMsg::warning(
+                        0,
+                        0,
+                        format!(
+                            "could not decode image XObject {}: {e}; preserving original stream",
+                            xobject_id.0
+                        ),
+                    ));
+                    map.insert(xobject_id, XObject::External(fallback));
+                }
+            },
         }
     }
     map
 }
 
-/// Given a Resources dictionary from a page or the document,
-/// parse all XObjects and return a mapping from XObjectId to XObject.
-/// (In this example we only handle image XObjects.)
+/// Maximum recursion depth (container nesting + reference hops) when inlining
+/// indirect references into a preserved XObject dictionary. Real-world SVG
+/// conversions nest forms → resources → patterns → shadings → functions →
+/// ICC streams, so this must be generous; actual cycles are caught by the
+/// reference path stack, not the depth cap.
+const MAX_RESOLVE_DEPTH: usize = 96;
+
+/// Convert a lopdf object into a [`DictItem`], resolving indirect references
+/// by *inlining* the referenced objects.
+///
+/// Preserved XObjects are carried across the parse/save round trip as
+/// [`ExternalXObject`]s. Their dictionaries routinely reference other objects
+/// (a Form XObject's `/Resources`, pattern functions, ICC profiles, ...) — but
+/// object ids are meaningless in the re-saved document, so a verbatim
+/// `Reference` would dangle. Inlining the referenced object keeps the XObject
+/// self-contained; `into_lopdf_with_indirect_streams` re-hoists nested streams
+/// into indirect objects at save time.
+///
+/// `ref_path` holds the reference ids currently being resolved (the *path*,
+/// not all visited ids — legitimate documents share objects diamond-style);
+/// re-entering an id on the same path is a cycle and yields `Null`.
+fn dictitem_from_lopdf_resolved(
+    doc: &LopdfDocument,
+    obj: &LopdfObject,
+    depth: usize,
+    ref_path: &mut Vec<ObjectId>,
+) -> DictItem {
+    if depth > MAX_RESOLVE_DEPTH {
+        return DictItem::Null;
+    }
+    match obj {
+        Object::Reference(r) => {
+            if ref_path.contains(r) {
+                // reference cycle
+                return DictItem::Null;
+            }
+            match doc.get_object(*r) {
+                Ok(target) => {
+                    ref_path.push(*r);
+                    let item = dictitem_from_lopdf_resolved(doc, target, depth + 1, ref_path);
+                    ref_path.pop();
+                    item
+                }
+                Err(_) => DictItem::Null,
+            }
+        }
+        Object::Array(objects) => DictItem::Array(
+            objects
+                .iter()
+                .map(|o| dictitem_from_lopdf_resolved(doc, o, depth + 1, ref_path))
+                .collect(),
+        ),
+        Object::Dictionary(dict) => DictItem::Dict {
+            map: dict
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        String::from_utf8_lossy(k).to_string(),
+                        dictitem_from_lopdf_resolved(doc, v, depth + 1, ref_path),
+                    )
+                })
+                .collect(),
+        },
+        Object::Stream(stream) => DictItem::Stream {
+            stream: external_stream_preserved(doc, stream, depth + 1, ref_path),
+        },
+        other => DictItem::from_lopdf(other),
+    }
+}
+
+/// Preserve a lopdf stream verbatim as an [`ExternalStream`]: the dictionary
+/// with references inlined (minus `/Length`, which is recomputed at save time)
+/// and the *raw, still-encoded* content, so existing `/Filter` entries remain
+/// valid.
+fn external_stream_preserved(
+    doc: &LopdfDocument,
+    stream: &LopdfStream,
+    depth: usize,
+    ref_path: &mut Vec<ObjectId>,
+) -> ExternalStream {
+    let dict = stream
+        .dict
+        .iter()
+        .filter(|(k, _)| k.as_slice() != b"Length")
+        .map(|(k, v)| {
+            (
+                String::from_utf8_lossy(k).to_string(),
+                dictitem_from_lopdf_resolved(doc, v, depth, ref_path),
+            )
+        })
+        .collect();
+    ExternalStream {
+        dict,
+        content: stream.content.clone(),
+        // The content is already encoded exactly as the preserved /Filter
+        // describes; re-compressing it would corrupt the stream.
+        compress: false,
+    }
+}
+
+/// Preserve an XObject stream verbatim for the round trip.
+fn preserve_xobject_stream(doc: &LopdfDocument, stream: &LopdfStream) -> ExternalXObject {
+    ExternalXObject {
+        stream: external_stream_preserved(doc, stream, 0, &mut Vec::new()),
+        // Leave width/height/dpi unset: placement comes from the content
+        // stream's own `cm` + the preserved `/BBox`/`/Matrix`, and a `Some`
+        // width/height would make the serializer inject an extra scale.
+        width: None,
+        height: None,
+        dpi: None,
+    }
+}
+
+/// Number of color components for a (resolved) `/ColorSpace` entry, for the
+/// raw-bitmap path. Returns `None` for colorspaces that `RawImage` cannot
+/// represent losslessly (Indexed, Separation, DeviceN, ...).
+fn colorspace_components(doc: &LopdfDocument, cs: &LopdfObject, depth: usize) -> Option<usize> {
+    if depth > MAX_RESOLVE_DEPTH {
+        return None;
+    }
+    match cs {
+        Object::Reference(r) => colorspace_components(doc, doc.get_object(*r).ok()?, depth + 1),
+        Object::Name(n) => match n.as_slice() {
+            b"DeviceRGB" | b"CalRGB" => Some(3),
+            b"DeviceGray" | b"CalGray" => Some(1),
+            _ => None,
+        },
+        Object::Array(arr) => {
+            let first = arr.first()?;
+            let family = match first {
+                Object::Name(n) => n.as_slice(),
+                _ => return None,
+            };
+            match family {
+                b"ICCBased" => {
+                    let stream = arr.get(1)?;
+                    let stream = match stream {
+                        Object::Reference(r) => match doc.get_object(*r).ok()? {
+                            Object::Stream(s) => s,
+                            _ => return None,
+                        },
+                        Object::Stream(s) => s,
+                        _ => return None,
+                    };
+                    match stream.dict.get(b"N").ok()? {
+                        Object::Integer(1) => Some(1),
+                        Object::Integer(3) => Some(3),
+                        _ => None,
+                    }
+                }
+                b"CalRGB" => Some(3),
+                b"CalGray" => Some(1),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// The `/Filter` chain of a stream as a list of names.
+fn stream_filters(stream: &LopdfStream) -> Vec<Vec<u8>> {
+    match stream.dict.get(b"Filter") {
+        Ok(Object::Name(n)) => vec![n.clone()],
+        Ok(Object::Array(arr)) => arr
+            .iter()
+            .filter_map(|o| match o {
+                Object::Name(n) => Some(n.clone()),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Resolve and decode the `/SMask` of an image stream to 8-bit gray alpha.
+fn extract_smask(
+    doc: &LopdfDocument,
+    stream: &LopdfStream,
+) -> Option<SMaskData> {
+    let smask_obj = stream.dict.get(b"SMask").ok()?;
+    let smask_stream = match smask_obj {
+        Object::Reference(r) => match doc.get_object(*r).ok()? {
+            Object::Stream(s) => s,
+            _ => return None,
+        },
+        Object::Stream(s) => s,
+        _ => return None,
+    };
+    let width = smask_stream.dict.get(b"Width").ok()?.as_i64().ok()? as usize;
+    let height = smask_stream.dict.get(b"Height").ok()?.as_i64().ok()? as usize;
+    let bpc = smask_stream
+        .dict
+        .get(b"BitsPerComponent")
+        .ok()
+        .and_then(|o| o.as_i64().ok())
+        .unwrap_or(8);
+    if bpc != 8 {
+        return None;
+    }
+    let gray = smask_stream
+        .decompressed_content()
+        .unwrap_or_else(|_| smask_stream.content.clone());
+    if gray.len() < width * height {
+        return None;
+    }
+    Some(SMaskData {
+        width,
+        height,
+        gray,
+    })
+}
+
+/// Try to construct a [`RawImage`] directly from a raw-bitmap image stream
+/// (no filter, or a lossless filter lopdf can undo). This is how printpdf
+/// itself writes images by default (`FlateDecode` over raw pixels), so this
+/// path is what makes printpdf's own output round-trippable: the pixel data
+/// carries no container magic bytes, so `RawImage::decode_from_bytes` (which
+/// sniffs PNG/JPEG/... signatures) can never decode it.
+fn raw_bitmap_from_stream(
+    doc: &LopdfDocument,
+    stream: &LopdfStream,
+) -> Option<RawImage> {
+    use crate::image_types::{RawImageData, RawImageFormat};
+
+    let width = stream.dict.get(b"Width").ok()?.as_i64().ok()? as usize;
+    let height = stream.dict.get(b"Height").ok()?.as_i64().ok()? as usize;
+    if width == 0 || height == 0 || width.checked_mul(height).is_none() {
+        return None;
+    }
+    let bpc = stream
+        .dict
+        .get(b"BitsPerComponent")
+        .ok()
+        .and_then(|o| o.as_i64().ok())
+        .unwrap_or(8);
+    let components = colorspace_components(doc, stream.dict.get(b"ColorSpace").ok()?, 0)?;
+    // /ImageMask stencils and predictor-encoded data have extra semantics the
+    // raw path does not model; preserve those streams instead.
+    if let Ok(im) = stream.dict.get(b"ImageMask") {
+        if im.as_bool().unwrap_or(false) {
+            return None;
+        }
+    }
+    if let Ok(Object::Dictionary(dp)) = stream.dict.get(b"DecodeParms") {
+        if dp.get(b"Predictor").map(|p| p.as_i64().unwrap_or(1)).unwrap_or(1) > 1 {
+            return None;
+        }
+    }
+
+    let data = stream.decompressed_content().ok()?;
+    let expected = width * height * components * (bpc as usize / 8).max(1);
+
+    match (bpc, components) {
+        (8, 3) | (8, 1) => {
+            if data.len() < expected {
+                return None;
+            }
+            let format = if components == 3 {
+                RawImageFormat::RGB8
+            } else {
+                RawImageFormat::R8
+            };
+            let mut pixels = data;
+            pixels.truncate(expected);
+            let mut img = RawImage {
+                pixels: RawImageData::U8(pixels),
+                width,
+                height,
+                data_format: format,
+                tag: Vec::new(),
+            };
+            if let Some(smask) = extract_smask(doc, stream) {
+                img = apply_smask_to_rawimage(img, smask);
+            }
+            Some(img)
+        }
+        (16, 3) | (16, 1) => {
+            if data.len() < expected {
+                return None;
+            }
+            let format = if components == 3 {
+                RawImageFormat::RGB16
+            } else {
+                RawImageFormat::R16
+            };
+            let pixels: Vec<u16> = data[..expected]
+                .chunks_exact(2)
+                .map(|c| u16::from_be_bytes([c[0], c[1]]))
+                .collect();
+            Some(RawImage {
+                pixels: RawImageData::U16(pixels),
+                width,
+                height,
+                data_format: format,
+                tag: Vec::new(),
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Given a Resources dictionary from a page or the document, parse all
+/// XObjects. Image XObjects are decoded (or queued for decoding); everything
+/// else — Form XObjects, unsupported filters/colorspaces — is preserved
+/// verbatim so that a parse/save round trip never drops page content (#216).
 fn parse_xobjects_internal(
     doc: &LopdfDocument,
     resources: &LopdfDictionary,
     warnings: &mut Vec<PdfWarnMsg>,
     page: Option<usize>,
-) -> BTreeMap<XObjectId, Vec<u8>> {
+) -> BTreeMap<XObjectId, PendingXObject> {
     let mut xobj_map = BTreeMap::new();
 
     let page_num = page.unwrap_or_default();
@@ -607,59 +1276,106 @@ fn parse_xobjects_internal(
 
     // Iterate over each entry.
     for (key, value) in xobj_dict.iter() {
-        // TODO: better parsing!
         let xobject_id = XObjectId(String::from_utf8_lossy(key).to_string());
 
-        let xobj_entry = match get_dict_or_resolve_ref(
-            &format!("parse_xobjects_internal 2 page {page_num}"),
-            doc,
-            value,
-            warnings,
-            page,
-        ) {
+        // Every XObject is a stream object.
+        let stream = match get_stream_or_resolve_ref(doc, value, warnings, page) {
             Some(s) => s,
             None => continue,
         };
 
-        let subtype_bytes = match xobj_entry.get(b"Subtype") {
-            Ok(Object::Name(o)) => o.as_slice(),
-            Err(e) => {
-                warnings.push(PdfWarnMsg::error(
-                    page.unwrap_or(0),
-                    0,
-                    format!(
-                        "parse-xobjects: missing subtype for xobject {}: {e}",
-                        xobject_id.0
-                    ),
-                ));
-                continue;
-            }
-            _ => continue,
-        };
-
-        let stream = match subtype_bytes {
-            b"Image" => match get_stream_or_resolve_ref(doc, value, warnings, page) {
-                Some(s) => s,
-                None => continue,
-            },
-            o => {
-                warnings.push(PdfWarnMsg::error(
-                    page.unwrap_or(0),
-                    0,
-                    format!(
-                        "parse-xobjects: unknown xobject subtype: {}",
-                        String::from_utf8_lossy(o)
-                    ),
-                ));
-                continue;
+        let subtype = match stream.dict.get(b"Subtype") {
+            Ok(Object::Name(o)) => o.clone(),
+            _ => {
+                // Missing /Subtype: sniff — image streams have /Width + /Height.
+                if stream.dict.get(b"Width").is_ok() && stream.dict.get(b"Height").is_ok() {
+                    b"Image".to_vec()
+                } else {
+                    warnings.push(PdfWarnMsg::warning(
+                        page_num,
+                        0,
+                        format!(
+                            "parse-xobjects: XObject {} has no /Subtype; preserving verbatim",
+                            xobject_id.0
+                        ),
+                    ));
+                    xobj_map.insert(
+                        xobject_id,
+                        PendingXObject::Ready(XObject::External(preserve_xobject_stream(
+                            doc, stream,
+                        ))),
+                    );
+                    continue;
+                }
             }
         };
 
-        let content = stream
-            .decompressed_content()
-            .unwrap_or_else(|_| stream.content.clone());
+        match subtype.as_slice() {
+            b"Image" => {
+                let filters = stream_filters(stream);
+                let has_container_format = filters
+                    .iter()
+                    .any(|f| f == b"DCTDecode" || f == b"JPXDecode");
 
-        xobj_map.insert(xobject_id, content);
+                if has_container_format {
+                    // JPEG / JPEG2000: the (possibly Flate-wrapped) stream
+                    // content *is* the container file.
+                    let bytes = if filters.len() == 1 {
+                        stream.content.clone()
+                    } else {
+                        stream
+                            .decompressed_content()
+                            .unwrap_or_else(|_| stream.content.clone())
+                    };
+                    xobj_map.insert(
+                        xobject_id,
+                        PendingXObject::DecodeImage {
+                            bytes,
+                            smask: extract_smask(doc, stream),
+                            fallback: preserve_xobject_stream(doc, stream),
+                        },
+                    );
+                } else if let Some(img) = raw_bitmap_from_stream(doc, stream) {
+                    // Without the `images` feature, `XObject::Image` cannot be
+                    // *serialized* (xobject.rs `image_to_stream` panics), so
+                    // keep the raw bitmap stream verbatim in that case — the
+                    // round trip preserves the image either way.
+                    let entry = if cfg!(feature = "images") {
+                        PendingXObject::Ready(XObject::Image(img))
+                    } else {
+                        PendingXObject::Ready(XObject::External(preserve_xobject_stream(
+                            doc, stream,
+                        )))
+                    };
+                    xobj_map.insert(xobject_id, entry);
+                } else {
+                    // Could still be an embedded container file without a
+                    // filter entry (rare), or something we cannot model —
+                    // try the decoder, fall back to byte-level preservation.
+                    let bytes = stream
+                        .decompressed_content()
+                        .unwrap_or_else(|_| stream.content.clone());
+                    xobj_map.insert(
+                        xobject_id,
+                        PendingXObject::DecodeImage {
+                            bytes,
+                            smask: extract_smask(doc, stream),
+                            fallback: preserve_xobject_stream(doc, stream),
+                        },
+                    );
+                }
+            }
+            _other => {
+                // Form XObjects (and any other subtype) are preserved
+                // verbatim, references inlined. They used to be dropped with
+                // an "unknown xobject subtype" error, which deleted all
+                // vector content that had been embedded via `Do`.
+                xobj_map.insert(
+                    xobject_id,
+                    PendingXObject::Ready(XObject::External(preserve_xobject_stream(doc, stream))),
+                );
+            }
+        }
     }
 
     xobj_map
