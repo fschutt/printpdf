@@ -22,6 +22,9 @@ jobs:
     strategy:
       matrix:
         features:
+          # text_layout alone (without the html layer on top) is a supported public
+          # configuration that no other job builds.
+          - "text_layout"
           - "images"
           - "images,png"
           - "images,jpeg"
@@ -56,6 +59,9 @@ jobs:
       # cmap) sat here undetected, because it only reproduces with the fonts a Linux box
       # resolves.
       - run: cargo test --verbose
+      # svg is not a default feature, so its tests (Svg::parse, parse_with_fonts)
+      # run nowhere else.
+      - run: cargo test --verbose --features svg --test svg
 
 
   check-and-test-windows:
@@ -105,6 +111,12 @@ jobs:
       # The js-sys feature (browser canvas/Date paths, 16 cfg sites) was never built by
       # any CI job — only docs.rs ever compiled it, and on a native target at that.
       - run: cargo check --verbose --target wasm32-unknown-unknown --features js-sys
+      # js-sys + wasi: the browser fast paths are cfg'd out for p1/p2 (src/image.rs,
+      # src/date.rs) so a wasi binary gets no browser imports — and the combination has
+      # to keep compiling, since the feature is additive and unification can turn it on.
+      - run: cargo check --verbose --target wasm32-wasip2 --features js-sys
+      # svg (svg2pdf/resvg) compiles for browser wasm; keep it that way.
+      - run: cargo check --verbose --target wasm32-unknown-unknown --features svg
 
   # docs.rs builds with --all-features (see [package.metadata.docs.rs]) on a native
   # builder. Nothing else compiles that exact configuration, so keep it green here
