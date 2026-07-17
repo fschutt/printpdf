@@ -5,6 +5,7 @@
 //! converts lopdf operations to printpdf Ops.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use lopdf::{
     Dictionary as LopdfDictionary, Document as LopdfDocument, Object as LopdfObject, Object,
@@ -125,16 +126,24 @@ fn parse_pdf_from_bytes_start(
 
     objs_to_search_for_resources.push((pages_obj.clone(), None));
 
-    let pages_ref = match pages_obj {
-        Object::Reference(r) => *r,
+    // The Pages entry should be an indirect reference, but tolerate an inline
+    // dictionary too (seen in the wild).
+    let pages_dict = match pages_obj {
+        Object::Reference(r) => doc
+            .get_object(*r)
+            .map_err(|e| format!("Failed to get Pages object: {}", e))?
+            .as_dict()
+            .map_err(|e| format!("Pages object is not a dictionary: {}", e))?,
+        Object::Dictionary(d) => {
+            warnings.push(PdfWarnMsg::warning(
+                0,
+                0,
+                "Catalog /Pages is an inline dictionary instead of a reference".to_string(),
+            ));
+            d
+        }
         _ => return Err("Pages key is not a reference".to_string()),
     };
-
-    let pages_dict = doc
-        .get_object(pages_ref)
-        .map_err(|e| format!("Failed to get Pages object: {}", e))?
-        .as_dict()
-        .map_err(|e| format!("Pages object is not a dictionary: {}", e))?;
 
     // Check if Pages tree has Resources dictionary and include it
     if let Ok(resources) = pages_dict.get(b"Resources") {
@@ -142,7 +151,7 @@ fn parse_pdf_from_bytes_start(
     }
 
     // Recursively collect all page object references.
-    let page_refs = collect_page_refs(pages_dict, &doc)?;
+    let page_refs = collect_page_refs(pages_dict, &doc, warnings)?;
 
     // Get page objects and their resources
     let page_objects = page_refs
@@ -264,17 +273,47 @@ fn parse_pdf_from_bytes_end(
             .as_dict()
             .map_err(|e| format!("Page object is not a dictionary: {}", e))?;
 
-        let pdf_page = parse_page(i, page_obj, &doc, &xobjects, warnings)?;
+        let pdf_page = parse_page(i, page_obj, &doc, &xobjects, &font_decode, warnings)?;
 
         pages.push(pdf_page);
+    }
+
+    // Re-attach link annotations to their pages: the serializer builds each
+    // page's /Annots from `Op::LinkAnnotation`, so without this every link is
+    // silently dropped on re-save.
+    for (page_idx, link) in link_annots {
+        match pages.get_mut(page_idx) {
+            Some(page) => page.ops.push(Op::LinkAnnotation { link }),
+            None => warnings.push(PdfWarnMsg::warning(
+                page_idx,
+                0,
+                "link annotation references a page that was not parsed".to_string(),
+            )),
+        }
     }
 
     // Extract bookmarks and layers from the document
     let bookmarks = links_and_bookmarks::extract_bookmarks(&doc);
     let layers = layers::extract_layers(&doc);
+    // Optional-content ops (`BDC /OC /Name`) reference layers by the *resource
+    // name* under the page's `/Properties` dictionary. The layer map must be
+    // keyed by those same names, otherwise every re-saved `BDC` points at a
+    // property that no longer exists and viewers report
+    // "Marked Content 'X' is unknown" for every layer.
+    let layers: Vec<(LayerInternalId, crate::ops::Layer)> = layers
+        .into_iter()
+        .enumerate()
+        .map(|(i, (name, layer))| {
+            let key = name.unwrap_or_else(|| format!("layer_{}", i));
+            (LayerInternalId(key), layer)
+        })
+        .collect();
 
     // Extract ExtGStates from resources
     let extgstates = extract_extgstates(&doc, &objs_to_search_for_resources, warnings);
+
+    // Extract /Shading resources (gradients) — see extract_shadings for scope.
+    let shadings = extract_shadings(&doc, &objs_to_search_for_resources, warnings);
 
     let fonts = fonts
         .into_iter()
@@ -295,13 +334,9 @@ fn parse_pdf_from_bytes_end(
             fonts: PdfFontMap { map: fonts },
             xobjects: XObjectMap { map: xobjects },
             extgstates: ExtendedGraphicsStateMap { map: extgstates },
-            shadings: Default::default(),
+            shadings: crate::ShadingMap { map: shadings },
             layers: PdfLayerMap {
-                map: layers
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, layer)| (LayerInternalId(format!("layer_{}", i)), layer))
-                    .collect(),
+                map: layers.into_iter().collect(),
             },
         },
         bookmarks: PageAnnotMap {
@@ -1438,7 +1473,7 @@ fn parse_xobjects_from_entire_pdf(
     doc: &LopdfDocument,
     objs_to_search_for_resources: &[(LopdfObject, Option<usize>)],
     warnings: &mut Vec<PdfWarnMsg>,
-) -> BTreeMap<XObjectId, Vec<u8>> {
+) -> BTreeMap<XObjectId, PendingXObject> {
     objs_to_search_for_resources
         .iter()
         .filter_map(|(obj, page_idx)| {
@@ -1474,13 +1509,46 @@ fn parse_xobjects_from_entire_pdf(
 }
 
 /// Recursively collects page object references from a Pages tree dictionary.
-fn collect_page_refs(dict: &LopdfDictionary, doc: &LopdfDocument) -> Result<Vec<ObjectId>, String> {
+fn collect_page_refs(
+    dict: &LopdfDictionary,
+    doc: &LopdfDocument,
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> Result<Vec<ObjectId>, String> {
     let mut pages = Vec::new();
+    let mut visited = std::collections::BTreeSet::new();
+    collect_page_refs_inner(dict, doc, &mut pages, &mut visited, warnings, 0)?;
+    Ok(pages)
+}
 
-    // The Pages tree must have a "Kids" array.
+fn collect_page_refs_inner(
+    dict: &LopdfDictionary,
+    doc: &LopdfDocument,
+    pages: &mut Vec<ObjectId>,
+    visited: &mut std::collections::BTreeSet<ObjectId>,
+    warnings: &mut Vec<PdfWarnMsg>,
+    depth: usize,
+) -> Result<(), String> {
+    // A malformed (or hostile) page tree can contain reference cycles; without
+    // the visited set + depth cap this recursion would never terminate.
+    if depth > 64 {
+        warnings.push(PdfWarnMsg::warning(
+            0,
+            0,
+            "Pages tree deeper than 64 levels, ignoring deeper nodes".to_string(),
+        ));
+        return Ok(());
+    }
+
+    // The Pages tree must have a "Kids" array (possibly behind a reference).
     let kids = dict
         .get(b"Kids")
         .map_err(|e| format!("Pages dictionary missing Kids key: {}", e))?;
+    let kids = match kids {
+        Object::Reference(r) => doc
+            .get_object(*r)
+            .map_err(|e| format!("Failed to resolve Pages.Kids reference: {}", e))?,
+        other => other,
+    };
 
     let page_refs = kids
         .as_array()
@@ -1492,28 +1560,127 @@ fn collect_page_refs(dict: &LopdfDictionary, doc: &LopdfDocument) -> Result<Vec<
         .map_err(|_| "Pages.Kids is not an array".to_string())?;
 
     for r in page_refs {
-        let kid_obj = doc
-            .get_object(r)
-            .map_err(|e| format!("Failed to get kid object: {}", e))?;
+        if !visited.insert(r) {
+            warnings.push(PdfWarnMsg::warning(
+                0,
+                0,
+                format!("Pages tree contains object {:?} more than once, skipping", r),
+            ));
+            continue;
+        }
+        let kid_obj = match doc.get_object(r) {
+            Ok(o) => o,
+            Err(e) => {
+                warnings.push(PdfWarnMsg::warning(
+                    0,
+                    0,
+                    format!("Failed to get pages-tree kid object {:?}: {}", r, e),
+                ));
+                continue;
+            }
+        };
 
         if let Ok(kid_dict) = kid_obj.as_dict() {
-            let kid_type = kid_dict
-                .get(b"Type")
-                .map_err(|e| format!("Kid missing Type: {}", e))?;
-            match kid_type {
-                Object::Name(ref t) if t == b"Page" => {
-                    pages.push(r);
+            // /Type is required by the spec but missing in plenty of real
+            // documents; infer the node kind from the presence of /Kids.
+            let type_name = match kid_dict.get(b"Type") {
+                Ok(Object::Name(t)) => Some(t.clone()),
+                _ => None,
+            };
+            match type_name.as_deref() {
+                Some(b"Page") => pages.push(r),
+                Some(b"Pages") => {
+                    collect_page_refs_inner(kid_dict, doc, pages, visited, warnings, depth + 1)?
                 }
-                Object::Name(ref t) if t == b"Pages" => {
-                    let mut child_pages = collect_page_refs(kid_dict, doc)?;
-                    pages.append(&mut child_pages);
+                Some(other) => {
+                    warnings.push(PdfWarnMsg::warning(
+                        0,
+                        0,
+                        format!(
+                            "Unknown pages-tree kid type {:?}, skipping",
+                            String::from_utf8_lossy(other)
+                        ),
+                    ));
                 }
-                _ => return Err(format!("Unknown kid type: {:?}", kid_type)),
+                None => {
+                    if kid_dict.has(b"Kids") {
+                        collect_page_refs_inner(kid_dict, doc, pages, visited, warnings, depth + 1)?
+                    } else {
+                        warnings.push(PdfWarnMsg::warning(
+                            0,
+                            0,
+                            format!("Pages-tree kid {:?} missing /Type, treating as /Page", r),
+                        ));
+                        pages.push(r);
+                    }
+                }
             }
         }
     }
 
-    Ok(pages)
+    Ok(())
+}
+
+/// Look up an inheritable page attribute (`MediaBox`, `CropBox`, `Resources`,
+/// `Rotate`, ...): first on the page dictionary itself, then up the `/Parent`
+/// chain (ISO 32000-1, 7.7.3.4). Depth-capped to survive cyclic parent links.
+fn get_inheritable_page_attr<'a>(
+    page: &'a LopdfDictionary,
+    doc: &'a LopdfDocument,
+    key: &[u8],
+) -> Option<&'a Object> {
+    let mut current = page;
+    for _ in 0..64 {
+        if let Ok(obj) = current.get(key) {
+            return Some(obj);
+        }
+        let parent = current.get(b"Parent").ok()?;
+        let parent_ref = parent.as_reference().ok()?;
+        current = doc.get_dictionary(parent_ref).ok()?;
+    }
+    None
+}
+
+/// Append the bytes of one content stream, given an entry of the `/Contents`
+/// value (reference or inline stream). Warns instead of failing on bad
+/// entries: a partly readable page is better than no document.
+fn append_content_stream(
+    doc: &LopdfDocument,
+    obj: &Object,
+    page_num: usize,
+    content_data: &mut Vec<u8>,
+    warnings: &mut Vec<PdfWarnMsg>,
+) {
+    let stream = match obj {
+        Object::Reference(r) => match doc.get_object(*r).and_then(|o| o.as_stream()) {
+            Ok(s) => s,
+            Err(e) => {
+                warnings.push(PdfWarnMsg::error(
+                    page_num,
+                    0,
+                    format!("Failed to resolve content stream {:?}: {}", r, e),
+                ));
+                return;
+            }
+        },
+        Object::Stream(s) => s,
+        _other => {
+            warnings.push(PdfWarnMsg::error(
+                page_num,
+                0,
+                "Content entry is not a stream".to_string(),
+            ));
+            return;
+        }
+    };
+    let data = stream
+        .decompressed_content()
+        .unwrap_or_else(|_| stream.content.clone());
+    content_data.extend(data);
+    // PDF 32000-1, 7.8.2: when /Contents is an array, the division between
+    // streams can fall in the middle of a token; the streams must be parsed
+    // as if separated by (at least) a byte of whitespace.
+    content_data.push(b'\n');
 }
 
 /// Parses a single page dictionary into a PdfPage.
@@ -1522,79 +1689,105 @@ fn parse_page(
     page: &LopdfDictionary,
     doc: &LopdfDocument,
     xobjects: &BTreeMap<XObjectId, XObject>,
+    font_decode: &BTreeMap<String, FontTextDecodeKind>,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> Result<PdfPage, String> {
-    // Parse MediaBox (required). PDF defines it as an array of 4 numbers.
-    let media_box_obj = page
-        .get(b"MediaBox")
-        .map_err(|e| format!("Page missing MediaBox: {}", e))?;
-    let media_box = parse_rect(media_box_obj)?;
-    // TrimBox and CropBox are optional; use MediaBox as default.
-    let trim_box = if let Ok(obj) = page.get(b"TrimBox") {
-        parse_rect(obj)?
-    } else {
-        media_box.clone()
-    };
-    let crop_box = if let Ok(obj) = page.get(b"CropBox") {
-        parse_rect(obj)?
-    } else {
-        media_box.clone()
-    };
-
-    // Get the Contents entry (could be a reference, an array, or a stream)
-    let contents_obj = page
-        .get(b"Contents")
-        .map_err(|e| format!("Page missing Contents: {}", e))?;
-
-    let mut content_data = Vec::new();
-    match contents_obj {
-        Object::Reference(r) => {
-            let stream = doc
-                .get_object(*r)
-                .map_err(|e| format!("Failed to get content stream: {}", e))?
-                .as_stream()
-                .map_err(|e| format!("Content object is not a stream: {}", e))?;
-            let data = stream
-                .decompressed_content()
-                .unwrap_or_else(|_| stream.content.clone());
-            content_data.extend(data);
+    // Parse MediaBox. Required per spec, but *inheritable* from the parent
+    // Pages node — a common layout that used to hard-fail the whole document
+    // with "Page missing MediaBox". Fall back to A4 with a warning.
+    let media_box = match get_inheritable_page_attr(page, doc, b"MediaBox") {
+        Some(obj) => match parse_rect(obj) {
+            Ok(r) => r,
+            Err(e) => {
+                warnings.push(PdfWarnMsg::warning(
+                    num,
+                    0,
+                    format!("Invalid MediaBox: {e}; defaulting to A4"),
+                ));
+                default_media_box()
+            }
+        },
+        None => {
+            warnings.push(PdfWarnMsg::warning(
+                num,
+                0,
+                "Page missing MediaBox (also not inherited); defaulting to A4".to_string(),
+            ));
+            default_media_box()
         }
-        Object::Array(arr) => {
+    };
+    // TrimBox and CropBox are optional (and inheritable); use MediaBox as default.
+    let trim_box = match get_inheritable_page_attr(page, doc, b"TrimBox").map(parse_rect) {
+        Some(Ok(r)) => r,
+        _ => media_box.clone(),
+    };
+    let crop_box = match get_inheritable_page_attr(page, doc, b"CropBox").map(parse_rect) {
+        Some(Ok(r)) => r,
+        _ => media_box.clone(),
+    };
+
+    // Get the Contents entry (could be a reference, an array, or a stream).
+    // Contents is *optional* — a page without it is simply empty.
+    let mut content_data = Vec::new();
+    match page.get(b"Contents") {
+        Ok(Object::Array(arr)) => {
             for obj in arr {
-                if let Object::Reference(r) = obj {
-                    let stream = doc
-                        .get_object(*r)
-                        .map_err(|e| format!("Failed to get content stream: {}", e))?
-                        .as_stream()
-                        .map_err(|e| format!("Content object is not a stream: {}", e))?;
-                    let data = stream
-                        .decompressed_content()
-                        .unwrap_or_else(|_| stream.content.clone());
-                    content_data.extend(data);
-                } else {
-                    return Err("Content array element is not a reference".to_string());
+                append_content_stream(doc, obj, num, &mut content_data, warnings);
+            }
+        }
+        Ok(Object::Reference(r)) => {
+            // A /Contents reference may point at a stream *or* at an array of
+            // stream references.
+            match doc.get_object(*r) {
+                Ok(Object::Array(arr)) => {
+                    for obj in arr {
+                        append_content_stream(doc, obj, num, &mut content_data, warnings);
+                    }
+                }
+                Ok(other) => {
+                    append_content_stream(doc, other, num, &mut content_data, warnings);
+                }
+                Err(e) => {
+                    warnings.push(PdfWarnMsg::error(
+                        num,
+                        0,
+                        format!("Failed to get content stream: {}", e),
+                    ));
                 }
             }
         }
-        _ => {
-            // Try to interpret it as a stream.
-            let stream = contents_obj
-                .as_stream()
-                .map_err(|e| format!("Contents not a stream: {}", e))?;
-            let data = stream
-                .decompressed_content()
-                .unwrap_or_else(|_| stream.content.clone());
-            content_data.extend(data);
+        Ok(other) => {
+            append_content_stream(doc, other, num, &mut content_data, warnings);
+        }
+        Err(_) => {
+            warnings.push(PdfWarnMsg::info(
+                num,
+                0,
+                "Page has no /Contents (empty page)".to_string(),
+            ));
         }
     }
 
     // Decode the content stream into a vector of lopdf operations.
-    let content = lopdf::content::Content::decode(&content_data)
-        .map_err(|e| format!("Failed to decode content stream: {}", e))?;
-    let ops = content.operations;
+    // A page whose content stream fails to tokenize becomes an empty page
+    // with a warning instead of failing the entire document.
+    let ops = match lopdf::content::Content::decode(&content_data) {
+        Ok(content) => content.operations,
+        Err(e) => {
+            warnings.push(PdfWarnMsg::error(
+                num,
+                0,
+                format!("Failed to decode content stream: {}", e),
+            ));
+            Vec::new()
+        }
+    };
 
     // Convert lopdf operations to printpdf Ops.
-    let mut page_state = PageState::default();
+    let mut page_state = PageState {
+        font_decode: font_decode.clone(),
+        ..PageState::default()
+    };
     let mut printpdf_ops = Vec::new();
     for (op_id, op) in ops.iter().enumerate() {
         let parsed_op = parse_op(num, op_id, &op, &mut page_state, xobjects, warnings)?;
@@ -2247,7 +2440,7 @@ pub fn parse_op(
     op_id: usize,
     op: &lopdf::content::Operation,
     state: &mut PageState,
-    _xobjects: &BTreeMap<XObjectId, XObject>,
+    xobjects: &BTreeMap<XObjectId, XObject>,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> Result<Vec<Op>, String> {
     use crate::units::Pt;
@@ -3389,13 +3582,85 @@ pub fn parse_op(
         }
 
         // --- XObjects: /Do ---
+        // --- Show text with line advance (' and ") ---
+        // These show text exactly like Tj; leaving them unhandled turned them
+        // into `Op::Unknown`, which the (default, `secure`) serializer drops —
+        // deleting the text from the round-tripped document.
+        "'" => {
+            if let Some(lopdf::Object::String(bytes, _)) = op.operands.get(0) {
+                let text = decode_show_text_to_string(
+                    bytes,
+                    state.current_font_decode.as_ref(),
+                    page,
+                    op_id,
+                    warnings,
+                );
+                out_ops.push(Op::MoveToNextLineShowText { text });
+            } else {
+                warnings.push(PdfWarnMsg::error(
+                    page,
+                    op_id,
+                    "Warning: `'` operand is not a string".to_string(),
+                ));
+            }
+        }
+        "\"" => {
+            if op.operands.len() == 3 {
+                let word_spacing = to_f32(&op.operands[0]);
+                let char_spacing = to_f32(&op.operands[1]);
+                if let lopdf::Object::String(bytes, _) = &op.operands[2] {
+                    let text = decode_show_text_to_string(
+                        bytes,
+                        state.current_font_decode.as_ref(),
+                        page,
+                        op_id,
+                        warnings,
+                    );
+                    out_ops.push(Op::SetSpacingMoveAndShowText {
+                        word_spacing,
+                        char_spacing,
+                        text,
+                    });
+                } else {
+                    warnings.push(PdfWarnMsg::error(
+                        page,
+                        op_id,
+                        "Warning: `\"` third operand is not a string".to_string(),
+                    ));
+                }
+            } else {
+                warnings.push(PdfWarnMsg::error(
+                    page,
+                    op_id,
+                    format!("Warning: `\"` expects 3 operands, got {}", op.operands.len()),
+                ));
+            }
+        }
+
+        // Paint a named /Shading resource over the current clip. Parsed into the
+        // typed op so the default (`secure`) save no longer deletes it as
+        // `Op::Unknown` — gradients used to vanish on every round trip.
+        "sh" => {
+            if let Some(name_str) = as_name(&op.operands.get(0).unwrap_or(&lopdf::Object::Null)) {
+                out_ops.push(Op::PaintShading {
+                    id: crate::ShadingId(name_str),
+                });
+            }
+        }
+
         "Do" => {
             if let Some(name_str) = as_name(&op.operands.get(0).unwrap_or(&lopdf::Object::Null)) {
                 let xobj_id = crate::XObjectId(name_str);
-                // For simplicity, we ignore any transform that was previously set via `cm`.
+                // The document's own `cm` operators (already emitted as
+                // `Op::SetTransformationMatrix`) fully position this XObject —
+                // tell the serializer not to add its unit-square → pixel-size
+                // convenience scale on top (it would scale the image twice).
                 out_ops.push(Op::UseXobject {
                     id: xobj_id,
-                    transform: crate::xobject::XObjectTransform::default(),
+                    transform: crate::xobject::XObjectTransform {
+                        no_auto_scale: true,
+                        ..Default::default()
+                    },
                 });
             }
         }
@@ -4362,10 +4627,11 @@ mod extgstate {
 
 mod parsefont {
     use std::collections::BTreeMap;
+    use std::sync::Arc;
 
     use lopdf::{Dictionary, Document, Object};
 
-    use super::ParsedOrBuiltinFont;
+    use super::{ParsedExternalFont, ParsedOrBuiltinFont};
     use crate::{
         cmap::ToUnicodeCMap,
         deserialize::{get_dict_or_resolve_ref, PdfWarnMsg},
@@ -4486,13 +4752,16 @@ mod parsefont {
                             ParsedOrBuiltinFont::B(builtin)
                         );
                     },
-                    Some(ParsedOrBuiltinFont::P(parsed_font, _)) => {
+                    Some(ParsedOrBuiltinFont::P(p)) => {
                         fonts_map.insert(
                             font_id,
-                            ParsedOrBuiltinFont::P(parsed_font, to_unicode_cmap)
+                            ParsedOrBuiltinFont::P(ParsedExternalFont {
+                                to_unicode: to_unicode_cmap.map(Arc::new),
+                                ..p
+                            })
                         );
                     },
-                    None => {}
+                    Some(ParsedOrBuiltinFont::CidStub(_)) | None => {}
                 }
             }
         }
@@ -4792,27 +5061,82 @@ mod parsefont {
                 {
                     match process_type1_font(doc, font_dict, font_id, warnings, page_num) {
                         Some(parsed_font) => {
-                            Some(ParsedOrBuiltinFont::P(parsed_font, None))
+                            Some(ParsedOrBuiltinFont::P(ParsedExternalFont {
+                                font: parsed_font,
+                                to_unicode: None,
+                                is_cid: false,
+                            }))
                         },
                         None => {
+                            let substitute = builtin_substitute(&basefont);
                             warnings.push(PdfWarnMsg::warning(
                                 page_num,
                                 0,
-                                format!("Unknown base font: {}", basefont),
+                                format!(
+                                    "Font {} ({}) has no embedded font program; substituting \
+                                     builtin {:?}",
+                                    font_id.0, basefont, substitute
+                                ),
                             ));
-                            None
+                            Some(ParsedOrBuiltinFont::B(substitute))
                         }
                     }
                 }
                 #[cfg(not(feature = "text_layout"))]
                 {
+                    let substitute = builtin_substitute(&basefont);
                     warnings.push(PdfWarnMsg::warning(
                         page_num,
                         0,
-                        format!("Unknown base font: {}", basefont),
+                        format!(
+                            "Font {} ({}) has no embedded font program; substituting builtin \
+                             {:?}",
+                            font_id.0, basefont, substitute
+                        ),
                     ));
-                    None
+                    Some(ParsedOrBuiltinFont::B(substitute))
                 }
+            }
+        }
+    }
+
+    /// Pick the closest standard-14 font for a simple font that is not
+    /// embedded in the document (`Arial`, `TimesNewRomanPSMT`, ...). Rendering
+    /// with a substitute face keeps the text readable and re-encodable; the
+    /// alternative — dropping the font — turns every string that uses it into
+    /// dangling glyph ids on re-save.
+    fn builtin_substitute(basefont: &str) -> BuiltinFont {
+        use crate::BuiltinFont::*;
+        // Strip the "ABCDEF+" subset prefix if present.
+        let name = basefont.rsplit('+').next().unwrap_or(basefont).to_ascii_lowercase();
+        let bold = name.contains("bold");
+        let italic = name.contains("italic") || name.contains("oblique");
+        if name.contains("times") || name.contains("serif") || name.contains("georgia")
+            || name.contains("garamond") || name.contains("book")
+        {
+            match (bold, italic) {
+                (true, true) => TimesBoldItalic,
+                (true, false) => TimesBold,
+                (false, true) => TimesItalic,
+                (false, false) => TimesRoman,
+            }
+        } else if name.contains("courier") || name.contains("mono") || name.contains("consol") {
+            match (bold, italic) {
+                (true, true) => CourierBoldOblique,
+                (true, false) => CourierBold,
+                (false, true) => CourierOblique,
+                (false, false) => Courier,
+            }
+        } else if name.contains("symbol") {
+            Symbol
+        } else if name.contains("zapf") || name.contains("dingbat") {
+            ZapfDingbats
+        } else {
+            match (bold, italic) {
+                (true, true) => HelveticaBoldOblique,
+                (true, false) => HelveticaBold,
+                (false, true) => HelveticaOblique,
+                (false, false) => Helvetica,
             }
         }
     }
