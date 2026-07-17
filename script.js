@@ -447,6 +447,18 @@ document.querySelectorAll('.tabbar .tab').forEach(btn => {
     });
 });
 
+// Sidebar mode switcher (Pages / Layers / Bookmarks). These buttons had no
+// handler, so the Layers and Bookmarks panels were unreachable.
+document.querySelectorAll('.sidebar-modes button').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const mode = btn.dataset.mode;
+        document.querySelectorAll('.sidebar-modes button').forEach(b => b.classList.toggle('active', b === btn));
+        for (const m of ['minimap', 'layers', 'bookmarks']) {
+            $(`${m}-view`).hidden = m !== mode;
+        }
+    });
+});
+
 on('theme-toggle', 'click', () => {
     const root = document.documentElement;
     const dark = matchMedia('(prefers-color-scheme: dark)').matches;
