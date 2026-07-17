@@ -128,8 +128,15 @@ impl RawImage {
         bytes: &[u8],
         warnings: &mut Vec<PdfWarnMsg>,
     ) -> Result<Self, String> {
-        // Try browser-native decoding first for better format support
-        #[cfg(all(feature = "js-sys", target_family = "wasm"))]
+        // Try browser-native decoding first for better format support.
+        // p1/p2 excluded (like src/date.rs): wasi is target_family = "wasm" too, and
+        // compiling the browser path there puts `window`/canvas imports into a binary
+        // no wasi runtime can instantiate. The portable fallback below covers it.
+        #[cfg(all(
+            feature = "js-sys",
+            target_arch = "wasm32",
+            not(any(target_env = "p1", target_env = "p2"))
+        ))]
         {
             warnings.push(PdfWarnMsg::info(
                 0,
@@ -509,7 +516,11 @@ impl RawImage {
         &self,
         target_fmt: &[OutputImageFormat],
     ) -> Result<(Vec<u8>, OutputImageFormat), String> {
-        #[cfg(all(feature = "js-sys", target_family = "wasm"))]
+        #[cfg(all(
+            feature = "js-sys",
+            target_arch = "wasm32",
+            not(any(target_env = "p1", target_env = "p2"))
+        ))]
         for f in target_fmt {
             if let Ok(bytes) = browser_image::encode_image_with_browser(self, *f).await {
                 return Ok((bytes, *f));
@@ -1748,7 +1759,11 @@ fn f32vec_to_u8(data: Vec<f32>) -> Vec<u8> {
     data.iter().flat_map(|us| us.to_be_bytes()).collect()
 }
 
-#[cfg(all(feature = "js-sys", target_family = "wasm"))]
+#[cfg(all(
+    feature = "js-sys",
+    target_arch = "wasm32",
+    not(any(target_env = "p1", target_env = "p2"))
+))]
 mod browser_image {
 
     use js_sys::{Array, Uint8Array};
