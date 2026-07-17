@@ -59,13 +59,14 @@ export const scenarios = [
     {
         name: '01-boot',
         async run(page) {
+            // Module loaded and ran to the point of exposing its state, with no
+            // boot error surfaced in the error bar.
             await page.waitForFunction(
-                () => document.getElementById('wasm-status')?.classList.contains('badge-ok')
-                    || document.getElementById('wasm-status')?.classList.contains('badge-error'),
+                () => window.__printpdf_state !== undefined,
                 { timeout: 120000 },
             );
-            const cls = await page.$eval('#wasm-status', el => el.className + ' | ' + el.title);
-            if (cls.includes('badge-error')) throw new Error(`wasm failed to init: ${cls}`);
+            const err = await page.$eval('#viewer-error', el => el.hidden ? '' : el.textContent);
+            if (err) throw new Error(`boot error: ${err.slice(0, 200)}`);
         },
     },
     {
@@ -99,10 +100,18 @@ export const scenarios = [
     {
         name: '04-download-pdf',
         async run(page, ctx) {
+            // Switch to the recipe (embeds a photo) so this guards the image-size
+            // regression: without image optimization it was ~6 MB.
+            const before = await page.evaluate(() => window.__printpdf_state.renderCount);
+            await page.select('#html-examples', 'recipe');
+            await page.waitForFunction((n) => window.__printpdf_state.renderCount > n,
+                { timeout: 90000 }, before);
             downloadedPdf = await captureDownload(page, ctx.out, async () => {
                 await page.click('#save-pdf');
             });
-            console.log(`   downloaded: ${downloadedPdf}`);
+            const size = (await stat(downloadedPdf)).size;
+            console.log(`   downloaded: ${downloadedPdf} (${(size / 1024).toFixed(0)} KB)`);
+            if (size > 1_500_000) throw new Error(`PDF with one photo is ${size} bytes; image optimization off?`);
         },
     },
     {
