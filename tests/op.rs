@@ -47,13 +47,28 @@ fn test_op_graphics_state() {
 
 #[test]
 fn test_op_layer() {
+    // `BeginOptionalContent` and `BeginLayer` both serialize to `BDC /OC /X`,
+    // so the parser cannot tell them apart. It deliberately returns
+    // `BeginLayer`: that is the op the serializer correlates with the page's
+    // /Properties dictionary, which keeps the layer reference resolvable
+    // across a save/parse round trip.
     let layer_id = LayerInternalId::new();
-    assert!(test_op(
-        Op::BeginOptionalContent {
-            layer_id: layer_id.clone()
-        },
-        "begin_optional_content"
+    let mut doc = PdfDocument::new("test_begin_optional_content");
+    doc.pages.push(PdfPage::new(
+        Mm(210.0),
+        Mm(297.0),
+        vec![Op::BeginOptionalContent {
+            layer_id: layer_id.clone(),
+        }],
     ));
+    let bytes = doc.save(&PdfSaveOptions::default(), &mut Vec::new());
+    let parsed = PdfDocument::parse(&bytes, &PdfParseOptions::default(), &mut Vec::new()).unwrap();
+    pretty_assertions::assert_eq!(
+        parsed.pages[0].ops,
+        vec![Op::BeginLayer {
+            layer_id: layer_id.clone()
+        }]
+    );
 }
 
 #[test]
