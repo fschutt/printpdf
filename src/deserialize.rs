@@ -1833,6 +1833,16 @@ pub struct PageState {
     /// Current transformation matrix stack. Each entry is a 6-float array [a b c d e f].
     pub transform_stack: Vec<[f32; 6]>,
 
+    /// Absolute text line position (the translation of the PDF text line matrix
+    /// Tlm), tracked so the RELATIVE `Td` operator can be emitted as an absolute
+    /// `SetTextCursor`. Without this, `50 700 Td … 0 -14 Td` (second line
+    /// relative) parsed the second move as absolute `(0, -14)`, dropping every
+    /// continuation line to the page's left edge. Reset by `BT`, set by `Tm`.
+    pub text_line: [f32; 2],
+    /// Text leading (from `TL`/`TD`), so `T*` advances the tracked line by the
+    /// right amount.
+    pub text_leading: f32,
+
     /// Name of the current marked content, if any (set by BMC/BDC)
     pub current_marked_content: Vec<String>,
 
@@ -2803,11 +2813,14 @@ pub fn parse_op(
             }
         }
         "T*" => {
+            // Move to the start of the next line: keep x, drop y by the leading.
+            state.text_line[1] -= state.text_leading;
             out_ops.push(Op::AddLineBreak);
         }
         "TL" => {
             if op.operands.len() == 1 {
                 let val = to_f32(&op.operands[0]);
+                state.text_leading = val;
                 out_ops.push(Op::SetLineHeight { lh: Pt(val) });
             } else {
                 warnings.push(PdfWarnMsg::error(
@@ -2857,8 +2870,12 @@ pub fn parse_op(
         }
         "TD" => {
             if op.operands.len() == 2 {
+                // TD = Td + set leading to -ty. Relative move; track it and the leading.
                 let tx = to_f32(&op.operands[0]);
                 let ty = to_f32(&op.operands[1]);
+                state.text_line[0] += tx;
+                state.text_line[1] += ty;
+                state.text_leading = -ty;
                 out_ops.push(Op::MoveTextCursorAndSetLeading { tx, ty });
             } else {
                 warnings.push(PdfWarnMsg::error(
@@ -2876,8 +2893,9 @@ pub fn parse_op(
                 let d = to_f32(&op.operands[3]);
                 let e = to_f32(&op.operands[4]);
                 let f = to_f32(&op.operands[5]);
-                // Optionally update a field in PageState (e.g. state.current_text_matrix)
-                // if you want to track the current text transformation.
+                // Tm sets the text line matrix absolutely; track its translation
+                // so a following relative `Td` accumulates from here.
+                state.text_line = [e, f];
                 out_ops.push(Op::SetTextMatrix {
                     matrix: TextMatrix::Raw([a, b, c, d, e, f]),
                 });
@@ -2956,8 +2974,9 @@ pub fn parse_op(
         }
 
         "BT" => {
-            // --- Text mode begin
+            // --- Text mode begin (BT resets the text + text line matrix to identity)
             state.in_text_mode = true;
+            state.text_line = [0.0, 0.0];
             out_ops.push(Op::StartTextSection);
         }
         "ET" => {
@@ -3038,12 +3057,17 @@ pub fn parse_op(
         // --- Move text cursor (Td) ---
         "Td" => {
             if op.operands.len() == 2 {
+                // `Td` is RELATIVE to the current text line matrix. Accumulate it
+                // into the absolute line position and emit an absolute cursor,
+                // since printpdf's SetTextCursor is absolute.
                 let tx = to_f32(&op.operands[0]);
                 let ty = to_f32(&op.operands[1]);
+                state.text_line[0] += tx;
+                state.text_line[1] += ty;
                 out_ops.push(Op::SetTextCursor {
                     pos: crate::graphics::Point {
-                        x: crate::units::Pt(tx),
-                        y: crate::units::Pt(ty),
+                        x: crate::units::Pt(state.text_line[0]),
+                        y: crate::units::Pt(state.text_line[1]),
                     },
                 });
             }
