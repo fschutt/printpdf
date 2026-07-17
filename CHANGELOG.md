@@ -61,6 +61,18 @@ every push (`demo-e2e.yml`), with poppler validating the downloaded files. Pages
 deploys (`static.yml`) now ship the exact build the e2e suite tested, automatically on
 release tags.
 
+**`PdfPage::to_svg` (the page preview) renders text again.** It had three compounding
+bugs: the glyph position was applied twice (once as `<text>` attributes, once in the
+transform) with a wrong Y-flip that threw every glyph ~800 pt off the top of the page;
+the current font was never recorded so all text used the Times builtin; and the
+`@font-face` embedded the PDF *subset* (which drops `OS/2`/`name`/`post`), which
+browsers reject. Text now renders upright, on-page, in the embedded font, and stays
+selectable. (A re-parsed document whose only font is a subset still falls back in the
+browser preview, since a subset is not a valid webfont; the PDF itself is unaffected.)
+The demo also gained a browser HTML reference view, in-browser font/image extraction
+from a parsed PDF, and image optimization on save (a one-photo document dropped from
+~6 MB to ~150 KB).
+
 Housekeeping: `Op::UseXobject` transforms grew `no_auto_scale` (parsed content already
 carries its placement; the parser previously had to emit a reciprocal scale to cancel
 the automatic one), saving a document containing images without any image-format
