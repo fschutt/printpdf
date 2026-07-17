@@ -1,5 +1,72 @@
 # Changelog
 
+## `0.12.0`
+
+The release where the parser grew up, the wasm demo came back from the dead, and the
+whole thing is verified end-to-end in a headless browser on every push.
+
+**Requires `azul-layout 0.0.11` and `rust-fontconfig 4.4.6`** — both carry one fix
+each for the same class of bug: `std::time::Instant::now()` aborts on browser wasm
+("time not implemented on this platform"), and both crates read the clock on the font
+path that every HTML render touches. Font LRU stamps now use an atomic counter on
+wasm; registry wait-deadlines are born expired there (no scout threads exist to wait
+for). This is what made every wasm render of 0.10/0.11 die on the first shaped glyph —
+CI only ever *compiled* wasm, so nothing noticed until the demo actually ran.
+
+**PDF parsing / round-trip, rewritten where it lied.** Text decoding no longer guesses
+code width from string byte-parity — it is resolved per font at `Tf` (builtin/simple
+fonts decode per byte through ToUnicode-else-WinAnsi; Type0 through 2-byte gids with
+per-glyph Unicode carried from the ToUnicode CMap, synthesized from the font's own cmap
+when the PDF has none). Form XObjects, undecodable images and printpdf's own
+FlateDecode raw bitmaps (with `/SMask` alpha) survive parsing instead of being dropped;
+MediaBox inherits through the page tree; `'`/`"` operators, link annotations
+(`/Rect` was misread), layers (`/Properties` names now correlate — no more "Marked
+Content unknown"), and `/Shading` resources + `sh` ops (axial/radial with
+exponential/stitching functions) all round-trip. Embedded fonts named `F1`–`F14` are no
+longer mistaken for the builtin standard-14 on either parse or save (that was instant
+mojibake for foreign PDFs). The ToUnicode CMap parser is a real tokenizer now:
+single-line CMaps, multi-codepoint bfchar targets, surrogate pairs — a ligature no
+longer kills the whole CMap, and regenerated CMaps keep full multi-char targets
+("Configure" copy-pastes with its "fi" intact). Ten corpus PDFs round-trip
+visually identical with text surviving `pdftotext`, twice.
+
+**Font subsetting fixed at the root.** The original→subset glyph renumbering comes from
+the subsetter's own input-order mapping instead of being "recovered" through the subset
+cmap — shaper-substituted glyphs (ligatures, digit alternates) have no cmap entry, so
+list markers and page numbers rendered as ☒ tofu and ligatures fell back to their first
+letter. Inline-span backgrounds also no longer paint over their own text (the bridge
+now flushes text at azul's own paint position).
+
+**SVG conversion is self-contained and Acrobat-clean.** The svg2pdf page's full
+`/Resources` subtree (ColorSpace dictionaries, ExtGState, Pattern, Shading, Fonts) is
+carried into the Form XObject with every indirect reference inlined and streams hoisted
+back to indirect objects at write time; the content stream is byte-preserved instead of
+lossily re-parsed (`/p0 scn` used to come back as `0 g` — solid black). Gradients,
+tiling patterns, transparency groups and clip paths render correctly (poppler error
+count on the tiger: ~600 → 0), and `<text>` without a resolvable font-family is a loud
+warning instead of a silent drop.
+
+**The wasm demo is rebuilt and continuously tested.** New endpoints:
+`Pdf_RegisterFonts` (register default fonts once instead of resending ~10 MB of base64
+per keystroke) and `Pdf_DecodeImage` (images/signatures decode to the document's
+`RawImage` JSON — the sign tab was impossible without it). Pixel data serializes as
+base64 (`{"u8b64": …}`) instead of JSON number arrays — a 1024×1024 RGBA signature went
+from ~16 MB of JSON to ~5.6 MB, and the old array format stays readable forever. The
+API returns a structured error envelope even when the *response* fails to serialize
+(it used to return an empty string). The demo page itself is new (tabs, live preview,
+minimap, warnings drawer, dark mode) with every JS↔wasm wire-format mismatch fixed,
+and `tests/e2e/` drives the real UI in headless Chrome — boot, render with fonts,
+image embedding, download, re-upload of our own PDF, signature stamping, save — on
+every push (`demo-e2e.yml`), with poppler validating the downloaded files. Pages
+deploys (`static.yml`) now ship the exact build the e2e suite tested, automatically on
+release tags.
+
+Housekeeping: `Op::UseXobject` transforms grew `no_auto_scale` (parsed content already
+carries its placement; the parser previously had to emit a reciprocal scale to cancel
+the automatic one), saving a document containing images without any image-format
+feature writes raw FlateDecode pixels instead of panicking, and `get_external_font_ids`
+returns real ids instead of a stub (page previews finally receive their fonts).
+
 ## `0.11.2`
 
 0.11.0 and 0.11.1 could be **impossible to install**, depending entirely on the
