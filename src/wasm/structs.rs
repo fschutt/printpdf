@@ -37,10 +37,12 @@ pub struct HtmlToDocumentOutput {
 #[cfg(feature = "html")]
 pub fn html_to_document(input: HtmlToDocumentInput) -> Result<HtmlToDocumentOutput, String> {
     let mut warnings = Vec::new();
+    // Fonts registered via `Pdf_RegisterFonts` participate in every render.
+    let fonts = fonts_with_registered(&input.fonts);
     let pdf = PdfDocument::from_html(
         &input.html,
         &input.images,
-        &input.fonts,
+        &fonts,
         &input.options,
         &mut warnings,
     )?;
@@ -60,10 +62,12 @@ pub async fn html_to_document_async(
     input: HtmlToDocumentInput,
 ) -> Result<HtmlToDocumentOutput, String> {
     let mut warnings = Vec::new();
+    // Fonts registered via `Pdf_RegisterFonts` participate in every render.
+    let fonts = fonts_with_registered(&input.fonts);
     let pdf = PdfDocument::from_html(
         &input.html,
         &input.images,
-        &input.fonts,
+        &fonts,
         &input.options,
         &mut warnings,
     )?;
@@ -251,4 +255,116 @@ pub async fn page_to_svg_async(input: PageToSvgInput) -> Result<PageToSvgOutput,
     )
     .await;
     Ok(PageToSvgOutput { svg, warnings })
+}
+
+// --- Font registry: register once, use in every subsequent render -----------
+
+/// Fonts registered once via `Pdf_RegisterFonts` and merged under every
+/// `html_to_document` call's own fonts (per-call entries win on name clash).
+///
+/// The demo page carries ~10 MB of default fonts; before this registry existed,
+/// script.js re-sent all of them inside the input JSON on every re-render —
+/// i.e. on every keystroke.
+static REGISTERED_FONTS: std::sync::Mutex<BTreeMap<String, Vec<u8>>> =
+    std::sync::Mutex::new(BTreeMap::new());
+
+/// Registry fonts (as `Raw`) overlaid with the call's own fonts.
+pub(crate) fn fonts_with_registered(
+    input_fonts: &BTreeMap<String, Base64OrRaw>,
+) -> BTreeMap<String, Base64OrRaw> {
+    let mut merged: BTreeMap<String, Base64OrRaw> = REGISTERED_FONTS
+        .lock()
+        .map(|reg| {
+            reg.iter()
+                .map(|(k, v)| (k.clone(), Base64OrRaw::Raw(v.clone())))
+                .collect()
+        })
+        .unwrap_or_default();
+    for (k, v) in input_fonts {
+        merged.insert(k.clone(), v.clone());
+    }
+    merged
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
+pub struct RegisterFontsInput {
+    /// Fonts to keep registered ("Roboto.ttf" => Base64String or raw bytes).
+    #[serde(default)]
+    pub fonts: BTreeMap<String, Base64OrRaw>,
+    /// Clear all previously registered fonts first.
+    #[serde(default)]
+    pub replace: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct RegisterFontsOutput {
+    /// Number of fonts (de)registered by this call
+    pub registered: usize,
+    /// Total number of fonts now in the registry
+    pub total: usize,
+}
+
+pub fn register_fonts(input: RegisterFontsInput) -> Result<RegisterFontsOutput, String> {
+    let mut reg = REGISTERED_FONTS
+        .lock()
+        .map_err(|_| "font registry lock poisoned".to_string())?;
+    if input.replace {
+        reg.clear();
+    }
+    let mut registered = 0;
+    for (name, b) in &input.fonts {
+        let bytes = b
+            .decode_bytes()
+            .map_err(|e| format!("font {name:?}: {e}"))?;
+        reg.insert(name.clone(), bytes);
+        registered += 1;
+    }
+    Ok(RegisterFontsOutput {
+        registered,
+        total: reg.len(),
+    })
+}
+
+pub async fn register_fonts_async(
+    input: RegisterFontsInput,
+) -> Result<RegisterFontsOutput, String> {
+    register_fonts(input)
+}
+
+// --- Image decoding (for the sign-pdf / add-image flows) --------------------
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct DecodeImageInput {
+    /// Encoded image file (PNG/JPEG/... — whatever image-format features are enabled)
+    pub bytes: Base64OrRaw,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct DecodeImageOutput {
+    /// The decoded image as the `RawImage` JSON the document model uses in
+    /// `resources.xobjects` — insert it there and reference it with a
+    /// `use-xobject` op.
+    pub image: crate::RawImage,
+    #[serde(default)]
+    pub warnings: Vec<PdfWarnMsg>,
+}
+
+/// Decode an image file into the `RawImage` JSON shape. This closes the API gap
+/// that made the demo's sign-pdf tab impossible: JS had no way to turn an
+/// uploaded image into the pixel-level `RawImage` the document model requires.
+#[cfg(feature = "images")]
+pub fn decode_image(input: DecodeImageInput) -> Result<DecodeImageOutput, String> {
+    let bytes = input.bytes.decode_bytes()?;
+    let mut warnings = Vec::new();
+    let image = crate::RawImage::decode_from_bytes(&bytes, &mut warnings)?;
+    Ok(DecodeImageOutput { image, warnings })
+}
+
+#[cfg(not(feature = "images"))]
+pub fn decode_image(_input: DecodeImageInput) -> Result<DecodeImageOutput, String> {
+    Err("Pdf_DecodeImage failed: no image format features enabled for printpdf crate".to_string())
+}
+
+pub async fn decode_image_async(input: DecodeImageInput) -> Result<DecodeImageOutput, String> {
+    decode_image(input)
 }
