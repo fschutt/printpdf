@@ -102,6 +102,20 @@ jobs:
       # (rust-fontconfig/multithreading, image/rayon) which require rayon and can't
       # compile on wasm. Check the broad wasm-safe feature set instead.
       - run: cargo check --verbose --target wasm32-wasip2 --features "gif,jpeg,png,pnm,tiff,bmp,ico,tga,hdr,dds,webp"
+      # The js-sys feature (browser canvas/Date paths, 16 cfg sites) was never built by
+      # any CI job — only docs.rs ever compiled it, and on a native target at that.
+      - run: cargo check --verbose --target wasm32-unknown-unknown --features js-sys
+
+  # docs.rs builds with --all-features (see [package.metadata.docs.rs]) on a native
+  # builder. Nothing else compiles that exact configuration, so keep it green here
+  # instead of finding out on the docs.rs build page after a release.
+  check-all-features-native:
+    name: Check --all-features on the docs.rs target
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo check --all-features --verbose
 
   # Verifies the produced PDFs with poppler, which shares no code with printpdf.
   #
@@ -120,6 +134,63 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y poppler-utils
       - run: pdffonts -v && pdftotext -v
       - run: cargo test --features html --test external_tools --test font_embedding --test font -- --nocapture
+
+  # Builds the working tree the way a CONSUMER resolves it — fresh project, fresh
+  # lockfile, path-dependency on the checkout. A "today's freshest" resolution can land
+  # on the one dependency version that happens to work while the declared version
+  # *ranges* still admit broken graphs; every green job above proves only that single
+  # resolution. That is how #279 shipped: fresh resolution on a current toolchain picks
+  # time 0.3.53 and lopdf 0.44's `time` feature compiles, while any consumer whose
+  # lockfile predates time 0.3.48 (or whose MSRV-aware resolver walks below it) got a
+  # compile error inside lopdf. This job builds the consumer shape and then re-pins the
+  # known-bad dependency lines, keeping the once-shipped breakage scenarios red forever.
+  consumer-resolution:
+    name: Fresh consumer resolution (ignore committed lockfile)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { args: "" }
+          - { args: "--no-default-features" }
+          - { args: "--no-default-features --features jpeg", regression279: true }
+          - { args: "--no-default-features --features svg" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build as a consumer would (fresh lockfile, registry dependencies)
+        env:
+          ADD_ARGS: ${{ matrix.args }}
+        run: |
+          set -euo pipefail
+          cargo new "$RUNNER_TEMP/consumer"
+          cd "$RUNNER_TEMP/consumer"
+          # $ADD_ARGS is intentionally word-split.
+          cargo add printpdf --path "$GITHUB_WORKSPACE" $ADD_ARGS
+          cargo check
+      - name: "Regression: known-bad old pins in the consumer lockfile must still build"
+        if: matrix.regression279 == true
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/consumer"
+          # Both pins are printpdf's declared dependency FLOORS. A floor that does not
+          # compile is exactly how #279 shipped (lopdf's `time` feature broke on every
+          # time <= 0.3.47; pinning our 0.3.36 floor replays that scenario and more):
+          #   - time 0.3.36: declared floor; 0.3.25–0.3.35 fail inference on new rustc.
+          #   - image 0.25.2: declared floor; `image::ImageReader` first exists there.
+          # Pin failures (cargo refuses because the graph's floors moved) are skips,
+          # not errors — the scenario has become inexpressible, which is fine.
+          PINNED=false
+          if cargo update -p time --precise 0.3.36; then PINNED=true; else
+            echo "::notice::time 0.3.36 no longer pinnable in this graph — skipping that scenario."
+          fi
+          if cargo update -p image --precise 0.25.2; then PINNED=true; else
+            echo "::notice::image 0.25.2 no longer pinnable in this graph — skipping that scenario."
+          fi
+          if [ "$PINNED" = true ]; then
+            cargo check
+          fi
 
   # THE RELEASE GATE.
   #
@@ -152,6 +223,22 @@ jobs:
             exit 1
           fi
           echo "no [patch] section — what we build is what we publish"
+      - name: Package size stays under the crates.io cap
+        run: |
+          set -euo pipefail
+          # Everything under examples/assets is include_bytes!'d by tests/examples and
+          # must ship, which parks the package at ~87% of crates.io's 10 MiB limit. One
+          # carelessly added asset and `cargo publish` refuses mid-release. --no-verify:
+          # this step only measures; the jobs around it do the building.
+          cargo package --no-verify
+          CRATE=$(ls target/package/*.crate)
+          SIZE=$(stat -c%s "$CRATE")
+          LIMIT=10485760
+          echo "package: $CRATE = $SIZE bytes ($(( SIZE * 100 / LIMIT ))% of the crates.io limit)"
+          if [ "$SIZE" -gt $(( LIMIT * 95 / 100 )) ]; then
+            echo "::error::.crate is $SIZE bytes — over 95% of crates.io's $LIMIT-byte limit. Remove or shrink assets before releasing."
+            exit 1
+          fi
       - name: Dependency versions a published printpdf resolves to
         run: cargo tree --features html -i azul-layout || true
       - run: cargo test --features html --test external_tools --test font_embedding --test font --test no_text_layout || true

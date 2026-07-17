@@ -1,0 +1,198 @@
+# POST-RELEASE WATCHDOG.
+#
+# Everything in ci.yaml builds the WORKING TREE with whatever dependency resolution the
+# runner computes that day. A consumer installs the PUBLISHED ARTIFACT with their own
+# resolution — an existing workspace lockfile, an older toolchain, a different day's
+# registry. 0.11.0/0.11.1 shipped uninstallable exactly through that gap (#279): lopdf
+# 0.44's `time` feature only compiles against `time` >= 0.3.48, CI's fresh resolution
+# on a current toolchain picked 0.3.53 and stayed green, and every consumer whose
+# lockfile or MSRV-aware resolver landed on time <= 0.3.47 got a compile error in lopdf.
+#
+# This workflow closes the gap AFTER the fact: it installs the *published crates.io
+# artifact* into a pristine project, with no checkout and no lockfile, the way a consumer
+# does. It runs:
+#
+#   - on every push to master:  verifies the version currently named in Cargo.toml, i.e.
+#     the release commit for 0.11.x goes RED within minutes if that release is broken.
+#     For commits whose message starts with "release", it polls crates.io for up to
+#     20 minutes (publish and push order is not fixed) and FAILS if the version never
+#     appears — a release commit asserts a release exists.
+#   - daily (cron): verifies the latest published version against the CURRENT dependency
+#     ecosystem. A new release of any dependency in our semver ranges can break
+#     resolution without any commit here; this is the only job that notices.
+#   - manually (workflow_dispatch), optionally for an explicit version.
+name: Post-release checks
+
+on:
+  push:
+    branches: [master]
+  schedule:
+    # Daily. Failures show up in the Actions tab and trigger GitHub's failure emails.
+    - cron: "43 5 * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "printpdf version to verify (default: Cargo.toml version)"
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: post-release-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
+
+env:
+  # Sparse-index entry for printpdf: one JSON line per published version, with `yanked`.
+  # Unauthenticated, uncached-enough, and much friendlier than the crates.io API.
+  INDEX_URL: https://index.crates.io/pr/in/printpdf
+
+jobs:
+  resolve:
+    name: Resolve release version
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.pick.outputs.version }}
+      published: ${{ steps.pick.outputs.published }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pick the version to verify and confirm it is on crates.io
+        id: pick
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          # Via env, not inline interpolation: commit messages are attacker-ish input
+          # (quotes, backticks) and must not be spliced into the script text.
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+
+          manifest_version() {
+            cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version'
+          }
+
+          case "$EVENT_NAME" in
+            workflow_dispatch)
+              VERSION="${INPUT_VERSION:-$(manifest_version)}"
+              ;;
+            schedule)
+              # Latest published, not Cargo.toml: between releases these are the same,
+              # and right after a publish the cron should test what consumers get.
+              VERSION=$(curl -fsSL "$INDEX_URL" | jq -r 'select(.yanked | not) | .vers' | sort -V | tail -1)
+              ;;
+            *)
+              VERSION=$(manifest_version)
+              ;;
+          esac
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          is_published() {
+            # -e: nonzero exit when the version is absent (or only present yanked).
+            curl -fsSL "$INDEX_URL" \
+              | jq -e --arg v "$VERSION" 'select(.vers == $v and (.yanked | not))' > /dev/null
+          }
+
+          # A push whose head commit message starts with "release" claims this version
+          # is being published right now — wait for the index instead of skipping.
+          RELEASE_COMMIT=false
+          if [ "$EVENT_NAME" = "push" ] \
+             && printf '%s' "$HEAD_COMMIT_MESSAGE" | head -n1 | grep -qi '^release'; then
+            RELEASE_COMMIT=true
+          fi
+
+          ATTEMPTS=1
+          if [ "$RELEASE_COMMIT" = true ]; then
+            ATTEMPTS=40 # x 30s = 20 minutes
+          fi
+
+          PUBLISHED=false
+          for i in $(seq 1 "$ATTEMPTS"); do
+            if is_published; then
+              PUBLISHED=true
+              break
+            fi
+            [ "$i" -lt "$ATTEMPTS" ] && sleep 30
+          done
+
+          echo "published=$PUBLISHED" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Post-release check: printpdf \`$VERSION\`"
+            echo ""
+            echo "- on crates.io (not yanked): **$PUBLISHED**"
+            echo "- trigger: \`$EVENT_NAME\`, release commit: \`$RELEASE_COMMIT\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$RELEASE_COMMIT" = true ] && [ "$PUBLISHED" = false ]; then
+            echo "::error::Commit message says 'release', but printpdf $VERSION never appeared on crates.io (waited 20 minutes). Publish failed or the version was not bumped."
+            exit 1
+          fi
+          if [ "$PUBLISHED" = false ]; then
+            echo "::notice::printpdf $VERSION is not on crates.io — nothing to verify (normal for pre-release pushes)."
+          fi
+
+  # Install the published crate the way a consumer does: pristine project, no checkout,
+  # no lockfile, dependencies resolved fresh from the registry at check time.
+  installable:
+    name: "consumer install: ${{ matrix.name }}"
+    needs: resolve
+    if: needs.resolve.outputs.published == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: "default features, linux", os: ubuntu-latest, args: "" }
+          - { name: "default features, windows", os: windows-latest, args: "" }
+          - { name: "default features, macos", os: macos-latest, args: "" }
+          - { name: "no default features", os: ubuntu-latest, args: "--no-default-features" }
+          # The exact repro from #279, plus a regression step below that re-checks it
+          # with an old `time` pinned in the consumer's lockfile.
+          - { name: "jpeg only (issue #279)", os: ubuntu-latest, args: "--no-default-features --features jpeg", regression279: true }
+          - { name: "all image formats", os: ubuntu-latest, args: "--no-default-features --features images,png,jpeg,gif,tiff,bmp,webp,ico,tga,hdr,dds,pnm" }
+          - { name: "svg", os: ubuntu-latest, args: "--no-default-features --features svg" }
+          - { name: "html_multithreaded", os: ubuntu-latest, args: "--no-default-features --features html_multithreaded" }
+          - { name: "default features, wasm32-unknown-unknown", os: ubuntu-latest, args: "", target: wasm32-unknown-unknown }
+    steps:
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target || '' }}
+      - name: cargo add printpdf@=${{ needs.resolve.outputs.version }} in a fresh project
+        shell: bash
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          ADD_ARGS: ${{ matrix.args }}
+          TARGET: ${{ matrix.target || '' }}
+        run: |
+          set -euo pipefail
+          cargo new "$RUNNER_TEMP/consumer"
+          cd "$RUNNER_TEMP/consumer"
+          # $ADD_ARGS is intentionally word-split.
+          cargo add "printpdf@=$VERSION" $ADD_ARGS
+          if [ -n "$TARGET" ]; then
+            cargo check --target "$TARGET"
+          else
+            cargo check
+          fi
+      - name: "Regression: known-bad old pins in the consumer lockfile must still build"
+        if: matrix.regression279 == true
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/consumer"
+          # Consumers rarely have a fresh lockfile, so the published crate must build
+          # at its declared dependency FLOORS — a floor that doesn't compile is exactly
+          # how #279 shipped (every time <= 0.3.47 broke inside lopdf's `time` feature).
+          # time 0.3.36 and image 0.25.2 are printpdf's declared floors.
+          # Unpinnable (floors moved) = skip; the scenario is then inexpressible.
+          PINNED=false
+          if cargo update -p time --precise 0.3.36; then PINNED=true; else
+            echo "::notice::time 0.3.36 no longer pinnable in this graph — skipping that scenario."
+          fi
+          if cargo update -p image --precise 0.25.2; then PINNED=true; else
+            echo "::notice::image 0.25.2 no longer pinnable in this graph — skipping that scenario."
+          fi
+          if [ "$PINNED" = true ]; then
+            cargo check
+          fi
