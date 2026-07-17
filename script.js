@@ -4,7 +4,7 @@
 //   { status: 0 | 1 | 2 | 3, data: <payload or error string> }
 // (0 ok, 1 bad input JSON, 2 operation failed, 3 output unserializable)
 //
-// Wire-format notes (these bit us before — see the 0.12 demo rework):
+// Wire-format notes (these bit us before - see the 0.12 demo rework):
 //   - GeneratePdfOptions fields are snake_case: page_width, margin_top, ...
 //   - PdfSaveOptions fields are snake_case: subset_fonts, image_optimization
 //   - XObjectTransform fields are snake_case: translate_x, scale_x, ... (Pt = plain number)
@@ -638,7 +638,10 @@ on('save-pdf', 'click', () => render(async () => {
     if (!state.doc) throw new Error('Nothing to save yet.');
     const data = await api(Pdf_DocumentToBytes, {
         doc: state.doc,
-        options: { subset_fonts: true },
+        // image_optimization re-encodes embedded images (Auto codec: JPEG for
+        // photos, alpha preserved via SMask). Without it a single photo embeds
+        // as multi-MB raw Flate pixels; the recipe example went 6 MB -> ~150 KB.
+        options: { subset_fonts: true, image_optimization: { quality: 0.85, auto_optimize: true } },
     });
     const b64 = typeof data.bytes === 'string' ? data.bytes : null;
     const bin = b64 ? atob(b64) : String.fromCharCode(...data.bytes);
