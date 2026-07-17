@@ -17,3 +17,8 @@ web/pdfjs-4.7.76-legacy-dist/*
 web/__MACOSX
 .DS_Store
 *.txt
+/default-fonts.js
+/tests/e2e/node_modules
+/tests/e2e/package.json
+/tests/e2e/package-lock.json
+/.cargo/

@@ -1,15 +1,25 @@
-name: Deploy static content to Pages
+# Deploys the wasm demo to GitHub Pages (https://fschutt.github.io/printpdf/).
+#
+# Runs on release tags and manually. The build is scripts/build-demo.sh — the
+# SAME script the demo-e2e workflow tests on every push, so what deploys is
+# what was tested. (The previous version of this workflow was manual-only and
+# regex-injected base64 fonts into script.js; the demo on Pages went 5 months
+# stale without anyone noticing, which is how the "save error" of early 2026
+# survived long after the underlying bug was fixed.)
+name: Deploy demo to Pages
+
 on:
+  push:
+    tags: ["v*"]
   workflow_dispatch:
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
-# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
+# Allow only one concurrent deployment; never cancel an in-progress production
+# deploy.
 concurrency:
   group: "pages"
   cancel-in-progress: false
@@ -20,80 +30,27 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          target: wasm32-unknown-unknown
-          toolchain: stable
-      - name: Install wasm-pack
-        run: cargo install wasm-pack
-      - name: wasm-pack build
-        run: wasm-pack build --target web --no-pack --no-typescript --dev --no-default-features --features "html,js-sys,gif,jpeg,png,pnm,tiff,bmp,webp"
-      - name: Inject default fonts into script.js
+          targets: wasm32-unknown-unknown
+      - name: Install wasm-pack (prebuilt)
         run: |
-          # Base64 encode fonts for WASM (no filesystem access)
-          HELVETICA_B64=$(base64 -w 0 examples/assets/fonts/Helvetica.ttf)
-          HELVETICA_BOLD_B64=$(base64 -w 0 examples/assets/fonts/Helvetica-Bold.ttf)
-          HELVETICA_OBLIQUE_B64=$(base64 -w 0 examples/assets/fonts/Helvetica-Oblique.ttf)
-          HELVETICA_BOLD_OBLIQUE_B64=$(base64 -w 0 examples/assets/fonts/Helvetica-BoldOblique.ttf)
-          TIMES_B64=$(base64 -w 0 examples/assets/fonts/Times.ttf)
-          TIMES_BOLD_B64=$(base64 -w 0 examples/assets/fonts/Times-Bold.ttf)
-          TIMES_OBLIQUE_B64=$(base64 -w 0 examples/assets/fonts/Times-Oblique.ttf)
-          TIMES_BOLD_OBLIQUE_B64=$(base64 -w 0 examples/assets/fonts/Times-BoldOblique.ttf)
-          COURIER_B64=$(base64 -w 0 examples/assets/fonts/Courier.ttf)
-          COURIER_BOLD_B64=$(base64 -w 0 examples/assets/fonts/Courier-Bold.ttf)
-          COURIER_OBLIQUE_B64=$(base64 -w 0 examples/assets/fonts/Courier-Oblique.ttf)
-          COURIER_BOLD_OBLIQUE_B64=$(base64 -w 0 examples/assets/fonts/Courier-BoldOblique.ttf)
-          NOTO_SANS_JP_B64=$(base64 -w 0 examples/assets/fonts/NotoSansJP-Regular.otf)
-          ROBOTO_B64=$(base64 -w 0 examples/assets/fonts/RobotoMedium.ttf)
-          
-          # Create the font object content
-          FONT_OBJECT="\"Helvetica.ttf\": \"$HELVETICA_B64\",
-              \"Helvetica-Bold.ttf\": \"$HELVETICA_BOLD_B64\",
-              \"Helvetica-Oblique.ttf\": \"$HELVETICA_OBLIQUE_B64\",
-              \"Helvetica-BoldOblique.ttf\": \"$HELVETICA_BOLD_OBLIQUE_B64\",
-              \"Times.ttf\": \"$TIMES_B64\",
-              \"Times-Bold.ttf\": \"$TIMES_BOLD_B64\",
-              \"Times-Oblique.ttf\": \"$TIMES_OBLIQUE_B64\",
-              \"Times-BoldOblique.ttf\": \"$TIMES_BOLD_OBLIQUE_B64\",
-              \"Courier.ttf\": \"$COURIER_B64\",
-              \"Courier-Bold.ttf\": \"$COURIER_BOLD_B64\",
-              \"Courier-Oblique.ttf\": \"$COURIER_OBLIQUE_B64\",
-              \"Courier-BoldOblique.ttf\": \"$COURIER_BOLD_OBLIQUE_B64\",
-              \"NotoSansJP-Regular.otf\": \"$NOTO_SANS_JP_B64\",
-              \"RobotoMedium.ttf\": \"$ROBOTO_B64\""
-          
-          # Replace the placeholder in script.js
-          # Use a temp file approach to handle large base64 strings
-          python3 << EOF
-          import re
-          
-          with open('script.js', 'r') as f:
-              content = f.read()
-          
-          # Replace the DEFAULT_FONTS placeholder
-          font_object = '''$FONT_OBJECT'''
-          new_content = re.sub(
-              r'const DEFAULT_FONTS = \{[^}]*\};',
-              'const DEFAULT_FONTS = {\n    ' + font_object + '\n};',
-              content,
-              flags=re.DOTALL
-          )
-          
-          with open('script.js', 'w') as f:
-              f.write(new_content)
-          
-          print("Fonts injected successfully")
-          EOF
+          set -euo pipefail
+          curl -sL https://github.com/rustwasm/wasm-pack/releases/download/v0.13.1/wasm-pack-v0.13.1-x86_64-unknown-linux-musl.tar.gz \
+            | tar xz --strip-components=1 -C /usr/local/bin --wildcards '*/wasm-pack'
+      - name: Build the demo (wasm + default fonts)
+        run: bash scripts/build-demo.sh
       - name: Setup Pages
         uses: actions/configure-pages@v5
-      - name: Upload artifact
+      - name: Upload site
         uses: actions/upload-pages-artifact@v3
         with:
-          path: '.'
+          # Repo root: index.html, style.css, script.js, default-fonts.js, pkg/,
+          # and examples/assets (the recipe example fetches cat.jpg from there).
+          path: "."
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

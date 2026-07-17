@@ -1,0 +1,80 @@
+# HEADLESS END-TO-END TESTS FOR THE WASM DEMO.
+#
+# Builds the same artifact the GitHub Pages deploy ships (scripts/build-demo.sh),
+# serves it, and drives the real UI in headless Chrome: boot the wasm module,
+# render the HTML examples (fonts + images), download the produced PDF, re-upload
+# it through the Parse & Edit tab (the exact flow that used to die with a font
+# deserialization error on stale deploys), stamp a signature image, save again —
+# failing on any scenario error or any browser console error. The downloaded
+# PDFs are then validated with poppler, which shares no code with printpdf.
+#
+# tests/e2e/driver.mjs + scenarios.mjs are the same files you can run locally:
+#   bash scripts/build-demo.sh
+#   cd tests/e2e && npm i puppeteer-core && node driver.mjs \
+#     --root ../.. --chrome "$(command -v google-chrome)" \
+#     --scenarios ./scenarios.mjs --out /tmp/e2e-artifacts
+name: Demo e2e (headless chrome)
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: demo-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install wasm-pack (prebuilt)
+        run: |
+          set -euo pipefail
+          curl -sL https://github.com/rustwasm/wasm-pack/releases/download/v0.13.1/wasm-pack-v0.13.1-x86_64-unknown-linux-musl.tar.gz \
+            | tar xz --strip-components=1 -C /usr/local/bin --wildcards '*/wasm-pack'
+          wasm-pack --version
+      - name: Build the demo (wasm + default fonts)
+        run: bash scripts/build-demo.sh
+      - name: Install poppler + node deps
+        run: |
+          sudo apt-get update && sudo apt-get install -y poppler-utils
+          cd tests/e2e && npm init -y >/dev/null && npm install --no-audit --no-fund puppeteer-core@24
+      - name: Run e2e scenarios in headless Chrome
+        run: |
+          set -euo pipefail
+          CHROME="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium-browser)"
+          echo "using chrome: $CHROME ($($CHROME --version))"
+          cd tests/e2e
+          node driver.mjs --root ../.. --chrome "$CHROME" \
+            --scenarios ./scenarios.mjs --out "$RUNNER_TEMP/e2e-artifacts"
+      - name: Validate downloaded PDFs with poppler
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          found=0
+          for f in "$RUNNER_TEMP"/e2e-artifacts/*; do
+            file "$f" | grep -q "PDF document" || continue
+            found=1
+            echo "== $f"
+            pdffonts "$f"
+            pdftoppm -png -r 40 "$f" "$RUNNER_TEMP/e2e-artifacts/render-$(basename "$f")"
+            pdftotext "$f" - | head -5
+          done
+          [ "$found" -eq 1 ] || { echo "::error::e2e produced no PDF downloads"; exit 1; }
+      - name: Upload artifacts (screenshots, PDFs, console log)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-e2e-${{ github.sha }}
+          path: ${{ runner.temp }}/e2e-artifacts/
+          retention-days: 14
