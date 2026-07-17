@@ -21,8 +21,12 @@ use crate::{
     XObjectId,
 };
 
+// NOTE: field names are snake_case ON THE WIRE (`subset_fonts`, `image_optimization`)
+// and JS clients depend on that. A `#[serde(rename = "camelCase")]` attribute sat here
+// for a long time — that renames the STRUCT to the literal string "camelCase" (a no-op
+// for JSON objects); the camelCasing intent was never in effect and must not be
+// "fixed" to `rename_all` now, since that would break every existing client.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
-#[serde(rename = "camelCase")]
 pub struct PdfSaveOptions {
     /// If set to true (default), compresses streams and
     /// prunes unreferenced PDF objects. Set to false for debugging
@@ -214,6 +218,21 @@ pub fn to_lopdf_doc(
     }
 
     for internal_font in get_used_internal_fonts(&pdf.pages) {
+        // Never clobber an embedded font that happens to be named F1..F14 (very
+        // common in parsed foreign PDFs) with a builtin standard-14 dict — the
+        // page ops referencing that name would suddenly point at the wrong font.
+        // resolve_current_font applies the same embedded-first rule per op.
+        if global_font_dict.has(internal_font.get_pdf_id().as_bytes()) {
+            warnings.push(PdfWarnMsg::warning(
+                0,
+                0,
+                format!(
+                    "builtin font {} not emitted: an embedded font already uses that resource name",
+                    internal_font.get_pdf_id()
+                ),
+            ));
+            continue;
+        }
         let font_dict = builtin_font_to_dict(&internal_font);
         let font_dict_id = doc.add_object(font_dict);
         global_font_dict.set(internal_font.get_pdf_id(), Reference(font_dict_id));
@@ -619,9 +638,15 @@ pub(crate) fn translate_operations(
             Op::UseXobject { id, transform } => {
                 use crate::matrix::CurTransMat;
                 let mut t = CurTransMat::Identity;
-                for q in
-                    transform.get_ctms(xobjects.get(id).and_then(|xobj| xobj.get_width_height()))
-                {
+                // `no_auto_scale`: parsed content already carries its placement
+                // in its own matrix ops — suppress the unit-square → pixel-size
+                // convenience scale instead of forcing callers to cancel it.
+                let wh = if transform.no_auto_scale {
+                    None
+                } else {
+                    xobjects.get(id).and_then(|xobj| xobj.get_width_height())
+                };
+                for q in transform.get_ctms(wh) {
                     t = CurTransMat::Raw(CurTransMat::combine_matrix(t.as_array(), q.as_array()));
                 }
 
@@ -732,14 +757,20 @@ fn resolve_current_font<'a>(
     current_font_resource: &Option<String>,
     font_infos: &'a BTreeMap<FontId, RuntimeFontInfo>,
 ) -> (Option<BuiltinFont>, Option<&'a RuntimeFontInfo>) {
-    let builtin = current_font_resource
+    // The document's own fonts take priority. A parsed foreign PDF very often
+    // names its embedded fonts /F1../F14; treating those as the builtin
+    // standard-14 faces WinAnsi-encoded text that belongs to a Type0 font —
+    // instant mojibake on re-save. The builtin-name heuristic applies only
+    // when no embedded font claims the resource name (mirrors the parse-side
+    // rule in deserialize.rs).
+    let info = current_font_resource
         .as_ref()
-        .and_then(|r| BuiltinFont::from_id(r));
+        .and_then(|r| font_infos.get(&FontId(r.clone())));
 
-    let info = if builtin.is_none() {
+    let builtin = if info.is_none() {
         current_font_resource
             .as_ref()
-            .and_then(|r| font_infos.get(&FontId(r.clone())))
+            .and_then(|r| BuiltinFont::from_id(r))
     } else {
         None
     };
@@ -945,8 +976,8 @@ pub(crate) struct RuntimeSubsetInfo {
 fn collect_used_glyphs_from_pages(
     pages: &[PdfPage],
     fonts: &BTreeMap<FontId, crate::font::PdfFont>,
-) -> BTreeMap<FontId, BTreeMap<u16, char>> {
-    let mut used_glyphs: BTreeMap<FontId, BTreeMap<u16, char>> = BTreeMap::new();
+) -> BTreeMap<FontId, BTreeMap<u16, String>> {
+    let mut used_glyphs: BTreeMap<FontId, BTreeMap<u16, String>> = BTreeMap::new();
     
     for page in pages {
         let mut current_font_id: Option<FontId> = None;
@@ -975,7 +1006,7 @@ fn collect_used_glyphs_from_pages(
                                         // Convert each character to glyph ID using the font
                                         for c in text.chars() {
                                             if let Some(glyph_id) = pdf_font.parsed_font.lookup_glyph_index(c as u32) {
-                                                font_glyphs.insert(glyph_id, c);
+                                                font_glyphs.insert(glyph_id, c.to_string());
                                             }
                                         }
                                     }
@@ -983,14 +1014,16 @@ fn collect_used_glyphs_from_pages(
                                         // Direct glyph IDs - get the unicode codepoint from CID
                                         for codepoint in glyphs {
                                             let character = if let Some(ref cid) = codepoint.cid {
-                                                // CID contains the unicode codepoint(s) for this glyph
-                                                // For simple cases it's one character, for ligatures it could be multiple
-                                                // Use the first character for the GID mapping
-                                                cid.chars().next().unwrap_or('\u{FFFD}')
+                                                // The FULL extraction text for this glyph — several
+                                                // chars for ligatures ("fi"). Truncating to the first
+                                                // char here used to break copy-paste of every ligated
+                                                // word in regenerated ToUnicode CMaps.
+                                                cid.clone()
                                             } else {
                                                 // Try reverse lookup from the font's cache
                                                 pdf_font.parsed_font.get_glyph_primary_char(codepoint.gid)
-                                                    .unwrap_or('\u{FFFD}')
+                                                    .map(|c| c.to_string())
+                                                    .unwrap_or_else(|| "\u{FFFD}".to_string())
                                             };
                                             // #261: always record the glyph, even when the
                                             // reverse char lookup failed (cid is None and the
@@ -1026,7 +1059,7 @@ fn collect_used_glyphs_from_pages(
                                 if let Some(glyph_id) =
                                     pdf_font.parsed_font.lookup_glyph_index(c as u32)
                                 {
-                                    font_glyphs.insert(glyph_id, c);
+                                    font_glyphs.insert(glyph_id, c.to_string());
                                 }
                             }
                         }
@@ -1366,7 +1399,7 @@ pub(crate) fn prepare_fonts_for_serialization(
 fn create_subset_runtime_info(
     font_id: &FontId,
     pdf_font: &crate::font::PdfFont,
-    glyph_usage: &BTreeMap<u16, char>,
+    glyph_usage: &BTreeMap<u16, String>,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> Option<RuntimeSubsetInfo> {
     let subset_result = crate::font::subset_font(&pdf_font.parsed_font, glyph_usage);
@@ -1375,21 +1408,27 @@ fn create_subset_runtime_info(
         Ok(subset) => {
             let mut font_warnings = Vec::new();
             if let Some(subset_font) = ParsedFont::from_bytes(&subset.bytes, 0, &mut font_warnings) {
-                
-                // Recover the REAL original->new gid mapping from the subset font's
-                // own Unicode cmap, rather than assuming allsorts renumbers glyphs in
-                // input order (`new_gid = idx+1`). That assumption is wrong for many
-                // fonts: ToUnicode stays correct (copy/paste works) but the rendered
-                // outlines are scrambled. For each used glyph (known by its char), the
-                // subset cmap yields the actual gid whose outline draws that char, so
-                // content stream, /W and /ToUnicode all agree with the font program.
+
+                // The original->new gid renumbering comes from `subset.glyph_mapping`,
+                // which mirrors the exact glyph order handed to allsorts (see
+                // `crate::font::subset_font` for why that order is authoritative for
+                // both glyf and CFF outlines).
+                //
+                // It must NOT be recovered from the subset font's cmap: shaper-produced
+                // glyphs have no usable char->gid cmap entry — ligature glyphs (the
+                // "fi" in "Configure") would resolve to the plain 'f' outline, and
+                // glyphs whose codepoint maps to a *different* default glyph (Noto CJK
+                // digits used for list markers / page numbers) would resolve to
+                // nothing at all, get remapped to gid 0 by `remap_gid`, and render as
+                // .notdef boxes (#220 F2b/F5).
                 let mut gid_remap: BTreeMap<u16, u16> = BTreeMap::new();
-                let mut new_glyph_ids: Vec<(u16, char)> = Vec::new();
-                for (orig_gid, ch) in glyph_usage.iter() {
-                    if let Some(new_gid) = subset_font.lookup_glyph_index(*ch as u32) {
-                        gid_remap.insert(*orig_gid, new_gid);
-                        new_glyph_ids.push((new_gid, *ch));
-                    }
+                let mut new_glyph_ids: Vec<(u16, String)> = Vec::new();
+                for (orig_gid, (new_gid, ch)) in subset.glyph_mapping.iter() {
+                    gid_remap.insert(*orig_gid, *new_gid);
+                    // `glyph_mapping` is keyed by ascending original gid and allsorts
+                    // renumbers in that same order, so new gids are ascending too —
+                    // which the run-length /W builders below rely on.
+                    new_glyph_ids.push((*new_gid, ch.clone()));
                 }
 
                 let cid_to_unicode_map = crate::font::generate_cmap_string(
@@ -1434,7 +1473,7 @@ fn create_subset_runtime_info(
 fn create_full_font_runtime_info(
     font_id: &FontId,
     pdf_font: &crate::font::PdfFont,
-    glyph_usage: &BTreeMap<u16, char>,
+    glyph_usage: &BTreeMap<u16, String>,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> RuntimeSubsetInfo {
     // The font program embedded as /FontFile2 (or /FontFile3) *is* these bytes.
@@ -1463,8 +1502,8 @@ fn create_full_font_runtime_info(
         ));
     }
 
-    let glyph_ids: Vec<(u16, char)> = glyph_usage.iter()
-        .map(|(gid, char)| (*gid, *char))
+    let glyph_ids: Vec<(u16, String)> = glyph_usage.iter()
+        .map(|(gid, s)| (*gid, s.clone()))
         .collect();
 
     let cid_to_unicode_map = crate::font::generate_cmap_string(
@@ -1503,7 +1542,7 @@ fn get_scaled_glyph_width(font: &crate::font::ParsedFont, gid: u16) -> i64 {
 /// Generate CID width array (W entry) from glyph IDs using run-length encoding.
 fn get_normalized_widths(
     font: &crate::font::ParsedFont,
-    glyph_ids: &[(u16, char)],
+    glyph_ids: &[(u16, String)],
 ) -> Vec<lopdf::Object> {
     let mut widths_list = Vec::new();
     let mut current_low_gid = 0u16;
