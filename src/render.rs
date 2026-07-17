@@ -748,12 +748,16 @@ fn render_to_svg_internal(
                 in_text_section = false;
             }
             Op::AddLineBreak => {
-                // For line breaks, we adjust the text cursor using the current leading
+                // T*: move to the start of the NEXT line. In PDF that keeps the
+                // line-start x (the text line matrix x) and drops y by the
+                // leading; it does NOT reset x to 0. Resetting x left every
+                // continuation line flush against the page edge instead of under
+                // the first line.
                 let leading = gst.get_text_leading();
                 let current_cursor = gst.get_text_cursor();
                 gst.set_text_cursor(Point {
-                    x: Pt(0.0),                            // Reset X to start of line
-                    y: Pt(current_cursor.y.0 - leading.0), // Move down by leading amount
+                    x: current_cursor.x,
+                    y: Pt(current_cursor.y.0 - leading.0),
                 });
             }
             Op::MoveTextCursorAndSetLeading { tx, ty } => {
@@ -767,12 +771,12 @@ fn render_to_svg_internal(
             }
             Op::MoveToNextLineShowText { text } => {
                 if in_text_section {
-                    // First move to next line using leading
+                    // First move to next line using leading (keep the line-start x)
                     let leading = gst.get_text_leading();
                     let current_cursor = gst.get_text_cursor();
                     gst.set_text_cursor(Point {
-                        x: Pt(0.0),                            // Reset X to start of line
-                        y: Pt(current_cursor.y.0 - leading.0), // Move down by leading
+                        x: current_cursor.x,
+                        y: Pt(current_cursor.y.0 - leading.0),
                     });
 
                     // Then show text
@@ -794,12 +798,12 @@ fn render_to_svg_internal(
                     gst.set_word_spacing(Pt(*word_spacing));
                     gst.set_character_spacing(*char_spacing);
 
-                    // Move to next line
+                    // Move to next line (keep the line-start x)
                     let leading = gst.get_text_leading();
                     let current_cursor = gst.get_text_cursor();
                     gst.set_text_cursor(Point {
-                        x: Pt(0.0),                            // Reset X to start of line
-                        y: Pt(current_cursor.y.0 - leading.0), // Move down by leading
+                        x: current_cursor.x,
+                        y: Pt(current_cursor.y.0 - leading.0),
                     });
 
                     // Show text
