@@ -152,11 +152,109 @@ pub enum RawImageFormat {
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(try_from = "RawImageDataWire", into = "RawImageDataWire")]
 pub enum RawImageData {
     U8(Vec<u8>),
     U16(Vec<u16>),
     F32(Vec<f32>),
+}
+
+/// Wire format for [`RawImageData`].
+///
+/// Pixels serialize as base64 (`{"u8b64": "..."}`), NOT as JSON number arrays:
+/// a 1024×1024 RGBA image is 4.2 million array elements ≈ 16 MB of JSON, and
+/// the wasm demo shuttles that through serde + `JSON.parse` on every render —
+/// the sign-pdf tab spent 90+ seconds on a single signature decode. Base64 is
+/// ~4× smaller and an order of magnitude faster on both sides. The legacy
+/// array variants (`u8`/`u16`/`f32`, the pre-0.12 format) stay accepted on
+/// input forever; `u16`/`f32` pack little-endian.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum RawImageDataWire {
+    U8(Vec<u8>),
+    U16(Vec<u16>),
+    F32(Vec<f32>),
+    U8B64(String),
+    U16B64(String),
+    F32B64(String),
+}
+
+impl From<RawImageData> for RawImageDataWire {
+    fn from(d: RawImageData) -> Self {
+        use base64::Engine;
+        let b64 = |bytes: &[u8]| base64::prelude::BASE64_STANDARD.encode(bytes);
+        match d {
+            RawImageData::U8(v) => RawImageDataWire::U8B64(b64(&v)),
+            RawImageData::U16(v) => {
+                let bytes: Vec<u8> = v.iter().flat_map(|x| x.to_le_bytes()).collect();
+                RawImageDataWire::U16B64(b64(&bytes))
+            }
+            RawImageData::F32(v) => {
+                let bytes: Vec<u8> = v.iter().flat_map(|x| x.to_le_bytes()).collect();
+                RawImageDataWire::F32B64(b64(&bytes))
+            }
+        }
+    }
+}
+
+impl TryFrom<RawImageDataWire> for RawImageData {
+    type Error = String;
+    fn try_from(w: RawImageDataWire) -> Result<Self, String> {
+        use base64::Engine;
+        let dec = |s: &str| {
+            base64::prelude::BASE64_STANDARD
+                .decode(s)
+                .map_err(|e| format!("pixel data base64: {e}"))
+        };
+        Ok(match w {
+            RawImageDataWire::U8(v) => RawImageData::U8(v),
+            RawImageDataWire::U16(v) => RawImageData::U16(v),
+            RawImageDataWire::F32(v) => RawImageData::F32(v),
+            RawImageDataWire::U8B64(s) => RawImageData::U8(dec(&s)?),
+            RawImageDataWire::U16B64(s) => {
+                let b = dec(&s)?;
+                if b.len() % 2 != 0 {
+                    return Err("u16b64 pixel data has odd byte length".to_string());
+                }
+                RawImageData::U16(
+                    b.chunks_exact(2)
+                        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                        .collect(),
+                )
+            }
+            RawImageDataWire::F32B64(s) => {
+                let b = dec(&s)?;
+                if b.len() % 4 != 0 {
+                    return Err("f32b64 pixel data length not a multiple of 4".to_string());
+                }
+                RawImageData::F32(
+                    b.chunks_exact(4)
+                        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                        .collect(),
+                )
+            }
+        })
+    }
+}
+
+#[cfg(test)]
+mod pixel_wire_tests {
+    use super::*;
+
+    #[test]
+    fn pixels_serialize_as_base64_and_accept_legacy_arrays() {
+        let d = RawImageData::U8(vec![1, 2, 3, 255]);
+        let json = serde_json::to_string(&d).unwrap();
+        assert!(json.contains("u8b64"), "new format must be base64: {json}");
+        assert_eq!(serde_json::from_str::<RawImageData>(&json).unwrap(), d);
+        // pre-0.12 wire format stays readable
+        let legacy: RawImageData = serde_json::from_str(r#"{"u8":[1,2,3,255]}"#).unwrap();
+        assert_eq!(legacy, d);
+
+        let d16 = RawImageData::U16(vec![0x0102, 0xFFEE]);
+        let json16 = serde_json::to_string(&d16).unwrap();
+        assert_eq!(serde_json::from_str::<RawImageData>(&json16).unwrap(), d16);
+    }
 }
 
 /// Raw image data container (always available, even without 'images' feature)
@@ -206,4 +304,99 @@ impl RawImage {
     pub async fn encode_to_bytes_async(&self, formats: &[OutputImageFormat]) -> Result<(Vec<u8>, OutputImageFormat), String> {
         self.encode_to_bytes(formats)
     }
+}
+
+/// Encode a `RawImage` into a PDF image XObject stream using no image codec at
+/// all — raw pixels + FlateDecode (flate2 is an unconditional dependency).
+///
+/// This exists so documents containing images can still be SAVED when the
+/// `images` feature is off: `add_xobject_to_document` used to `panic!` in that
+/// configuration, which made every parsed-then-resaved document with a bitmap a
+/// crash. Alpha channels are split into a grayscale `/SMask` per the PDF spec;
+/// 16-bit and float data is downconverted to 8-bit (a fidelity loss, but a
+/// valid file — the `images` feature path keeps full depth).
+pub(crate) fn raw_image_to_basic_stream(
+    im: &RawImage,
+    doc: &mut lopdf::Document,
+) -> lopdf::Stream {
+    use lopdf::Object::{Integer, Name, Reference};
+
+    fn to_u8(px: &RawImageData) -> Vec<u8> {
+        match px {
+            RawImageData::U8(v) => v.clone(),
+            RawImageData::U16(v) => v.iter().map(|x| (x >> 8) as u8).collect(),
+            RawImageData::F32(v) => v
+                .iter()
+                .map(|x| (x.clamp(0.0, 1.0) * 255.0) as u8)
+                .collect(),
+        }
+    }
+
+    let raw = to_u8(&im.pixels);
+
+    // (color bytes per pixel, alpha present, needs BGR swizzle, colorspace)
+    let (ncolor, has_alpha, bgr, cs) = match im.data_format {
+        RawImageFormat::R8 | RawImageFormat::R16 => (1, false, false, "DeviceGray"),
+        RawImageFormat::RG8 | RawImageFormat::RG16 => (1, true, false, "DeviceGray"),
+        RawImageFormat::RGB8 | RawImageFormat::RGB16 | RawImageFormat::RGBF32 => {
+            (3, false, false, "DeviceRGB")
+        }
+        RawImageFormat::RGBA8 | RawImageFormat::RGBA16 | RawImageFormat::RGBAF32 => {
+            (3, true, false, "DeviceRGB")
+        }
+        RawImageFormat::BGR8 => (3, false, true, "DeviceRGB"),
+        RawImageFormat::BGRA8 => (3, true, true, "DeviceRGB"),
+    };
+
+    let stride = ncolor + usize::from(has_alpha);
+    let mut color = Vec::with_capacity(im.width * im.height * ncolor);
+    let mut alpha = if has_alpha {
+        Vec::with_capacity(im.width * im.height)
+    } else {
+        Vec::new()
+    };
+    for px in raw.chunks_exact(stride) {
+        match (ncolor, bgr) {
+            (3, false) => color.extend_from_slice(&px[0..3]),
+            (3, true) => color.extend_from_slice(&[px[2], px[1], px[0]]),
+            _ => color.push(px[0]),
+        }
+        if has_alpha {
+            alpha.push(px[stride - 1]);
+        }
+    }
+
+    fn flate(data: &[u8]) -> Vec<u8> {
+        use std::io::Write;
+        let mut e =
+            flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        let _ = e.write_all(data);
+        e.finish().unwrap_or_default()
+    }
+
+    let mut dict = lopdf::Dictionary::from_iter(vec![
+        ("Type", Name("XObject".into())),
+        ("Subtype", Name("Image".into())),
+        ("Width", Integer(im.width as i64)),
+        ("Height", Integer(im.height as i64)),
+        ("BitsPerComponent", Integer(8)),
+        ("ColorSpace", Name(cs.into())),
+        ("Filter", Name("FlateDecode".into())),
+    ]);
+
+    if has_alpha {
+        let smask_dict = lopdf::Dictionary::from_iter(vec![
+            ("Type", Name("XObject".into())),
+            ("Subtype", Name("Image".into())),
+            ("Width", Integer(im.width as i64)),
+            ("Height", Integer(im.height as i64)),
+            ("BitsPerComponent", Integer(8)),
+            ("ColorSpace", Name("DeviceGray".into())),
+            ("Filter", Name("FlateDecode".into())),
+        ]);
+        let smask_id = doc.add_object(lopdf::Stream::new(smask_dict, flate(&alpha)));
+        dict.set("SMask", Reference(smask_id));
+    }
+
+    lopdf::Stream::new(dict, flate(&color)).with_compression(false)
 }
