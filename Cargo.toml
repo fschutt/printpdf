@@ -54,7 +54,10 @@ lopdf = { version = "0.44.0", default-features = false }
 # Floor 0.3.36: `time` 0.3.25–0.3.35 no longer passes type inference on rustc >= 1.80
 # (E0282 on `Box<_>`), so the old 0.3.25 floor admitted resolutions that cannot compile —
 # the same breakage class as #279, just via our own requirement instead of lopdf's.
-time = { version = "0.3.36", default-features = false, features = ["std", "serde", "serde-human-readable"] }
+# Only `std`: printpdf hand-writes serde for its own DateTime (src/date.rs) and never
+# serializes `time` types, so the old serde/serde-human-readable features only cost
+# consumers build time.
+time = { version = "0.3.36", default-features = false, features = ["std"] }
 allsorts = { package = "allsorts-azul", version = "0.17.1", default-features = false, features = ["flate2_rust"] }
 # Floor 0.25.2: src/image.rs uses `image::ImageReader`, a re-export that first appears
 # in 0.25.2 (0.25.0/0.25.1 only have `image::io::Reader`), so an older pin in a
@@ -71,7 +74,11 @@ flate2 = "1.0.35" # for decompression of builtin fonts
 serde_json = { version = "1" }
 smallvec = { version = "1.15.1", features = ["serde"] }
 # Feature-gated dependencies
-rust-fontconfig = { version = "4.4.5", default-features = false, features = ["std", "parsing"], optional = true }
+# Bounded below 4.5: 4.4.5 is the first release with a single allsorts 0.17 underneath —
+# 4.4.4 still carried allsorts 0.16, which linked two incompatible font parsers into
+# every build (the 0.11.1 headline fix; `only_one_allsorts_is_linked` guards the repo,
+# this bound guards consumers against an untested future 4.x drifting back).
+rust-fontconfig = { version = ">=4.4.5, <4.5", default-features = false, features = ["std", "parsing"], optional = true }
 xmlparser = { version = "0.13.6", default-features = false, optional = true }
 web-sys = { version = "0.3.77", optional = true, default-features = false, features = ["console", "ImageData", "Window", "Document", "Blob", "CanvasRenderingContext2d", "HtmlCanvasElement", "HtmlImageElement", "ImageBitmap", "BlobPropertyBag"]}
 wasm-bindgen-futures = { version = "0.4.50", optional = true, default-features = false }
