@@ -34,6 +34,7 @@ fn main() {
             scale_x: Some(0.5),
             scale_y: Some(0.5),
             dpi: Some(300.0),
+            ..Default::default()
         },
     });
 

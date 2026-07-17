@@ -65,7 +65,12 @@ pub(crate) fn add_xobject_to_document(
             }
             #[cfg(not(feature = "images"))]
             {
-                panic!("Image XObjects require the 'images' feature");
+                // No codec available, but raw-pixels + FlateDecode needs none.
+                // This used to panic!, which turned "save a parsed document
+                // containing any bitmap" into a crash in no-default-features
+                // builds.
+                let stream = crate::image_types::raw_image_to_basic_stream(_i, doc);
+                doc.add_object(stream)
             }
         }
         XObject::Form(f) => {
@@ -73,7 +78,14 @@ pub(crate) fn add_xobject_to_document(
             doc.add_object(stream)
         }
         XObject::External(external_xobject) => {
-            let stream = external_xobject.stream.into_lopdf();
+            // Hoist any streams nested inside the dictionary (pattern/shading
+            // functions, nested form XObjects, ICC profiles, soft-mask groups
+            // from SVGs, ...) into indirect objects: PDF requires streams to
+            // be indirect (ISO 32000-1, 7.3.8.1), and Adobe Acrobat rejects
+            // files with streams written inline inside dictionaries.
+            let stream = external_xobject
+                .stream
+                .into_lopdf_with_indirect_streams(doc);
             doc.add_object(stream)
         }
     }
@@ -111,6 +123,23 @@ impl ExternalStream {
     pub(crate) fn into_lopdf(&self) -> lopdf::Stream {
         lopdf::Stream::new(build_dict(&self.dict), self.content.clone())
             .with_compression(self.compress)
+    }
+
+    /// Like [`ExternalStream::into_lopdf`], but any [`DictItem::Stream`]
+    /// nested inside the stream dictionary (at any depth) is added to `doc`
+    /// as its own indirect object and replaced by a reference. PDF requires
+    /// streams to be indirect objects (ISO 32000-1, 7.3.8.1) — writing them
+    /// inline produces files Adobe Acrobat refuses to open.
+    pub(crate) fn into_lopdf_with_indirect_streams(
+        &self,
+        doc: &mut lopdf::Document,
+    ) -> lopdf::Stream {
+        let dict = lopdf::Dictionary::from_iter(
+            self.dict
+                .iter()
+                .map(|(k, v)| (k.clone(), v.to_lopdf_with_indirect_streams(doc))),
+        );
+        lopdf::Stream::new(dict, self.content.clone()).with_compression(self.compress)
     }
     pub fn decompressed_content(&self) -> Vec<u8> {
         self.into_lopdf()
@@ -209,6 +238,34 @@ impl DictItem {
                 Object::Stream(stream_obj)
             }
             DictItem::Null => Object::Null,
+        }
+    }
+
+    /// Like [`DictItem::to_lopdf`], but nested [`DictItem::Stream`]s are
+    /// hoisted into indirect objects of `doc` and replaced by references
+    /// (streams must be indirect objects, ISO 32000-1, 7.3.8.1).
+    pub(crate) fn to_lopdf_with_indirect_streams(
+        &self,
+        doc: &mut lopdf::Document,
+    ) -> lopdf::Object {
+        use lopdf::Object;
+        match self {
+            DictItem::Array(items) => Object::Array(
+                items
+                    .iter()
+                    .map(|item| item.to_lopdf_with_indirect_streams(doc))
+                    .collect(),
+            ),
+            DictItem::Dict { map } => Object::Dictionary(lopdf::Dictionary::from_iter(
+                map.iter().map(|(k, v)| {
+                    (k.as_bytes().to_vec(), v.to_lopdf_with_indirect_streams(doc))
+                }),
+            )),
+            DictItem::Stream { stream } => {
+                let stream_obj = stream.into_lopdf_with_indirect_streams(doc);
+                Object::Reference(doc.add_object(stream_obj))
+            }
+            other => other.to_lopdf(),
         }
     }
 
@@ -390,7 +447,14 @@ fn form_xobject_to_stream(f: &FormXObject, doc: &mut lopdf::Document) -> lopdf::
     }
 
     if let Some(res) = f.resources.as_ref() {
-        dict.set("Resources", build_dict(res));
+        // Route through the stream-hoisting conversion: resource subtrees may
+        // contain streams (patterns, shadings, nested XObjects), which must be
+        // written as indirect objects, not inline.
+        let res_dict = lopdf::Dictionary::from_iter(
+            res.iter()
+                .map(|(k, v)| (k.clone(), v.to_lopdf_with_indirect_streams(doc))),
+        );
+        dict.set("Resources", res_dict);
     }
 
     if let Some(g) = f.group.as_ref() {
@@ -535,6 +599,13 @@ pub struct XObjectTransform {
     /// If set to None, will be set to 300.0 for images
     #[serde(default)]
     pub dpi: Option<f32>,
+    /// Suppress the automatic unit-square → pixel-size scale that `UseXobject`
+    /// normally injects for images. Content parsed from an existing PDF already
+    /// carries its full placement in its own `cm` operators; without this flag
+    /// the parser had to emit a reciprocal 1/w × 1/h scale to cancel the
+    /// automatic one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_auto_scale: bool,
 }
 
 impl XObjectTransform {
