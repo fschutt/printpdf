@@ -154,14 +154,23 @@ mod parsed_font {
             // a `ParsedFont` that can't produce its bytes cannot be embedded, and a
             // caller round-tripping one through serde needs to hear about it here
             // rather than get a corrupt PDF later.
-            let bytes = self
-                .0
-                .to_bytes(None)
-                .map_err(|e| serde::ser::Error::custom(format!("font has no source bytes: {e}")))?;
-            let s = format!(
-                "{FONT_B64_START}{}",
-                base64::prelude::BASE64_STANDARD.encode(&bytes)
-            );
+            //
+            // Prefer the retained source bytes verbatim. Rebuilding via
+            // `to_bytes(None)` walks a hardcoded TrueType table list, which fails on
+            // CFF faces (no glyf/loca) and on the subset fonts printpdf itself
+            // writes (no OS/2/NAME/POST) — i.e. documents we saved could never be
+            // deserialized again. `to_bytes` stays only as a fallback for faces
+            // that somehow lost their bytes.
+            let encoded = match self.source_bytes() {
+                Some(b) => base64::prelude::BASE64_STANDARD.encode(b.as_slice()),
+                None => {
+                    let bytes = self.0.to_bytes(None).map_err(|e| {
+                        serde::ser::Error::custom(format!("font has no source bytes: {e}"))
+                    })?;
+                    base64::prelude::BASE64_STANDARD.encode(&bytes)
+                }
+            };
+            let s = format!("{FONT_B64_START}{encoded}");
             s.serialize(serializer)
         }
     }
@@ -476,7 +485,7 @@ pub struct FontMetrics {
 #[derive(Debug, Clone)]
 pub struct SubsetFont {
     pub bytes: Vec<u8>,
-    pub glyph_mapping: BTreeMap<u16, (u16, char)>,
+    pub glyph_mapping: BTreeMap<u16, (u16, String)>,
 }
 
 /// PDF-specific metadata for fonts that doesn't belong in azul_layout::ParsedFont
@@ -699,7 +708,7 @@ impl BuiltinFont {
                 .iter()
                 .filter_map(|(font_id, old_gid, new_gid, char)| {
                     if *font_id == self.get_num() {
-                        Some((*old_gid, (*new_gid, *char)))
+                        Some((*old_gid, (*new_gid, char.to_string())))
                     } else {
                         None
                     }
@@ -845,7 +854,7 @@ impl Font {
 }
 
 #[cfg(feature = "text_layout")]
-pub fn subset_font(font: &ParsedFont, glyph_ids: &BTreeMap<u16, char>) -> Result<SubsetFont, String> {
+pub fn subset_font(font: &ParsedFont, glyph_ids: &BTreeMap<u16, String>) -> Result<SubsetFont, String> {
     use allsorts::{binary::read::ReadScope, font_data::FontData, subset::CmapTarget};
 
     // Subsetting reads the sfnt tables straight out of the source bytes. `source_bytes`
@@ -860,35 +869,6 @@ pub fn subset_font(font: &ParsedFont, glyph_ids: &BTreeMap<u16, char>) -> Result
         .table_provider(font.original_index)
         .map_err(|e| e.to_string())?;
 
-    // allsorts builds the subset's `cmap` from the original font's cmap restricted to the
-    // glyphs we keep. If none of the used glyphs are reachable from the cmap, that mapping
-    // comes out empty and the subset gets a cmap with nothing in it but the mandatory
-    // 0xFFFF sentinel segment.
-    //
-    // (Up to allsorts-azul 0.16.5 this did not merely produce an empty cmap, it *panicked*
-    // — `CmapSubtableFormat4::from_mappings` did `mappings.iter().next().unwrap()` under a
-    // "safe as mappings is non-empty" comment. It isn't. 0.17 handles it.)
-    //
-    // An empty cmap is still no good to us: `create_subset_runtime_info` recovers the
-    // original->subset glyph renumbering by looking each character up in the *subset's* own
-    // cmap, so an empty one yields an empty remap, and the content stream would then emit
-    // the original glyph ids against a renumbered font — every glyph silently wrong.
-    //
-    // The HTML path reaches this easily: shaping emits glyph ids directly, and ligatures
-    // and substituted glyphs have no character of their own. Decline to subset, and let the
-    // caller fall back to embedding the full font, whose glyph ids still line up.
-    let reachable_from_cmap = glyph_ids
-        .iter()
-        .any(|(gid, ch)| font.lookup_glyph_index(*ch as u32) == Some(*gid));
-    if !reachable_from_cmap {
-        return Err(
-            "no used glyph is reachable from the font's cmap, so the subset's cmap would be \
-             empty and the glyph renumbering could not be recovered — embedding the full \
-             font instead"
-                .to_string(),
-        );
-    }
-
     // Glyph 0 (.notdef) must be the first entry, and there must be no duplicates —
     // allsorts documents both as hard requirements of `subset()`.
     //
@@ -901,7 +881,14 @@ pub fn subset_font(font: &ParsedFont, glyph_ids: &BTreeMap<u16, char>) -> Result
         .chain(glyph_ids.keys().copied().filter(|gid| *gid != 0))
         .collect();
 
-    // Use SubsetProfile::Pdf for PDF embedding and CmapTarget::Unicode for Unicode cmap
+    // Use SubsetProfile::Pdf for PDF embedding and CmapTarget::Unicode for Unicode cmap.
+    //
+    // (Up to allsorts-azul 0.16.5, a used-glyph set with no cmap-reachable glyph did not
+    // just produce an empty subset cmap, it *panicked* — `CmapSubtableFormat4::
+    // from_mappings` did `mappings.iter().next().unwrap()` under a "safe as mappings is
+    // non-empty" comment. It isn't. 0.17 handles it, and an empty subset cmap is fine for
+    // us: rendering goes through Identity-H glyph ids and text extraction through
+    // /ToUnicode + /ActualText, neither of which consults the font's own cmap.)
     let bytes = allsorts::subset::subset(
         &provider,
         &ids,
@@ -909,16 +896,33 @@ pub fn subset_font(font: &ParsedFont, glyph_ids: &BTreeMap<u16, char>) -> Result
         CmapTarget::Unicode,
     ).map_err(|e| e.to_string())?;
 
-    // Build glyph mapping: allsorts subset assigns new GIDs starting at 1
-    // (GID 0 is always .notdef), following the order of input glyph IDs
-    let glyph_mapping: BTreeMap<u16, (u16, char)> = ids
+    // Build the old->new glyph id mapping. allsorts renumbers every requested glyph to
+    // its POSITION in the `ids` slice: the glyf subsetter builds `old_to_new_id` from
+    // `records.iter().enumerate()` (tables/glyf/subset.rs) and the CFF subsetter pushes
+    // charstrings in input order (cff/subset.rs), so subset gid i == ids[i] for both
+    // outline formats. Component glyphs of composites are *appended after* the requested
+    // ids, so the requested positions are stable.
+    //
+    // This input-order mapping is authoritative. It must NOT be recovered by looking
+    // characters up in the subset's cmap (as an earlier revision did): glyphs the shaper
+    // substituted have no cmap entry of their own — ligatures (the "fi" in "Configure"),
+    // and alternate forms where the font's cmap points a codepoint at a *different*
+    // default glyph (Noto CJK maps ASCII digits to a different digit form than the
+    // shaper picks for list markers / page numbers). Those glyphs fell out of the
+    // cmap-recovered remap, the content stream then emitted gid 0 for them, and every
+    // list marker rendered as a .notdef box (#220 F2b) while "Configure" lost its
+    // ligature (#220 F5).
+    let glyph_mapping: BTreeMap<u16, (u16, String)> = ids
         .iter()
         .enumerate()
         .filter_map(|(idx, &original_gid)| {
-            glyph_ids.get(&original_gid).map(|&ch| {
-                // New GID = index + 1 (because GID 0 is .notdef)
-                let new_gid = (idx + 1) as u16;
-                (original_gid, (new_gid, ch))
+            glyph_ids.get(&original_gid).map(|ch| {
+                // New GID = position in `ids` (position 0 is .notdef).
+                // `ch` is the full extraction text for the glyph — possibly
+                // several chars (ligatures like "fi"); ToUnicode keeps all of
+                // them (multi-char targets were truncated to the first char
+                // before, so copy-pasting "Configure" yielded "Confgure").
+                (original_gid, (idx as u16, ch.clone()))
             })
         })
         .collect();
@@ -930,7 +934,7 @@ pub fn subset_font(font: &ParsedFont, glyph_ids: &BTreeMap<u16, char>) -> Result
 }
 
 #[cfg(not(feature = "text_layout"))]
-pub fn subset_font(font: &ParsedFont, _glyph_ids: &BTreeMap<u16, char>) -> Result<SubsetFont, String> {
+pub fn subset_font(font: &ParsedFont, _glyph_ids: &BTreeMap<u16, String>) -> Result<SubsetFont, String> {
     Ok(SubsetFont {
         // Without text_layout, just return the original font bytes without subsetting
         bytes: font.original_bytes.clone(),
@@ -941,10 +945,12 @@ pub fn subset_font(font: &ParsedFont, _glyph_ids: &BTreeMap<u16, char>) -> Resul
 
 // PDF-specific helper functions for ParsedFont
 
-pub fn generate_cmap_string(_font: &ParsedFont, font_id: &FontId, glyph_ids: &[(u16, char)]) -> String {
+pub fn generate_cmap_string(_font: &ParsedFont, font_id: &FontId, glyph_ids: &[(u16, String)]) -> String {
     let mappings = glyph_ids
         .iter()
-        .map(|&(gid, unicode)| (gid as u32, vec![unicode as u32]))
+        .map(|(gid, unicode)| {
+            (*gid as u32, unicode.chars().map(|c| c as u32).collect())
+        })
         .collect();
 
     let cmap = crate::cmap::ToUnicodeCMap { mappings };
@@ -952,7 +958,7 @@ pub fn generate_cmap_string(_font: &ParsedFont, font_id: &FontId, glyph_ids: &[(
 }
 
 #[cfg(feature = "text_layout")]
-pub fn generate_gid_to_cid_map(font: &ParsedFont, glyph_ids: &[(u16, char)]) -> Vec<(u16, u16)> {
+pub fn generate_gid_to_cid_map(font: &ParsedFont, glyph_ids: &[(u16, String)]) -> Vec<(u16, u16)> {
     glyph_ids
         .iter()
         .filter_map(|(gid, _)| font.index_to_cid.get(gid).map(|cid| (*gid, *cid)))
@@ -966,7 +972,7 @@ fn get_glyph_width(font: &ParsedFont, gid: u16) -> Option<u16> {
 }
 
 #[cfg(feature = "text_layout")]
-pub fn get_normalized_widths_ttf(font: &ParsedFont, glyph_ids: &[(u16, char)]) -> Vec<lopdf::Object> {
+pub fn get_normalized_widths_ttf(font: &ParsedFont, glyph_ids: &[(u16, String)]) -> Vec<lopdf::Object> {
     let mut widths_list = Vec::new();
     let mut current_low_gid = 0;
     let mut current_high_gid = 0;
@@ -1124,6 +1130,10 @@ mod test {
                 .filter_map(|&ch| font.lookup_glyph_index(ch as u32).map(|gid| (gid, ch)))
                 .collect();
             let (subset_bytes, glyph_mapping) = font.subset(&glyph_ids, azul_layout::CmapTarget::Unicode).unwrap();
+            let glyph_mapping = glyph_mapping
+                .into_iter()
+                .map(|(k, (g, c))| (k, (g, c.to_string())))
+                .collect();
             let subset = crate::font::SubsetFont { bytes: subset_bytes, glyph_mapping };
             tm2.insert(name.clone(), subset.bytes.len());
             let _ = std::fs::write(
@@ -1135,15 +1145,19 @@ mod test {
                 crate::utils::compress(&subset.bytes),
             );
             for (old_gid, (new_gid, char)) in subset.glyph_mapping.iter() {
+                // glyph_mapping values are Strings now (ligatures carry several
+                // chars); the generated FONTS table wants one char per builtin
+                // glyph, which is always the case for the WIN_1252 charmap.
+                let ch = char.chars().next().unwrap_or('\u{FFFD}');
                 target_map.push(format!(
                     "    ({}, {old_gid}, {new_gid}, '{c}'),",
                     name.get_num(),
-                    c = if *char == '\'' {
+                    c = if ch == '\'' {
                         "\\'".to_string()
-                    } else if *char == '\\' {
+                    } else if ch == '\\' {
                         "\\\\".to_string()
                     } else {
-                        char.to_string()
+                        ch.to_string()
                     }
                 ));
             }
