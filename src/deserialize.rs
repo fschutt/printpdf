@@ -14,6 +14,7 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::{
     font::ParsedFont,
+    xobject::{ExternalStream, ExternalXObject},
     BuiltinFont, BuiltinOrExternalFontId, Color, DictItem, ExtendedGraphicsState, ExtendedGraphicsStateId, ExtendedGraphicsStateMap, FontId, LayerInternalId, Line, LineDashPattern, LinePoint, LinkAnnotation, Op, PageAnnotId, PageAnnotMap, PaintMode, PdfDocument, PdfDocumentInfo, PdfFontMap, PdfLayerMap, PdfMetadata, PdfPage, PdfResources, Point, Polygon, PolygonRing, Pt, RawImage, Rect, RenderingIntent, TextMatrix, TextRenderingMode, WindingOrder, XObject, XObjectId, XObjectMap, cmap::ToUnicodeCMap, conformance::PdfConformance, date::{OffsetDateTime, parse_pdf_date}
 };
 
@@ -75,8 +76,8 @@ struct InitialPdf {
     objs_to_search_for_resources: Vec<(Object, Option<usize>)>,
     page_refs: Vec<(u32, u16)>,
     document_info: PdfDocumentInfo,
-    #[allow(dead_code)]
-    link_annots: Vec<LinkAnnotation>,
+    /// Link annotations with the 0-based index of the page they belong to.
+    link_annots: Vec<(usize, LinkAnnotation)>,
 }
 
 fn parse_pdf_from_bytes_start(
@@ -1608,6 +1609,12 @@ fn parse_page(
     })
 }
 
+/// A4 portrait in PDF points, the fallback when a document specifies no
+/// usable MediaBox anywhere.
+fn default_media_box() -> Rect {
+    Rect::from_xywh(Pt(0.0), Pt(0.0), Pt(595.28), Pt(841.89))
+}
+
 /// Converts a single lopdf Operation to a printpdf Op.
 /// We use a mutable TextState to keep track of the current font and size.
 #[derive(Debug, Clone, Default)]
@@ -2879,7 +2886,11 @@ pub fn parse_op(
                     ));
                     return Ok(Vec::new());
                 };
-                out_ops.push(Op::BeginOptionalContent {
+                // Emit BeginLayer (not BeginOptionalContent): the serializer
+                // only builds the page's /Properties entries — which make the
+                // `BDC /OC /Name` reference resolvable — from `BeginLayer`
+                // ops. Both ops write identical content-stream bytes.
+                out_ops.push(Op::BeginLayer {
                     layer_id: crate::LayerInternalId(layer_nm),
                 });
             } else {
@@ -3718,7 +3729,10 @@ mod links_and_bookmarks {
     }
 
     /// Extracts all link annotations from all pages using functional combinators.
-    pub fn extract_link_annotations(doc: &Document) -> Vec<LinkAnnotation> {
+    /// Extract link annotations, tagged with the 0-based index of the page
+    /// they belong to (so the parser can re-attach them to their pages as
+    /// `Op::LinkAnnotation` — otherwise they are silently dropped on re-save).
+    pub fn extract_link_annotations(doc: &Document) -> Vec<(usize, LinkAnnotation)> {
         // Build a page mapping from object id to page number.
         let page_map: BTreeMap<ObjectId, usize> = doc
             .get_pages()
@@ -3728,20 +3742,24 @@ mod links_and_bookmarks {
 
         // For every page, try to extract its annotations.
         doc.get_pages()
-            .values()
-            .flat_map(|&page_id| {
+            .iter()
+            .flat_map(|(page_num, &page_id)| {
+                let page_idx = (*page_num as usize).saturating_sub(1);
                 let page_dict = doc.get_object(page_id).ok()?.as_dict().ok()?;
                 let annots = page_dict.get(b"Annots").ok()?.as_array().ok()?;
                 Some(
                     annots
                         .iter()
                         .filter_map(|annot_obj| {
-                            // Expect a reference to an annotation dictionary.
-                            let annot_ref = match annot_obj {
-                                Object::Reference(id) => *id,
+                            // Expect a reference to an annotation dictionary
+                            // (tolerate inline dictionaries too).
+                            let annot_dict = match annot_obj {
+                                Object::Reference(id) => {
+                                    doc.get_object(*id).ok()?.as_dict().ok()?
+                                }
+                                Object::Dictionary(d) => d,
                                 _ => return None,
                             };
-                            let annot_dict = doc.get_object(annot_ref).ok()?.as_dict().ok()?;
                             // Only process annotations with Subtype "Link".
                             if annot_dict.get(b"Subtype").ok()?.as_name().ok()? != b"Link" {
                                 return None;
@@ -3762,11 +3780,13 @@ mod links_and_bookmarks {
                             if coords.len() != 4 {
                                 return None;
                             }
+                            // /Rect is [llx lly urx ury]; from_xywh wants
+                            // x, y, width, height.
                             let rect = Rect::from_xywh(
                                 Pt(coords[0]),
                                 Pt(coords[1]),
-                                Pt(coords[2]),
-                                Pt(coords[3]),
+                                Pt(coords[2] - coords[0]),
+                                Pt(coords[3] - coords[1]),
                             );
 
                             // Extract the action.
@@ -3802,13 +3822,16 @@ mod links_and_bookmarks {
                                 })
                                 .unwrap_or(HighlightingMode::Invert);
 
-                            Some(LinkAnnotation {
-                                rect,
-                                actions,
-                                border,
-                                color,
-                                highlighting,
-                            })
+                            Some((
+                                page_idx,
+                                LinkAnnotation {
+                                    rect,
+                                    actions,
+                                    border,
+                                    color,
+                                    highlighting,
+                                },
+                            ))
                         })
                         .collect::<Vec<_>>(),
                 )
@@ -3906,41 +3929,89 @@ mod links_and_bookmarks {
 
 mod layers {
 
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use lopdf::{Document, Object, ObjectId};
 
     use crate::ops::{Layer, LayerIntent, LayerSubtype};
 
-    /// Extract layers from the PDF document.
-    /// This function looks into the catalog's "OCProperties" dictionary and parses the "OCGs"
-    /// array.
-    pub fn extract_layers(doc: &Document) -> Vec<Layer> {
+    /// Resolve one level of indirection, returning the target object.
+    fn resolve<'a>(doc: &'a Document, obj: &'a Object) -> &'a Object {
+        match obj {
+            Object::Reference(r) => doc.get_object(*r).unwrap_or(obj),
+            other => other,
+        }
+    }
+
+    /// Extract layers (optional content groups) from the PDF document,
+    /// together with the resource name under which each is exposed to content
+    /// streams.
+    ///
+    /// Content streams reference layers as `BDC /OC /SomeName`, where
+    /// `/SomeName` is a key of the page's `/Resources` → `/Properties`
+    /// dictionary that points at the OCG object. The layer map of the parsed
+    /// document must be keyed by those names — the parser stores them in
+    /// `Op::BeginOptionalContent { layer_id }` — otherwise every re-saved
+    /// `BDC` references a property that does not exist and viewers drop the
+    /// layer content ("Marked Content 'X' is unknown").
+    ///
+    /// Returns `(Some(resource_name), layer)` for OCGs reachable from some
+    /// page's `/Properties`, `(None, layer)` for OCGs only listed in the
+    /// catalog's `/OCProperties`.
+    pub fn extract_layers(doc: &Document) -> Vec<(Option<String>, Layer)> {
+        // OCG object id -> resource name (first one wins across pages).
+        let mut ocg_names: BTreeMap<ObjectId, String> = BTreeMap::new();
+        for (_page_num, page_id) in doc.get_pages() {
+            let Ok(page_dict) = doc.get_dictionary(page_id) else {
+                continue;
+            };
+            let Ok(res_obj) = page_dict.get(b"Resources") else {
+                continue;
+            };
+            let Object::Dictionary(res_dict) = resolve(doc, res_obj) else {
+                continue;
+            };
+            let Ok(props_obj) = res_dict.get(b"Properties") else {
+                continue;
+            };
+            let Object::Dictionary(props) = resolve(doc, props_obj) else {
+                continue;
+            };
+            for (name, val) in props.iter() {
+                if let Object::Reference(ocg_id) = val {
+                    ocg_names
+                        .entry(*ocg_id)
+                        .or_insert_with(|| String::from_utf8_lossy(name).to_string());
+                }
+            }
+        }
+
         // Get the catalog from the trailer.
-        let catalog_id = match doc.trailer.get(b"Root").ok() {
-            Some(Object::Reference(id)) => *id,
-            _ => return vec![],
-        };
-        let catalog = match doc.get_object(catalog_id).ok() {
+        let catalog = match doc
+            .trailer
+            .get(b"Root")
+            .ok()
+            .map(|o| resolve(doc, o))
+        {
             Some(Object::Dictionary(dict)) => dict,
             _ => return vec![],
         };
 
         // Get the OCProperties dictionary.
-        let ocprops = match catalog.get(b"OCProperties").ok() {
+        let ocprops = match catalog.get(b"OCProperties").ok().map(|o| resolve(doc, o)) {
             Some(Object::Dictionary(dict)) => dict,
             _ => return vec![],
         };
 
         // Get the array of OCGs (optional content groups / layers).
-        let ocgs = match ocprops.get(b"OCGs").ok() {
+        let ocgs = match ocprops.get(b"OCGs").ok().map(|o| resolve(doc, o)) {
             Some(Object::Array(arr)) => arr,
             _ => return vec![],
         };
 
         // Also, if available, get the "ON" array from the "D" dictionary
         // to decide which layers are turned on by default.
-        let default_on = match ocprops.get(b"D").ok() {
+        let default_on = match ocprops.get(b"D").ok().map(|o| resolve(doc, o)) {
             Some(Object::Dictionary(d_dict)) => {
                 if let Some(Object::Array(on_arr)) = d_dict.get(b"ON").ok() {
                     on_arr
@@ -3972,43 +4043,34 @@ mod layers {
                 _ => continue,
             };
 
-            // Extract the layer name.
+            // Extract the layer name (accept both string and hex-string forms).
             let name = match layer_dict.get(b"Name").ok() {
                 Some(Object::String(s, _)) => s.clone(),
                 _ => continue,
             };
 
-            // Extract the intent from the "Intent" key.
-            // The Intent value is stored as a reference to an array of names.
-            let intent = match layer_dict.get(b"Intent").ok() {
-                Some(Object::Reference(intent_ref)) => {
-                    if let Ok(Object::Array(arr)) = doc.get_object(*intent_ref) {
-                        if let Some(Object::Name(n)) = arr.first() {
-                            match n.as_slice() {
-                                b"View" => LayerIntent::View,
-                                b"Design" => LayerIntent::Design,
-                                _ => LayerIntent::Design,
-                            }
-                        } else {
-                            LayerIntent::Design
-                        }
-                    } else {
-                        LayerIntent::Design
-                    }
-                }
+            // Extract the intent from the "Intent" key: either a name, an
+            // inline array of names, or a reference to such an array.
+            let intent = match layer_dict.get(b"Intent").ok().map(|o| resolve(doc, o)) {
+                Some(Object::Array(arr)) => match arr.first() {
+                    Some(Object::Name(n)) if n.as_slice() == b"View" => LayerIntent::View,
+                    _ => LayerIntent::Design,
+                },
+                Some(Object::Name(n)) if n.as_slice() == b"View" => LayerIntent::View,
                 _ => LayerIntent::Design,
             };
 
-            // Extract usage info from the "Usage" key.
-            // This is a reference to a dictionary containing "CreatorInfo".
-            let (creator, usage_subtype) = match layer_dict.get(b"Usage").ok() {
-                Some(Object::Reference(usage_ref)) => {
-                    let usage_dict = match doc.get_object(*usage_ref) {
-                        Ok(Object::Dictionary(dict)) => dict,
-                        _ => continue,
-                    };
-                    if let Some(Object::Dictionary(creator_info)) =
-                        usage_dict.get(b"CreatorInfo").ok()
+            // Extract usage info from the "Usage" key (inline dict or reference).
+            let (creator, usage_subtype) = match layer_dict
+                .get(b"Usage")
+                .ok()
+                .map(|o| resolve(doc, o))
+            {
+                Some(Object::Dictionary(usage_dict)) => {
+                    if let Some(Object::Dictionary(creator_info)) = usage_dict
+                        .get(b"CreatorInfo")
+                        .ok()
+                        .map(|o| resolve(doc, o))
                     {
                         let creator = match creator_info.get(b"Creator").ok() {
                             Some(Object::String(s, _)) => String::from_utf8_lossy(&s).to_string(),
@@ -4037,12 +4099,15 @@ mod layers {
                 intent
             };
 
-            layers.push(Layer {
-                name: String::from_utf8_lossy(&name).to_string(), // TODO: better parsing
-                creator,
-                intent: final_intent,
-                usage: usage_subtype,
-            });
+            layers.push((
+                ocg_names.get(layer_ref).cloned(),
+                Layer {
+                    name: String::from_utf8_lossy(&name).to_string(),
+                    creator,
+                    intent: final_intent,
+                    usage: usage_subtype,
+                },
+            ));
         }
 
         layers
