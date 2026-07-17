@@ -502,7 +502,14 @@ const imgStub = x => `@@image ${x?.data?.width ?? '?'}x${x?.data?.height ?? '?'}
 
 function stripResources(doc) {
     const d = JSON.parse(JSON.stringify(doc));
-    for (const [id] of mapEntries(d.resources?.fonts)) mapInsert(d.resources.fonts, id, FONT_STUB);
+    for (const [id, val] of mapEntries(d.resources?.fonts)) {
+        // Elide only the font bytes, keep the (editable) meta visible.
+        if (val && typeof val === 'object' && 'parsed_font' in val) {
+            mapInsert(d.resources.fonts, id, { ...val, parsed_font: FONT_STUB });
+        } else {
+            mapInsert(d.resources.fonts, id, FONT_STUB);
+        }
+    }
     for (const [id, x] of mapEntries(d.resources?.xobjects)) {
         if (x && x.type === 'image') mapInsert(d.resources.xobjects, id, { ...x, data: imgStub(x) });
     }
@@ -637,7 +644,10 @@ function renderPdfResources() {
     };
 
     for (const [id, val] of fonts) {
-        const b64 = typeof val === 'string' ? (val.split(',', 2)[1] ?? '') : '';
+        // A font resource is { meta, parsed_font: "data:font/ttf;base64,..." }
+        // (or, in older docs, the data URI string directly).
+        const uri = typeof val === 'string' ? val : (val?.parsed_font ?? '');
+        const b64 = uri.split(',', 2)[1] ?? '';
         row('font', id, () => downloadB64(b64, `${id}.ttf`, 'font/ttf'));
     }
     for (const [id, x] of images) {
