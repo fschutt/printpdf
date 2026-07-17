@@ -38,6 +38,21 @@ publish-safety also now fails if the .crate approaches crates.io's 10 MiB cap, w
 the package sits at ~87% of (the examples/assets tree is include_bytes!'d by tests and
 examples, so it must ship).
 
+Fonts can now be passed in from the outside on every path that needs them.
+`Svg::parse_with_fonts` feeds caller-supplied fonts into SVG `<text>` conversion —
+previously that path only ever saw system fonts, and on wasm (where there is no system
+database to scan) no fonts at all. For the HTML/text-layout path,
+`build_font_pool_with_memory_fonts` registers pre-patterned `rust_fontconfig` memory
+fonts with their metadata intact instead of re-deriving patterns from the bytes, and
+`printpdf::html` re-exports `rust_fontconfig` so the pattern types are constructible
+without version-matching the crate yourself. Related wasm/dependency cleanups: the
+js-sys browser fast paths (canvas decode/encode) are compiled out on wasi targets,
+whose binaries otherwise carried `window`/canvas imports no wasi runtime can satisfy;
+`time`'s unused serde features are dropped; `rust-fontconfig` is bounded `< 4.5`
+(4.4.4 was the double-allsorts release); and CI now builds `text_layout` alone,
+`js-sys` on wasip2, `svg` on wasm, and runs the svg test suite — configurations that
+previously had zero coverage.
+
 Hostile PDFs are also harder to crash now. A `/CreationDate` containing any non-ASCII
 byte panicked `PdfDocument::parse` (string slicing at byte offsets asserts char
 boundaries); parsing works on raw bytes now. A `/ToUnicode` bfrange with `end < start`
