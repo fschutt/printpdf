@@ -1017,11 +1017,6 @@ fn compose_matrix(outer: &[f32; 6], inner: &[f32; 6]) -> [f32; 6] {
 // so the required transform is Flip ∘ M ∘ Flip0 (Flip0 = diag(1,-1)), which
 // works out to [a, -b, -c, d, e, H - f]. For the common translate-only case
 // (a=d=1, b=c=0) this is a plain translate(e, H - f) with upright glyphs.
-fn text_svg_transform(ctm: &CurTransMat, text_matrix: &TextMatrix, page_height: f32) -> [f32; 6] {
-    let m = compose_matrix(&ctm.as_array(), &text_matrix.as_array());
-    [m[0], -m[1], -m[2], m[3], m[4], page_height - m[5]]
-}
-
 // Renders text items (with offsets) to SVG
 fn render_text_items_to_svg(
     items: &[TextItem],
@@ -1044,8 +1039,22 @@ fn render_text_items_to_svg(
     // Build the PDF->SVG text transform. The glyph position lives entirely in
     // this matrix (translation part), so the <text> x/y attributes stay at 0 to
     // avoid double-applying the offset.
-    let text_transform =
-        text_svg_transform(&gst.get_transform_matrix(), &gst.get_text_matrix(), page_height);
+    //
+    // Text is positioned two ways: azul's from_html sets a full text matrix (Tm),
+    // while direct-API and parsed PDFs position with SetTextCursor / line breaks
+    // (the `Td` operator), tracked in `text_cursor`. `text_matrix` alone misses
+    // the latter, dropping every glyph to the page bottom (f = page_height). Use
+    // the cursor's translation when it has been set, keeping the matrix's linear
+    // (scale/rotate) part.
+    let tm_arr = gst.get_text_matrix().as_array();
+    let cursor = gst.get_text_cursor();
+    let eff_tm = if cursor.x.0 != 0.0 || cursor.y.0 != 0.0 {
+        [tm_arr[0], tm_arr[1], tm_arr[2], tm_arr[3], cursor.x.0, cursor.y.0]
+    } else {
+        tm_arr
+    };
+    let m = compose_matrix(&gst.get_transform_matrix().as_array(), &eff_tm);
+    let text_transform = [m[0], -m[1], -m[2], m[3], m[4], page_height - m[5]];
     let (x, y) = (0.0f32, 0.0f32);
 
     // Get text rendering mode styling
