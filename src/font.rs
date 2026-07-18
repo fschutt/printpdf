@@ -957,6 +957,29 @@ pub fn generate_cmap_string(_font: &ParsedFont, font_id: &FontId, glyph_ids: &[(
     cmap.to_cmap_string(&font_id.0)
 }
 
+/// Repackage one face of a TrueType/OpenType *collection* (`ttcf`) as a standalone
+/// sfnt, so it can be embedded as a valid `/FontFile2`/`/FontFile3` program.
+///
+/// A PDF font program must be a single face: embedding the whole collection produces
+/// a stream no conforming reader accepts (and the descendant subtype is decided from
+/// the outer magic, which for a collection is neither `OTTO` nor `\0\1\0\0`, so the
+/// dictionary would mislabel it too). Returns `None` when `bytes` is not a collection
+/// (nothing to do) or the face cannot be extracted.
+pub fn extract_collection_face(bytes: &[u8], index: usize) -> Option<Vec<u8>> {
+    use allsorts::{
+        binary::read::ReadScope, font_data::FontData, subset::whole_font,
+        tables::FontTableProvider,
+    };
+
+    if bytes.get(..4) != Some(b"ttcf") {
+        return None;
+    }
+    let font_file = ReadScope::new(bytes).read::<FontData<'_>>().ok()?;
+    let provider = font_file.table_provider(index).ok()?;
+    let tags = provider.table_tags()?;
+    whole_font(&provider, &tags).ok()
+}
+
 /// Glyph id -> CID map read from the CFF charset of the font program that is about to be
 /// embedded, or `None` when the codes in the content stream can stay glyph ids.
 ///

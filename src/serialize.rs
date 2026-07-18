@@ -1527,15 +1527,42 @@ fn create_full_font_runtime_info(
         ));
     }
 
-    // For a CID-keyed CFF the Identity-H codes must be the charset's CIDs, not glyph
-    // ids — spec-following viewers resolve every code through the embedded charset,
-    // which is not identity in real fonts (NotoSansJP diverges from gid 365 on; #280).
-    // `None` for glyf and name-keyed CFF fonts, where code == gid stays correct.
     #[cfg(feature = "text_layout")]
     let font_index = pdf_font.parsed_font.original_index;
     #[cfg(not(feature = "text_layout"))]
     let font_index = pdf_font.parsed_font.font_index as usize;
-    let gid_to_code = crate::font::cff_charset_gid_to_cid_map(&font_bytes, font_index);
+
+    // A collection (`ttcf`) is not a valid font program: repackage the selected face
+    // as a standalone sfnt. (The face keeps its glyph ids, so nothing downstream —
+    // codes, /W, ToUnicode — changes.) If extraction fails, embed the collection
+    // as-is and say so, rather than silently shipping bytes readers reject.
+    let font_bytes = if font_bytes.get(..4) == Some(b"ttcf".as_slice()) {
+        match crate::font::extract_collection_face(&font_bytes, font_index) {
+            Some(face) => face,
+            None => {
+                warnings.push(PdfWarnMsg::error(
+                    0,
+                    0,
+                    format!(
+                        "font {}: cannot extract face {} from font collection; embedding \
+                         the whole collection, which most PDF readers reject",
+                        font_id.0, font_index
+                    ),
+                ));
+                font_bytes
+            }
+        }
+    } else {
+        font_bytes
+    };
+
+    // For a CID-keyed CFF the Identity-H codes must be the charset's CIDs, not glyph
+    // ids — spec-following viewers resolve every code through the embedded charset,
+    // which is not identity in real fonts (NotoSansJP diverges from gid 365 on; #280).
+    // `None` for glyf and name-keyed CFF fonts, where code == gid stays correct.
+    //
+    // Index 0: `font_bytes` is a single face at this point (see above).
+    let gid_to_code = crate::font::cff_charset_gid_to_cid_map(&font_bytes, 0);
 
     let coded_glyphs: Vec<(u16, u16, String)> = {
         let mut v: Vec<(u16, u16, String)> = glyph_usage

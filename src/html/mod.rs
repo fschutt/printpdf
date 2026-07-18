@@ -256,9 +256,22 @@ fn register_input_fonts<T: azul_layout::font_traits::ParsedFontTrait>(
     }
 
     for (name, bytes) in fonts.iter() {
-        register_all_spellings(font_manager, name, bytes, &[]);
-        if let Some(parsed) = rust_fontconfig::FcParseFontBytes(bytes, name) {
-            for (pattern, _) in &parsed {
+        let parsed = rust_fontconfig::FcParseFontBytes(bytes, name);
+
+        // The map-key spelling must carry real coverage too: rust-fontconfig (and
+        // azul's memory-family resolution) deliberately skip empty-`unicode_ranges`
+        // fonts during per-character fallback (the 4.4.3 populate_memory_font_ranges
+        // fix), so a font referenced only by its map-key name would lose character
+        // resolution while the same font under its internal family name worked.
+        let key_coverage: &[rust_fontconfig::UnicodeRange] = parsed
+            .as_deref()
+            .and_then(|p| p.first())
+            .map(|(pattern, _)| pattern.unicode_ranges.as_slice())
+            .unwrap_or(&[]);
+        register_all_spellings(font_manager, name, bytes, key_coverage);
+
+        if let Some(parsed) = &parsed {
+            for (pattern, _) in parsed {
                 if let Some(fam) = pattern.family.as_deref() {
                     if !fam.eq_ignore_ascii_case(name) {
                         register_all_spellings(
