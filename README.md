@@ -9,7 +9,7 @@
 
 > [!NOTE]
 > HTML-to-PDF rendering (`PdfDocument::from_html`, `html` feature) works for
-> basic layouts — tables, page breaks, headers/footers — but is still
+> basic layouts - tables, page breaks, headers/footers - but is still
 > evolving. For pixel-exact control, position PDF elements manually with ops.
 
 ## Features
@@ -188,7 +188,7 @@ fn main() {
 
     let mut warnings = Vec::new();
 
-    // Text-showing ops must sit between StartTextSection and EndTextSection —
+    // Text-showing ops must sit between StartTextSection and EndTextSection -
     // most viewers drop text outside of one (save() warns if you forget).
     let page1_contents = vec![
         Op::StartTextSection,
@@ -269,7 +269,7 @@ fn main() {
     // named fonts to be used in the HTML, i.e. "Roboto" => Base64OrRaw::Raw(roboto_bytes)
     let fonts = BTreeMap::new();
 
-    // page size, margins, etc. — all optional; printpdf auto-page-breaks
+    // page size, margins, etc. - all optional; printpdf auto-page-breaks
     let options = GeneratePdfOptions {
         page_width: Some(210.0),  // mm
         page_height: Some(297.0), // mm

@@ -8,16 +8,16 @@ in a headless browser on every push.
 
 **CID-keyed CFF fonts render correctly in Acrobat and Preview (#280).** Fonts like
 NotoSansJP carry a CID-keyed CFF whose charset does NOT map glyph ids 1:1 to CIDs
-(they diverge from glyph 365 on). printpdf wrote glyph ids as the Identity-H codes —
+(they diverge from glyph 365 on). printpdf wrote glyph ids as the Identity-H codes -
 but a spec-following viewer resolves every code as a CID *through that charset*
 (ISO 32000-1, 9.7.4.2), so Acrobat and Preview drew wrong CJK glyphs and nothing at
 all for the fullwidth brackets, while Chrome's PDFium (which falls back to
 code == GID) looked fine and copy-paste worked (ToUnicode was keyed by the written
-code). Both embed paths were wrong — the subsetter preserves the *original* CIDs in
+code). Both embed paths were wrong - the subsetter preserves the *original* CIDs in
 the subset charset while the content stream emitted renumbered sequential gids. The
 content stream, `/W` widths and `/ToUnicode` are now all keyed by the embedded
 charset's CIDs; parsing resolves codes back CID→GID (through `/CIDToGIDMap` streams
-and CFF charsets — foreign Adobe/dvipdfmx CJK PDFs re-render correctly now too, and
+and CFF charsets - foreign Adobe/dvipdfmx CJK PDFs re-render correctly now too, and
 legacy code==GID files are detected and kept stable). Guarded three ways: a
 deterministic mock-font suite (generated TTF/CFF/CID-CFF faces with distinct defined
 widths, so glyph identity is checked as arithmetic), a hard-coded-CID canary, and a
@@ -27,37 +27,37 @@ subset tag only appears when the font was actually subset, `/FontName` matches
 `/BaseFont`, CIDFontType2 carries an explicit `/CIDToGIDMap /Identity`, `.ttc`
 sources embed the single selected face instead of the whole collection, and
 ToUnicode synthesis covers supplementary planes. Text-showing ops outside
-`StartTextSection`/`EndTextSection` — the classic "my PDF is blank" mistake (#254) —
+`StartTextSection`/`EndTextSection` - the classic "my PDF is blank" mistake (#254) -
 now warn loudly at save time. Type0 fonts with non-Identity-H encodings warn on
 parse instead of silently scrambling.
 
 **Requires `rust-fontconfig 4.4.6`**; ships against the published `azul-layout
 0.0.10` (the `agg-rust-azul` rasterizer under its svg path is pinned `<1.0.3`, whose
-API break made fresh `svg`-feature builds fail to compile — the #279 failure shape,
-one dependency over). The azul master improvements — including the wasm
+API break made fresh `svg`-feature builds fail to compile - the #279 failure shape,
+one dependency over). The azul master improvements - including the wasm
 `Instant::now()` clock fix on the font LRU path (rust-fontconfig's half of that fix
-is in 4.4.6) — arrive with the azul-layout 0.0.11 bump in a follow-up release.
+is in 4.4.6) - arrive with the azul-layout 0.0.11 bump in a follow-up release.
 
 **PDF parsing / round-trip, rewritten where it lied.** Text decoding no longer guesses
-code width from string byte-parity — it is resolved per font at `Tf` (builtin/simple
+code width from string byte-parity - it is resolved per font at `Tf` (builtin/simple
 fonts decode per byte through ToUnicode-else-WinAnsi; Type0 through 2-byte gids with
 per-glyph Unicode carried from the ToUnicode CMap, synthesized from the font's own cmap
 when the PDF has none). Form XObjects, undecodable images and printpdf's own
 FlateDecode raw bitmaps (with `/SMask` alpha) survive parsing instead of being dropped;
 MediaBox inherits through the page tree; `'`/`"` operators, link annotations
-(`/Rect` was misread), layers (`/Properties` names now correlate — no more "Marked
+(`/Rect` was misread), layers (`/Properties` names now correlate - no more "Marked
 Content unknown"), and `/Shading` resources + `sh` ops (axial/radial with
 exponential/stitching functions) all round-trip. Embedded fonts named `F1`–`F14` are no
 longer mistaken for the builtin standard-14 on either parse or save (that was instant
 mojibake for foreign PDFs). The ToUnicode CMap parser is a real tokenizer now:
-single-line CMaps, multi-codepoint bfchar targets, surrogate pairs — a ligature no
+single-line CMaps, multi-codepoint bfchar targets, surrogate pairs - a ligature no
 longer kills the whole CMap, and regenerated CMaps keep full multi-char targets
 ("Configure" copy-pastes with its "fi" intact). Ten corpus PDFs round-trip
 visually identical with text surviving `pdftotext`, twice.
 
 **Font subsetting fixed at the root.** The original→subset glyph renumbering comes from
 the subsetter's own input-order mapping instead of being "recovered" through the subset
-cmap — shaper-substituted glyphs (ligatures, digit alternates) have no cmap entry, so
+cmap - shaper-substituted glyphs (ligatures, digit alternates) have no cmap entry, so
 list markers and page numbers rendered as ☒ tofu and ligatures fell back to their first
 letter. Inline-span backgrounds also no longer paint over their own text (the bridge
 now flushes text at azul's own paint position).
@@ -66,7 +66,7 @@ now flushes text at azul's own paint position).
 `/Resources` subtree (ColorSpace dictionaries, ExtGState, Pattern, Shading, Fonts) is
 carried into the Form XObject with every indirect reference inlined and streams hoisted
 back to indirect objects at write time; the content stream is byte-preserved instead of
-lossily re-parsed (`/p0 scn` used to come back as `0 g` — solid black). Gradients,
+lossily re-parsed (`/p0 scn` used to come back as `0 g` - solid black). Gradients,
 tiling patterns, transparency groups and clip paths render correctly (poppler error
 count on the tiger: ~600 → 0), and `<text>` without a resolvable font-family is a loud
 warning instead of a silent drop.
@@ -74,14 +74,14 @@ warning instead of a silent drop.
 **The wasm demo is rebuilt and continuously tested.** New endpoints:
 `Pdf_RegisterFonts` (register default fonts once instead of resending ~10 MB of base64
 per keystroke) and `Pdf_DecodeImage` (images/signatures decode to the document's
-`RawImage` JSON — the sign tab was impossible without it). Pixel data serializes as
-base64 (`{"u8b64": …}`) instead of JSON number arrays — a 1024×1024 RGBA signature went
+`RawImage` JSON - the sign tab was impossible without it). Pixel data serializes as
+base64 (`{"u8b64": …}`) instead of JSON number arrays - a 1024×1024 RGBA signature went
 from ~16 MB of JSON to ~5.6 MB, and the old array format stays readable forever. The
 API returns a structured error envelope even when the *response* fails to serialize
 (it used to return an empty string). The demo page itself is new (tabs, live preview,
 minimap, warnings drawer, dark mode) with every JS↔wasm wire-format mismatch fixed,
-and `tests/e2e/` drives the real UI in headless Chrome — boot, render with fonts,
-image embedding, download, re-upload of our own PDF, signature stamping, save — on
+and `tests/e2e/` drives the real UI in headless Chrome - boot, render with fonts,
+image embedding, download, re-upload of our own PDF, signature stamping, save - on
 every push (`demo-e2e.yml`), with poppler validating the downloaded files. Pages
 deploys (`static.yml`) now ship the exact build the e2e suite tested, automatically on
 release tags.
@@ -110,8 +110,8 @@ returns real ids instead of a stub (page previews finally receive their fonts).
 consumer's dependency resolution (#279). printpdf asked for lopdf's `time` feature, and
 lopdf 0.43/0.44's `time` code only compiles against `time` >= 0.3.48, where
 `FormatItem::StringLiteral` first exists (J-F-Liu/lopdf#518). A fresh resolution on a
-current toolchain lands on `time` 0.3.53 and works — which is exactly why CI and the
-release builds stayed green — but any workspace whose lockfile predates `time` 0.3.48
+current toolchain lands on `time` 0.3.53 and works - which is exactly why CI and the
+release builds stayed green - but any workspace whose lockfile predates `time` 0.3.48
 (June 2026), or whose MSRV-aware resolver walks below it, got a compile error inside
 lopdf. printpdf never used anything the feature gates (PDF dates are formatted and
 parsed in printpdf itself), so the feature is simply dropped. If you need lopdf's
@@ -123,14 +123,14 @@ class: `time` is now `>= 0.3.36` (0.3.25–0.3.35 fail type inference on rustc >
 `image` is `>= 0.25.2` (`image::ImageReader` first exists there), and
 `rust-version = "1.88"` is declared (it was already the effective floor via lopdf 0.44,
 just invisible to MSRV-aware resolvers). weezl moved to 0.2 so consumer graphs stop
-linking two copies of the LZW coder, and a vestigial getrandom 0.3 dependency — whose
-only remaining dependent was printpdf itself — is gone from wasm builds.
+linking two copies of the LZW coder, and a vestigial getrandom 0.3 dependency - whose
+only remaining dependent was printpdf itself - is gone from wasm builds.
 
 The reason this bug class kept shipping is that every CI job proved only "today's
 freshest resolution on this runner compiles". Two new guards close that gap. In
 ci.yaml, `consumer-resolution` builds the tree the way a consumer resolves it (fresh
 project, fresh lockfile, path dependency on the checkout) and then re-pins the
-known-bad lines — `time` 0.3.47, `image` 0.25.2 — so every breakage that ever shipped
+known-bad lines - `time` 0.3.47, `image` 0.25.2 - so every breakage that ever shipped
 stays red forever. And the new `post-release.yml` verifies the **published artifact**:
 on every master push it `cargo add printpdf@=<Cargo.toml version>`s into a pristine
 project (no checkout, no lockfile) across Linux/Windows/macOS/wasm32 and the feature
@@ -143,7 +143,7 @@ the package sits at ~87% of (the examples/assets tree is include_bytes!'d by tes
 examples, so it must ship).
 
 Fonts can now be passed in from the outside on every path that needs them.
-`Svg::parse_with_fonts` feeds caller-supplied fonts into SVG `<text>` conversion —
+`Svg::parse_with_fonts` feeds caller-supplied fonts into SVG `<text>` conversion -
 previously that path only ever saw system fonts, and on wasm (where there is no system
 database to scan) no fonts at all. For the HTML/text-layout path,
 `build_font_pool_with_memory_fonts` registers pre-patterned `rust_fontconfig` memory
@@ -154,16 +154,16 @@ js-sys browser fast paths (canvas decode/encode) are compiled out on wasi target
 whose binaries otherwise carried `window`/canvas imports no wasi runtime can satisfy;
 `time`'s unused serde features are dropped; `rust-fontconfig` is bounded `< 4.5`
 (4.4.4 was the double-allsorts release); and CI now builds `text_layout` alone,
-`js-sys` on wasip2, `svg` on wasm, and runs the svg test suite — configurations that
+`js-sys` on wasip2, `svg` on wasm, and runs the svg test suite - configurations that
 previously had zero coverage.
 
 Hostile PDFs are also harder to crash now. A `/CreationDate` containing any non-ASCII
 byte panicked `PdfDocument::parse` (string slicing at byte offsets asserts char
 boundaries); parsing works on raw bytes now. A `/ToUnicode` bfrange with `end < start`
 panicked under overflow checks, and a single `<00000000> <FFFFFFFF> <0041>` line
-expanded to 2^32 map entries — an OOM from a few bytes of input; both now error, which
+expanded to 2^32 map entries - an OOM from a few bytes of input; both now error, which
 costs the hostile font its ToUnicode map and nothing else. PDF/A / PDF/X XMP metadata
-wrote single-digit months (`D:2018-9-19T...` — veraPDF rejects it) because the `Month`
+wrote single-digit months (`D:2018-9-19T...` - veraPDF rejects it) because the `Month`
 enum's `Display` ignored the `{:02}` width. And `unix_timestamp` /
 `from_unix_timestamp` are now the same pure calendar arithmetic on every target: the
 old wasm implementations went through the JS `Date`, which interpreted the fields in
@@ -172,7 +172,7 @@ the browser's local timezone, ignored the stored offset, and rejected pre-1970 d
 
 ## `0.11.1`
 
-printpdf linked **two copies of allsorts** — `0.17` directly, and `0.16` again underneath
+printpdf linked **two copies of allsorts** - `0.17` directly, and `0.16` again underneath
 `rust-fontconfig`. Two font parsers means two incompatible `ParsedFont` / `CmapTarget` /
 `FontData`, so a type from one cannot cross into the other, and the binary carries the whole
 parser twice. `rust-fontconfig 4.4.5` moves to allsorts 0.17, and printpdf now requires it,
@@ -181,13 +181,13 @@ so exactly one copy is linked. `only_one_allsorts_is_linked` keeps it that way.
 The subset-cmap panic reported in 0.11.0's notes was fixed upstream rather than worked
 around: it only ever existed in `allsorts-azul` ≤ 0.16.5
 (`CmapSubtableFormat4::from_mappings` did `mappings.iter().next().unwrap()` under a "safe as
-mappings is non-empty" comment — it isn't). 0.17 handles an empty mapping set correctly,
+mappings is non-empty" comment - it isn't). 0.17 handles an empty mapping set correctly,
 emitting just the mandatory `0xFFFF` sentinel segment. printpdf still declines to subset a
 font whose used glyphs are all unreachable from its cmap, but for a different reason: the
 glyph renumbering is recovered *from the subset's own cmap*, so an empty one would leave the
 content stream emitting original glyph ids against a renumbered font.
 
-Upstream, `azul` no longer patches `allsorts-azul` to a vendored tree — the drift between
+Upstream, `azul` no longer patches `allsorts-azul` to a vendored tree - the drift between
 that tree and the published crate, while both claimed version 0.17.0, is what shipped
 azul-layout 0.0.9 broken. It is consumed from the registry now, and azul CI fails if a
 `[patch]` is placed on anything its published crates depend on.
@@ -196,22 +196,22 @@ azul-layout 0.0.9 broken. It is consumed from the registry now, and azul CI fail
 
 The headline is that **printpdf no longer carries a `[patch.crates-io]` section**. It builds
 against exactly the crates it publishes. `cargo publish` silently strips `[patch]`, so a
-crate released while one exists is compiled against dependencies nobody ever tested — the
+crate released while one exists is compiled against dependencies nobody ever tested - the
 local checkout and the published artifact are different programs. That is precisely how
 0.10.0 shipped with every embedded font empty (#277), and the trap bit azul twice more on
 the way out. It is now a CI failure for a `[patch]` section to exist at all.
 
 That required releasing the dependencies for real: **azul-css 0.0.9**, **azul-core 0.0.9**,
 **azul-layout 0.0.10** and **allsorts-azul 0.17.1**. The published `azul-layout 0.0.9`
-SIGSEGVs on any hosted OS — it carried 48 ungated
+SIGSEGVs on any hosted OS - it carried 48 ungated
 `core::ptr::write_volatile(0x400EC as *mut u32, …)` calls (web-lift diagnostic markers
 writing to a hardcoded absolute address, unmapped on native targets). 0.0.10 routes them
 through a no-op unless the `web_lift` feature is on, so the HTML/layout path works again.
 
 ### Breaking
 
-- `LineDashPattern` is now `{ offset: f32, pattern: SmallVec<[f32; 8]> }` — an
-  arbitrary-length array of reals — rather than three fixed `Option<i64>` dash/gap pairs.
+- `LineDashPattern` is now `{ offset: f32, pattern: SmallVec<[f32; 8]> }` - an
+  arbitrary-length array of reals - rather than three fixed `Option<i64>` dash/gap pairs.
   The PDF spec always allowed this (#262, PR #263 by @tower120). Build one with
   `LineDashPattern::new(offset, &[dash, gap, …])` or `LineDashPattern::solid()`; you do not
   need a `smallvec` dependency of your own.
@@ -225,22 +225,22 @@ through a no-op unless the `web_lift` feature is on, so the HTML/layout path wor
 
 ### Fixed
 
-- **RUSTSEC-2026-0187** (unbounded-recursion DoS) — lopdf is on 0.44 (#272, PR #275 by
+- **RUSTSEC-2026-0187** (unbounded-recursion DoS) - lopdf is on 0.44 (#272, PR #275 by
   @Zynora-fr).
 - **The HTML renderer could take the process down.** `allsorts::subset()` builds the
   subset's cmap from the original font's cmap restricted to the kept glyphs, and *panics*
-  — not errors — when that comes out empty (`mappings.iter().next().unwrap()`, under a
+  - not errors - when that comes out empty (`mappings.iter().next().unwrap()`, under a
   "safe as mappings is non-empty" comment). Shaping emits glyph ids directly, and ligatures
   have no character of their own, so a page whose glyphs were all unreachable from the cmap
   aborted. printpdf now declines to subset in that case and embeds the full font.
 - **External fonts did nothing without `text_layout`** (#258). The fallback
   `ParsedFont::from_bytes` never parsed the cmap, so every glyph resolved to `.notdef` and
-  pages came out blank — while the font embedded perfectly, which is why it looked so
+  pages came out blank - while the font embedded perfectly, which is why it looked so
   baffling. And `PdfDocument::parse`'s `Type0` branch was feature-gated, so it could not
   read an external font back either. The fallback now parses cmap/hmtx/head/hhea/OS-2 with
   allsorts, which is a non-optional dependency and was there all along.
 - **FontDescriptor `/ItalicAngle`, `/Flags` and `/StemV`** were hardcoded to `0 / 32 / 80`
-  for every font — "upright, non-symbolic, medium weight", whatever you embedded. Readers
+  for every font - "upright, non-symbolic, medium weight", whatever you embedded. Readers
   use these to synthesise or substitute a face. They are derived from the hhea caret slope
   and OS/2 `usWeightClass` now (#271, residual).
 - wasm builds broke on the lopdf bump: `getrandom` must have `wasm_js` enabled per major
@@ -249,13 +249,13 @@ through a no-op unless the `web_lift` feature is on, so the HTML/layout path wor
 ### Changed
 
 - CI runs the full suite on Linux again. It had been commented out as "fails because of
-  SIMD issues, test on Windows only", so the suite only ever ran on Windows — which is why
+  SIMD issues, test on Windows only", so the suite only ever ran on Windows - which is why
   a Linux-only font-resolution panic sat undetected. The no-default-features job runs the
   whole suite too, not just `--lib`, which is why the blank-page bug above went unnoticed.
 - `tests/no_text_layout.rs` covers the fallback font path; `tests/external_tools.rs` checks
   the output with poppler (`pdffonts`, `pdftotext`), which shares no code with printpdf.
 
-## `0.10.1` — font embedding hotfix
+## `0.10.1` - font embedding hotfix
 
 **If you are on `0.10.0`, upgrade.** In 0.10.0 every external font embedded as an *empty*
 `/FontFile2`: readers reported "Cannot extract the embedded font", `pdffonts` reported
@@ -264,14 +264,14 @@ through a no-op unless the `web_lift` feature is on, so the HTML/layout path wor
 
 0.10.0 cannot be repaired by releasing a fixed `azul-layout`. Cargo reads
 `azul-layout = "0.0.9"` as `^0.0.9` := `>=0.0.9, <0.0.10`, so for `0.0.z` versions *only*
-`0.0.9` ever satisfies it — 0.10.0 is permanently pinned to the broken dependency. The fix
+`0.0.9` ever satisfies it - 0.10.0 is permanently pinned to the broken dependency. The fix
 had to come from printpdf, and it does: printpdf now retains font bytes itself and no
 longer depends on azul's retention policy at all.
 
 ### Fixed
 
 - **External fonts embed as an empty `/FontFile2`.** `azul_layout::ParsedFont::from_bytes`
-  does not retain the source bytes (a deliberate perf change — layout and rasterization
+  does not retain the source bytes (a deliberate perf change - layout and rasterization
   never read them, and retaining them duplicated a 4.27 MiB `.ttc` once per face).
   printpdf read them straight off the struct and `.unwrap_or_default()`'d the `None` into
   an empty `Vec`. `printpdf::ParsedFont` is now its own type, which attaches the source
@@ -285,9 +285,9 @@ longer depends on azul's retention policy at all.
   now taken from the sfnt magic of the program actually being embedded, and a full `OTTO`
   sfnt is written to `/FontFile3` as `/Subtype /OpenType`.
 - **Built-in fonts emitted UTF-8 into a `WinAnsiEncoding` stream** (#273). "Grüße aus Köln"
-  extracted as "GrÃ¼ÃŸe aus KÃ¶ln" — the text was not copy-able or searchable. printpdf now
+  extracted as "GrÃ¼ÃŸe aus KÃ¶ln" - the text was not copy-able or searchable. printpdf now
   owns the WinAnsi encoding table.
-- **The `'` and `"` operators ignored the selected font**, emitting raw UTF-8 — wrong for a
+- **The `'` and `"` operators ignored the selected font**, emitting raw UTF-8 - wrong for a
   WinAnsi built-in font *and* for an Identity-H external font, where the bytes must be
   glyph ids. The used-glyph collector also ignored them, so a page that drew text only via
   `'`/`"` registered no glyphs, its font was skipped as unused, and the text disappeared
@@ -308,15 +308,15 @@ longer depends on azul's retention policy at all.
 
 ### Added
 
-- `tests/font_embedding.rs` — opens the produced PDF with `lopdf` (deliberately *not*
+- `tests/font_embedding.rs` - opens the produced PDF with `lopdf` (deliberately *not*
   printpdf's own parser, where a symmetric writer/reader bug would cancel itself out) and
   asserts on the bytes a real reader sees: the font program is a parseable sfnt, every
   content-stream glyph id exists in it, and `/W` and `/ToUnicode` are keyed by those same
   ids and round-trip the exact source text.
-- `tests/external_tools.rs` — verifies against poppler, which shares no code with printpdf:
+- `tests/external_tools.rs` - verifies against poppler, which shares no code with printpdf:
   `pdffonts` must accept the embedded program, and `pdftotext` must round-trip the source
   text exactly (this is literally what copy/paste and search do).
-- CI job `published-deps` — rebuilds the *published* dependency graph by stripping
+- CI job `published-deps` - rebuilds the *published* dependency graph by stripping
   `[patch.crates-io]`, then runs the font tests against it. `cargo publish` strips that
   section, so without this the local checkout and the published crate are different
   programs. This is the gate that 0.10.0 needed and did not have.
