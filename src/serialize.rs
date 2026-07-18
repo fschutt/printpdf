@@ -471,11 +471,37 @@ pub(crate) fn translate_operations(
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> Vec<u8> {
     let mut content = Vec::new();
-    
+
     // Track current font for ShowText operations
     let mut current_font_resource: Option<String> = None;
 
-    for op in ops {
+    // Text-showing operators are only valid between BT and ET. Emitting them
+    // outside is not a rendering variation — Acrobat and most viewers drop the
+    // text entirely, and the classic symptom is a "blank PDF" with no error
+    // (#254). The ops are still written (some tolerant viewers show them), but
+    // the mistake is loud now.
+    let mut in_text_section = false;
+    let mut warned_outside_text_section = false;
+    let mut warn_outside = |op_idx: usize,
+                            op_name: &str,
+                            warned: &mut bool,
+                            warnings: &mut Vec<PdfWarnMsg>| {
+        if !*warned {
+            warnings.push(PdfWarnMsg::error(
+                0,
+                op_idx,
+                format!(
+                    "{op_name} outside of a text section: most PDF viewers will not \
+                     display this text. Wrap text operations in \
+                     Op::StartTextSection .. Op::EndTextSection (reported once per \
+                     content stream)"
+                ),
+            ));
+            *warned = true;
+        }
+    };
+
+    for (op_idx, op) in ops.iter().enumerate() {
         match op {
             Op::SetRenderingIntent { intent } => {
                 content.push(LoOp::new("ri", vec![Name(intent.get_id().into())]));
@@ -518,9 +544,11 @@ pub(crate) fn translate_operations(
                 content.push(LoOp::new("sh", vec![Name(id.0.as_bytes().to_vec())]));
             }
             Op::StartTextSection => {
+                in_text_section = true;
                 content.push(LoOp::new("BT", vec![]));
             }
             Op::EndTextSection => {
+                in_text_section = false;
                 content.push(LoOp::new("ET", vec![]));
             }
             // New 1:1 PDF operations
@@ -533,6 +561,9 @@ pub(crate) fn translate_operations(
                 ));
             }
             Op::ShowText { items } => {
+                if !in_text_section {
+                    warn_outside(op_idx, "Op::ShowText", &mut warned_outside_text_section, warnings);
+                }
                 // ShowText maps to Tj/TJ - font must be set via SetFont first
                 let (builtin_font, font_info) =
                     resolve_current_font(&current_font_resource, font_infos);
@@ -700,6 +731,14 @@ pub(crate) fn translate_operations(
             // built-in one. They used to emit `text.as_bytes()` (raw UTF-8) unconditionally,
             // which is wrong for both (issue #273).
             Op::MoveToNextLineShowText { text } => {
+                if !in_text_section {
+                    warn_outside(
+                        op_idx,
+                        "Op::MoveToNextLineShowText",
+                        &mut warned_outside_text_section,
+                        warnings,
+                    );
+                }
                 let (builtin_font, font_info) =
                     resolve_current_font(&current_font_resource, font_infos);
                 content.push(LoOp::new(
@@ -712,6 +751,14 @@ pub(crate) fn translate_operations(
                 char_spacing,
                 text,
             } => {
+                if !in_text_section {
+                    warn_outside(
+                        op_idx,
+                        "Op::SetSpacingMoveAndShowText",
+                        &mut warned_outside_text_section,
+                        warnings,
+                    );
+                }
                 let (builtin_font, font_info) =
                     resolve_current_font(&current_font_resource, font_infos);
                 content.push(LoOp::new(

@@ -307,3 +307,41 @@ fn test_op_transform() {
         "set_text_matrix"
     ));
 }
+
+/// #254: `ShowText` outside `StartTextSection`/`EndTextSection` produces a PDF
+/// most viewers show as blank. The save must say so instead of staying silent.
+#[test]
+fn show_text_outside_text_section_warns() {
+    let mut doc = PdfDocument::new("no_text_section");
+    let ops = vec![Op::ShowText {
+        items: vec![TextItem::Text("invisible".to_string())],
+    }];
+    doc.pages.push(PdfPage::new(Mm(210.0), Mm(297.0), ops));
+
+    let mut warnings = Vec::new();
+    let _ = doc.save(&PdfSaveOptions::default(), &mut warnings);
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.severity == printpdf::PdfParseErrorSeverity::Error
+                && w.msg.contains("outside of a text section")),
+        "expected an outside-text-section error, got: {warnings:#?}"
+    );
+
+    // The properly wrapped equivalent must NOT warn.
+    let mut doc = PdfDocument::new("with_text_section");
+    let ops = vec![
+        Op::StartTextSection,
+        Op::ShowText {
+            items: vec![TextItem::Text("visible".to_string())],
+        },
+        Op::EndTextSection,
+    ];
+    doc.pages.push(PdfPage::new(Mm(210.0), Mm(297.0), ops));
+    let mut warnings = Vec::new();
+    let _ = doc.save(&PdfSaveOptions::default(), &mut warnings);
+    assert!(
+        !warnings.iter().any(|w| w.msg.contains("outside of a text section")),
+        "wrapped text must not warn: {warnings:#?}"
+    );
+}
