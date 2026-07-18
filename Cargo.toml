@@ -80,6 +80,13 @@ smallvec = { version = "1.15.1", features = ["serde"] }
 # this bound guards consumers against an untested future 4.x drifting back).
 rust-fontconfig = { version = ">=4.4.5, <4.5", default-features = false, features = ["std", "parsing"], optional = true }
 xmlparser = { version = "0.13.6", default-features = false, optional = true }
+# azul-layout 0.0.10's cpurender calls agg-rust-azul 1.0.2 APIs that 1.0.3 removed
+# (RasterizerScanlineAa::add_path_vertices_transformed), and its "1.0.2" requirement
+# admits 1.0.3 — so a FRESH consumer resolution of the svg feature failed to compile
+# azul-layout at all (same failure shape as #279). printpdf never calls this crate;
+# the dependency exists only to hold the graph below 1.0.3. Remove when an
+# azul-layout release compatible with agg-rust-azul 1.0.3 ships.
+agg-rust-azul = { version = ">=1.0.2, <1.0.3", default-features = false, optional = true }
 web-sys = { version = "0.3.77", optional = true, default-features = false, features = ["console", "ImageData", "Window", "Document", "Blob", "CanvasRenderingContext2d", "HtmlCanvasElement", "HtmlImageElement", "ImageBitmap", "BlobPropertyBag"]}
 wasm-bindgen-futures = { version = "0.4.50", optional = true, default-features = false }
 azul-css = { version = "0.0.9", default-features = false, features = ["parser"], optional = true }
@@ -116,7 +123,7 @@ html_multithreaded = ["html", "rust-fontconfig/multithreading", "azul-layout/fon
 # SVG support
 # NOTE: azul-layout's `svg` feature references `crate::cpurender` (in xml/svg.rs) without
 # enabling it, so we must pull in `azul-layout/cpurender` as well.
-svg = ["html", "dep:svg2pdf", "azul-layout/svg", "azul-layout/cpurender"]
+svg = ["html", "dep:svg2pdf", "dep:agg-rust-azul", "azul-layout/svg", "azul-layout/cpurender"]
 # Image decoding support
 images = ["dep:image"]
 # Browser/WASM support
@@ -166,10 +173,6 @@ required-features = []
 
 [[example]]
 name = "html"
-required-features = ["html"]
-
-[[example]]
-name = "repro_invoice_layout"
 required-features = ["html"]
 
 [[example]]
