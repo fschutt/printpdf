@@ -320,19 +320,35 @@ fn assert_shaped_glyphs_survive(
         );
     }
 
-    // --- probe font: painted ids are exactly the input-order renumbering -----
-    // Before the fix the fi ligature was painted as the plain 'f' id (F5) and
-    // unreachable glyphs as 0, so this sequence comparison catches both.
+    // --- probe font: painted codes are the Identity-H codes of the renumbered
+    // glyphs. For glyf and name-keyed CFF that IS the input-order renumbering;
+    // for CID-keyed CFF (NotoSansJP) the code is the CID the subset charset
+    // assigns to the renumbered glyph — viewers resolve codes through that
+    // charset, so emitting raw subset gids showed wrong/missing glyphs in
+    // Acrobat and Preview (#280).
+    // Before the #220 fix the fi ligature was painted as the plain 'f' id (F5)
+    // and unreachable glyphs as 0, so this sequence comparison catches both.
     let shown = shown_gids_for_font(&pdf, &probe_font_id.0);
     assert_eq!(
         shown.len(),
         probe_glyphs.len(),
         "every ops glyph must be painted exactly once in the content stream"
     );
-    let expected: Vec<u16> = probe_glyphs.iter().map(|g| rank(*g)).collect();
+    let subset_gid_to_code = printpdf::font::cff_charset_gid_to_cid_map(&subset_bytes, 0);
+    let expected: Vec<u16> = probe_glyphs
+        .iter()
+        .map(|g| {
+            let new_gid = rank(*g);
+            subset_gid_to_code
+                .as_ref()
+                .and_then(|m| m.get(&new_gid).copied())
+                .unwrap_or(new_gid)
+        })
+        .collect();
     assert_eq!(
         shown, expected,
-        "content-stream glyph ids must be the input-order renumbering of the ops glyph ids"
+        "content-stream codes must be the Identity-H codes (charset CIDs for CID-keyed \
+         CFF) of the input-order renumbered ops glyph ids"
     );
 
     // --- outline identity: subset glyph k must be the original glyph of rank k.

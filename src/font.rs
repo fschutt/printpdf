@@ -957,12 +957,41 @@ pub fn generate_cmap_string(_font: &ParsedFont, font_id: &FontId, glyph_ids: &[(
     cmap.to_cmap_string(&font_id.0)
 }
 
-#[cfg(feature = "text_layout")]
-pub fn generate_gid_to_cid_map(font: &ParsedFont, glyph_ids: &[(u16, String)]) -> Vec<(u16, u16)> {
-    glyph_ids
-        .iter()
-        .filter_map(|(gid, _)| font.index_to_cid.get(gid).map(|cid| (*gid, *cid)))
-        .collect()
+/// Glyph id -> CID map read from the CFF charset of the font program that is about to be
+/// embedded, or `None` when the codes in the content stream can stay glyph ids.
+///
+/// Under `/Encoding /Identity-H` the two-byte codes in the content stream ARE the CIDs.
+/// How a viewer turns a CID into a glyph depends on the descendant font:
+///
+/// - `CIDFontType2` (TrueType `glyf`): via `/CIDToGIDMap`, which we leave at the default
+///   `/Identity` — so CID == GID and the codes are glyph ids. `None`.
+/// - `CIDFontType0`, name-keyed CFF: the CID is used as the glyph index directly. `None`.
+/// - `CIDFontType0`, **CID-keyed** CFF: the viewer maps CID -> GID through the CFF
+///   charset (ISO 32000-1, 9.7.4.2). The charset is NOT identity in real fonts —
+///   NotoSansJP diverges from glyph 365 on — and the allsorts subsetter preserves the
+///   *original* CIDs in the subset charset. Emitting glyph ids here made Acrobat and
+///   Preview pick wrong glyphs while PDFium-based viewers (which fall back to
+///   CID == GID) looked fine (#280). The content stream, `/W` and `/ToUnicode` must all
+///   be keyed by these CIDs instead.
+pub fn cff_charset_gid_to_cid_map(font_bytes: &[u8], index: usize) -> Option<BTreeMap<u16, u16>> {
+    use allsorts::{
+        binary::read::ReadScope, cff::CFF, font_data::FontData, tables::FontTableProvider, tag,
+    };
+
+    let font_file = ReadScope::new(font_bytes).read::<FontData<'_>>().ok()?;
+    let provider = font_file.table_provider(index).ok()?;
+    let cff_data = provider.read_table_data(tag::CFF).ok()?;
+    let cff = ReadScope::new(&cff_data).read::<CFF<'_>>().ok()?;
+    let font = cff.fonts.first()?;
+    if !font.is_cid_keyed() {
+        return None;
+    }
+    let num_glyphs = font.char_strings_index.len() as u16;
+    Some(
+        (0..num_glyphs)
+            .filter_map(|gid| font.charset.id_for_glyph(gid).map(|cid| (gid, cid)))
+            .collect(),
+    )
 }
 
 #[cfg(feature = "text_layout")]
@@ -1013,19 +1042,55 @@ pub fn get_normalized_widths_ttf(font: &ParsedFont, glyph_ids: &[(u16, String)])
     widths_list
 }
 
+/// Build the `/W` array for entries of `(content-stream code, gid to fetch the width of)`.
+///
+/// The code is the CID under Identity-H: equal to the gid for TrueType and name-keyed CFF
+/// fonts, but mapped through the CFF charset for CID-keyed CFF fonts (see
+/// [`cff_charset_gid_to_cid_map`]). `entries` must be sorted ascending by code — the
+/// run-length groups (`c [w1 w2 ...]`) depend on it.
 #[cfg(feature = "text_layout")]
-pub fn get_normalized_widths_cff(font: &ParsedFont, gid_to_cid_map: &[(u16, u16)]) -> Vec<lopdf::Object> {
+pub fn get_normalized_widths_codes(
+    font: &ParsedFont,
+    entries: &[(u16, u16)],
+) -> Vec<lopdf::Object> {
     let percentage_font_scaling = 1000.0 / (font.pdf_font_metrics.units_per_em as f32);
 
-    gid_to_cid_map
-        .iter()
-        .map(|(gid, _cid)| {
-            let width = get_glyph_width(font, *gid)
-                .map(|w| (w as f32 * percentage_font_scaling) as i64)
-                .unwrap_or(0);
-            lopdf::Object::Integer(width)
-        })
-        .collect()
+    let mut widths_list = Vec::new();
+    let mut current_low_code = 0u16;
+    let mut current_high_code = 0u16;
+    let mut current_width_vec: Vec<i64> = Vec::new();
+
+    for &(code, gid) in entries {
+        let glyph_width = get_glyph_width(font, gid)
+            .map(|w| (w as f32 * percentage_font_scaling) as i64)
+            .unwrap_or(0);
+
+        if current_width_vec.is_empty() {
+            current_low_code = code;
+            current_high_code = code;
+            current_width_vec.push(glyph_width);
+        } else if code == current_high_code + 1 {
+            current_high_code = code;
+            current_width_vec.push(glyph_width);
+        } else {
+            widths_list.push(lopdf::Object::Integer(current_low_code as i64));
+            widths_list.push(lopdf::Object::Array(
+                current_width_vec.iter().map(|w| lopdf::Object::Integer(*w)).collect(),
+            ));
+            current_low_code = code;
+            current_high_code = code;
+            current_width_vec = vec![glyph_width];
+        }
+    }
+
+    if !current_width_vec.is_empty() {
+        widths_list.push(lopdf::Object::Integer(current_low_code as i64));
+        widths_list.push(lopdf::Object::Array(
+            current_width_vec.iter().map(|w| lopdf::Object::Integer(*w)).collect(),
+        ));
+    }
+
+    widths_list
 }
 
 pub const FONT_B64_START: &str = "data:font/ttf;base64,";

@@ -14,7 +14,7 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::{
     color::IccProfile,
-    font::{ParsedFont, FontType},
+    font::ParsedFont,
     Actions, BuiltinFont, Color, ColorArray, Destination, FontId, IccProfileType,
     ImageOptimizationOptions, Line, LinkAnnotation, Op, PaintMode, PdfDocument,
     PdfDocumentInfo, PdfPage, PdfResources, PdfWarnMsg, Polygon, TextItem, XObject,
@@ -967,9 +967,17 @@ pub(crate) struct RuntimeSubsetInfo {
     pub widths_list: Vec<lopdf::Object>,
     pub ascent: i64,
     pub descent: i64,
-    /// Original glyph id -> renumbered subset glyph id. Empty when the full font
-    /// is embedded (no renumbering). Used to remap content-stream glyph codes.
+    /// Original glyph id -> the Identity-H code the content stream must emit.
+    ///
+    /// That code is the renumbered subset glyph id when the font was subset, and —
+    /// for CID-keyed CFF fonts — the CID the embedded font's charset assigns to the
+    /// glyph (viewers resolve codes through that charset, #280). Empty when codes
+    /// stay the original glyph ids (full TTF / name-keyed CFF embed).
     pub gid_remap: BTreeMap<u16, u16>,
+    /// Whether the embedded font program was actually subset (renumbered). Controls
+    /// the `XXXXXX+` subset tag on /BaseFont and /FontName — a full embed must not
+    /// carry one.
+    pub was_subset: bool,
 }
 
 /// Analyze all PDF operations to collect used glyph IDs for each font - now trivial with Codepoint!
@@ -1421,30 +1429,46 @@ fn create_subset_runtime_info(
                 // digits used for list markers / page numbers) would resolve to
                 // nothing at all, get remapped to gid 0 by `remap_gid`, and render as
                 // .notdef boxes (#220 F2b/F5).
-                let mut gid_remap: BTreeMap<u16, u16> = BTreeMap::new();
-                let mut new_glyph_ids: Vec<(u16, String)> = Vec::new();
-                for (orig_gid, (new_gid, ch)) in subset.glyph_mapping.iter() {
-                    gid_remap.insert(*orig_gid, *new_gid);
-                    // `glyph_mapping` is keyed by ascending original gid and allsorts
-                    // renumbers in that same order, so new gids are ascending too —
-                    // which the run-length /W builders below rely on.
-                    new_glyph_ids.push((*new_gid, ch.clone()));
-                }
+                // The Identity-H code for each glyph: the subset gid itself for glyf and
+                // name-keyed CFF outlines, but the subset charset's CID for CID-keyed
+                // CFF — the allsorts subsetter preserves the ORIGINAL font's CIDs there,
+                // and spec-following viewers (Acrobat, Preview) resolve our codes
+                // through that charset (#280). Content stream, /W and /ToUnicode must
+                // all be keyed by these codes.
+                let subset_gid_to_code =
+                    crate::font::cff_charset_gid_to_cid_map(&subset.bytes, 0);
 
+                let mut gid_remap: BTreeMap<u16, u16> = BTreeMap::new();
+                let mut coded_glyphs: Vec<(u16, u16, String)> = Vec::new();
+                for (orig_gid, (new_gid, ch)) in subset.glyph_mapping.iter() {
+                    let code = subset_gid_to_code
+                        .as_ref()
+                        .and_then(|m| m.get(new_gid).copied())
+                        .unwrap_or(*new_gid);
+                    gid_remap.insert(*orig_gid, code);
+                    coded_glyphs.push((code, *new_gid, ch.clone()));
+                }
+                // The /W run-length groups and ToUnicode bfranges need ascending codes.
+                // Subset gids ascend with original gids, but charset CIDs need not.
+                coded_glyphs.sort_by(|a, b| a.0.cmp(&b.0));
+
+                let coded_unicode: Vec<(u16, String)> = coded_glyphs
+                    .iter()
+                    .map(|(code, _, ch)| (*code, ch.clone()))
+                    .collect();
                 let cid_to_unicode_map = crate::font::generate_cmap_string(
-                    &subset_font, 
-                    font_id, 
-                    &new_glyph_ids
+                    &subset_font,
+                    font_id,
+                    &coded_unicode
                 );
-                
-                let widths = match subset_font.font_type {
-                    FontType::TrueType => crate::font::get_normalized_widths_ttf(&subset_font, &new_glyph_ids),
-                    _ => {
-                        let gid_to_cid_map = crate::font::generate_gid_to_cid_map(&subset_font, &new_glyph_ids);
-                        crate::font::get_normalized_widths_cff(&subset_font, &gid_to_cid_map)
-                    }
-                };
-                
+
+                let width_entries: Vec<(u16, u16)> = coded_glyphs
+                    .iter()
+                    .map(|(code, new_gid, _)| (*code, *new_gid))
+                    .collect();
+                let widths =
+                    crate::font::get_normalized_widths_codes(&subset_font, &width_entries);
+
                 Some(RuntimeSubsetInfo {
                     original_font: pdf_font.parsed_font.clone(),
                     subset_font_bytes: subset.bytes,
@@ -1453,6 +1477,7 @@ fn create_subset_runtime_info(
                     ascent: subset_font.font_metrics.ascent as i64,
                     descent: subset_font.font_metrics.descent as i64,
                     gid_remap,
+                    was_subset: true,
                 })
             } else {
                 warnings.push(PdfWarnMsg::error(0, 0, 
@@ -1502,17 +1527,48 @@ fn create_full_font_runtime_info(
         ));
     }
 
-    let glyph_ids: Vec<(u16, String)> = glyph_usage.iter()
-        .map(|(gid, s)| (*gid, s.clone()))
-        .collect();
+    // For a CID-keyed CFF the Identity-H codes must be the charset's CIDs, not glyph
+    // ids — spec-following viewers resolve every code through the embedded charset,
+    // which is not identity in real fonts (NotoSansJP diverges from gid 365 on; #280).
+    // `None` for glyf and name-keyed CFF fonts, where code == gid stays correct.
+    #[cfg(feature = "text_layout")]
+    let font_index = pdf_font.parsed_font.original_index;
+    #[cfg(not(feature = "text_layout"))]
+    let font_index = pdf_font.parsed_font.font_index as usize;
+    let gid_to_code = crate::font::cff_charset_gid_to_cid_map(&font_bytes, font_index);
 
+    let coded_glyphs: Vec<(u16, u16, String)> = {
+        let mut v: Vec<(u16, u16, String)> = glyph_usage
+            .iter()
+            .map(|(gid, s)| {
+                let code = gid_to_code
+                    .as_ref()
+                    .and_then(|m| m.get(gid).copied())
+                    .unwrap_or(*gid);
+                (code, *gid, s.clone())
+            })
+            .collect();
+        // /W run groups and ToUnicode bfranges need ascending codes; charset CIDs
+        // need not ascend with gids.
+        v.sort_by(|a, b| a.0.cmp(&b.0));
+        v
+    };
+
+    let coded_unicode: Vec<(u16, String)> = coded_glyphs
+        .iter()
+        .map(|(code, _, s)| (*code, s.clone()))
+        .collect();
     let cid_to_unicode_map = crate::font::generate_cmap_string(
         &pdf_font.parsed_font,
         font_id,
-        &glyph_ids
+        &coded_unicode
     );
 
-    let widths = get_normalized_widths(&pdf_font.parsed_font, &glyph_ids);
+    let width_entries: Vec<(u16, u16)> = coded_glyphs
+        .iter()
+        .map(|(code, gid, _)| (*code, *gid))
+        .collect();
+    let widths = get_normalized_widths(&pdf_font.parsed_font, &width_entries);
 
     RuntimeSubsetInfo {
         original_font: pdf_font.parsed_font.clone(),
@@ -1521,8 +1577,11 @@ fn create_full_font_runtime_info(
         widths_list: widths,
         ascent: pdf_font.parsed_font.font_metrics.ascent as i64,
         descent: pdf_font.parsed_font.font_metrics.descent as i64,
-        // Full font: no renumbering, so the content keeps original gids.
-        gid_remap: BTreeMap::new(),
+        // No renumbering happened, but for CID-keyed CFF the content stream must
+        // still emit charset CIDs instead of gids — thread the full map through the
+        // same remap mechanism. Empty (= codes stay original gids) otherwise.
+        gid_remap: gid_to_code.unwrap_or_default(),
+        was_subset: false,
     }
 }
 
@@ -1539,39 +1598,43 @@ fn get_scaled_glyph_width(font: &crate::font::ParsedFont, gid: u16) -> i64 {
         .unwrap_or(0)
 }
 
-/// Generate CID width array (W entry) from glyph IDs using run-length encoding.
+/// Generate the CID `/W` array with run-length encoding, from entries of
+/// `(Identity-H code, gid to fetch the width of)` sorted ascending by code.
+///
+/// Code == gid except for CID-keyed CFF fonts, where the code is the CID the embedded
+/// charset assigns to the glyph (see `font::cff_charset_gid_to_cid_map`).
 fn get_normalized_widths(
     font: &crate::font::ParsedFont,
-    glyph_ids: &[(u16, String)],
+    entries: &[(u16, u16)],
 ) -> Vec<lopdf::Object> {
     let mut widths_list = Vec::new();
-    let mut current_low_gid = 0u16;
-    let mut current_high_gid = 0u16;
+    let mut current_low_code = 0u16;
+    let mut current_high_code = 0u16;
     let mut current_width_vec: Vec<i64> = Vec::new();
 
-    for &(gid, _) in glyph_ids {
+    for &(code, gid) in entries {
         let glyph_width = get_scaled_glyph_width(font, gid);
 
         if current_width_vec.is_empty() {
-            current_low_gid = gid;
-            current_high_gid = gid;
+            current_low_code = code;
+            current_high_code = code;
             current_width_vec.push(glyph_width);
-        } else if gid == current_high_gid + 1 {
-            current_high_gid = gid;
+        } else if code == current_high_code + 1 {
+            current_high_code = code;
             current_width_vec.push(glyph_width);
         } else {
-            widths_list.push(lopdf::Object::Integer(current_low_gid as i64));
+            widths_list.push(lopdf::Object::Integer(current_low_code as i64));
             widths_list.push(lopdf::Object::Array(
                 current_width_vec.iter().map(|w| lopdf::Object::Integer(*w)).collect(),
             ));
-            current_low_gid = gid;
-            current_high_gid = gid;
+            current_low_code = code;
+            current_high_code = code;
             current_width_vec = vec![glyph_width];
         }
     }
 
     if !current_width_vec.is_empty() {
-        widths_list.push(lopdf::Object::Integer(current_low_gid as i64));
+        widths_list.push(lopdf::Object::Integer(current_low_code as i64));
         widths_list.push(lopdf::Object::Array(
             current_width_vec.iter().map(|w| lopdf::Object::Integer(*w)).collect(),
         ));
@@ -1590,7 +1653,15 @@ fn add_subset_font_to_pdf(
         .clone()
         .unwrap_or(font_id.0.clone());
 
-    let face_name = format!("{}+{}", font_id.0.clone().get(0..6).unwrap_or(&font_id.0), font_name);
+    // The `XXXXXX+` subset tag (ISO 32000-1, 9.6.4) marks a font program whose glyph
+    // complement was reduced. It must NOT appear on a full embed — and it must appear
+    // identically on /BaseFont (both levels) and the descriptor's /FontName, which are
+    // required to match.
+    let face_name = if subset_info.was_subset {
+        format!("{}+{}", font_id.0.clone().get(0..6).unwrap_or(&font_id.0), font_name)
+    } else {
+        font_name.clone()
+    };
 
     // The descendant subtype and the /FontFile key must describe what the embedded bytes
     // ACTUALLY are, so decide from the sfnt magic of the program we are about to write —
@@ -1707,47 +1778,59 @@ fn add_subset_font_to_pdf(
         ),
         (
             "DescendantFonts",
-            Array(vec![Dictionary(LoDictionary::from_iter(vec![
-                ("Type", Name("Font".into())),
-                ("BaseFont", Name(face_name.clone().into_bytes())),
-                ("Subtype", Name(sub_type.into())),
-                (
-                    "CIDSystemInfo",
-                    Dictionary(LoDictionary::from_iter(vec![
-                        ("Registry", LoString("Adobe".into(), Literal)),
-                        ("Ordering", LoString("Identity".into(), Literal)),
-                        ("Supplement", Integer(0)),
-                    ])),
+            Array(vec![Dictionary(LoDictionary::from_iter(
+                vec![
+                    ("Type", Name("Font".into())),
+                    ("BaseFont", Name(face_name.clone().into_bytes())),
+                    ("Subtype", Name(sub_type.into())),
+                    (
+                        "CIDSystemInfo",
+                        Dictionary(LoDictionary::from_iter(vec![
+                            ("Registry", LoString("Adobe".into(), Literal)),
+                            ("Ordering", LoString("Identity".into(), Literal)),
+                            ("Supplement", Integer(0)),
+                        ])),
+                    ),
+                    ("W", Array(subset_info.widths_list.clone())),
+                    ("DW", Integer(DEFAULT_CHARACTER_WIDTH)),
+                    (
+                        "FontDescriptor",
+                        Reference(doc.add_object(LoDictionary::from_iter(
+                            [
+                                ("Type", Name("FontDescriptor".into())),
+                                ("FontName", Name(face_name.clone().into_bytes())),
+                                ("Ascent", Integer(ascent_scaled)),
+                                ("Descent", Integer(descent_scaled)),
+                                ("CapHeight", Integer(cap_height)),
+                                ("ItalicAngle", Integer(italic_angle)),
+                                ("Flags", Integer(flags)),
+                                ("StemV", Integer(stem_v)),
+                                (
+                                    "FontBBox",
+                                    Array(vec![
+                                        Integer(bbox_x_min),
+                                        Integer(bbox_y_min),
+                                        Integer(bbox_x_max),
+                                        Integer(bbox_y_max),
+                                    ]),
+                                ),
+                            ]
+                            .into_iter()
+                            .chain(font_tuple),
+                        ))),
+                    ),
+                ]
+                .into_iter()
+                .chain(
+                    // Identity is the spec default, but only CIDFontType2 may carry
+                    // the key at all — writing it explicitly costs nothing and keeps
+                    // strict validators quiet. CIDFontType0 resolves CIDs through the
+                    // CFF charset instead (which is why the codes we emit are charset
+                    // CIDs for CID-keyed faces — see RuntimeSubsetInfo::gid_remap).
+                    (sub_type == "CIDFontType2")
+                        .then(|| ("CIDToGIDMap", Name("Identity".into()))),
                 ),
-                ("W", Array(subset_info.widths_list.clone())),
-                ("DW", Integer(DEFAULT_CHARACTER_WIDTH)),
-                (
-                    "FontDescriptor",
-                    Reference(doc.add_object(LoDictionary::from_iter(
-                        [
-                            ("Type", Name("FontDescriptor".into())),
-                            ("FontName", Name(font_name.clone().into_bytes())),
-                            ("Ascent", Integer(ascent_scaled)),
-                            ("Descent", Integer(descent_scaled)),
-                            ("CapHeight", Integer(cap_height)),
-                            ("ItalicAngle", Integer(italic_angle)),
-                            ("Flags", Integer(flags)),
-                            ("StemV", Integer(stem_v)),
-                            (
-                                "FontBBox",
-                                Array(vec![
-                                    Integer(bbox_x_min),
-                                    Integer(bbox_y_min),
-                                    Integer(bbox_x_max),
-                                    Integer(bbox_y_max),
-                                ]),
-                            ),
-                        ]
-                        .into_iter()
-                        .chain(font_tuple),
-                    ))),
-                ),
-            ]))]),
+            ))]),
         ),
     ])
 }
