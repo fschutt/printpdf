@@ -251,6 +251,7 @@ fn parse_pdf_from_bytes_end(
                     if p.is_cid {
                         FontTextDecodeKind::Cid {
                             to_unicode: p.to_unicode.clone(),
+                            encoding_cmap: p.encoding_cmap.clone(),
                             cid_to_gid: p.cid_to_gid.clone(),
                         }
                     } else {
@@ -259,12 +260,15 @@ fn parse_pdf_from_bytes_end(
                         }
                     }
                 }
-                ParsedOrBuiltinFont::CidStub(to_unicode) => FontTextDecodeKind::Cid {
-                    to_unicode: to_unicode.clone(),
-                    // No parsable font program — no charset / CIDToGIDMap to
-                    // resolve through; the identity assumption is all there is.
-                    cid_to_gid: None,
-                },
+                ParsedOrBuiltinFont::CidStub(to_unicode, encoding_cmap) => {
+                    FontTextDecodeKind::Cid {
+                        to_unicode: to_unicode.clone(),
+                        encoding_cmap: encoding_cmap.clone(),
+                        // No parsable font program — no charset / CIDToGIDMap
+                        // to resolve through.
+                        cid_to_gid: None,
+                    }
+                }
             };
             Some((name, kind))
         })
@@ -375,16 +379,19 @@ pub struct ParsedExternalFont {
     /// so PDFs from spec-following producers (Adobe, dvipdfmx — and printpdf
     /// itself since the #280 fix) re-rendered with wrong outlines and widths.
     pub cid_to_gid: Option<Arc<BTreeMap<u16, u16>>>,
+    /// The Type0 `/Encoding` CMap when it is not Identity-H: an embedded CMap
+    /// stream, or Identity-V. `None` = Identity-H (2-byte codes, code == CID).
+    pub encoding_cmap: Option<Arc<crate::cmap::CidCMap>>,
 }
 
 pub enum ParsedOrBuiltinFont {
     P(ParsedExternalFont),
     B(BuiltinFont),
     /// A composite (Type0) font whose font program could not be extracted or
-    /// parsed (e.g. not embedded). It cannot be re-embedded, but its 2-byte
-    /// code layout and ToUnicode CMap are kept so the text still *decodes*
-    /// correctly for extraction.
-    CidStub(Option<Arc<ToUnicodeCMap>>),
+    /// parsed (e.g. not embedded). It cannot be re-embedded, but its code
+    /// layout (`/Encoding` CMap) and ToUnicode CMap are kept so the text still
+    /// *decodes* correctly for extraction.
+    CidStub(Option<Arc<ToUnicodeCMap>>, Option<Arc<crate::cmap::CidCMap>>),
 }
 
 impl ParsedOrBuiltinFont {
@@ -392,7 +399,7 @@ impl ParsedOrBuiltinFont {
         match self {
             ParsedOrBuiltinFont::P(p) => Some(p.font),
             ParsedOrBuiltinFont::B(_) => None,
-            ParsedOrBuiltinFont::CidStub(_) => None,
+            ParsedOrBuiltinFont::CidStub(..) => None,
         }
     }
 
@@ -401,7 +408,7 @@ impl ParsedOrBuiltinFont {
         match self {
             ParsedOrBuiltinFont::P(p) => p.to_unicode.as_deref(),
             ParsedOrBuiltinFont::B(_) => None,
-            ParsedOrBuiltinFont::CidStub(c) => c.as_deref(),
+            ParsedOrBuiltinFont::CidStub(c, _) => c.as_deref(),
         }
     }
 }
@@ -422,13 +429,16 @@ pub enum FontTextDecodeKind {
     Simple {
         to_unicode: Option<Arc<ToUnicodeCMap>>,
     },
-    /// Composite (Type0) font: two-byte big-endian CIDs. Under the Identity-H
-    /// encoding the code IS the CID — but the CID is only equal to the glyph id
-    /// when the descendant font says so: `cid_to_gid` carries the `/CIDToGIDMap`
-    /// stream (CIDFontType2) or CID-keyed CFF charset (CIDFontType0) mapping
-    /// when the two differ.
+    /// Composite (Type0) font. The chain is: content-stream bytes → codes (via
+    /// the /Encoding CMap's codespace ranges — codes are 1–4 bytes, variable
+    /// width!) → CIDs (cidrange/cidchar) → glyph ids (`cid_to_gid`: the
+    /// `/CIDToGIDMap` stream of a CIDFontType2 or the CID-keyed CFF charset of
+    /// a CIDFontType0). `encoding_cmap: None` is the ubiquitous Identity-H fast
+    /// path: 2-byte big-endian codes, code == CID. `to_unicode` stays keyed by
+    /// the CODE (that is what ToUnicode is defined over).
     Cid {
         to_unicode: Option<Arc<ToUnicodeCMap>>,
+        encoding_cmap: Option<Arc<crate::cmap::CidCMap>>,
         cid_to_gid: Option<Arc<BTreeMap<u16, u16>>>,
     },
 }
@@ -2375,32 +2385,47 @@ fn decode_show_text_string(
         Some(FontTextDecodeKind::Simple { to_unicode }) => TextItem::Text(
             decode_simple_font_bytes(bytes, to_unicode.as_deref()),
         ),
-        Some(FontTextDecodeKind::Cid { to_unicode, cid_to_gid }) => {
-            if bytes.len() % 2 != 0 {
-                warnings.push(PdfWarnMsg::warning(
-                    page,
-                    op_id,
-                    format!(
-                        "CID font string has odd byte length {}, dropping trailing byte",
-                        bytes.len()
-                    ),
-                ));
-            }
-            let glyphs = bytes
-                .chunks_exact(2)
-                .map(|c| {
-                    let code = u16::from_be_bytes([c[0], c[1]]);
+        Some(FontTextDecodeKind::Cid { to_unicode, encoding_cmap, cid_to_gid }) => {
+            // bytes -> codes: variable-width per the /Encoding CMap's codespace
+            // ranges, or fixed 2-byte big-endian for Identity-H (`None`).
+            let codes: Vec<(u32, u8)> = match encoding_cmap {
+                Some(cmap) => cmap.split_codes(bytes),
+                None => {
+                    if bytes.len() % 2 != 0 {
+                        warnings.push(PdfWarnMsg::warning(
+                            page,
+                            op_id,
+                            format!(
+                                "CID font string has odd byte length {}, dropping \
+                                 trailing byte",
+                                bytes.len()
+                            ),
+                        ));
+                    }
+                    bytes
+                        .chunks_exact(2)
+                        .map(|c| (u16::from_be_bytes([c[0], c[1]]) as u32, 2))
+                        .collect()
+                }
+            };
+            let glyphs = codes
+                .into_iter()
+                .map(|(code, len)| {
                     // ToUnicode is keyed by the content-stream CODE; the glyph id
-                    // stored on the Codepoint must be the real GID so outlines,
-                    // widths and re-subsetting stay correct when the descendant
-                    // font's CID->GID mapping is not identity.
+                    // stored on the Codepoint must be the real GID: code -> CID
+                    // (encoding CMap) -> GID (CIDToGIDMap stream / CFF charset),
+                    // so outlines, widths and re-subsetting stay correct.
                     let cid_str = to_unicode
                         .as_deref()
-                        .and_then(|cmap| cmap.lookup_string(code as u32));
+                        .and_then(|cmap| cmap.lookup_string(code));
+                    let cid = encoding_cmap
+                        .as_deref()
+                        .map_or(code, |m| m.cid_for_code(code, len));
+                    let cid = u16::try_from(cid).unwrap_or(0);
                     let gid = cid_to_gid
                         .as_deref()
-                        .and_then(|m| m.get(&code).copied())
-                        .unwrap_or(code);
+                        .and_then(|m| m.get(&cid).copied())
+                        .unwrap_or(cid);
                     match cid_str {
                         Some(s) => Codepoint::with_cid(gid, 0.0, s),
                         None => Codepoint::new(gid, 0.0),
@@ -4723,6 +4748,113 @@ mod parsefont {
         }
     }
 
+    /// Resolve a Type0 font's `/Encoding` into a [`crate::cmap::CidCMap`], or
+    /// `None` for Identity-H (the fast path: 2-byte codes, code == CID).
+    ///
+    /// Fully resolved: embedded CMap streams (codespace/cidrange/cidchar/
+    /// notdefrange, `usecmap` of the identity CMaps) and `Identity-V` (decodes
+    /// identically to Identity-H; the vertical writing mode itself is not
+    /// preserved — re-saves are horizontal, and parsing says so). Predefined
+    /// CJK CMaps require Adobe's CMap data files, which printpdf does not ship:
+    /// those warn and fall back to 2-byte identity.
+    fn extract_encoding_cmap(
+        doc: &Document,
+        font_dict: &Dictionary,
+        font_id: &FontId,
+        warnings: &mut Vec<PdfWarnMsg>,
+        page_num: usize,
+    ) -> Option<crate::cmap::CidCMap> {
+        use crate::cmap::CidCMap;
+
+        fn from_stream(
+            s: &lopdf::Stream,
+            font_id: &FontId,
+            warnings: &mut Vec<PdfWarnMsg>,
+            page_num: usize,
+        ) -> Option<CidCMap> {
+            let data = s
+                .decompressed_content()
+                .ok()
+                .or_else(|| Some(s.content.clone()))?;
+            match CidCMap::parse(&String::from_utf8_lossy(&data)) {
+                Ok((cmap, unresolved_usecmap)) => {
+                    if let Some(base) = unresolved_usecmap {
+                        warnings.push(PdfWarnMsg::warning(
+                            page_num,
+                            0,
+                            format!(
+                                "Type0 font {}: embedded CMap uses /{base} as its \
+                                 usecmap base, which printpdf cannot resolve — codes \
+                                 the CMap itself does not map will decode as notdef",
+                                font_id.0
+                            ),
+                        ));
+                    }
+                    if cmap.wmode == 1 {
+                        warnings.push(PdfWarnMsg::warning(
+                            page_num,
+                            0,
+                            format!(
+                                "Type0 font {}: vertical writing (WMode 1) is decoded \
+                                 but not preserved — re-saves are horizontal",
+                                font_id.0
+                            ),
+                        ));
+                    }
+                    Some(cmap)
+                }
+                Err(e) => {
+                    warnings.push(PdfWarnMsg::warning(
+                        page_num,
+                        0,
+                        format!(
+                            "Type0 font {}: embedded /Encoding CMap failed to parse \
+                             ({e}); assuming 2-byte Identity codes",
+                            font_id.0
+                        ),
+                    ));
+                    None
+                }
+            }
+        }
+
+        match font_dict.get(b"Encoding") {
+            Ok(Object::Name(n)) if n.as_slice() == b"Identity-H" => None,
+            Ok(Object::Name(n)) if n.as_slice() == b"Identity-V" => {
+                warnings.push(PdfWarnMsg::warning(
+                    page_num,
+                    0,
+                    format!(
+                        "Type0 font {} uses Identity-V: codes decode correctly, but \
+                         vertical writing is not preserved — re-saves are horizontal",
+                        font_id.0
+                    ),
+                ));
+                Some(CidCMap::identity(1))
+            }
+            Ok(Object::Name(n)) => {
+                warnings.push(PdfWarnMsg::warning(
+                    page_num,
+                    0,
+                    format!(
+                        "Type0 font {} uses the predefined CMap /{} — printpdf does \
+                         not ship Adobe's CMap data; text may decode and re-save \
+                         incorrectly",
+                        font_id.0,
+                        String::from_utf8_lossy(n),
+                    ),
+                ));
+                None
+            }
+            Ok(Object::Stream(s)) => from_stream(s, font_id, warnings, page_num),
+            Ok(Object::Reference(r)) => match doc.get_object(*r) {
+                Ok(Object::Stream(s)) => from_stream(s, font_id, warnings, page_num),
+                _ => None,
+            },
+            _ => None, // absent: Identity-H by convention
+        }
+    }
+
     /// The descendant font's CID -> glyph-id map, when it is not identity.
     ///
     /// Two sources, matching how viewers resolve Identity-H codes (ISO 32000-1,
@@ -4880,44 +5012,16 @@ mod parsefont {
 
             // Handle different font types
             if &font_type == b"Type0" {
-                // The decoder assumes Identity-H: 2-byte big-endian codes, code == CID.
-                // Other encodings exist in the wild — predefined CJK CMaps (90ms-RKSJ-H,
-                // GBK-EUC-H: variable-width codes) and Identity-V (vertical writing) —
-                // and are NOT resolved; the byte stream would be chopped into 2-byte
-                // codes regardless and vertical text re-saved as horizontal. Until CMap
-                // resolution exists, say so instead of silently scrambling.
-                match font_dict.get(b"Encoding") {
-                    Ok(Object::Name(n)) if n.as_slice() != b"Identity-H" => {
-                        warnings.push(PdfWarnMsg::warning(
-                            page_num,
-                            0,
-                            format!(
-                                "Type0 font {} uses /Encoding /{} — only Identity-H is \
-                                 supported; text may decode and re-save incorrectly{}",
-                                font_id.0,
-                                String::from_utf8_lossy(n),
-                                if n.as_slice() == b"Identity-V" {
-                                    " (vertical writing is converted to horizontal)"
-                                } else {
-                                    ""
-                                }
-                            ),
-                        ));
-                    }
-                    Ok(Object::Stream(_)) | Ok(Object::Reference(_)) => {
-                        warnings.push(PdfWarnMsg::warning(
-                            page_num,
-                            0,
-                            format!(
-                                "Type0 font {} uses an embedded CMap for /Encoding — only \
-                                 Identity-H is supported; text may decode and re-save \
-                                 incorrectly",
-                                font_id.0
-                            ),
-                        ));
-                    }
-                    _ => {}
-                }
+                // Resolve the Type0 /Encoding: how content-stream bytes become codes
+                // (codespace ranges — 1–4 bytes, variable width) and codes become
+                // CIDs. `None` = Identity-H, the fast path. Embedded CMap streams
+                // and Identity-V are resolved fully; predefined CJK CMaps
+                // (90ms-RKSJ-H, GBK-EUC-H, …) need Adobe's CMap data files, which
+                // printpdf does not ship — those warn and fall back to 2-byte
+                // identity.
+                let encoding_cmap =
+                    extract_encoding_cmap(doc, font_dict, &font_id, warnings, page_num)
+                        .map(Arc::new);
                 // Not gated on `text_layout`: an external font is a Type0 (CID) font, and
                 // this branch being empty without the feature is why `PdfDocument::parse`
                 // silently returned zero font resources for any PDF with an embedded font
@@ -4949,6 +5053,7 @@ mod parsefont {
                                 to_unicode,
                                 is_cid: true,
                                 cid_to_gid,
+                                encoding_cmap,
                             }),
                         );
                     }
@@ -4966,7 +5071,10 @@ mod parsefont {
                         ));
                         fonts_map.insert(
                             font_id,
-                            ParsedOrBuiltinFont::CidStub(to_unicode_cmap.map(Arc::new)),
+                            ParsedOrBuiltinFont::CidStub(
+                                to_unicode_cmap.map(Arc::new),
+                                encoding_cmap,
+                            ),
                         );
                     }
                 }
@@ -4987,7 +5095,7 @@ mod parsefont {
                             })
                         );
                     },
-                    Some(ParsedOrBuiltinFont::CidStub(_)) | None => {}
+                    Some(ParsedOrBuiltinFont::CidStub(..)) | None => {}
                 }
             }
         }
@@ -5293,6 +5401,7 @@ mod parsefont {
                                 is_cid: false,
                                 // Simple font: one-byte codes, no CID indirection.
                                 cid_to_gid: None,
+                                encoding_cmap: None,
                             }))
                         },
                         None => {
