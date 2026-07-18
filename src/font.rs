@@ -258,6 +258,19 @@ impl Default for PdfFontMetricsStub {
 
 #[cfg(not(feature = "text_layout"))]
 impl ParsedFont {
+    /// The sfnt bytes this face was parsed from, if any (mirrors the
+    /// `text_layout` build's API so shared call sites compile in both
+    /// configurations — the `text_layout` version returns the retained
+    /// `Arc<FontBytes>`, this one clones the stub's `original_bytes`).
+    pub fn source_bytes(&self) -> Option<Vec<u8>> {
+        (!self.original_bytes.is_empty()).then(|| self.original_bytes.clone())
+    }
+
+    /// Whether this face can still be embedded into a PDF.
+    pub fn has_source_bytes(&self) -> bool {
+        !self.original_bytes.is_empty()
+    }
+
     /// Parse a font face from raw sfnt bytes.
     ///
     /// Same signature as the `text_layout` build (#260), so calling code is portable
