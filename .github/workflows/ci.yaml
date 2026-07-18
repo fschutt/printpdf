@@ -145,7 +145,40 @@ jobs:
       - name: Install poppler-utils
         run: sudo apt-get update && sudo apt-get install -y poppler-utils
       - run: pdffonts -v && pdftotext -v
-      - run: cargo test --features html --test external_tools --test font_embedding --test font -- --nocapture
+      - run: cargo test --features html --test external_tools --test font_embedding --test font_embedding_mock --test font -- --nocapture
+
+  # Viewer-semantics check with fontTools — independent of printpdf, poppler AND
+  # allsorts. Resolves every Identity-H code the way Acrobat/Preview do (ISO
+  # 32000-1, 9.7.4.2): code -> CID -> CFF charset -> glyph, then cross-checks
+  # that glyph against the char the font's own cmap assigns, /W widths against
+  # hmtx, and ToUnicode against the exact source text.
+  #
+  # This is the oracle for #280: printpdf wrote glyph ids as Identity-H codes for
+  # CID-keyed CFF fonts (NotoSansJP's charset diverges from gid 365 on). PDFium
+  # falls back to code == GID, so Chrome looked fine — poppler's pdftotext reads
+  # ToUnicode, so text extraction looked fine — while Acrobat and Preview drew
+  # wrong or missing glyphs. Only charset-resolution semantics catch it, and no
+  # Rust-side test is fully independent of the crate's own CFF parsing.
+  font-verification-viewer-semantics:
+    name: Verify Identity-H codes with fontTools (Acrobat semantics, #280)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install fontTools
+        run: pip install fonttools
+      - name: Build the otf-font example PDFs (full embed + subset)
+        run: |
+          cargo run --example otf-font
+          cargo run --example otf-font-subset
+      - name: Verify code/charset/W/ToUnicode consistency against the source text
+        run: |
+          python3 scripts/verify_pdf_font.py font.pdf --expect scripts/otf_font_expected.txt
+          python3 scripts/verify_pdf_font.py font_subset.pdf --expect scripts/otf_font_expected.txt
+      - name: Mock fonts regenerate byte-identically (defined-metrics oracle stays intact)
+        run: |
+          python3 scripts/gen_mock_fonts.py
+          git diff --exit-code tests/assets/fonts/mock/
 
   # Builds the working tree the way a CONSUMER resolves it — fresh project, fresh
   # lockfile, path-dependency on the checkout. A "today's freshest" resolution can land
