@@ -372,7 +372,9 @@ pub fn encode_text_items(items: &[TextItem]) -> Vec<Object> {
                 }
             }
             TextItem::Offset(n) => {
-                objs.push(Object::Integer(*n as i64));
+                // Keep fractional kerning: flooring to Integer lost sub-unit
+                // offsets (the serializer's own path always wrote Real).
+                objs.push(Object::Real(*n));
             }
             TextItem::GlyphIds(glyphs) => {
                 // Encode glyph IDs as hex string (2 bytes per glyph ID)

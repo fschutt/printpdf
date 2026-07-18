@@ -4880,6 +4880,44 @@ mod parsefont {
 
             // Handle different font types
             if &font_type == b"Type0" {
+                // The decoder assumes Identity-H: 2-byte big-endian codes, code == CID.
+                // Other encodings exist in the wild — predefined CJK CMaps (90ms-RKSJ-H,
+                // GBK-EUC-H: variable-width codes) and Identity-V (vertical writing) —
+                // and are NOT resolved; the byte stream would be chopped into 2-byte
+                // codes regardless and vertical text re-saved as horizontal. Until CMap
+                // resolution exists, say so instead of silently scrambling.
+                match font_dict.get(b"Encoding") {
+                    Ok(Object::Name(n)) if n.as_slice() != b"Identity-H" => {
+                        warnings.push(PdfWarnMsg::warning(
+                            page_num,
+                            0,
+                            format!(
+                                "Type0 font {} uses /Encoding /{} — only Identity-H is \
+                                 supported; text may decode and re-save incorrectly{}",
+                                font_id.0,
+                                String::from_utf8_lossy(n),
+                                if n.as_slice() == b"Identity-V" {
+                                    " (vertical writing is converted to horizontal)"
+                                } else {
+                                    ""
+                                }
+                            ),
+                        ));
+                    }
+                    Ok(Object::Stream(_)) | Ok(Object::Reference(_)) => {
+                        warnings.push(PdfWarnMsg::warning(
+                            page_num,
+                            0,
+                            format!(
+                                "Type0 font {} uses an embedded CMap for /Encoding — only \
+                                 Identity-H is supported; text may decode and re-save \
+                                 incorrectly",
+                                font_id.0
+                            ),
+                        ));
+                    }
+                    _ => {}
+                }
                 // Not gated on `text_layout`: an external font is a Type0 (CID) font, and
                 // this branch being empty without the feature is why `PdfDocument::parse`
                 // silently returned zero font resources for any PDF with an embedded font
