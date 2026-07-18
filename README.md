@@ -29,9 +29,9 @@ Experimental features:
 - Rendering PDF pages to SVG (one standalone SVG file per page)
     - You can use the resulting SVG to render the PDF page into an image using `resvg`
 - Extracting text from PDF pages (auto-decodes Unicode, line breaks and text positions)
-- Minimal XHTML layouting for simple page layout (using `azul-layout` + `kuchiki` HTML parser)
-    - This is merely a stub API for now: it compiles, but won't produce usable output
-    - The html-to-pdf pipeline will improve when `azul-layout` gets a better HTML solver
+- XHTML layouting for simple page layout (using `azul-layout` + `xmlparser`)
+    - Good enough for basic page layouting, book rendering, reports and forms,
+      with automatic page-breaking
 
 NOT supported are:
 
@@ -55,10 +55,11 @@ use printpdf::*;
 fn main() {
     let mut doc = PdfDocument::new("My first PDF");
     let page1_contents = vec![Op::Marker { id: "debugging-marker".to_string() }];
-    let page1 = PdfPage::new(Mm(10.0), Mm(250.0), page1_contents);
+    let page1 = PdfPage::new(Mm(210.0), Mm(297.0), page1_contents);
+    let mut warnings = Vec::new();
     let pdf_bytes: Vec<u8> = doc
         .with_pages(vec![page1])
-        .save(&PdfSaveOptions::default());
+        .save(&PdfSaveOptions::default(), &mut warnings);
 }
 ```
 
@@ -70,27 +71,27 @@ use printpdf::*;
 fn main() {
     let mut doc = PdfDocument::new("My first PDF");
 
+    // Square shape. `bezier: true` would make the point a bezier control
+    // handle for a curve. If you want holes, wind one ring counterclockwise.
     let line = Line {
-        // Quadratic shape. The "false" determines if the next (following)
-        // point is a bezier handle (for curves)
-        // If you want holes, simply reorder the winding of the points to be
-        // counterclockwise instead of clockwise.
         points: vec![
-            (Point::new(Mm(100.0), Mm(100.0)), false),
-            (Point::new(Mm(100.0), Mm(200.0)), false),
-            (Point::new(Mm(300.0), Mm(200.0)), false),
-            (Point::new(Mm(300.0), Mm(100.0)), false),
+            LinePoint { p: Point::new(Mm(100.0), Mm(100.0)), bezier: false },
+            LinePoint { p: Point::new(Mm(100.0), Mm(200.0)), bezier: false },
+            LinePoint { p: Point::new(Mm(300.0), Mm(200.0)), bezier: false },
+            LinePoint { p: Point::new(Mm(300.0), Mm(100.0)), bezier: false },
         ],
         is_closed: true,
     };
-    
+
     // Triangle shape
     let polygon = Polygon {
-        rings: vec![vec![
-            (Point::new(Mm(150.0), Mm(150.0)), false),
-            (Point::new(Mm(150.0), Mm(250.0)), false),
-            (Point::new(Mm(350.0), Mm(250.0)), false),
-        ]],
+        rings: vec![PolygonRing {
+            points: vec![
+                LinePoint { p: Point::new(Mm(150.0), Mm(150.0)), bezier: false },
+                LinePoint { p: Point::new(Mm(150.0), Mm(250.0)), bezier: false },
+                LinePoint { p: Point::new(Mm(350.0), Mm(250.0)), bezier: false },
+            ],
+        }],
         mode: PaintMode::FillStroke,
         winding_order: WindingOrder::NonZero,
     };
@@ -98,13 +99,11 @@ fn main() {
     // Graphics config
     let fill_color = Color::Cmyk(Cmyk::new(0.0, 0.23, 0.0, 0.0, None));
     let outline_color = Color::Rgb(Rgb::new(0.75, 1.0, 0.64, None));
-    let mut dash_pattern = LineDashPattern::default();
-    dash_pattern.dash_1 = Some(20);
+    let dash_pattern = LineDashPattern::new(0.0, &[20.0, 10.0]); // dash, gap
 
-    let extgstate = ExtendedGraphicsStateBuilder::new()
+    let extgstate = ExtendedGraphicsState::default()
         .with_overprint_stroke(true)
-        .with_blend_mode(BlendMode::multiply())
-        .build();
+        .with_blend_mode(BlendMode::multiply());
     
     let page1_contents = vec![
         // add line1 (square)
@@ -125,10 +124,11 @@ fn main() {
         Op::RestoreGraphicsState,
     ];
     
-    let page1 = PdfPage::new(Mm(10.0), Mm(250.0), page1_contents);
+    let page1 = PdfPage::new(Mm(210.0), Mm(297.0), page1_contents);
+    let mut warnings = Vec::new();
     let pdf_bytes: Vec<u8> = doc
         .with_pages(vec![page1])
-        .save(&PdfSaveOptions::default());
+        .save(&PdfSaveOptions::default(), &mut warnings);
 }
 ```
 
@@ -144,10 +144,12 @@ use printpdf::*;
 fn main() {
     let mut doc = PdfDocument::new("My first PDF");
     let image_bytes = include_bytes!("assets/img/BMP_test.bmp");
-    let image = RawImage::decode_from_bytes(image_bytes).unwrap(); // requires --feature bmp
-    
-    // In the PDF, an image is an `XObject`, identified by a unique `ImageId`
-    let image_xobject_id = doc.add_image(image);
+    let mut warnings = Vec::new();
+    // requires --feature bmp
+    let image = RawImage::decode_from_bytes(image_bytes, &mut warnings).unwrap();
+
+    // In the PDF, an image is an `XObject`, identified by a unique `XObjectId`
+    let image_xobject_id = doc.add_image(&image);
 
     let page1_contents = vec![
         Op::UseXobject { 
@@ -156,10 +158,10 @@ fn main() {
         }
     ];
 
-    let page1 = PdfPage::new(Mm(10.0), Mm(250.0), page1_contents);
+    let page1 = PdfPage::new(Mm(210.0), Mm(297.0), page1_contents);
     let pdf_bytes: Vec<u8> = doc
         .with_pages(vec![page1])
-        .save(&PdfSaveOptions::default());
+        .save(&PdfSaveOptions::default(), &mut warnings);
 }
 ```
 
@@ -171,13 +173,10 @@ use printpdf::*;
 fn main() {
     let mut doc = PdfDocument::new("My first PDF");
 
-    let roboto_bytes = include_bytes!("assets/fonts/RobotoMedium.ttf").unwrap()
-    let font_index = 0;
-    let mut warnings = Vec::new();
-    let font = ParsedFont::from_bytes(&roboto_bytes, font_index, &mut warnings).unwrap();
-
-    // If you need custom text shaping (uses the `allsorts` font shaper internally)
-    // let glyphs = font.shape(text);
+    let roboto_bytes = include_bytes!("assets/fonts/RobotoMedium.ttf");
+    let font_index = 0; // face index inside a .ttc collection; 0 for a plain .ttf/.otf
+    let mut font_warnings = Vec::new();
+    let font = ParsedFont::from_bytes(roboto_bytes, font_index, &mut font_warnings).unwrap();
 
     // printpdf automatically keeps track of which fonts are used in the PDF
     let font_id = doc.add_font(&font);
@@ -187,23 +186,26 @@ fn main() {
         y: Mm(100.0).into(),
     }; // from bottom left
 
+    let mut warnings = Vec::new();
+
+    // Text-showing ops must sit between StartTextSection and EndTextSection —
+    // most viewers drop text outside of one (save() warns if you forget).
     let page1_contents = vec![
-        Op::SetLineHeight { lh: Pt(33.0) },
-        Op::SetWordSpacing { pt: Pt(33.0) },
-        Op::SetCharacterSpacing { multiplier: 10.0 },
+        Op::StartTextSection,
         Op::SetTextCursor { pos: text_pos },
-        // Op::WriteCodepoints { ... }
-        // Op::WriteCodepointsWithKerning { ... }
-        Op::WriteText {
+        Op::SetLineHeight { lh: Pt(33.0) },
+        Op::SetFont {
+            font: PdfFontHandle::External(font_id.clone()),
+            size: Pt(16.0),
+        },
+        Op::ShowText {
             items: vec![TextItem::Text("Lorem ipsum".to_string())],
-            font: font_id.clone(),
         },
         Op::AddLineBreak,
-        Op::WriteText {
+        Op::ShowText {
             items: vec![TextItem::Text("dolor sit amet".to_string())],
-            font: font_id.clone(),
         },
-        Op::AddLineBreak,
+        Op::EndTextSection,
     ];
 
     let save_options = PdfSaveOptions {
@@ -211,8 +213,7 @@ fn main() {
         ..Default::default()
     };
 
-    let page1 = PdfPage::new(Mm(10.0), Mm(250.0), page1_contents);
-    let mut warnings = Vec::new();
+    let page1 = PdfPage::new(Mm(210.0), Mm(297.0), page1_contents);
     let pdf_bytes: Vec<u8> = doc
         .with_pages(vec![page1])
         .save(&save_options, &mut warnings);
@@ -263,20 +264,22 @@ fn main() {
     </html>
     "#;
 
-    let options = XmlRenderOptions {
-        // named images to be used in the HTML, i.e. ["image1.png" => DecodedImage(image1_bytes)]
-        images: BTreeMap::new(),
-        // named fonts to be used in the HTML, i.e. ["Roboto" => DecodedImage(roboto_bytes)]
-        fonts: BTreeMap::new(),
-        // default page width, printpdf will auto-page-break
-        page_width: Mm(210.0),
-        // default page height
-        page_height: Mm(297.0),
+    // named images to be used in the HTML, i.e. "image1.png" => Base64OrRaw::Raw(bytes)
+    let images = BTreeMap::new();
+    // named fonts to be used in the HTML, i.e. "Roboto" => Base64OrRaw::Raw(roboto_bytes)
+    let fonts = BTreeMap::new();
+
+    // page size, margins, etc. — all optional; printpdf auto-page-breaks
+    let options = GeneratePdfOptions {
+        page_width: Some(210.0),  // mm
+        page_height: Some(297.0), // mm
+        ..Default::default()
     };
 
-    let pdf_bytes = PdfDocument::new("My PDF")
-        .with_html(html, &options).unwrap()
-        .save(&PdfSaveOptions::default());
+    let mut warnings = Vec::new();
+    let pdf_bytes = PdfDocument::from_html(html, &images, &fonts, &options, &mut warnings)
+        .unwrap()
+        .save(&PdfSaveOptions::default(), &mut warnings);
 }
 ```
 

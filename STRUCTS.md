@@ -109,6 +109,8 @@ interface PdfResources {
 // Tagged enum, see variants for possible operations.
 type Op =
     | { type: "marker"; data: Marker }
+    | { type: "set-color-space-stroke"; data: SetColorSpace }
+    | { type: "set-color-space-fill"; data: SetColorSpace }
     | { type: "begin-layer"; data: BeginLayer }
     | { type: "end-layer"; data: EndLayer }
     | { type: "save-graphics-state" }
@@ -116,14 +118,11 @@ type Op =
     | { type: "load-graphics-state"; data: LoadGraphicsState }
     | { type: "start-text-section" }
     | { type: "end-text-section" }
-    | { type: "write-text"; data: WriteText }
-    | { type: "write-text-builtin-font"; data: WriteTextBuiltinFont }
-    | { type: "write-codepoints"; data: WriteCodepoints }
-    | { type: "write-codepoints-with-kerning"; data: WriteCodepointsWithKerning }
+    | { type: "set-font"; data: SetFont }
+    | { type: "show-text"; data: ShowText }
     | { type: "add-line-break" }
     | { type: "set-line-height"; data: SetLineHeight }
     | { type: "set-word-spacing"; data: SetWordSpacing }
-    | { type: "set-font-size"; data: SetFontSize }
     | { type: "set-text-cursor"; data: SetTextCursor }
     | { type: "set-fill-color"; data: SetFillColor }
     | { type: "set-outline-color"; data: SetOutlineColor }
@@ -136,6 +135,7 @@ type Op =
     | { type: "set-character-spacing"; data: SetCharacterSpacing }
     | { type: "set-line-offset"; data: SetLineOffset }
     | { type: "draw-line"; data: DrawLine }
+    | { type: "draw-rectangle"; data: DrawRectangle }
     | { type: "draw-polygon"; data: DrawPolygon }
     | { type: "set-transformation-matrix"; data: SetTransformationMatrix }
     | { type: "set-text-matrix"; data: SetTextMatrix }
@@ -149,12 +149,16 @@ type Op =
     | { type: "end-inline-image" }
     | { type: "begin-marked-content"; data: BeginMarkedContent }
     | { type: "begin-marked-content-with-properties"; data: BeginMarkedContentWithProperties }
+    | { type: "begin-optional-content"; data: BeginOptionalContent }
     | { type: "define-marked-content-point"; data: DefineMarkedContentPoint }
     | { type: "end-marked-content" }
+    | { type: "end-marked-content-with-properties" }
+    | { type: "end-optional-content" }
     | { type: "begin-compatibility-section" }
     | { type: "end-compatibility-section" }
     | { type: "move-to-next-line-show-text"; data: MoveToNextLineShowText }
     | { type: "set-spacing-move-and-show-text"; data: SetSpacingMoveAndShowText }
+    | { type: "paint-shading"; data: PaintShading }
     | { type: "unknown"; data: Unknown };
 ```
 
@@ -162,8 +166,9 @@ type Op =
 // Represents a text segment or a spacing adjustment within text operations.
 // Untagged enum, can be either Text or Offset.
 type TextItem =
-    | string // Text segment (UTF-8 String)
-    | number; // Spacing adjustment (in thousandths of an em)
+    | string        // Text segment (UTF-8 String)
+    | number        // Spacing adjustment (in thousandths of an em)
+    | Codepoint[];  // Raw positioned glyph ids (see Codepoint below)
 ```
 
 ```typescript
@@ -199,52 +204,38 @@ interface LoadGraphicsState {
 ```
 
 ```typescript
-// Writes text, only valid between `StartTextSection` and `EndTextSection`
-interface WriteText {
+// Selects the font + size for all following show-text ops.
+// Tagged enum: a builtin standard-14 face or an external (embedded) font.
+type PdfFontHandle =
+    | { type: "builtin"; data: string /* BuiltinFont, kebab-case */ }
+    | { type: "external"; data: string /* FontId */ };
+
+interface SetFont {
+    // Font to select (builtin or external)
+    font: PdfFontHandle;
+    // Font size in points (number in JSON)
+    size: number;
+}
+```
+
+```typescript
+// Shows text at the current cursor, only valid between
+// `start-text-section` and `end-text-section`. The font comes from the
+// preceding `set-font`.
+interface ShowText {
     // Array of text items to write
     items: TextItem[];
-    // Font size in points (number in JSON)
-    size: number;
-    // Font identifier
-    font: string; // FontId
 }
-```
 
-```typescript
-// Writes text using a builtin font.
-interface WriteTextBuiltinFont {
-    // Array of text items to write
-    items: TextItem[];
-    // Font size in points (number in JSON)
-    size: number;
-    // Builtin font to use (kebab-case string in JSON)
-    font: string; // BuiltinFont
-}
-```
-
-```typescript
-// Add text to the file at the current position by specifying
-// font codepoints for an ExternalFont
-interface WriteCodepoints {
-    // Font identifier
-    font: string; // FontId
-    // Font size in points (number in JSON)
-    size: number;
-    // Array of codepoint-character tuples
-    cp: Array<[number, string]>;
-}
-```
-
-```typescript
-// Add text to the file at the current position by specifying font
-// codepoints with additional kerning offset
-interface WriteCodepointsWithKerning {
-    // Font identifier
-    font: string; // FontId
-    // Font size in points (number in JSON)
-    size: number;
-    // Array of kerning-codepoint-character tuples
-    cpk: Array<[number, number, string]>;
+// Raw positioned glyph (used by TextItem when text arrives as glyph ids,
+// e.g. from parsing an existing PDF)
+interface Codepoint {
+    // Glyph ID in the font
+    gid: number;
+    // Horizontal offset in thousandths of an em
+    offset: number;
+    // Decoded text for this glyph (for ToUnicode / extraction), optional
+    cid?: string;
 }
 ```
 
@@ -261,16 +252,6 @@ interface SetLineHeight {
 interface SetWordSpacing {
     // Word spacing in percent
     percent: number;
-}
-```
-
-```typescript
-// Sets the font size for a given font, only valid between `StartTextSection` and `EndTextSection`
-interface SetFontSize {
-    // Font size in points (number in JSON)
-    size: number;
-    // Font identifier
-    font: string; // FontId
 }
 ```
 
