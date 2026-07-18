@@ -239,6 +239,11 @@ name = "otf-font"
 required-features = []
 
 [[example]]
+name = "otf-font-subset"
+path = "examples/otf-font-subset.rs"
+required-features = []
+
+[[example]]
 name = "baseline_alignment"
 path = "examples/baseline_alignment.rs"
 required-features = ["html"]
