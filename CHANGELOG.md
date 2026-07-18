@@ -2,16 +2,41 @@
 
 ## `0.12.0`
 
-The release where the parser grew up, the wasm demo came back from the dead, and the
-whole thing is verified end-to-end in a headless browser on every push.
+The release where OTF fonts display correctly in Acrobat again (#280), the parser grew
+up, the wasm demo came back from the dead, and the whole thing is verified end-to-end
+in a headless browser on every push.
 
-**Requires `azul-layout 0.0.11` and `rust-fontconfig 4.4.6`** — both carry one fix
-each for the same class of bug: `std::time::Instant::now()` aborts on browser wasm
-("time not implemented on this platform"), and both crates read the clock on the font
-path that every HTML render touches. Font LRU stamps now use an atomic counter on
-wasm; registry wait-deadlines are born expired there (no scout threads exist to wait
-for). This is what made every wasm render of 0.10/0.11 die on the first shaped glyph —
-CI only ever *compiled* wasm, so nothing noticed until the demo actually ran.
+**CID-keyed CFF fonts render correctly in Acrobat and Preview (#280).** Fonts like
+NotoSansJP carry a CID-keyed CFF whose charset does NOT map glyph ids 1:1 to CIDs
+(they diverge from glyph 365 on). printpdf wrote glyph ids as the Identity-H codes —
+but a spec-following viewer resolves every code as a CID *through that charset*
+(ISO 32000-1, 9.7.4.2), so Acrobat and Preview drew wrong CJK glyphs and nothing at
+all for the fullwidth brackets, while Chrome's PDFium (which falls back to
+code == GID) looked fine and copy-paste worked (ToUnicode was keyed by the written
+code). Both embed paths were wrong — the subsetter preserves the *original* CIDs in
+the subset charset while the content stream emitted renumbered sequential gids. The
+content stream, `/W` widths and `/ToUnicode` are now all keyed by the embedded
+charset's CIDs; parsing resolves codes back CID→GID (through `/CIDToGIDMap` streams
+and CFF charsets — foreign Adobe/dvipdfmx CJK PDFs re-render correctly now too, and
+legacy code==GID files are detected and kept stable). Guarded three ways: a
+deterministic mock-font suite (generated TTF/CFF/CID-CFF faces with distinct defined
+widths, so glyph identity is checked as arithmetic), a hard-coded-CID canary, and a
+fontTools CI job that re-resolves every code with Acrobat's semantics, independent of
+printpdf, allsorts and poppler alike. Related font-dictionary fixes: the `XXXXXX+`
+subset tag only appears when the font was actually subset, `/FontName` matches
+`/BaseFont`, CIDFontType2 carries an explicit `/CIDToGIDMap /Identity`, `.ttc`
+sources embed the single selected face instead of the whole collection, and
+ToUnicode synthesis covers supplementary planes. Text-showing ops outside
+`StartTextSection`/`EndTextSection` — the classic "my PDF is blank" mistake (#254) —
+now warn loudly at save time. Type0 fonts with non-Identity-H encodings warn on
+parse instead of silently scrambling.
+
+**Requires `rust-fontconfig 4.4.6`**; ships against the published `azul-layout
+0.0.10` (the `agg-rust-azul` rasterizer under its svg path is pinned `<1.0.3`, whose
+API break made fresh `svg`-feature builds fail to compile — the #279 failure shape,
+one dependency over). The azul master improvements — including the wasm
+`Instant::now()` clock fix on the font LRU path (rust-fontconfig's half of that fix
+is in 4.4.6) — arrive with the azul-layout 0.0.11 bump in a follow-up release.
 
 **PDF parsing / round-trip, rewritten where it lied.** Text decoding no longer guesses
 code width from string byte-parity — it is resolved per font at `Tf` (builtin/simple
