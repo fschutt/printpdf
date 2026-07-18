@@ -216,3 +216,96 @@ end
         }
     }
 }
+
+/// The Type0 /Encoding side: code→CID CMaps with variable-width codespaces
+/// (ISO 32000-1, 9.7.5/9.7.6). ToUnicodeCMap above maps codes to TEXT;
+/// CidCMap maps raw bytes to codes and codes to CIDs.
+#[cfg(test)]
+mod cid_cmap {
+    use printpdf::cmap::CidCMap;
+
+    /// Mixed 1-byte / 2-byte codespace, both range and single mappings.
+    const MIXED: &str = r#"
+%!PS-Adobe-3.0 Resource-CMap
+/CMapName /Test-H def
+/WMode 0 def
+2 begincodespacerange
+<20> <7F>
+<8140> <9FFF>
+endcodespacerange
+1 begincidrange
+<41> <5A> 100
+endcidrange
+2 begincidchar
+<20> 1
+<8140> 633
+endcidchar
+endcmap
+"#;
+
+    #[test]
+    fn splits_variable_width_codes() {
+        let (cmap, unresolved) = CidCMap::parse(MIXED).unwrap();
+        assert!(unresolved.is_none());
+        assert_eq!(cmap.wmode, 0);
+        // "A", space, then the 2-byte code 0x8140, then "Z"
+        let bytes = [0x41, 0x20, 0x81, 0x40, 0x5A];
+        let codes = cmap.split_codes(&bytes);
+        assert_eq!(
+            codes,
+            vec![(0x41, 1), (0x20, 1), (0x8140, 2), (0x5A, 1)],
+            "1-byte codes split as 1 byte, 0x8140 as one 2-byte code"
+        );
+    }
+
+    #[test]
+    fn maps_codes_to_cids() {
+        let (cmap, _) = CidCMap::parse(MIXED).unwrap();
+        assert_eq!(cmap.cid_for_code(0x41, 1), 100, "cidrange start");
+        assert_eq!(cmap.cid_for_code(0x5A, 1), 100 + 25, "cidrange offset");
+        assert_eq!(cmap.cid_for_code(0x20, 1), 1, "cidchar");
+        assert_eq!(cmap.cid_for_code(0x8140, 2), 633, "2-byte cidchar");
+        assert_eq!(cmap.cid_for_code(0x7B, 1), 0, "unmapped -> notdef");
+    }
+
+    #[test]
+    fn identity_cmaps() {
+        let h = CidCMap::identity(0);
+        assert!(h.is_identity());
+        assert_eq!(h.split_codes(&[0x30, 0x39]), vec![(0x3039, 2)]);
+        assert_eq!(h.cid_for_code(0x3039, 2), 0x3039);
+
+        let v = CidCMap::identity(1);
+        assert_eq!(v.wmode, 1);
+    }
+
+    #[test]
+    fn usecmap_identity_and_wmode() {
+        let src = "/Identity-V usecmap\nendcmap";
+        let (cmap, unresolved) = CidCMap::parse(src).unwrap();
+        assert!(unresolved.is_none());
+        assert_eq!(cmap.wmode, 1);
+        assert!(cmap.is_identity());
+        assert_eq!(cmap.cid_for_code(0x1234, 2), 0x1234);
+    }
+
+    #[test]
+    fn unresolvable_usecmap_is_reported() {
+        let src = "/90ms-RKSJ-H usecmap\n1 begincidchar\n<41> 7\nendcidchar\nendcmap";
+        let (cmap, unresolved) = CidCMap::parse(src).unwrap();
+        assert_eq!(unresolved.as_deref(), Some("90ms-RKSJ-H"));
+        assert_eq!(cmap.cid_for_code(0x41, 1), 7, "<41> is a 1-byte code");
+    }
+
+    #[test]
+    fn hostile_cidrange_span_is_rejected() {
+        let src = "1 begincidrange\n<00000000> <FFFFFFFF> 1\nendcidrange\nendcmap";
+        assert!(CidCMap::parse(src).is_err());
+    }
+
+    #[test]
+    fn empty_codespace_defaults_to_two_bytes() {
+        let (cmap, _) = CidCMap::parse("endcmap").unwrap();
+        assert_eq!(cmap.split_codes(&[0x00, 0x41]), vec![(0x41, 2)]);
+    }
+}

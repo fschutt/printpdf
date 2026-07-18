@@ -354,6 +354,271 @@ impl ToUnicodeCMap {
     }
 }
 
+// ---------------------------------------------------------------------------
+// CID CMaps (the Type0 /Encoding side — NOT ToUnicode)
+// ---------------------------------------------------------------------------
+
+/// A code→CID CMap: the `/Encoding` of a composite (Type0) font (ISO 32000-1,
+/// 9.7.5). Where [`ToUnicodeCMap`] maps *codes to text* for extraction, this maps
+/// the raw content-stream bytes to *codes* (via the codespace ranges — codes may
+/// be 1–4 bytes, variable width!) and codes to *CIDs* (via cidrange/cidchar).
+///
+/// Built either from an embedded CMap stream or from the two predefined CMaps
+/// printpdf fully supports without external data (`Identity-H`/`Identity-V`).
+/// The other predefined CMaps (90ms-RKSJ-H, GBK-EUC-H, UniJIS-UCS2-H, …) require
+/// Adobe's CMap data files, which printpdf does not ship — the caller keeps its
+/// warning for those.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CidCMap {
+    /// 0 = horizontal, 1 = vertical (`/WMode`).
+    pub wmode: u8,
+    /// `(byte_len, lo_bytes, hi_bytes)` — a code of `byte_len` bytes belongs to
+    /// this range when every byte lies within the corresponding lo/hi bytes
+    /// (bytewise comparison per spec, not numeric).
+    codespace: Vec<(u8, [u8; 4], [u8; 4])>,
+    /// `(byte_len, lo, hi, dst_cid)` from cidrange: code → dst + (code - lo).
+    ranges: Vec<(u8, u32, u32, u32)>,
+    /// `(byte_len, code, cid)` from cidchar.
+    singles: BTreeMap<(u8, u32), u32>,
+    /// True for the identity CMaps: code == CID, no table lookups needed.
+    identity: bool,
+}
+
+/// One entry from a CMap-supported hex range line may cover at most this many
+/// codes; mirrors [`MAX_BFRANGE_ENTRIES`] (the stream is attacker-controlled).
+const MAX_CIDRANGE_SPAN: u64 = 65_536;
+
+impl CidCMap {
+    /// The `Identity-H` (wmode 0) / `Identity-V` (wmode 1) predefined CMap:
+    /// 2-byte codes, code == CID.
+    pub fn identity(wmode: u8) -> Self {
+        CidCMap {
+            wmode,
+            codespace: vec![(2, [0, 0, 0, 0], [0xFF, 0xFF, 0, 0])],
+            ranges: Vec::new(),
+            singles: BTreeMap::new(),
+            identity: true,
+        }
+    }
+
+    /// Whether this is one of the identity CMaps (the fast path everywhere).
+    pub fn is_identity(&self) -> bool {
+        self.identity
+    }
+
+    /// Parse an embedded CMap stream. Returns the CMap plus the name of a
+    /// `usecmap` base it could NOT resolve (only the identity CMaps can be
+    /// resolved without Adobe's data files) — the caller should warn about it.
+    pub fn parse(input: &str) -> Result<(CidCMap, Option<String>), String> {
+        let tokens = tokenize_cmap(input);
+        let mut cmap = CidCMap {
+            wmode: 0,
+            codespace: Vec::new(),
+            ranges: Vec::new(),
+            singles: BTreeMap::new(),
+            identity: false,
+        };
+        let mut unresolved_usecmap = None;
+
+        let hex_bytes = |hex: &str| -> Result<(u8, [u8; 4], u32), String> {
+            let digits = hex.len();
+            if digits == 0 || digits > 8 || digits % 2 != 0 {
+                return Err(format!("codespace hex <{hex}> is not 1–4 bytes"));
+            }
+            let len = (digits / 2) as u8;
+            let mut bytes = [0u8; 4];
+            for (idx, i) in (0..digits).step_by(2).enumerate() {
+                bytes[idx] = u8::from_str_radix(&hex[i..i + 2], 16)
+                    .map_err(|e| format!("bad hex <{hex}>: {e}"))?;
+            }
+            Ok((len, bytes, hex_to_u32(hex)?))
+        };
+
+        let mut i = 0;
+        while i < tokens.len() {
+            match &tokens[i] {
+                CMapToken::Word(w) if w == "begincodespacerange" => {
+                    i += 1;
+                    while i < tokens.len() {
+                        match (&tokens[i], tokens.get(i + 1)) {
+                            (CMapToken::Word(w), _) if w == "endcodespacerange" => break,
+                            (CMapToken::Hex(lo), Some(CMapToken::Hex(hi))) => {
+                                let (llen, lb, _) = hex_bytes(lo)?;
+                                let (hlen, hb, _) = hex_bytes(hi)?;
+                                if llen == hlen {
+                                    cmap.codespace.push((llen, lb, hb));
+                                }
+                                i += 2;
+                            }
+                            _ => i += 1,
+                        }
+                    }
+                }
+                CMapToken::Word(w) if w == "begincidrange" || w == "beginnotdefrange" => {
+                    let end_kw = if w == "begincidrange" {
+                        "endcidrange"
+                    } else {
+                        "endnotdefrange"
+                    };
+                    i += 1;
+                    while i < tokens.len() {
+                        match (&tokens[i], tokens.get(i + 1), tokens.get(i + 2)) {
+                            (CMapToken::Word(w), _, _) if w == end_kw => break,
+                            (
+                                CMapToken::Hex(lo),
+                                Some(CMapToken::Hex(hi)),
+                                Some(CMapToken::Word(dst)),
+                            ) => {
+                                let (llen, _, lov) = hex_bytes(lo)?;
+                                let (hlen, _, hiv) = hex_bytes(hi)?;
+                                let dst: u32 = dst
+                                    .parse()
+                                    .map_err(|e| format!("cidrange dst {dst:?}: {e}"))?;
+                                if llen == hlen && lov <= hiv {
+                                    if (hiv - lov) as u64 + 1 > MAX_CIDRANGE_SPAN {
+                                        return Err(format!(
+                                            "cidrange spans {} codes (max {})",
+                                            (hiv - lov) as u64 + 1,
+                                            MAX_CIDRANGE_SPAN
+                                        ));
+                                    }
+                                    cmap.ranges.push((llen, lov, hiv, dst));
+                                }
+                                i += 3;
+                            }
+                            _ => i += 1,
+                        }
+                    }
+                }
+                CMapToken::Word(w) if w == "begincidchar" => {
+                    i += 1;
+                    while i < tokens.len() {
+                        match (&tokens[i], tokens.get(i + 1)) {
+                            (CMapToken::Word(w), _) if w == "endcidchar" => break,
+                            (CMapToken::Hex(code), Some(CMapToken::Word(cid))) => {
+                                let (len, _, code_v) = hex_bytes(code)?;
+                                if let Ok(cid) = cid.parse::<u32>() {
+                                    cmap.singles.insert((len, code_v), cid);
+                                }
+                                i += 2;
+                            }
+                            _ => i += 1,
+                        }
+                    }
+                }
+                CMapToken::Word(w) if w == "usecmap" => {
+                    // The base CMap name is the last /Name token before `usecmap`.
+                    let base = tokens[..i].iter().rev().find_map(|t| match t {
+                        CMapToken::Word(w) if w.starts_with('/') => Some(w[1..].to_string()),
+                        _ => None,
+                    });
+                    match base.as_deref() {
+                        Some("Identity-H") => cmap.identity = cmap.tables_are_empty(),
+                        Some("Identity-V") => {
+                            cmap.identity = cmap.tables_are_empty();
+                            cmap.wmode = 1;
+                        }
+                        Some(other) => unresolved_usecmap = Some(other.to_string()),
+                        None => {}
+                    }
+                }
+                CMapToken::Word(w) if w == "/WMode" => {
+                    if let Some(CMapToken::Word(v)) = tokens.get(i + 1) {
+                        if v == "1" {
+                            cmap.wmode = 1;
+                        }
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+
+        // A CMap with no codespace at all cannot split codes; assume the
+        // ubiquitous 2-byte space rather than failing the whole font.
+        if cmap.codespace.is_empty() {
+            cmap.codespace.push((2, [0, 0, 0, 0], [0xFF, 0xFF, 0, 0]));
+        }
+        Ok((cmap, unresolved_usecmap))
+    }
+
+    fn tables_are_empty(&self) -> bool {
+        self.ranges.is_empty() && self.singles.is_empty()
+    }
+
+    /// Split a content-stream string into `(code, byte_len)` per the codespace
+    /// ranges (ISO 32000-1, 9.7.6.2): a code matches a range of length L when its
+    /// L bytes each lie within the range's corresponding lo/hi bytes. On no
+    /// match, the shortest range length starting at a matching first byte is
+    /// consumed (mapping to notdef later); failing that, one byte.
+    pub fn split_codes(&self, bytes: &[u8]) -> Vec<(u32, u8)> {
+        let mut out = Vec::with_capacity(bytes.len() / 2);
+        let mut pos = 0;
+        while pos < bytes.len() {
+            let rest = &bytes[pos..];
+            let mut matched: Option<u8> = None;
+            // Prefer the shortest matching range (ranges are tried by length).
+            let mut lens: Vec<u8> = self.codespace.iter().map(|(l, ..)| *l).collect();
+            lens.sort_unstable();
+            lens.dedup();
+            'outer: for len in lens {
+                let len_usize = len as usize;
+                if rest.len() < len_usize {
+                    continue;
+                }
+                for (l, lo, hi) in &self.codespace {
+                    if *l != len {
+                        continue;
+                    }
+                    if (0..len_usize)
+                        .all(|k| rest[k] >= lo[k] && rest[k] <= hi[k])
+                    {
+                        matched = Some(len);
+                        break 'outer;
+                    }
+                }
+            }
+            let len = matched.unwrap_or_else(|| {
+                // No full match: shortest range whose FIRST byte matches, else 1.
+                self.codespace
+                    .iter()
+                    .filter(|(l, lo, hi)| {
+                        *l >= 1 && rest[0] >= lo[0] && rest[0] <= hi[0]
+                    })
+                    .map(|(l, ..)| *l)
+                    .min()
+                    .unwrap_or(1)
+            });
+            let len_usize = (len as usize).min(rest.len());
+            let mut code = 0u32;
+            for &b in &rest[..len_usize] {
+                code = (code << 8) | b as u32;
+            }
+            out.push((code, len_usize as u8));
+            pos += len_usize;
+        }
+        out
+    }
+
+    /// The CID for a code of the given byte length. Unmapped codes are CID 0
+    /// (notdef) — except for the identity CMaps, where code == CID by
+    /// definition.
+    pub fn cid_for_code(&self, code: u32, byte_len: u8) -> u32 {
+        if self.identity {
+            return code;
+        }
+        if let Some(cid) = self.singles.get(&(byte_len, code)) {
+            return *cid;
+        }
+        for (len, lo, hi, dst) in &self.ranges {
+            if *len == byte_len && code >= *lo && code <= *hi {
+                return dst + (code - lo);
+            }
+        }
+        0
+    }
+}
+
 /// Implement the CMap trait on our ToUnicodeCMap.
 impl CMap for ToUnicodeCMap {
     fn map_bytes(&self, bytes: &[u8]) -> String {
