@@ -323,7 +323,7 @@ impl PdfPage {
 /// Used by text extraction to distinguish per-glyph positioning moves from
 /// real word gaps. Falls back to 0.5em when the metric is unavailable.
 #[cfg(feature = "text_layout")]
-fn glyph_advance_em(font: &ParsedFont, gid: u16) -> f32 {
+pub(crate) fn glyph_advance_em(font: &ParsedFont, gid: u16) -> f32 {
     let upm = font.font_metrics.units_per_em as f32;
     if upm <= 0.0 {
         return 0.5;
@@ -339,7 +339,7 @@ fn glyph_advance_em(font: &ParsedFont, gid: u16) -> f32 {
 /// See the `text_layout` variant above; the stub `ParsedFont` stores widths in
 /// `glyph_widths` (already in font units) with `units_per_em` alongside.
 #[cfg(not(feature = "text_layout"))]
-fn glyph_advance_em(font: &ParsedFont, gid: u16) -> f32 {
+pub(crate) fn glyph_advance_em(font: &ParsedFont, gid: u16) -> f32 {
     let upm = font.units_per_em as f32;
     if upm <= 0.0 {
         return 0.5;

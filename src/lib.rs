@@ -42,6 +42,7 @@ pub mod shading;
 pub use shading::*;
 /// Page operations
 pub mod ops;
+pub mod text_boxes;
 pub use ops::*;
 /// Color handling
 pub mod color;
