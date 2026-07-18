@@ -176,6 +176,10 @@ name = "html"
 required-features = ["html"]
 
 [[example]]
+name = "repro_invoice_layout"
+required-features = ["html"]
+
+[[example]]
 name = "css_shapes"
 required-features = ["html"]
 
