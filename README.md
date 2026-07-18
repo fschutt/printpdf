@@ -7,10 +7,10 @@
 
 [Website](https://fschutt.github.io/printpdf) | [Crates.io](https://crates.io/crates/printpdf) | [Documentation](https://docs.rs/printpdf) | [Donate](https://github.com/sponsors/fschutt)
 
-> [!IMPORTANT]  
-> HTML-to-PDF rendering is still experimental (a stub API) and WIP.
-> 
-> You need to position PDF elements manually for now.
+> [!NOTE]
+> HTML-to-PDF rendering (`PdfDocument::from_html`, `html` feature) works for
+> basic layouts — tables, page breaks, headers/footers — but is still
+> evolving. For pixel-exact control, position PDF elements manually with ops.
 
 ## Features
 
