@@ -251,6 +251,7 @@ fn parse_pdf_from_bytes_end(
                     if p.is_cid {
                         FontTextDecodeKind::Cid {
                             to_unicode: p.to_unicode.clone(),
+                            cid_to_gid: p.cid_to_gid.clone(),
                         }
                     } else {
                         FontTextDecodeKind::Simple {
@@ -260,6 +261,9 @@ fn parse_pdf_from_bytes_end(
                 }
                 ParsedOrBuiltinFont::CidStub(to_unicode) => FontTextDecodeKind::Cid {
                     to_unicode: to_unicode.clone(),
+                    // No parsable font program — no charset / CIDToGIDMap to
+                    // resolve through; the identity assumption is all there is.
+                    cid_to_gid: None,
                 },
             };
             Some((name, kind))
@@ -364,6 +368,13 @@ pub struct ParsedExternalFont {
     /// font: text-showing operators carry 2-byte big-endian codes. `false` for
     /// simple fonts (TrueType/Type1): one byte per code.
     pub is_cid: bool,
+    /// CID -> glyph id, for composite fonts where the two are NOT the same:
+    /// a `/CIDToGIDMap` stream (CIDFontType2), or the CFF charset of a CID-keyed
+    /// CIDFontType0 program (ISO 32000-1, 9.7.4.2). `None` means CID == GID
+    /// (Identity). Without this, every code was stored as if it were a glyph id,
+    /// so PDFs from spec-following producers (Adobe, dvipdfmx — and printpdf
+    /// itself since the #280 fix) re-rendered with wrong outlines and widths.
+    pub cid_to_gid: Option<Arc<BTreeMap<u16, u16>>>,
 }
 
 pub enum ParsedOrBuiltinFont {
@@ -411,11 +422,14 @@ pub enum FontTextDecodeKind {
     Simple {
         to_unicode: Option<Arc<ToUnicodeCMap>>,
     },
-    /// Composite (Type0) font: two-byte big-endian CIDs. With the Identity-H
-    /// encoding printpdf writes (and virtually every PDF producer uses for
-    /// embedded fonts), CID == GID.
+    /// Composite (Type0) font: two-byte big-endian CIDs. Under the Identity-H
+    /// encoding the code IS the CID — but the CID is only equal to the glyph id
+    /// when the descendant font says so: `cid_to_gid` carries the `/CIDToGIDMap`
+    /// stream (CIDFontType2) or CID-keyed CFF charset (CIDFontType0) mapping
+    /// when the two differ.
     Cid {
         to_unicode: Option<Arc<ToUnicodeCMap>>,
+        cid_to_gid: Option<Arc<BTreeMap<u16, u16>>>,
     },
 }
 
@@ -2361,7 +2375,7 @@ fn decode_show_text_string(
         Some(FontTextDecodeKind::Simple { to_unicode }) => TextItem::Text(
             decode_simple_font_bytes(bytes, to_unicode.as_deref()),
         ),
-        Some(FontTextDecodeKind::Cid { to_unicode }) => {
+        Some(FontTextDecodeKind::Cid { to_unicode, cid_to_gid }) => {
             if bytes.len() % 2 != 0 {
                 warnings.push(PdfWarnMsg::warning(
                     page,
@@ -2375,10 +2389,18 @@ fn decode_show_text_string(
             let glyphs = bytes
                 .chunks_exact(2)
                 .map(|c| {
-                    let gid = u16::from_be_bytes([c[0], c[1]]);
+                    let code = u16::from_be_bytes([c[0], c[1]]);
+                    // ToUnicode is keyed by the content-stream CODE; the glyph id
+                    // stored on the Codepoint must be the real GID so outlines,
+                    // widths and re-subsetting stay correct when the descendant
+                    // font's CID->GID mapping is not identity.
                     let cid_str = to_unicode
                         .as_deref()
-                        .and_then(|cmap| cmap.lookup_string(gid as u32));
+                        .and_then(|cmap| cmap.lookup_string(code as u32));
+                    let gid = cid_to_gid
+                        .as_deref()
+                        .and_then(|m| m.get(&code).copied())
+                        .unwrap_or(code);
                     match cid_str {
                         Some(s) => Codepoint::with_cid(gid, 0.0, s),
                         None => Codepoint::new(gid, 0.0),
@@ -4663,20 +4685,35 @@ mod parsefont {
         BuiltinFont, FontId,
     };
 
-    /// Build a gid -> unicode map from the font's own cmap table, for fonts
-    /// that ship without a usable `/ToUnicode` CMap. Under Identity-H
-    /// (CID == GID) this makes glyph runs extractable and lets the serializer
-    /// regenerate a correct ToUnicode CMap instead of mapping every glyph to
-    /// U+FFFD.
-    fn synthesize_to_unicode(font: &ParsedFont) -> Option<ToUnicodeCMap> {
+    /// Build a code -> unicode map from the font's own cmap table, for fonts
+    /// that ship without a usable `/ToUnicode` CMap. This makes glyph runs
+    /// extractable and lets the serializer regenerate a correct ToUnicode CMap
+    /// instead of mapping every glyph to U+FFFD.
+    ///
+    /// ToUnicode is keyed by the content-stream code — the CID under Identity-H.
+    /// When the descendant font maps CIDs to different glyph ids (`cid_to_gid`),
+    /// the font-cmap gid must be re-keyed through the inverse of that map;
+    /// otherwise code == gid.
+    fn synthesize_to_unicode(
+        font: &ParsedFont,
+        cid_to_gid: Option<&BTreeMap<u16, u16>>,
+    ) -> Option<ToUnicodeCMap> {
+        let gid_to_cid: Option<BTreeMap<u16, u16>> = cid_to_gid
+            .map(|m| m.iter().map(|(cid, gid)| (*gid, *cid)).collect());
         let mut mappings: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
-        for cp in 0x0000..=0xFFFFu32 {
+        // The full scalar-value range: supplementary-plane codepoints (CJK Ext B+,
+        // emoji) are exactly what the CJK fonts hitting this path use.
+        for cp in 0x0000..=0x10FFFFu32 {
             // skip UTF-16 surrogate range, not scalar values
             if (0xD800..=0xDFFF).contains(&cp) {
                 continue;
             }
             if let Some(gid) = font.lookup_glyph_index(cp) {
-                mappings.entry(gid as u32).or_insert_with(|| vec![cp]);
+                let code = gid_to_cid
+                    .as_ref()
+                    .and_then(|m| m.get(&gid).copied())
+                    .unwrap_or(gid);
+                mappings.entry(code as u32).or_insert_with(|| vec![cp]);
             }
         }
         if mappings.is_empty() {
@@ -4684,6 +4721,120 @@ mod parsefont {
         } else {
             Some(ToUnicodeCMap { mappings })
         }
+    }
+
+    /// The descendant font's CID -> glyph-id map, when it is not identity.
+    ///
+    /// Two sources, matching how viewers resolve Identity-H codes (ISO 32000-1,
+    /// 9.7.4.2):
+    /// - CIDFontType2: an explicit `/CIDToGIDMap` stream — 2 big-endian bytes per
+    ///   CID. (The `/Identity` name, or no entry, means CID == GID.)
+    /// - CIDFontType0 with a CID-keyed CFF program: the CFF charset, inverted.
+    ///
+    /// Only non-identity entries are stored; lookups fall back to CID == GID.
+    ///
+    /// The CFF-charset source is additionally validated against the document's
+    /// ToUnicode CMap and the font's own cmap: printpdf ≤ 0.12 (#280) — and other
+    /// producers with the same bug — wrote glyph ids as Identity-H codes even for
+    /// CID-keyed CFF fonts whose charset says otherwise. PDFium renders such files
+    /// by falling back to code == GID, and re-interpreting them per spec here would
+    /// scramble glyph identities on re-save. When the identity reading explains the
+    /// document's own code→unicode→glyph triangle better than the charset reading,
+    /// the charset map is discarded. (An explicit `/CIDToGIDMap` stream is never
+    /// second-guessed — producers that write one mean it.)
+    fn extract_cid_to_gid_map(
+        doc: &Document,
+        font_dict: &Dictionary,
+        font_id: &FontId,
+        parsed_font: &ParsedFont,
+        to_unicode: Option<&ToUnicodeCMap>,
+        warnings: &mut Vec<PdfWarnMsg>,
+        page_num: usize,
+    ) -> Option<BTreeMap<u16, u16>> {
+        let descendant = get_descendant_font_dict(doc, font_dict, font_id, warnings, page_num)?;
+
+        let stream_to_map = |s: &lopdf::Stream| -> Option<BTreeMap<u16, u16>> {
+            let data = s.decompressed_content().ok().or_else(|| {
+                // Already-plain streams return the content as-is on error paths of
+                // some lopdf versions; fall back to the raw bytes.
+                Some(s.content.clone())
+            })?;
+            Some(
+                data.chunks_exact(2)
+                    .enumerate()
+                    .filter_map(|(cid, b)| {
+                        let cid = u16::try_from(cid).ok()?;
+                        let gid = u16::from_be_bytes([b[0], b[1]]);
+                        (gid != cid).then_some((cid, gid))
+                    })
+                    .collect(),
+            )
+        };
+
+        match descendant.get(b"CIDToGIDMap") {
+            Ok(Object::Stream(s)) => return stream_to_map(s),
+            Ok(Object::Reference(r)) => {
+                if let Ok(Object::Stream(s)) = doc.get_object(*r) {
+                    return stream_to_map(s);
+                }
+            }
+            _ => {} // absent or /Identity
+        }
+
+        // CID-keyed CFF: invert the charset's gid -> cid map. Identity entries are
+        // dropped so `None`/empty means "no remapping needed".
+        #[cfg(feature = "text_layout")]
+        let bytes = parsed_font.source_bytes()?;
+        #[cfg(feature = "text_layout")]
+        let bytes = bytes.as_slice();
+        #[cfg(not(feature = "text_layout"))]
+        let bytes = parsed_font.original_bytes.as_slice();
+
+        let map: BTreeMap<u16, u16> = crate::font::cff_charset_gid_to_cid_map(bytes, 0)?
+            .into_iter()
+            .filter_map(|(gid, cid)| (gid != cid).then_some((cid, gid)))
+            .collect();
+        if map.is_empty() {
+            return None;
+        }
+
+        // Disambiguate spec-correct files from legacy code==GID files: for every
+        // ToUnicode entry whose character the font's cmap knows, check which
+        // reading of the code lands on the cmap's glyph.
+        if let Some(tu) = to_unicode {
+            let mut spec_hits = 0usize;
+            let mut identity_hits = 0usize;
+            for (code, unis) in tu.mappings.iter() {
+                let Some(&cp) = unis.first() else { continue };
+                let Ok(code16) = u16::try_from(*code) else { continue };
+                let Some(cmap_gid) = parsed_font.lookup_glyph_index(cp) else {
+                    continue;
+                };
+                let spec_gid = map.get(&code16).copied().unwrap_or(code16);
+                if spec_gid == cmap_gid {
+                    spec_hits += 1;
+                }
+                if code16 == cmap_gid {
+                    identity_hits += 1;
+                }
+            }
+            if identity_hits > spec_hits {
+                warnings.push(PdfWarnMsg::info(
+                    page_num,
+                    0,
+                    format!(
+                        "font {}: CID-keyed CFF charset is not identity, but the \
+                         document's codes match glyph ids, not CIDs ({} vs {} cmap \
+                         agreements) — treating codes as glyph ids (legacy printpdf \
+                         convention, #280)",
+                        font_id.0, identity_hits, spec_hits
+                    ),
+                ));
+                return None;
+            }
+        }
+
+        Some(map)
     }
 
     /// Main function to parse fonts from PDF resources
@@ -4735,11 +4886,23 @@ mod parsefont {
                 // (#258).
                 match process_type0_font(doc, font_dict, &font_id, warnings, page_num) {
                     Some(parsed_font) => {
+                        let cid_to_gid = extract_cid_to_gid_map(
+                            doc,
+                            font_dict,
+                            &font_id,
+                            &parsed_font,
+                            to_unicode_cmap.as_ref(),
+                            warnings,
+                            page_num,
+                        )
+                        .map(Arc::new);
                         // Without a ToUnicode CMap, glyph runs would extract as
                         // U+FFFD and the re-saved ToUnicode would be garbage;
                         // synthesize one from the font's own cmap table.
                         let to_unicode = to_unicode_cmap
-                            .or_else(|| synthesize_to_unicode(&parsed_font))
+                            .or_else(|| {
+                                synthesize_to_unicode(&parsed_font, cid_to_gid.as_deref())
+                            })
                             .map(Arc::new);
                         fonts_map.insert(
                             font_id,
@@ -4747,6 +4910,7 @@ mod parsefont {
                                 font: parsed_font,
                                 to_unicode,
                                 is_cid: true,
+                                cid_to_gid,
                             }),
                         );
                     }
@@ -5089,6 +5253,8 @@ mod parsefont {
                                 font: parsed_font,
                                 to_unicode: None,
                                 is_cid: false,
+                                // Simple font: one-byte codes, no CID indirection.
+                                cid_to_gid: None,
                             }))
                         },
                         None => {
