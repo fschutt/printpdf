@@ -1030,6 +1030,46 @@ pub fn cff_charset_gid_to_cid_map(font_bytes: &[u8], index: usize) -> Option<BTr
     )
 }
 
+/// The bare `CFF ` table of an `OTTO` sfnt, extracted for embedding as
+/// `/FontFile3` `/Subtype /CIDFontType0C` — but only when that CFF is CID-keyed.
+/// `None` for TrueType faces and for name-keyed CFFs, which keep their current
+/// wrappers (code == glyph id is already correct in every viewer there).
+///
+/// The wrapper decides which resolution semantics FreeType-based viewers apply
+/// to the charset-CID codes we emit (see `cff_charset_gid_to_cid_map`). For a
+/// whole OTTO sfnt (`/Subtype /OpenType`) FreeType does not flag the face as
+/// CID-keyed, so PDFium (Chrome) and poppler use the Identity-H codes directly
+/// as glyph indices and never consult the charset — while Acrobat and Preview
+/// resolve the same codes *through* the charset. With a non-identity charset no
+/// code assignment renders identically in both families: emitting glyph ids
+/// broke Acrobat/Preview (#280), emitting charset CIDs breaks Chrome/poppler
+/// (codes above the glyph count draw nothing at all; NotoSansJP puts 日 at CID
+/// 20616 in a 17,802-glyph font). For a *bare* CID-keyed CFF, FreeType sets
+/// FT_FACE_FLAG_CID_KEYED and both families resolve through the charset, so the
+/// CIDs render the same everywhere — which is what the pre-rewrite embedding
+/// from #215 relied on, and why 0.9.x was correct in Acrobat AND Chrome.
+///
+/// The returned bytes are the verbatim table `cff_charset_gid_to_cid_map` read
+/// the charset from, so the emitted codes stay consistent with the embedded
+/// program by construction.
+pub fn extract_cid_keyed_cff(font_bytes: &[u8], index: usize) -> Option<Vec<u8>> {
+    use allsorts::{
+        binary::read::ReadScope, cff::CFF, font_data::FontData, tables::FontTableProvider, tag,
+    };
+
+    if !font_bytes.starts_with(b"OTTO") {
+        return None;
+    }
+    let font_file = ReadScope::new(font_bytes).read::<FontData<'_>>().ok()?;
+    let provider = font_file.table_provider(index).ok()?;
+    let cff_data = provider.read_table_data(tag::CFF).ok()?;
+    let cff = ReadScope::new(&cff_data).read::<CFF<'_>>().ok()?;
+    if !cff.fonts.first()?.is_cid_keyed() {
+        return None;
+    }
+    Some(cff_data.into_owned())
+}
+
 #[cfg(feature = "text_layout")]
 fn get_glyph_width(font: &ParsedFont, gid: u16) -> Option<u16> {
     // `glyph_records_decoded` was replaced by the lazy `get_or_decode_glyph`.

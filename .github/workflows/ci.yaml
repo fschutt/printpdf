@@ -173,8 +173,10 @@ jobs:
           cargo run --example otf-font-subset
       - name: Verify code/charset/W/ToUnicode consistency against the source text
         run: |
-          python3 scripts/verify_pdf_font.py font.pdf --expect scripts/otf_font_expected.txt
-          python3 scripts/verify_pdf_font.py font_subset.pdf --expect scripts/otf_font_expected.txt
+          python3 scripts/verify_pdf_font.py font.pdf --expect scripts/otf_font_expected.txt \
+            --source-font examples/assets/fonts/NotoSansJP-Regular.otf
+          python3 scripts/verify_pdf_font.py font_subset.pdf --expect scripts/otf_font_expected.txt \
+            --source-font examples/assets/fonts/NotoSansJP-Regular.otf
       - name: Mock fonts regenerate byte-identically (defined-metrics oracle stays intact)
         run: |
           python3 scripts/gen_mock_fonts.py
