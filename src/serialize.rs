@@ -463,6 +463,33 @@ fn builtin_font_to_dict(font: &BuiltinFont) -> LoDictionary {
     ])
 }
 
+/// A run of absolutely-positioned glyphs being coalesced into a single `Tm` +
+/// kerned `TJ` (see the merger in [`translate_operations`]). `pen` is where the
+/// viewer's pen will be after the ops emitted so far, relative to the run
+/// origin, in thousandths of an em — advanced by the same `/W` integers
+/// ([`get_scaled_glyph_width`]) the viewer applies, so emitted kerns reproduce
+/// the absolute glyph positions exactly.
+struct PendingGlyphRun {
+    matrix: [f32; 6],
+    font_res: String,
+    font_size: f32,
+    pen: f64,
+    array: Vec<lopdf::Object>,
+}
+
+fn flush_glyph_run(run: &mut Option<PendingGlyphRun>, content: &mut Vec<LoOp>) {
+    if let Some(r) = run.take() {
+        content.push(LoOp::new("Tm", r.matrix.iter().copied().map(Real).collect()));
+        content.push(LoOp::new("TJ", vec![Array(r.array)]));
+    }
+}
+
+fn flush_pending_tm(tm: &mut Option<[f32; 6]>, content: &mut Vec<LoOp>) {
+    if let Some(m) = tm.take() {
+        content.push(LoOp::new("Tm", m.iter().copied().map(Real).collect()));
+    }
+}
+
 pub(crate) fn translate_operations(
     ops: &[Op],
     font_infos: &BTreeMap<FontId, RuntimeFontInfo>,
@@ -474,6 +501,28 @@ pub(crate) fn translate_operations(
 
     // Track current font for ShowText operations
     let mut current_font_resource: Option<String> = None;
+    let mut current_font_size: f32 = 0.0;
+    // Text state that changes the viewer's pen arithmetic — the glyph-run
+    // merger below only runs at the PDF defaults (Tc 0, Tz 100).
+    let mut current_char_spacing: f32 = 0.0;
+    let mut current_horiz_scaling: f32 = 100.0;
+
+    // ---- glyph-run merger -------------------------------------------------
+    // The HTML/layout pipelines position every glyph absolutely, as repeating
+    //   `SetTextMatrix(1 0 0 1 x y)` + `ShowText[GlyphIds]`
+    // pairs. Serialized literally (one one-glyph show op per glyph), PDFium's
+    // text page does not honor the per-op matrices: it crams every character
+    // of the line into the FIRST glyph's bounding box, so Chrome's selection
+    // highlight is a sliver at the line start while rendering stays correct.
+    // Coalesce each same-baseline sequence into one `Tm` + one `TJ` whose kern
+    // numbers reproduce the identical pen positions: the viewer advances by
+    // the `/W` width after each glyph, and `/W` is filled from
+    // `get_scaled_glyph_width`, so computing kerns against that same integer
+    // makes the merged stream render-identical by construction. Anything that
+    // breaks the pattern (baseline change, font change, Tc/Tz state, any other
+    // op) flushes the run and falls back to literal serialization.
+    let mut pending_tm: Option<[f32; 6]> = None;
+    let mut glyph_run: Option<PendingGlyphRun> = None;
 
     // Text-showing operators are only valid between BT and ET. Emitting them
     // outside is not a rendering variation — Acrobat and most viewers drop the
@@ -502,6 +551,120 @@ pub(crate) fn translate_operations(
     };
 
     for (op_idx, op) in ops.iter().enumerate() {
+        let consumed = 'merge: {
+            match op {
+                Op::SetTextMatrix { matrix } if in_text_section => {
+                    let m = matrix.as_array();
+                    if !(m[0] == 1.0 && m[1] == 0.0 && m[2] == 0.0 && m[3] == 1.0) {
+                        break 'merge false;
+                    }
+                    // Hold the translation — the next ShowText decides whether
+                    // it extends the open run or anchors a new one. A held Tm
+                    // that nothing consumed is passed through on flush.
+                    flush_pending_tm(&mut pending_tm, &mut content);
+                    pending_tm = Some(m);
+                    true
+                }
+                Op::ShowText { items }
+                    if in_text_section && (pending_tm.is_some() || glyph_run.is_some()) =>
+                {
+                    let (builtin_font, font_info) =
+                        resolve_current_font(&current_font_resource, font_infos);
+                    let Some(fi) = font_info else { break 'merge false };
+                    let fs = current_font_size;
+                    let glyphs_only = !items.is_empty()
+                        && items
+                            .iter()
+                            .all(|i| matches!(i, TextItem::GlyphIds(_) | TextItem::Offset(_)));
+                    if builtin_font.is_some()
+                        || !glyphs_only
+                        || fs <= 0.0
+                        || current_char_spacing != 0.0
+                        || current_horiz_scaling != 100.0
+                    {
+                        break 'merge false;
+                    }
+                    let font_res = current_font_resource.clone().unwrap_or_default();
+
+                    match pending_tm.take() {
+                        Some(m) => {
+                            let extends = glyph_run.as_ref().is_some_and(|r| {
+                                r.matrix[5] == m[5]
+                                    && r.font_res == font_res
+                                    && r.font_size == fs
+                            });
+                            if extends {
+                                // Same baseline: a kern number moves the pen from
+                                // wherever the previous glyph left it to this op's
+                                // absolute x (TJ numbers translate by -n/1000 em).
+                                let r = glyph_run.as_mut().unwrap();
+                                let dx_em = (m[4] as f64 - r.matrix[4] as f64) * 1000.0
+                                    / fs as f64;
+                                let kern = (r.pen - dx_em) as f32;
+                                if kern != 0.0 {
+                                    r.array.push(Real(kern));
+                                    r.pen -= kern as f64;
+                                }
+                            } else {
+                                flush_glyph_run(&mut glyph_run, &mut content);
+                                glyph_run = Some(PendingGlyphRun {
+                                    matrix: m,
+                                    font_res,
+                                    font_size: fs,
+                                    pen: 0.0,
+                                    array: Vec::new(),
+                                });
+                            }
+                        }
+                        None => {
+                            // ShowText with no Tm in between continues at the
+                            // natural pen position — only safe if the text state
+                            // is still the run's.
+                            let compatible = glyph_run
+                                .as_ref()
+                                .is_some_and(|r| r.font_res == font_res && r.font_size == fs);
+                            if !compatible {
+                                break 'merge false;
+                            }
+                        }
+                    }
+
+                    let r = glyph_run.as_mut().unwrap();
+                    for item in items {
+                        match item {
+                            TextItem::Offset(o) => {
+                                r.array.push(Real(*o));
+                                r.pen -= *o as f64;
+                            }
+                            TextItem::GlyphIds(glyphs) => {
+                                for cp in glyphs {
+                                    let code = remap_gid(Some(fi), cp.gid);
+                                    r.array
+                                        .push(LoString(code.to_be_bytes().to_vec(), Hexadecimal));
+                                    r.pen +=
+                                        get_scaled_glyph_width(&fi.parsed_font, cp.gid) as f64;
+                                    if cp.offset != 0.0 {
+                                        r.array.push(Real(cp.offset));
+                                        r.pen -= cp.offset as f64;
+                                    }
+                                }
+                            }
+                            TextItem::Text(_) => unreachable!("filtered by glyphs_only"),
+                        }
+                    }
+                    true
+                }
+                _ => false,
+            }
+        };
+        if !consumed {
+            // Any other op interrupts the pattern: emit what's pending, in
+            // stream order, before the op itself is serialized below.
+            flush_glyph_run(&mut glyph_run, &mut content);
+            flush_pending_tm(&mut pending_tm, &mut content);
+        } else {
+            continue;
+        }
         match op {
             Op::SetRenderingIntent { intent } => {
                 content.push(LoOp::new("ri", vec![Name(intent.get_id().into())]));
@@ -513,6 +676,7 @@ pub(crate) fn translate_operations(
                 content.push(LoOp::new("CS", vec![Name(id.clone().into())]));
             }
             Op::SetHorizontalScaling { percent } => {
+                current_horiz_scaling = *percent;
                 content.push(LoOp::new("Tz", vec![Real(*percent)]));
             }
             Op::AddLineBreak => {
@@ -555,6 +719,7 @@ pub(crate) fn translate_operations(
             Op::SetFont { font, size } => {
                 let font_resource_name = font.get_resource_name();
                 current_font_resource = Some(font_resource_name.clone());
+                current_font_size = size.0;
                 content.push(LoOp::new(
                     "Tf",
                     vec![lopdf::Object::Name(font_resource_name.as_bytes().to_vec()), size.0.into()],
@@ -639,6 +804,7 @@ pub(crate) fn translate_operations(
                 content.push(LoOp::new("Tr", vec![Integer(mode.id())]));
             }
             Op::SetCharacterSpacing { multiplier } => {
+                current_char_spacing = *multiplier;
                 content.push(LoOp::new("Tc", vec![Real(*multiplier)]));
             }
             Op::SetLineOffset { multiplier } => {
@@ -761,6 +927,8 @@ pub(crate) fn translate_operations(
                 }
                 let (builtin_font, font_info) =
                     resolve_current_font(&current_font_resource, font_infos);
+                // The `"` operator assigns Tw and Tc as a side effect.
+                current_char_spacing = *char_spacing;
                 content.push(LoOp::new(
                     "\"",
                     vec![
@@ -784,6 +952,9 @@ pub(crate) fn translate_operations(
             }
         }
     }
+
+    flush_glyph_run(&mut glyph_run, &mut content);
+    flush_pending_tm(&mut pending_tm, &mut content);
 
     lopdf::content::Content {
         operations: content,
