@@ -147,26 +147,34 @@ jobs:
       - run: pdffonts -v && pdftotext -v
       - run: cargo test --features html --test external_tools --test font_embedding --test font_embedding_mock --test font -- --nocapture
 
-  # Viewer-semantics check with fontTools — independent of printpdf, poppler AND
-  # allsorts. Resolves every Identity-H code the way Acrobat/Preview do (ISO
-  # 32000-1, 9.7.4.2): code -> CID -> CFF charset -> glyph, then cross-checks
-  # that glyph against the char the font's own cmap assigns, /W widths against
-  # hmtx, and ToUnicode against the exact source text.
+  # Font-embedding verification against BOTH viewer families (#280/#281 taught
+  # us one family is not enough — 03ad4bc fixed Acrobat and broke Chrome):
   #
-  # This is the oracle for #280: printpdf wrote glyph ids as Identity-H codes for
-  # CID-keyed CFF fonts (NotoSansJP's charset diverges from gid 365 on). PDFium
-  # falls back to code == GID, so Chrome looked fine — poppler's pdftotext reads
-  # ToUnicode, so text extraction looked fine — while Acrobat and Preview drew
-  # wrong or missing glyphs. Only charset-resolution semantics catch it, and no
-  # Rust-side test is fully independent of the crate's own CFF parsing.
+  # Layer 1, Acrobat/Preview semantics (fontTools — independent of printpdf and
+  # allsorts): verify_pdf_font.py resolves every Identity-H code the way ISO
+  # 32000-1 9.7.4.2 says (code -> CID -> CFF charset -> glyph), cross-checks the
+  # glyph against the source font's cmap, /W against the advances, ToUnicode
+  # against the exact source text — and STRUCTURALLY rejects the one encoding no
+  # code assignment can make portable: a CID-keyed CFF with a non-identity
+  # charset left inside an sfnt wrapper (FreeType never flags that face
+  # CID-keyed, so the two families read the same codes differently).
+  #
+  # Layer 2, FreeType-family semantics (poppler — the same resolution PDFium/
+  # Chrome applies): check_pdf_render.py asserts pdffonts no longer sees a
+  # "CID Type 0C (OT)" wrapper and that poppler actually INKS the page. The
+  # #280 inversion drew near-blank pages (codes beyond the subset's glyph
+  # count); the ink floor catches that whole failure family empirically, with
+  # zero modeling assumptions.
   font-verification-viewer-semantics:
     name: Verify Identity-H codes with fontTools (Acrobat semantics, #280)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install fontTools
-        run: pip install fonttools
+      - name: Install fontTools + poppler
+        run: |
+          pip install fonttools
+          sudo apt-get update && sudo apt-get install -y poppler-utils
       - name: Build the otf-font example PDFs (full embed + subset)
         run: |
           cargo run --example otf-font
@@ -177,6 +185,15 @@ jobs:
             --source-font examples/assets/fonts/NotoSansJP-Regular.otf
           python3 scripts/verify_pdf_font.py font_subset.pdf --expect scripts/otf_font_expected.txt \
             --source-font examples/assets/fonts/NotoSansJP-Regular.otf
+      - name: Verify poppler (FreeType semantics) sees no OT wrapper and inks the page
+        # min-ink floor: the correct render measures ~7400 dark px at 100 dpi;
+        # the #280-inverted subset rendered near-blank. 3000 leaves room for
+        # antialiasing drift between poppler versions without letting a blank
+        # page through. --forbid-otto-cid-cff is valid here because NotoSansJP
+        # is CID-keyed (a name-keyed CFF may legitimately stay sfnt-wrapped).
+        run: |
+          python3 scripts/check_pdf_render.py font.pdf --min-ink 3000 --forbid-otto-cid-cff
+          python3 scripts/check_pdf_render.py font_subset.pdf --min-ink 3000 --forbid-otto-cid-cff
       - name: Mock fonts regenerate byte-identically (defined-metrics oracle stays intact)
         run: |
           python3 scripts/gen_mock_fonts.py
