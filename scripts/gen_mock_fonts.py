@@ -13,6 +13,14 @@ layout math against constants instead of against another font parser:
 - mock_ttf.ttf        TrueType (glyf) — embeds as CIDFontType2 + /FontFile2
 - mock_cff_named.otf  name-keyed CFF  — embeds as CIDFontType0 + /FontFile3,
                       viewers use CID == GID
+- mock_cff_cid_fm.otf same CID-keyed shape as mock_cff_cid.otf, but at
+                      2000 units/em with an explicit FontMatrix [0.0005 ...]
+                      (advances are 2x, so em-relative metrics stay identical),
+                      and glyph B's charstring computes its width operand with
+                      a two-byte arithmetic operator (350 350 add). Exercises
+                      the two bare-CFF re-wrap paths of printpdf's
+                      `wrap_bare_cff_as_sfnt`: FontMatrix-derived units-per-em
+                      and escape-operator evaluation in the width scanner.
 - mock_cff_cid.otf    CID-keyed CFF (ROS Adobe-Identity-0) with a charset that
                       is deliberately NOT identity and NOT monotonic in gid:
 
@@ -74,14 +82,15 @@ def cmap():
     return m
 
 
-def common_setup(fb, glyph_order):
+def common_setup(fb, glyph_order, scale=1):
     fb.setupGlyphOrder(glyph_order)
     fb.setupCharacterMap({cp: n for cp, n in cmap().items()
                           if n in glyph_order or n in ('space',)})
-    fb.setupHorizontalMetrics({n: (ADVANCES[base_name(n)], 0) for n in glyph_order})
-    fb.setupHorizontalHeader(ascent=800, descent=-200)
+    fb.setupHorizontalMetrics({n: (ADVANCES[base_name(n)] * scale, 0) for n in glyph_order})
+    fb.setupHorizontalHeader(ascent=800 * scale, descent=-200 * scale)
     fb.setupNameTable({'familyName': 'MockFont', 'styleName': 'Regular'})
-    fb.setupOS2(sTypoAscender=800, sTypoDescender=-200, usWinAscent=800, usWinDescent=200)
+    fb.setupOS2(sTypoAscender=800 * scale, sTypoDescender=-200 * scale,
+                usWinAscent=800 * scale, usWinDescent=200 * scale)
     fb.setupPost()
 
 
@@ -116,17 +125,56 @@ def build_cff_named(path):
     fb.font.save(path)
 
 
-def build_cff_cid(path):
+def build_cff_cid(path, upm=UPM, font_matrix=None, arith_width_glyph=None):
     """Name-keyed build, then in-place conversion to a CID-keyed CFF whose
-    charset maps gid i -> CIDS[i]."""
-    fb = FontBuilder(UPM, isTTF=False)
+    charset maps gid i -> CIDS[i].
+
+    upm/font_matrix: coordinates and advances scale by upm/UPM; a non-default
+    FontMatrix is written to the CFF top dict (fontTools does NOT derive it
+    from head.unitsPerEm — exactly the real-world shape where a consumer that
+    hardcodes 1000 goes wrong).
+    arith_width_glyph: that glyph's charstring pushes its width operand as
+    `w/2 w/2 add` instead of a plain number (same rectangle outline), so a
+    width scanner must evaluate the escape operator to see the width.
+    """
+    # fontTools compiles `add` fine but its charstring interpreters raise
+    # NotImplementedError on it, and cff.compile() interprets every charstring
+    # for recalcFontBBox(). Teach the interpreters add's real stack effect so
+    # the bbox comes out right (deterministic; the emitted bytecode is
+    # unaffected).
+    from fontTools.misc import psCharStrings
+
+    def _op_add(self, index):
+        b = self.pop()
+        a = self.pop()
+        self.push(a + b)
+
+    for cls_name in ('SimpleT2Decompiler', 'T2WidthExtractor', 'T2OutlineExtractor'):
+        cls = getattr(psCharStrings, cls_name, None)
+        if cls is not None:
+            cls.op_add = _op_add
+
+    scale = upm // UPM
+    fb = FontBuilder(upm, isTTF=False)
     charstrings = {}
     for name in GLYPH_ORDER:
-        pen = T2CharStringPen(ADVANCES[name], None)
+        adv = ADVANCES[name] * scale
+        if name == arith_width_glyph:
+            from fontTools.misc.psCharStrings import T2CharString
+            assert adv % 2 == 0
+            h = 700 * scale
+            charstrings[name] = T2CharString(program=[
+                adv // 2, adv // 2, 'add',       # width operand, via 12 10
+                0, 0, 'rmoveto',
+                adv, 0, 0, h, -adv, 0, 'rlineto',
+                'endchar',
+            ])
+            continue
+        pen = T2CharStringPen(adv, None)
         if name not in ('.notdef', 'space'):
-            draw_rect(pen, ADVANCES[name])
+            draw_rect(pen, adv)
         charstrings[name] = pen.getCharString()
-    common_setup(fb, GLYPH_ORDER)
+    common_setup(fb, GLYPH_ORDER, scale=scale)
     fb.setupCFF('MockFont-CID', {'FullName': 'MockFont CID'}, charstrings, {})
 
     font = fb.font
@@ -176,6 +224,10 @@ def build_cff_cid(path):
     if hasattr(td, 'Encoding'):
         td.Encoding = None
 
+    if font_matrix is not None:
+        td.FontMatrix = font_matrix
+        td.rawDict['FontMatrix'] = font_matrix
+
     font.save(path)
 
 
@@ -184,25 +236,36 @@ def main():
     build_ttf(os.path.join(OUT_DIR, 'mock_ttf.ttf'))
     build_cff_named(os.path.join(OUT_DIR, 'mock_cff_named.otf'))
     build_cff_cid(os.path.join(OUT_DIR, 'mock_cff_cid.otf'))
+    build_cff_cid(os.path.join(OUT_DIR, 'mock_cff_cid_fm.otf'), upm=2 * UPM,
+                  font_matrix=[0.0005, 0, 0, 0.0005, 0, 0], arith_width_glyph='B')
 
     # Self-check: reload and assert the invariants the tests rely on.
     from fontTools.ttLib import TTFont
-    for fname in ('mock_ttf.ttf', 'mock_cff_named.otf', 'mock_cff_cid.otf'):
+    scales = {'mock_ttf.ttf': 1, 'mock_cff_named.otf': 1,
+              'mock_cff_cid.otf': 1, 'mock_cff_cid_fm.otf': 2}
+    for fname, scale in scales.items():
         p = os.path.join(OUT_DIR, fname)
         f = TTFont(p)
-        assert f['head'].unitsPerEm == UPM
+        assert f['head'].unitsPerEm == UPM * scale
         order = f.getGlyphOrder()
         assert len(order) == len(GLYPH_ORDER), (fname, order)
         hmtx = f['hmtx']
         for gid, name in enumerate(order):
-            expected = ADVANCES[GLYPH_ORDER[gid]]
+            expected = ADVANCES[GLYPH_ORDER[gid]] * scale
             assert hmtx[name][0] == expected, (fname, name, hmtx[name][0], expected)
-        if fname == 'mock_cff_cid.otf':
+        if fname.startswith('mock_cff_cid'):
             cff = f['CFF '].cff
             td = cff[cff.fontNames[0]]
             assert hasattr(td, 'ROS'), 'must be CID-keyed'
             got = [0 if n == '.notdef' else int(n[3:]) for n in td.charset]
             assert got == CIDS, (got, CIDS)
+        if fname == 'mock_cff_cid_fm.otf':
+            assert td.FontMatrix == [0.0005, 0, 0, 0.0005, 0, 0], td.FontMatrix
+            # B (CID 811) must carry the escape-arithmetic width: 12 10 = add.
+            # (bytecode check, not decompile — fontTools' decompiler does not
+            # execute arithmetic operators)
+            b = td.CharStrings['cid00811']
+            assert b'\x0c\x0a' in b.bytecode, 'B charstring must contain add (12 10)'
         print(f'{fname}: OK ({os.path.getsize(p)} bytes)')
 
 

@@ -1125,8 +1125,34 @@ pub(crate) fn wrap_bare_cff_as_sfnt(bytes: &[u8]) -> Option<Vec<u8>> {
     let widths: Vec<u16> = (0..num_glyphs)
         .map(|gid| cff_charstring_width(&cff, font, gid))
         .collect();
+    let units_per_em = cff_units_per_em(font);
 
-    Some(build_minimal_sfnt(bytes, num_glyphs, &widths))
+    Some(build_minimal_sfnt(bytes, num_glyphs, &widths, units_per_em))
+}
+
+/// Units-per-em implied by the CFF top-dict `FontMatrix` — `round(1/m[0])`,
+/// 1000 for the default `0.001` matrix. The synthesized `head`/`hhea`/`hmtx`
+/// must agree with the space the charstring coordinates (and the widths
+/// scanned out of them) actually live in: a font with `FontMatrix 0.0005`
+/// draws in a 2000-unit em, and stamping 1000 into `head` would double every
+/// metric derived from it. Clamped to `head`'s legal 16..=16384 range.
+#[cfg(feature = "text_layout")]
+fn cff_units_per_em(font: &allsorts::cff::Font<'_>) -> u16 {
+    use allsorts::cff::{Operand, Operator};
+
+    let scale = font
+        .top_dict
+        .get_with_default(Operator::FontMatrix)
+        .and_then(|ops| ops.first())
+        .and_then(|op| match op {
+            Operand::Integer(i) => Some(f64::from(*i)),
+            Operand::Offset(i) => Some(f64::from(*i)),
+            Operand::Real(r) => f64::try_from(r).ok(),
+        });
+    match scale {
+        Some(m0) if m0.is_finite() && m0 > 0.0 => (1.0 / m0).round().clamp(16.0, 16384.0) as u16,
+        _ => 1000,
+    }
 }
 
 /// A glyph's advance width, read directly from its Type2 charstring —
@@ -1251,6 +1277,21 @@ fn cff_charstring_width_delta(
                 i += 1;
             }
             11 => return None, // return: no stack-clearing op seen in this chain
+            12 => {
+                // Two-byte escape operators. The arithmetic ones have fixed,
+                // deterministic stack effects and may legally appear before the
+                // first stack-clearing operator, so they must be replayed for
+                // the width-operand count to come out right. Stateful/random
+                // ones (put/get/random) and path ops make the width undecidable
+                // from a static scan — bail to defaultWidthX for those.
+                if i + 2 > charstring.len() {
+                    return None;
+                }
+                if !cff_apply_escape_op(charstring[i + 1], stack) {
+                    return None;
+                }
+                i += 2;
+            }
             28 => {
                 if i + 3 > charstring.len() {
                     return None;
@@ -1296,13 +1337,127 @@ fn cff_charstring_width_delta(
     None
 }
 
+/// Replay one two-byte (`12 x`) Type2 operator's stack effect for the width
+/// scanner. `true` = effect applied; `false` = the width is statically
+/// undecidable past this operator (unknown/stateful/path op, stack underflow,
+/// or a domain error like division by zero) and the caller must fall back to
+/// `defaultWidthX`.
+#[cfg(feature = "text_layout")]
+fn cff_apply_escape_op(op: u8, stack: &mut Vec<f64>) -> bool {
+    fn un(stack: &mut Vec<f64>, f: impl Fn(f64) -> Option<f64>) -> bool {
+        let Some(a) = stack.pop() else { return false };
+        match f(a) {
+            Some(v) => {
+                stack.push(v);
+                true
+            }
+            None => false,
+        }
+    }
+    fn bin(stack: &mut Vec<f64>, f: impl Fn(f64, f64) -> Option<f64>) -> bool {
+        let Some(b) = stack.pop() else { return false };
+        let Some(a) = stack.pop() else { return false };
+        match f(a, b) {
+            Some(v) => {
+                stack.push(v);
+                true
+            }
+            None => false,
+        }
+    }
+    fn truth(v: bool) -> Option<f64> {
+        Some(if v { 1.0 } else { 0.0 })
+    }
+
+    match op {
+        3 => bin(stack, |a, b| truth(a != 0.0 && b != 0.0)), // and
+        4 => bin(stack, |a, b| truth(a != 0.0 || b != 0.0)), // or
+        5 => un(stack, |a| truth(a == 0.0)),                 // not
+        9 => un(stack, |a| Some(a.abs())),                   // abs
+        10 => bin(stack, |a, b| Some(a + b)),                // add
+        11 => bin(stack, |a, b| Some(a - b)),                // sub
+        12 => bin(stack, |a, b| (b != 0.0).then(|| a / b)),  // div
+        14 => un(stack, |a| Some(-a)),                       // neg
+        15 => bin(stack, |a, b| truth(a == b)),              // eq
+        18 => stack.pop().is_some(),                         // drop
+        22 => {
+            // ifelse: s1 s2 v1 v2 -> (v1 <= v2 ? s1 : s2)
+            let (Some(v2), Some(v1), Some(s2), Some(s1)) =
+                (stack.pop(), stack.pop(), stack.pop(), stack.pop())
+            else {
+                return false;
+            };
+            stack.push(if v1 <= v2 { s1 } else { s2 });
+            true
+        }
+        24 => bin(stack, |a, b| Some(a * b)), // mul
+        26 => un(stack, |a| (a >= 0.0).then(|| a.sqrt())), // sqrt
+        27 => match stack.last().copied() {
+            // dup
+            Some(a) => {
+                stack.push(a);
+                true
+            }
+            None => false,
+        },
+        28 => {
+            // exch
+            let len = stack.len();
+            if len < 2 {
+                return false;
+            }
+            stack.swap(len - 1, len - 2);
+            true
+        }
+        29 => {
+            // index: n < 0 duplicates the top element (Adobe TN5177 §4.4)
+            let Some(n) = stack.pop() else { return false };
+            let idx = if n < 0.0 {
+                stack.len().checked_sub(1)
+            } else {
+                stack.len().checked_sub(1 + n as usize)
+            };
+            match idx.and_then(|i| stack.get(i)).copied() {
+                Some(v) => {
+                    stack.push(v);
+                    true
+                }
+                None => false,
+            }
+        }
+        30 => {
+            // roll: rotate the top n elements by j (positive j -> toward the top)
+            let (Some(j), Some(n)) = (stack.pop(), stack.pop()) else {
+                return false;
+            };
+            if n < 0.0 || n as usize > stack.len() {
+                return false;
+            }
+            let n = n as usize;
+            if n > 0 {
+                let start = stack.len() - n;
+                let shift = (j as i64).rem_euclid(n as i64) as usize;
+                stack[start..].rotate_right(shift);
+            }
+            true
+        }
+        // put(20)/get(21) touch the transient array, random(23) is
+        // non-deterministic, 34..=37 are flex path ops (illegal before the
+        // first moveto anyway), everything else is unknown.
+        _ => false,
+    }
+}
+
 /// Assemble a minimal `OTTO` sfnt around a bare `CFF ` table, synthesizing
 /// the `head`/`hhea`/`maxp`/`hmtx` tables a bare CFF doesn't carry. See
 /// [`wrap_bare_cff_as_sfnt`].
 #[cfg(feature = "text_layout")]
-fn build_minimal_sfnt(cff_bytes: &[u8], num_glyphs: u16, widths: &[u16]) -> Vec<u8> {
-    const UNITS_PER_EM: u16 = 1000;
-
+fn build_minimal_sfnt(
+    cff_bytes: &[u8],
+    num_glyphs: u16,
+    widths: &[u16],
+    units_per_em: u16,
+) -> Vec<u8> {
     let mut head = Vec::with_capacity(54);
     head.extend_from_slice(&1u16.to_be_bytes()); // majorVersion
     head.extend_from_slice(&0u16.to_be_bytes()); // minorVersion
@@ -1310,7 +1465,7 @@ fn build_minimal_sfnt(cff_bytes: &[u8], num_glyphs: u16, widths: &[u16]) -> Vec<
     head.extend_from_slice(&0u32.to_be_bytes()); // checkSumAdjustment
     head.extend_from_slice(&0x5F0F_3CF5u32.to_be_bytes()); // magicNumber
     head.extend_from_slice(&0u16.to_be_bytes()); // flags
-    head.extend_from_slice(&UNITS_PER_EM.to_be_bytes());
+    head.extend_from_slice(&units_per_em.to_be_bytes());
     head.extend_from_slice(&0i64.to_be_bytes()); // created
     head.extend_from_slice(&0i64.to_be_bytes()); // modified
     head.extend_from_slice(&0i16.to_be_bytes()); // xMin
@@ -1327,8 +1482,8 @@ fn build_minimal_sfnt(cff_bytes: &[u8], num_glyphs: u16, widths: &[u16]) -> Vec<
     let mut hhea = Vec::with_capacity(36);
     hhea.extend_from_slice(&1u16.to_be_bytes()); // majorVersion
     hhea.extend_from_slice(&0u16.to_be_bytes()); // minorVersion
-    hhea.extend_from_slice(&(UNITS_PER_EM as i16 * 8 / 10).to_be_bytes()); // ascender
-    hhea.extend_from_slice(&(-(UNITS_PER_EM as i16) * 2 / 10).to_be_bytes()); // descender
+    hhea.extend_from_slice(&(units_per_em as i16 * 8 / 10).to_be_bytes()); // ascender
+    hhea.extend_from_slice(&(-(units_per_em as i16) * 2 / 10).to_be_bytes()); // descender
     hhea.extend_from_slice(&0i16.to_be_bytes()); // lineGap
     hhea.extend_from_slice(&advance_width_max.to_be_bytes());
     hhea.extend_from_slice(&0i16.to_be_bytes()); // minLeftSideBearing
@@ -1701,3 +1856,66 @@ mod test {
     }
 }
 
+
+#[cfg(all(test, feature = "text_layout"))]
+mod bare_cff_wrap_test {
+    use super::{extract_cid_keyed_cff, wrap_bare_cff_as_sfnt};
+
+    const MOCK_CFF_CID: &[u8] = include_bytes!("../tests/assets/fonts/mock/mock_cff_cid.otf");
+    const MOCK_CFF_CID_FM: &[u8] =
+        include_bytes!("../tests/assets/fonts/mock/mock_cff_cid_fm.otf");
+
+    /// (offset, length) of `tag` in a raw sfnt's table directory.
+    fn table(sfnt: &[u8], tag: &[u8; 4]) -> (usize, usize) {
+        let num_tables = u16::from_be_bytes([sfnt[4], sfnt[5]]) as usize;
+        for rec in 0..num_tables {
+            let off = 12 + 16 * rec;
+            if &sfnt[off..off + 4] == tag {
+                let start =
+                    u32::from_be_bytes(sfnt[off + 8..off + 12].try_into().unwrap()) as usize;
+                let len =
+                    u32::from_be_bytes(sfnt[off + 12..off + 16].try_into().unwrap()) as usize;
+                return (start, len);
+            }
+        }
+        panic!("table {} missing", String::from_utf8_lossy(tag));
+    }
+
+    fn wrap(font: &[u8]) -> Vec<u8> {
+        let bare = extract_cid_keyed_cff(font, 0).expect("mock font must be CID-keyed CFF");
+        wrap_bare_cff_as_sfnt(&bare).expect("bare CFF must wrap")
+    }
+
+    fn upm(sfnt: &[u8]) -> u16 {
+        let (off, _) = table(sfnt, b"head");
+        u16::from_be_bytes([sfnt[off + 18], sfnt[off + 19]])
+    }
+
+    fn advance(sfnt: &[u8], gid: usize) -> u16 {
+        let (off, len) = table(sfnt, b"hmtx");
+        assert!(4 * gid + 2 <= len, "gid {gid} beyond hmtx");
+        u16::from_be_bytes([sfnt[off + 4 * gid], sfnt[off + 4 * gid + 1]])
+    }
+
+    #[test]
+    fn synthetic_sfnt_upm_follows_font_matrix() {
+        // default 0.001 FontMatrix -> 1000/em; explicit 0.0005 -> 2000/em.
+        // A hardcoded 1000 would halve every metric of the _fm mock on re-parse.
+        assert_eq!(upm(&wrap(MOCK_CFF_CID)), 1000);
+        assert_eq!(upm(&wrap(MOCK_CFF_CID_FM)), 2000);
+    }
+
+    #[test]
+    fn width_scanner_evaluates_escape_arithmetic() {
+        let w = wrap(MOCK_CFF_CID_FM);
+        // gid 3 = B: the charstring pushes its width operand as `350 350 add`
+        // (scripts/gen_mock_fonts.py); a scanner that bails on the 12-xx escape
+        // falls back to defaultWidthX = 0 here.
+        assert_eq!(advance(&w, 3), 700);
+        // plain-number widths around it, in the 2000-unit em
+        assert_eq!(advance(&w, 0), 1000); // .notdef
+        assert_eq!(advance(&w, 1), 500); // space
+        assert_eq!(advance(&w, 2), 600); // A
+        assert_eq!(advance(&w, 11), 1500); // J
+    }
+}
