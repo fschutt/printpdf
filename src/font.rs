@@ -75,6 +75,24 @@ mod parsed_font {
             font_index: usize,
             warnings: &mut Vec<PdfFontParseWarning>,
         ) -> Option<Self> {
+            // A bare CID-keyed CFF table (what we embed as `/FontFile3`
+            // `/CIDFontType0C` — see `crate::font::extract_cid_keyed_cff`) has no
+            // `head`/`hhea`/`maxp`/`hmtx` of its own, which `AzulParsedFont::from_bytes`
+            // requires. Wrap it in a synthetic sfnt just to satisfy that parse.
+            //
+            // The face keeps the SYNTHETIC wrapper (not the original bare bytes) as
+            // its retained source: azul indexes into those retained bytes by
+            // byte-range (`hmtx_range` etc.) computed against whatever it actually
+            // parsed, so swapping in the shorter original afterwards would leave
+            // those ranges pointing past the end of the buffer. This doesn't cost us
+            // round-trip fidelity — `extract_cid_keyed_cff` (the only thing that
+            // reads these bytes back out for embedding) just extracts the `CFF `
+            // table again, which is byte-for-byte the original bare table regardless
+            // of whether the sfnt around it is real or synthesized here (#280).
+            if let Some(wrapped) = crate::font::wrap_bare_cff_as_sfnt(bytes) {
+                let inner = AzulParsedFont::from_bytes(&wrapped, 0, warnings)?;
+                return Some(Self::attach_source_bytes(inner, &wrapped));
+            }
             let inner = AzulParsedFont::from_bytes(bytes, font_index, warnings)?;
             Some(Self::attach_source_bytes(inner, bytes))
         }
@@ -1014,9 +1032,15 @@ pub fn cff_charset_gid_to_cid_map(font_bytes: &[u8], index: usize) -> Option<BTr
         binary::read::ReadScope, cff::CFF, font_data::FontData, tables::FontTableProvider, tag,
     };
 
-    let font_file = ReadScope::new(font_bytes).read::<FontData<'_>>().ok()?;
-    let provider = font_file.table_provider(index).ok()?;
-    let cff_data = provider.read_table_data(tag::CFF).ok()?;
+    // Accept both a whole sfnt (extract the `CFF ` table) and a bare `CFF ` table
+    // — the latter is what we now embed for a CID-keyed CFF (see
+    // `extract_cid_keyed_cff`), and what we read back on parse.
+    let cff_data: Vec<u8> = (|| -> Option<Vec<u8>> {
+        let font_file = ReadScope::new(font_bytes).read::<FontData<'_>>().ok()?;
+        let provider = font_file.table_provider(index).ok()?;
+        Some(provider.read_table_data(tag::CFF).ok()?.into_owned())
+    })()
+    .unwrap_or_else(|| font_bytes.to_vec());
     let cff = ReadScope::new(&cff_data).read::<CFF<'_>>().ok()?;
     let font = cff.fonts.first()?;
     if !font.is_cid_keyed() {
@@ -1028,6 +1052,396 @@ pub fn cff_charset_gid_to_cid_map(font_bytes: &[u8], index: usize) -> Option<BTr
             .filter_map(|gid| font.charset.id_for_glyph(gid).map(|cid| (gid, cid)))
             .collect(),
     )
+}
+
+/// The bare `CFF ` table of an `OTTO` sfnt, extracted for embedding as
+/// `/FontFile3` `/Subtype /CIDFontType0C` — but only when that CFF is CID-keyed.
+/// `None` for TrueType faces and for name-keyed CFFs, which keep their current
+/// wrappers (code == glyph id is already correct in every viewer there).
+///
+/// The wrapper decides which resolution semantics FreeType-based viewers apply
+/// to the charset-CID codes we emit (see `cff_charset_gid_to_cid_map`). For a
+/// whole OTTO sfnt (`/Subtype /OpenType`) FreeType does not flag the face as
+/// CID-keyed, so PDFium (Chrome) and poppler use the Identity-H codes directly
+/// as glyph indices and never consult the charset — while Acrobat and Preview
+/// resolve the same codes *through* the charset. With a non-identity charset no
+/// code assignment renders identically in both families: emitting glyph ids
+/// broke Acrobat/Preview (#280), emitting charset CIDs breaks Chrome/poppler
+/// (codes above the glyph count draw nothing at all; NotoSansJP puts 日 at CID
+/// 20616 in a 17,802-glyph font). For a *bare* CID-keyed CFF, FreeType sets
+/// FT_FACE_FLAG_CID_KEYED and both families resolve through the charset, so the
+/// CIDs render the same everywhere — which is what the pre-rewrite embedding
+/// from #215 relied on, and why 0.9.x was correct in Acrobat AND Chrome.
+///
+/// The returned bytes are the verbatim table `cff_charset_gid_to_cid_map` read
+/// the charset from, so the emitted codes stay consistent with the embedded
+/// program by construction.
+pub fn extract_cid_keyed_cff(font_bytes: &[u8], index: usize) -> Option<Vec<u8>> {
+    use allsorts::{
+        binary::read::ReadScope, cff::CFF, font_data::FontData, tables::FontTableProvider, tag,
+    };
+
+    if !font_bytes.starts_with(b"OTTO") {
+        return None;
+    }
+    let font_file = ReadScope::new(font_bytes).read::<FontData<'_>>().ok()?;
+    let provider = font_file.table_provider(index).ok()?;
+    let cff_data = provider.read_table_data(tag::CFF).ok()?;
+    let cff = ReadScope::new(&cff_data).read::<CFF<'_>>().ok()?;
+    if !cff.fonts.first()?.is_cid_keyed() {
+        return None;
+    }
+    Some(cff_data.into_owned())
+}
+
+/// Wrap a bare `CFF ` table (as embedded by [`extract_cid_keyed_cff`]) in a
+/// minimal `OTTO` sfnt, so it can be handed to `AzulParsedFont::from_bytes` —
+/// which requires `head`/`hhea`/`maxp`/`hmtx`, tables a bare CFF byte stream
+/// doesn't carry. Used only to reconstruct an in-memory parsed font when
+/// *reading back* our own bare-CFF `/FontFile3` embedding (see
+/// [`ParsedFont::from_bytes`]); the bytes actually written to a PDF stay
+/// bare — wrapping them there would defeat the FreeType CID-keyed detection
+/// `extract_cid_keyed_cff` exists for (#280).
+///
+/// `None` if `bytes` already looks like an sfnt, or doesn't parse as CFF.
+#[cfg(feature = "text_layout")]
+pub(crate) fn wrap_bare_cff_as_sfnt(bytes: &[u8]) -> Option<Vec<u8>> {
+    use allsorts::{binary::read::ReadScope, cff::CFF};
+
+    let looks_like_sfnt = matches!(bytes.get(..4), Some(magic) if magic == b"OTTO"
+        || magic == [0, 1, 0, 0]
+        || magic == *b"true"
+        || magic == *b"typ1"
+        || magic == *b"ttcf"
+        || magic == *b"wOFF"
+        || magic == *b"wOF2");
+    if looks_like_sfnt {
+        return None;
+    }
+
+    let cff = ReadScope::new(bytes).read::<CFF<'_>>().ok()?;
+    let font = cff.fonts.first()?;
+    let num_glyphs = u16::try_from(font.char_strings_index.len()).ok()?;
+    let widths: Vec<u16> = (0..num_glyphs)
+        .map(|gid| cff_charstring_width(&cff, font, gid))
+        .collect();
+
+    Some(build_minimal_sfnt(bytes, num_glyphs, &widths))
+}
+
+/// A glyph's advance width, read directly from its Type2 charstring —
+/// `defaultWidthX`/`nominalWidthX` plus the optional leading width delta
+/// before the first stack-clearing operator (Adobe TN5177 §16). A bare CFF
+/// table has no `hmtx` of its own to read widths from instead; used by
+/// [`wrap_bare_cff_as_sfnt`] to synthesize one.
+#[cfg(feature = "text_layout")]
+fn cff_charstring_width(
+    cff: &allsorts::cff::CFF<'_>,
+    font: &allsorts::cff::Font<'_>,
+    gid: u16,
+) -> u16 {
+    use allsorts::cff::{CFFVariant, Operator};
+
+    let charstring = font.char_strings_index.read_object(usize::from(gid));
+
+    let (nominal_width, default_width, local_subrs) = match &font.data {
+        CFFVariant::CID(cid) => {
+            let fd = cid.fd_select.font_dict_index(gid).unwrap_or(0) as usize;
+            let pd = cid.private_dicts.get(fd);
+            (
+                pd.and_then(|d| d.get_i32(Operator::NominalWidthX))
+                    .and_then(Result::ok)
+                    .unwrap_or(0),
+                pd.and_then(|d| d.get_i32(Operator::DefaultWidthX))
+                    .and_then(Result::ok)
+                    .unwrap_or(0),
+                cid.local_subr_indices.get(fd).and_then(|s| s.as_ref()),
+            )
+        }
+        CFFVariant::Type1(t1) => (
+            t1.private_dict
+                .get_i32(Operator::NominalWidthX)
+                .and_then(Result::ok)
+                .unwrap_or(0),
+            t1.private_dict
+                .get_i32(Operator::DefaultWidthX)
+                .and_then(Result::ok)
+                .unwrap_or(0),
+            t1.local_subr_index.as_ref(),
+        ),
+    };
+
+    let Some(charstring) = charstring else {
+        return default_width.max(0) as u16;
+    };
+
+    let mut stack: Vec<f64> = Vec::new();
+    let width = match cff_charstring_width_delta(
+        charstring,
+        local_subrs,
+        &cff.global_subr_index,
+        &mut stack,
+        0,
+    ) {
+        Some(delta) => nominal_width as f64 + delta,
+        None => default_width as f64,
+    };
+    width.round().clamp(0.0, u16::MAX as f64) as u16
+}
+
+/// The standard CFF local/global subroutine index bias (Adobe TN5177 §16).
+#[cfg(feature = "text_layout")]
+fn cff_subr_bias(count: usize) -> i32 {
+    if count < 1240 {
+        107
+    } else if count < 33900 {
+        1131
+    } else {
+        32768
+    }
+}
+
+/// Scan a Type2 charstring (following `callsubr`/`callgsubr`, depth-limited
+/// like allsorts' own interpreter) up to its first stack-clearing operator,
+/// returning the leading width delta if the operand count proves one is
+/// present. `stack` is threaded through subroutine calls so operands a
+/// subroutine leaves behind are visible to its caller, matching how a real
+/// Type2 interpreter treats `callsubr`/`callgsubr` as inlining.
+#[cfg(feature = "text_layout")]
+fn cff_charstring_width_delta(
+    charstring: &[u8],
+    local_subrs: Option<&allsorts::cff::MaybeOwnedIndex<'_>>,
+    global_subrs: &allsorts::cff::MaybeOwnedIndex<'_>,
+    stack: &mut Vec<f64>,
+    depth: u8,
+) -> Option<f64> {
+    if depth > 10 {
+        return None;
+    }
+    let mut i = 0usize;
+    while i < charstring.len() {
+        let b0 = charstring[i];
+        match b0 {
+            1 | 3 | 18 | 19 | 20 | 23 => {
+                // hstem/vstem/hstemhm/hintmask/cntrmask/vstemhm: width present iff
+                // the operand count is odd.
+                return (stack.len() % 2 == 1).then(|| stack[0]);
+            }
+            21 => return (stack.len() > 2).then(|| stack[0]), // rmoveto: 2 args
+            22 | 4 => return (stack.len() > 1).then(|| stack[0]), // h/vmoveto: 1 arg
+            14 => return (stack.len() == 1 || stack.len() == 5).then(|| stack[0]), // endchar
+            10 | 29 => {
+                // callsubr / callgsubr
+                let Some(idx) = stack.pop() else { return None };
+                let (subrs, bias) = if b0 == 10 {
+                    let subrs = local_subrs?;
+                    (subrs, cff_subr_bias(subrs.len()))
+                } else {
+                    (global_subrs, cff_subr_bias(global_subrs.len()))
+                };
+                let subr_idx = idx as i32 + bias;
+                let sub_bytes = usize::try_from(subr_idx)
+                    .ok()
+                    .and_then(|si| subrs.read_object(si))?;
+                if let Some(w) =
+                    cff_charstring_width_delta(sub_bytes, local_subrs, global_subrs, stack, depth + 1)
+                {
+                    return Some(w);
+                }
+                i += 1;
+            }
+            11 => return None, // return: no stack-clearing op seen in this chain
+            28 => {
+                if i + 3 > charstring.len() {
+                    return None;
+                }
+                let v = i16::from_be_bytes([charstring[i + 1], charstring[i + 2]]);
+                stack.push(f64::from(v));
+                i += 3;
+            }
+            32..=246 => {
+                stack.push(f64::from(b0) - 139.0);
+                i += 1;
+            }
+            247..=250 => {
+                if i + 2 > charstring.len() {
+                    return None;
+                }
+                stack.push((f64::from(b0) - 247.0) * 256.0 + f64::from(charstring[i + 1]) + 108.0);
+                i += 2;
+            }
+            251..=254 => {
+                if i + 2 > charstring.len() {
+                    return None;
+                }
+                stack.push(-(f64::from(b0) - 251.0) * 256.0 - f64::from(charstring[i + 1]) - 108.0);
+                i += 2;
+            }
+            255 => {
+                if i + 5 > charstring.len() {
+                    return None;
+                }
+                let bits = i32::from_be_bytes([
+                    charstring[i + 1],
+                    charstring[i + 2],
+                    charstring[i + 3],
+                    charstring[i + 4],
+                ]);
+                stack.push(f64::from(bits) / 65536.0);
+                i += 5;
+            }
+            _ => return None,
+        }
+    }
+    None
+}
+
+/// Assemble a minimal `OTTO` sfnt around a bare `CFF ` table, synthesizing
+/// the `head`/`hhea`/`maxp`/`hmtx` tables a bare CFF doesn't carry. See
+/// [`wrap_bare_cff_as_sfnt`].
+#[cfg(feature = "text_layout")]
+fn build_minimal_sfnt(cff_bytes: &[u8], num_glyphs: u16, widths: &[u16]) -> Vec<u8> {
+    const UNITS_PER_EM: u16 = 1000;
+
+    let mut head = Vec::with_capacity(54);
+    head.extend_from_slice(&1u16.to_be_bytes()); // majorVersion
+    head.extend_from_slice(&0u16.to_be_bytes()); // minorVersion
+    head.extend_from_slice(&0x0001_0000u32.to_be_bytes()); // fontRevision
+    head.extend_from_slice(&0u32.to_be_bytes()); // checkSumAdjustment
+    head.extend_from_slice(&0x5F0F_3CF5u32.to_be_bytes()); // magicNumber
+    head.extend_from_slice(&0u16.to_be_bytes()); // flags
+    head.extend_from_slice(&UNITS_PER_EM.to_be_bytes());
+    head.extend_from_slice(&0i64.to_be_bytes()); // created
+    head.extend_from_slice(&0i64.to_be_bytes()); // modified
+    head.extend_from_slice(&0i16.to_be_bytes()); // xMin
+    head.extend_from_slice(&0i16.to_be_bytes()); // yMin
+    head.extend_from_slice(&0i16.to_be_bytes()); // xMax
+    head.extend_from_slice(&0i16.to_be_bytes()); // yMax
+    head.extend_from_slice(&0u16.to_be_bytes()); // macStyle
+    head.extend_from_slice(&0u16.to_be_bytes()); // lowestRecPPEM
+    head.extend_from_slice(&2i16.to_be_bytes()); // fontDirectionHint
+    head.extend_from_slice(&0i16.to_be_bytes()); // indexToLocFormat
+    head.extend_from_slice(&0i16.to_be_bytes()); // glyphDataFormat
+
+    let advance_width_max = widths.iter().copied().max().unwrap_or(0);
+    let mut hhea = Vec::with_capacity(36);
+    hhea.extend_from_slice(&1u16.to_be_bytes()); // majorVersion
+    hhea.extend_from_slice(&0u16.to_be_bytes()); // minorVersion
+    hhea.extend_from_slice(&(UNITS_PER_EM as i16 * 8 / 10).to_be_bytes()); // ascender
+    hhea.extend_from_slice(&(-(UNITS_PER_EM as i16) * 2 / 10).to_be_bytes()); // descender
+    hhea.extend_from_slice(&0i16.to_be_bytes()); // lineGap
+    hhea.extend_from_slice(&advance_width_max.to_be_bytes());
+    hhea.extend_from_slice(&0i16.to_be_bytes()); // minLeftSideBearing
+    hhea.extend_from_slice(&0i16.to_be_bytes()); // minRightSideBearing
+    hhea.extend_from_slice(&0i16.to_be_bytes()); // xMaxExtent
+    hhea.extend_from_slice(&1i16.to_be_bytes()); // caretSlopeRise
+    hhea.extend_from_slice(&0i16.to_be_bytes()); // caretSlopeRun
+    hhea.extend_from_slice(&0i16.to_be_bytes()); // caretOffset
+    hhea.extend_from_slice(&0i16.to_be_bytes()); // reserved x4
+    hhea.extend_from_slice(&0i16.to_be_bytes());
+    hhea.extend_from_slice(&0i16.to_be_bytes());
+    hhea.extend_from_slice(&0i16.to_be_bytes());
+    hhea.extend_from_slice(&0i16.to_be_bytes()); // metricDataFormat
+    hhea.extend_from_slice(&num_glyphs.to_be_bytes()); // numberOfHMetrics
+
+    let mut maxp = Vec::with_capacity(6);
+    maxp.extend_from_slice(&0x0000_5000u32.to_be_bytes()); // version 0.5 (CFF)
+    maxp.extend_from_slice(&num_glyphs.to_be_bytes());
+
+    let mut hmtx = Vec::with_capacity(widths.len() * 4);
+    for &w in widths {
+        hmtx.extend_from_slice(&w.to_be_bytes());
+        hmtx.extend_from_slice(&0i16.to_be_bytes()); // lsb
+    }
+
+    // `allsorts::font::Font::new` (built internally by `AzulParsedFont::from_bytes`)
+    // hard-requires a `cmap` with a subtable one of the recognised platform/encoding
+    // pairs finds (`find_good_cmap_subtable`) — a format 6 trimmed table under
+    // Windows/Unicode-BMP satisfies that. A bare CFF genuinely carries no
+    // char->glyph mapping (that's what makes it bare), so this must answer "no
+    // mapping" for every codepoint, not just placeholder-map everything to
+    // .notdef: an empty format 6 table (`entry_count = 0`) does that — every
+    // lookup falls outside its range and `map_glyph` returns `None`, rather than
+    // the `Some(0)` a zero-filled format 0 table would return (indistinguishable
+    // from a genuine, wrong .notdef mapping to callers like
+    // `ParsedFont::lookup_glyph_index`).
+    let mut cmap_subtable = Vec::with_capacity(10);
+    cmap_subtable.extend_from_slice(&6u16.to_be_bytes()); // format 6
+    cmap_subtable.extend_from_slice(&10u16.to_be_bytes()); // length
+    cmap_subtable.extend_from_slice(&0u16.to_be_bytes()); // language
+    cmap_subtable.extend_from_slice(&0u16.to_be_bytes()); // firstCode
+    cmap_subtable.extend_from_slice(&0u16.to_be_bytes()); // entryCount
+
+    let mut cmap = Vec::with_capacity(12 + cmap_subtable.len());
+    cmap.extend_from_slice(&0u16.to_be_bytes()); // version
+    cmap.extend_from_slice(&1u16.to_be_bytes()); // numTables
+    cmap.extend_from_slice(&3u16.to_be_bytes()); // platformID: Windows
+    cmap.extend_from_slice(&1u16.to_be_bytes()); // encodingID: Unicode BMP
+    cmap.extend_from_slice(&12u32.to_be_bytes()); // subtable offset
+    cmap.extend_from_slice(&cmap_subtable);
+
+    build_sfnt(&[
+        (*b"CFF ", cff_bytes),
+        (*b"cmap", &cmap),
+        (*b"head", &head),
+        (*b"hhea", &hhea),
+        (*b"hmtx", &hmtx),
+        (*b"maxp", &maxp),
+    ])
+}
+
+/// Assemble an `OTTO` sfnt from `(tag, data)` tables, already in ascending-tag
+/// order (required by the sfnt table directory). Computes each table's
+/// checksum per the standard sfnt algorithm (sum of big-endian `u32` words,
+/// zero-padded to a 4-byte boundary).
+#[cfg(feature = "text_layout")]
+fn build_sfnt(tables: &[([u8; 4], &[u8])]) -> Vec<u8> {
+    fn checksum(data: &[u8]) -> u32 {
+        let mut sum: u32 = 0;
+        for chunk in data.chunks(4) {
+            let mut word = [0u8; 4];
+            word[..chunk.len()].copy_from_slice(chunk);
+            sum = sum.wrapping_add(u32::from_be_bytes(word));
+        }
+        sum
+    }
+    fn padded_len(len: usize) -> usize {
+        (len + 3) & !3
+    }
+
+    let num_tables = tables.len() as u16;
+    let mut search_range_pow2 = 1u16;
+    let mut entry_selector = 0u16;
+    while search_range_pow2 * 2 <= num_tables {
+        search_range_pow2 *= 2;
+        entry_selector += 1;
+    }
+    let search_range = search_range_pow2 * 16;
+    let range_shift = num_tables * 16 - search_range;
+
+    let mut offset = 12 + 16 * tables.len();
+    let mut directory = Vec::with_capacity(16 * tables.len());
+    let mut data_section = Vec::new();
+    for (tag, data) in tables {
+        directory.extend_from_slice(tag);
+        directory.extend_from_slice(&checksum(data).to_be_bytes());
+        directory.extend_from_slice(&(offset as u32).to_be_bytes());
+        directory.extend_from_slice(&(data.len() as u32).to_be_bytes());
+
+        data_section.extend_from_slice(data);
+        data_section.resize(data_section.len() + (padded_len(data.len()) - data.len()), 0);
+        offset += padded_len(data.len());
+    }
+
+    let mut out = Vec::with_capacity(offset);
+    out.extend_from_slice(b"OTTO");
+    out.extend_from_slice(&num_tables.to_be_bytes());
+    out.extend_from_slice(&search_range.to_be_bytes());
+    out.extend_from_slice(&entry_selector.to_be_bytes());
+    out.extend_from_slice(&range_shift.to_be_bytes());
+    out.extend_from_slice(&directory);
+    out.extend_from_slice(&data_section);
+    out
 }
 
 #[cfg(feature = "text_layout")]

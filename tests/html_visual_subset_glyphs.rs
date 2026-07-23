@@ -275,6 +275,10 @@ fn assert_shaped_glyphs_survive(
     // When the shaper picked a different glyph than the cmap default (Noto CJK
     // digit forms — the #220 body font), rendering must not depend on the
     // subset cmap at all; those chars are covered by the stream checks below.
+    // A CID-keyed CFF subset (NotoSansJP) has no subset cmap to check at all —
+    // it's embedded as a bare CFF table (#280) — so `subset.lookup_glyph_index`
+    // returning `None` there is expected, not a failure; skip rather than
+    // panic, and let `must_reach_cmap` (empty for that probe) enforce coverage.
     let mut cmap_checked: Vec<char> = Vec::new();
     for ch in ['1', '.', '•'] {
         let Some(orig_gid) = original.lookup_glyph_index(ch as u32) else {
@@ -283,9 +287,9 @@ fn assert_shaped_glyphs_survive(
         if !used_sorted.contains(&orig_gid) {
             continue; // painted by a fallback font or as a non-default glyph form
         }
-        let gid = subset
-            .lookup_glyph_index(ch as u32)
-            .unwrap_or_else(|| panic!("subset cmap must map {ch:?}"));
+        let Some(gid) = subset.lookup_glyph_index(ch as u32) else {
+            continue; // bare CID-keyed CFF subset: no cmap to check
+        };
         assert_eq!(
             gid,
             rank(orig_gid),
@@ -376,10 +380,17 @@ fn shaper_glyphs_survive_subsetting_ttf() {
 /// F2b through a CFF (OpenType/OTTO) font — the class of font issue #220's body
 /// text actually fell back to (Noto CJK). NotoSansJP does not ligate Latin "fi",
 /// so only the marker/digit battery applies.
+///
+/// NotoSansJP is CID-keyed, so its subset is embedded as a *bare* CFF table
+/// (`/FontFile3` `/CIDFontType0C`, not an OTTO sfnt) — the fix for #280. A bare
+/// CFF carries no cmap at all, so `must_reach_cmap` is empty here: coverage for
+/// '1'/'.' comes from the content-stream/charset-CID and outline-identity
+/// checks below instead, which is exactly what a spec-following viewer
+/// (Acrobat, Preview) resolves through for this font shape.
 #[test]
 fn shaper_glyphs_survive_subsetting_cff() {
     let (doc, bytes) = render_probe("Subset Probe CFF", CFF_PROBE);
-    assert_shaped_glyphs_survive(&doc, &bytes, CFF_PROBE, false, &['1', '.']);
+    assert_shaped_glyphs_survive(&doc, &bytes, CFF_PROBE, false, &[]);
 }
 
 // ---------------------------------------------------------------------------

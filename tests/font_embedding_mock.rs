@@ -305,6 +305,7 @@ fn assert_mock_font_invariants(
     subset: bool,
     expected_subtype: &str,
     expected_font_file: &str,
+    expected_program_magic: &[u8],
     ctx: &str,
 ) {
     let (pdf, warnings) = pdf_with_font(font_bytes, TEXT, subset);
@@ -317,11 +318,11 @@ fn assert_mock_font_invariants(
     // -- container honesty ---------------------------------------------------
     assert_eq!(font.cid_subtype, expected_subtype, "{ctx}: descendant subtype");
     assert_eq!(font.font_file_key, expected_font_file, "{ctx}: font file key");
-    if expected_subtype == "CIDFontType0" {
-        assert_eq!(&font.program[..4], b"OTTO", "{ctx}: CFF program magic");
-    } else {
-        assert_eq!(&font.program[..4], &[0, 1, 0, 0], "{ctx}: glyf program magic");
-    }
+    assert_eq!(
+        &font.program[..4],
+        expected_program_magic,
+        "{ctx}: font program magic"
+    );
 
     // -- subset tag discipline ----------------------------------------------
     // 6-uppercase-letter tag iff actually subset, and BaseFont == FontName.
@@ -415,21 +416,39 @@ fn assert_mock_font_invariants(
 
 #[test]
 fn mock_ttf_full_embed() {
-    assert_mock_font_invariants(MOCK_TTF, false, "CIDFontType2", "FontFile2", "ttf/full");
+    assert_mock_font_invariants(
+        MOCK_TTF,
+        false,
+        "CIDFontType2",
+        "FontFile2",
+        &[0, 1, 0, 0],
+        "ttf/full",
+    );
 }
 
 #[test]
 fn mock_ttf_subset() {
-    assert_mock_font_invariants(MOCK_TTF, true, "CIDFontType2", "FontFile2", "ttf/subset");
+    assert_mock_font_invariants(
+        MOCK_TTF,
+        true,
+        "CIDFontType2",
+        "FontFile2",
+        &[0, 1, 0, 0],
+        "ttf/subset",
+    );
 }
 
 #[test]
 fn mock_cff_named_full_embed() {
+    // Name-keyed CFF: code == gid in every viewer, so the whole OTTO sfnt is
+    // embedded as `/Subtype /OpenType` (`/CIDFontType0C` would be a lie — that
+    // name means a bare CFF table).
     assert_mock_font_invariants(
         MOCK_CFF_NAMED,
         false,
         "CIDFontType0",
         "FontFile3",
+        b"OTTO",
         "cff-named/full",
     );
 }
@@ -441,17 +460,24 @@ fn mock_cff_named_subset() {
         true,
         "CIDFontType0",
         "FontFile3",
+        b"OTTO",
         "cff-named/subset",
     );
 }
 
 #[test]
 fn mock_cff_cid_full_embed() {
+    // CID-keyed CFF: embedded as the bare `CFF ` table (`/CIDFontType0C`) so
+    // FreeType-based viewers flag the face CID-keyed and resolve codes through
+    // the charset the same way Acrobat/Preview do (#280) — see
+    // `font::extract_cid_keyed_cff`. The table's own header starts with the CFF
+    // major/minor version bytes, not `OTTO`.
     assert_mock_font_invariants(
         MOCK_CFF_CID,
         false,
         "CIDFontType0",
         "FontFile3",
+        &[1, 0, 4, 2],
         "cff-cid/full",
     );
 }
@@ -463,6 +489,7 @@ fn mock_cff_cid_subset() {
         true,
         "CIDFontType0",
         "FontFile3",
+        &[1, 0, 4, 2],
         "cff-cid/subset",
     );
 }

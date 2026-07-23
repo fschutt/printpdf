@@ -7,9 +7,17 @@ Simulates a spec-following viewer (Acrobat/Preview):
 Asserts, for every text-showing string:
   1. every emitted code resolves to a real glyph in the embedded font program
   2. the resolved glyph is the glyph the original font's cmap assigns to the
-     intended character (ground truth passed via --expect)
-  3. /W widths per code match the embedded font's hmtx advance (scaled to 1000/em)
+     intended character (ground truth passed via --expect; for a bare-CFF
+     program, which carries no cmap, pass the original face via --source-font)
+  3. /W widths per code match the embedded font's advances (scaled to 1000/em)
   4. ToUnicode maps each code to the intended character
+  5. PORTABILITY: a CID-keyed CFF with a non-identity charset must be embedded
+     as a *bare* CFF (/CIDFontType0C), never as a whole OTTO sfnt
+     (/Subtype /OpenType). FreeType-based viewers (PDFium/Chrome, poppler) do
+     not consult the charset for the sfnt wrapper and use codes directly as
+     glyph indices, while Acrobat/Preview resolve them through the charset —
+     with a non-identity charset NO code assignment renders the same in both
+     families, so the wrapper itself is the bug (#280).
 Exit code != 0 on any mismatch.
 """
 import re, zlib, sys, io, argparse
@@ -106,6 +114,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('pdf')
     ap.add_argument('--expect', help='file with the exact text lines shown, one per Tj', default=None)
+    ap.add_argument('--source-font', default=None,
+                    help='original face; supplies the cmap ground truth when the '
+                         'embedded program is a bare CFF (which has no cmap)')
     args = ap.parse_args()
 
     pdf = open(args.pdf, 'rb').read()
@@ -117,6 +128,9 @@ def main():
     content = None
     for num, (head, data) in objs.items():
         if data and data[:4] in (b'OTTO', b'\x00\x01\x00\x00', b'true', b'ttcf'):
+            font_bytes = data
+        elif data and head and b'CIDFontType0C' in head and data[:2] == b'\x01\x00':
+            # bare CFF font program: header major 1, minor 0
             font_bytes = data
         elif head and b'/W' in head and b'/DW' in head and b'Font' in head:
             font_dict = head
@@ -130,37 +144,86 @@ def main():
     assert content is not None, 'no content stream found'
     assert tounicode is not None, 'no ToUnicode CMap found'
 
-    f = TTFont(io.BytesIO(font_bytes))
-    upm = f['head'].unitsPerEm
-    order = f.getGlyphOrder()
-    num_glyphs = f['maxp'].numGlyphs
-    hmtx = f['hmtx']
+    is_sfnt = font_bytes[:4] in (b'OTTO', b'\x00\x01\x00\x00', b'true', b'ttcf')
+
+    if is_sfnt:
+        f = TTFont(io.BytesIO(font_bytes))
+        upm = f['head'].unitsPerEm
+        order = f.getGlyphOrder()
+        num_glyphs = f['maxp'].numGlyphs
+        hmtx = f['hmtx']
+        td = None
+        if 'CFF ' in f:
+            cff = f['CFF '].cff
+            td = cff[cff.fontNames[0]]
+        # cmap of the EMBEDDED font (subset keeps cmap of used chars; full font = all)
+        cmap = f.getBestCmap() if 'cmap' in f else {}
+    else:
+        # bare CFF (/FontFile3 /Subtype /CIDFontType0C): no sfnt tables at all.
+        # Glyph order and charset come from the CFF itself; the advance widths
+        # live in the charstrings; there is no cmap (--source-font supplies it).
+        from fontTools.cffLib import CFFFontSet
+        cffs = CFFFontSet()
+        cffs.decompile(io.BytesIO(font_bytes), None)
+        td = cffs[cffs.fontNames[0]]
+        order = list(td.charset)
+        num_glyphs = len(order)
+        fm = td.rawDict.get('FontMatrix', [0.001, 0, 0, 0.001, 0, 0])
+        upm = round(1 / fm[0]) if fm[0] else 1000
+        hmtx = None
+        cmap = {}
+
+    if args.source_font:
+        src = TTFont(args.source_font)
+        src_cmap = src.getBestCmap()
+        # glyph NAMES are the join key: a verbatim-extracted or allsorts-subset
+        # CFF keeps the original 'cidNNNNN' names, so the source cmap's
+        # char->name assignment is ground truth for the embedded program too.
+        cmap = dict(cmap)
+        cmap.update(src_cmap)
 
     # Viewer-side CID -> GID resolution
-    if 'CFF ' in f:
-        cff = f['CFF '].cff
-        td = cff[cff.fontNames[0]]
-        if hasattr(td, 'ROS'):
-            # CID-keyed: charset[gid] = 'cidXXXXX'; viewer maps CID -> gid via charset
-            cid_to_gid = {}
-            for gid, name in enumerate(td.charset):
-                if name == '.notdef':
-                    cid_to_gid[0] = gid if gid == 0 else cid_to_gid.get(0, 0)
-                    continue
-                assert name.startswith('cid'), f'unexpected charset name {name}'
-                cid_to_gid[int(name[3:])] = gid
-        else:
-            cid_to_gid = None  # name-keyed: CID == GID
+    if td is not None and hasattr(td, 'ROS'):
+        # CID-keyed: charset[gid] = 'cidXXXXX'; viewer maps CID -> gid via charset
+        cid_to_gid = {}
+        for gid, name in enumerate(td.charset):
+            if name == '.notdef':
+                cid_to_gid[0] = gid if gid == 0 else cid_to_gid.get(0, 0)
+                continue
+            assert name.startswith('cid'), f'unexpected charset name {name}'
+            cid_to_gid[int(name[3:])] = gid
     else:
-        cid_to_gid = None  # TrueType with CIDToGIDMap Identity: CID == GID
+        cid_to_gid = None  # name-keyed CFF / TrueType with CIDToGIDMap Identity: CID == GID
+
+    # PORTABILITY GUARD (#280): an sfnt-wrapped CID-keyed CFF with a non-identity
+    # charset cannot render the same in Acrobat/Preview (charset semantics) and
+    # PDFium/poppler (code == glyph-index semantics) no matter which codes we
+    # emit. The only portable encodings are a bare CFF (/CIDFontType0C, both
+    # families become charset-aware) or an identity charset. Fail hard here —
+    # every per-code check below would only validate ONE family's view.
+    if is_sfnt and cid_to_gid is not None \
+            and any(cid != gid for cid, gid in cid_to_gid.items()):
+        print('FAIL: OTTO-wrapped CID-keyed CFF with a NON-IDENTITY charset.')
+        print('  Acrobat/Preview resolve Identity-H codes through the charset;')
+        print('  PDFium (Chrome) and poppler use them directly as glyph indices.')
+        print('  No code assignment satisfies both. Embed the bare CFF table as')
+        print('  /FontFile3 /Subtype /CIDFontType0C, or rewrite the charset to identity.')
+        sys.exit(1)
 
     def resolve(cid):
         if cid_to_gid is None:
             return cid if cid < num_glyphs else None
         return cid_to_gid.get(cid)
 
-    # cmap of the EMBEDDED font (subset keeps cmap of used chars; full font = all)
-    cmap = f.getBestCmap() if 'cmap' in f else {}
+    def glyph_advance(gname):
+        if hmtx is not None:
+            return hmtx[gname][0]
+        # bare CFF: the advance is the charstring's width (fontTools sets
+        # .width while interpreting the program for a pen)
+        from fontTools.pens.basePen import NullPen
+        cs = td.CharStrings[gname]
+        cs.draw(NullPen())
+        return cs.width
 
     widths = parse_w_array(font_dict)
 
@@ -201,7 +264,7 @@ def main():
             w = widths.get(code)
             if w is None:
                 continue  # falls back to DW; only check if declared
-            adv = hmtx[order[gid]][0]
+            adv = glyph_advance(order[gid])
             expected_w = int(adv * 1000 / upm)
             if abs(w - expected_w) > 1:
                 errors.append(

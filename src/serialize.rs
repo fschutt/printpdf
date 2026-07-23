@@ -1750,10 +1750,32 @@ fn add_subset_font_to_pdf(
     // `create_full_font_runtime_info` has already logged that as an error.
     let program = &subset_info.subset_font_bytes;
     let has_font_program = !program.is_empty();
-    let is_cff = program.starts_with(b"OTTO");
 
-    let (sub_type, font_tuple) = if is_cff {
-        // A whole OTTO sfnt goes in /FontFile3 as /Subtype /OpenType (PDF 1.6+).
+    // For a CID-keyed CFF, embed the bare `CFF ` table instead of the whole sfnt:
+    // it is the only wrapper under which every viewer family resolves our
+    // charset-CID codes the same way — see `font::extract_cid_keyed_cff` for the
+    // full story. The extracted bytes are the verbatim table the codes were
+    // derived from, so program and codes stay consistent by construction.
+    let bare_cid_keyed_cff = crate::font::extract_cid_keyed_cff(program, 0);
+    let is_otto = program.starts_with(b"OTTO");
+
+    let (sub_type, font_tuple) = if let Some(cff_table) = bare_cid_keyed_cff {
+        // A bare CFF font program goes in /FontFile3 as /Subtype /CIDFontType0C —
+        // for bare table bytes (unlike a whole sfnt), that name is the truthful one.
+        let font_tuple = has_font_program.then(|| {
+            let font_stream = LoStream::new(
+                LoDictionary::from_iter(vec![("Subtype", Name("CIDFontType0C".into()))]),
+                cff_table,
+            )
+            .with_compression(false);
+
+            ("FontFile3", Reference(doc.add_object(font_stream)))
+        });
+
+        ("CIDFontType0", font_tuple)
+    } else if is_otto {
+        // A whole OTTO sfnt (name-keyed CFF outlines: codes are glyph ids in every
+        // viewer) goes in /FontFile3 as /Subtype /OpenType (PDF 1.6+).
         // /CIDFontType0C would be a lie: that name means a *bare* CFF table, not an sfnt.
         let font_tuple = has_font_program.then(|| {
             let font_stream = LoStream::new(
