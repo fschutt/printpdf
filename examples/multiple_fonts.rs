@@ -12,13 +12,15 @@ fn main() {
 
     let font_slice = include_bytes!("./assets/fonts/SourceHanSerif.ttc");
 
-    // One group per language: each face in the collection cycles JA/KR/TC/SC,
-    // so offset `i` (0..4) selects the language and stepping by 4 walks its faces.
+    // One group per language: each face in the collection cycles
+    // JA/KR/SC/TC (verified against the collection's `name` table — this is
+    // NOT alphabetical), so offset `i` (0..4) selects the language and
+    // stepping by 4 walks its weights.
     let texts = [
         "新しい時代のこころを映すタイプフェイスデザイン",
         "동해 물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세.",
-        "這句話後來演變成「飲水思源」這個成語，意為喝水的時候想一想流水的源頭，比喻不忘本。",
         "这句话后来演变成“饮水思源”这个成语，意为喝水的时候想一想流水的源头，比喻不忘本。",
+        "這句話後來演變成「飲水思源」這個成語，意為喝水的時候想一想流水的源頭，比喻不忘本。",
     ];
 
     let font_groups: Vec<Vec<(FontId, String)>> = (0..4)
