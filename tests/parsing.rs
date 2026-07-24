@@ -232,6 +232,30 @@ fn test_bookmark_parsing() {
     assert_eq!(chapter3.page, 3);
 }
 
+/// Test that same-page bookmarks keep creation order instead of being sorted by title.
+#[test]
+fn test_same_page_bookmarks_keep_creation_order() {
+    let mut doc = PdfDocument::new("Bookmark Order Test");
+    doc.pages.push(PdfPage::new(Mm(210.0), Mm(297.0), vec![]));
+
+    let _ = doc.add_bookmark("Zulu", 1);
+    let _ = doc.add_bookmark("Alpha", 1);
+    let _ = doc.add_bookmark("Middle", 1);
+
+    let bytes = doc.save(&PdfSaveOptions::default(), &mut Vec::new());
+    let parsed_doc =
+        PdfDocument::parse(&bytes, &PdfParseOptions::default(), &mut Vec::new()).unwrap();
+
+    let names = parsed_doc
+        .bookmarks
+        .map
+        .values()
+        .map(|bookmark| bookmark.name.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(names, vec!["Zulu", "Alpha", "Middle"]);
+}
+
 /// Test complex scenarios with combinations of layers, graphics states, and bookmarks
 #[test]
 fn test_complex_document_parsing() {
