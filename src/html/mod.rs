@@ -1491,3 +1491,111 @@ mod memory_font_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod builtin_font_tests {
+    use azul_layout::text3::cache::{FontManager, MemoryFontTier};
+    use rust_fontconfig::{utils::normalize_family_name, FcWeight};
+
+    use super::register_builtin_fonts;
+
+    fn registered() -> FontManager<azul_css::props::basic::FontRef> {
+        let mut fm = FontManager::new(rust_fontconfig::FcFontCache::default())
+            .expect("build empty FontManager");
+        register_builtin_fonts(&mut fm);
+        fm
+    }
+
+    fn faces<'a>(
+        fm: &'a FontManager<azul_css::props::basic::FontRef>,
+        family: &str,
+    ) -> &'a [azul_layout::text3::cache::MemoryFace] {
+        fm.memory_families
+            .get(&normalize_family_name(family))
+            .map_or(&[][..], |v| v.as_slice())
+    }
+
+    /// Every name a document is likely to ask for has to reach the base-14, or
+    /// `font-family: Helvetica` goes back to resolving to nothing (#220).
+    #[test]
+    fn the_base_14_are_reachable_by_their_css_names() {
+        let fm = registered();
+        for family in [
+            "Helvetica", "Arial", "Times New Roman", "Times", "Courier New", "Courier", "Symbol",
+            "Zapf Dingbats",
+            // the PDF base-14 ids themselves
+            "Helvetica-Bold", "Times-Roman", "Courier-BoldOblique",
+            // and the quoted spellings the resolver actually sees
+            "\"Helvetica\"", "'Times New Roman'",
+        ] {
+            assert!(!faces(&fm, family).is_empty(), "{family} is not registered");
+        }
+    }
+
+    /// The four Helvetica faces must stay distinct. They share one family name,
+    /// so they are told apart by (weight, italic, oblique) read from the font
+    /// bytes - which is why `Helvetica-Bold`/`-BoldOblique` needed their
+    /// `head.macStyle` bold bit set. With it clear they collapsed into the
+    /// regular face and `font-weight: bold` rendered regular.
+    #[test]
+    fn helvetica_keeps_four_distinct_faces() {
+        let fm = registered();
+        let helvetica = faces(&fm, "Helvetica");
+        assert_eq!(helvetica.len(), 4, "expected regular/bold/oblique/bold-oblique");
+
+        let mut seen: Vec<(FcWeight, bool)> = helvetica
+            .iter()
+            .map(|f| (f.weight, f.italic || f.oblique))
+            .collect();
+        seen.sort_by_key(|(w, slanted)| (*w as u16, *slanted));
+        seen.dedup();
+        assert_eq!(seen.len(), 4, "faces collapsed together: {seen:?}");
+
+        assert!(
+            helvetica.iter().any(|f| f.weight >= FcWeight::Bold && !(f.italic || f.oblique)),
+            "no upright bold face - is head.macStyle bit 0 set in Helvetica-Bold?"
+        );
+        assert!(
+            helvetica.iter().any(|f| f.weight >= FcWeight::Bold && (f.italic || f.oblique)),
+            "no slanted bold face - is head.macStyle bit 0 set in Helvetica-BoldOblique?"
+        );
+    }
+
+    /// Concrete names ARE the base-14, so they outrank the disk. The generic
+    /// families must not: a Win-1252 subset displacing the system's Unicode
+    /// faces for every `sans-serif` run would be a bad trade on any desktop.
+    #[test]
+    fn concrete_names_are_primary_and_generics_are_fallback_only() {
+        let fm = registered();
+
+        for family in ["Helvetica", "Arial", "Times New Roman", "Courier"] {
+            assert!(
+                faces(&fm, family).iter().any(|f| f.tier == MemoryFontTier::Primary),
+                "{family} should outrank the disk"
+            );
+        }
+
+        for generic in ["serif", "sans-serif", "monospace"] {
+            let registered = faces(&fm, generic);
+            assert!(!registered.is_empty(), "{generic} has no stand-in for wasm");
+            assert!(
+                registered.iter().all(|f| f.tier == MemoryFontTier::Fallback),
+                "{generic} must never displace an installed font"
+            );
+        }
+    }
+
+    /// These subsets only cover Win-1252, so they have to declare that honestly:
+    /// azul skips empty-`unicode_ranges` faces during per-character fallback, so
+    /// an unclaimed range is a codepoint that can never fall through elsewhere.
+    #[test]
+    fn registered_faces_carry_real_coverage() {
+        let fm = registered();
+        for face in faces(&fm, "Helvetica") {
+            assert!(
+                !face.font_match.unicode_ranges.is_empty(),
+                "coverage must come from the font, not be left empty"
+            );
+        }
+    }
+}
