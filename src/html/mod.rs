@@ -28,7 +28,9 @@ use azul_layout::{
 };
 use serde_derive::{Deserialize, Serialize};
 
-use crate::{font::ParsedFont, Mm, PdfDocument, PdfPage, PdfWarnMsg};
+use azul_layout::text3::cache::MemoryFontTier;
+
+use crate::{font::ParsedFont, BuiltinFont, Mm, PdfDocument, PdfPage, PdfWarnMsg};
 
 /// Re-export so callers of [`build_font_pool_with_memory_fonts`] can construct
 /// `FcPattern` / `FcFont` values without depending on (and version-matching)
@@ -243,18 +245,6 @@ fn register_input_fonts<T: azul_layout::font_traits::ParsedFontTrait>(
     // looks up the *quoted* string, so until that is fixed upstream, register
     // every name under its quoted spellings too — lookups then succeed from
     // either direction.
-    fn register_all_spellings<T: azul_layout::font_traits::ParsedFontTrait>(
-        fm: &mut FontManager<T>,
-        family: &str,
-        bytes: &[u8],
-        coverage: &[rust_fontconfig::UnicodeRange],
-    ) {
-        let _ = fm.register_named_font(family, bytes, coverage.to_vec());
-        for quoted in [format!("\"{family}\""), format!("'{family}'")] {
-            let _ = fm.register_named_font(&quoted, bytes, coverage.to_vec());
-        }
-    }
-
     for (name, bytes) in fonts.iter() {
         let parsed = rust_fontconfig::FcParseFontBytes(bytes, name);
 
@@ -268,7 +258,7 @@ fn register_input_fonts<T: azul_layout::font_traits::ParsedFontTrait>(
             .and_then(|p| p.first())
             .map(|(pattern, _)| pattern.unicode_ranges.as_slice())
             .unwrap_or(&[]);
-        register_all_spellings(font_manager, name, bytes, key_coverage);
+        register_all_spellings(font_manager, name, bytes, key_coverage, MemoryFontTier::Primary);
 
         if let Some(parsed) = &parsed {
             for (pattern, _) in parsed {
@@ -279,10 +269,131 @@ fn register_input_fonts<T: azul_layout::font_traits::ParsedFontTrait>(
                             fam,
                             bytes,
                             &pattern.unicode_ranges,
+                            MemoryFontTier::Primary,
                         );
                     }
                 }
             }
+        }
+    }
+}
+
+/// Register `family` under every spelling the resolver might look it up by.
+///
+/// Multi-word family names arrive at the resolver still wrapped in CSS quotes
+/// (`"Roboto Medium"`, literal quote characters — the html pipeline fails to
+/// strip them somewhere after azul-css parsing, see issue #220). The resolver
+/// looks up the *quoted* string, so until that is fixed upstream, register
+/// every name under its quoted spellings too — lookups then succeed from
+/// either direction.
+fn register_all_spellings<T: azul_layout::font_traits::ParsedFontTrait>(
+    fm: &mut FontManager<T>,
+    family: &str,
+    bytes: &[u8],
+    coverage: &[rust_fontconfig::UnicodeRange],
+    tier: MemoryFontTier,
+) {
+    let _ = fm.register_named_font_in_tier(family, bytes, coverage.to_vec(), tier);
+    for quoted in [format!("\"{family}\""), format!("'{family}'")] {
+        let _ = fm.register_named_font_in_tier(&quoted, bytes, coverage.to_vec(), tier);
+    }
+}
+
+/// The CSS spellings that should reach each of the 14 standard PDF fonts.
+///
+/// Concrete names only — these ARE the families the base-14 stand for, so they
+/// are registered as [`MemoryFontTier::Primary`] and win over whatever is
+/// installed, exactly as CSS says. The generic families are handled separately
+/// (see [`register_builtin_fonts`]) because they must not.
+fn builtin_font_css_names(font: BuiltinFont) -> &'static [&'static str] {
+    use BuiltinFont::{
+        Courier, CourierBold, CourierBoldOblique, CourierOblique, Helvetica, HelveticaBold,
+        HelveticaBoldOblique, HelveticaOblique, Symbol, TimesBold, TimesBoldItalic, TimesItalic,
+        TimesRoman, ZapfDingbats,
+    };
+    match font {
+        TimesRoman | TimesBold | TimesItalic | TimesBoldItalic => &["Times New Roman", "Times"],
+        Helvetica | HelveticaBold | HelveticaOblique | HelveticaBoldOblique => {
+            &["Helvetica", "Arial"]
+        }
+        Courier | CourierBold | CourierOblique | CourierBoldOblique => {
+            &["Courier New", "Courier"]
+        }
+        Symbol => &["Symbol"],
+        ZapfDingbats => &["Zapf Dingbats", "ZapfDingbats"],
+    }
+}
+
+/// The generic family each builtin backstops, and the one face that answers it.
+///
+/// Registered as [`MemoryFontTier::Fallback`], so on a desktop the system's own
+/// serif/sans/mono faces still win and these only sit behind them — while on a
+/// target with no fonts on disk (wasm) they are what is left, which is the
+/// whole reason the tier exists. Only the regular weight of each family is
+/// offered; the bold and italic faces are reachable through the concrete names.
+fn builtin_generic_family(font: BuiltinFont) -> Option<&'static str> {
+    match font {
+        BuiltinFont::TimesRoman => Some("serif"),
+        BuiltinFont::Helvetica => Some("sans-serif"),
+        BuiltinFont::Courier => Some("monospace"),
+        _ => None,
+    }
+}
+
+/// Register the 14 standard PDF fonts printpdf already embeds, so that
+/// `font-family: Helvetica` (and Times, Courier, Symbol, ZapfDingbats) resolves
+/// to the face that will actually be written into the PDF instead of silently
+/// falling back to a substitute.
+///
+/// Must run AFTER [`register_input_fonts`]. `register_named_font_in_tier`
+/// de-duplicates on family plus (weight, italic, oblique) and reuses the face it
+/// finds, so registering the builtins second means a caller-supplied Helvetica
+/// wins and the builtin is not added — register them first and the caller's font
+/// would be the one discarded.
+///
+/// Weight and style come from the font bytes, not from the name: the base-14
+/// subsets carry no OS/2 table, so rust-fontconfig reads them from
+/// `head.macStyle` (which needs rust-fontconfig >= 4.4.9 — before that a font
+/// without OS/2 failed to parse at all and none of this was reachable).
+fn register_builtin_fonts<T: azul_layout::font_traits::ParsedFontTrait>(
+    font_manager: &mut FontManager<T>,
+) {
+    for font in BuiltinFont::all_ids() {
+        let bytes = font.get_subset_font().bytes;
+
+        // Real coverage matters: azul skips empty-`unicode_ranges` faces during
+        // per-character fallback, and these subsets only cover Win-1252 — so a
+        // codepoint outside it has to be able to fall through to another font.
+        let coverage: Vec<rust_fontconfig::UnicodeRange> =
+            rust_fontconfig::FcParseFontBytes(&bytes, font.get_id())
+                .and_then(|faces| faces.into_iter().next())
+                .map_or_else(Vec::new, |(pattern, _)| pattern.unicode_ranges);
+
+        // The PDF base-14 name itself (`Helvetica-Bold`), then the CSS spellings.
+        register_all_spellings(
+            font_manager,
+            font.get_id(),
+            &bytes,
+            &coverage,
+            MemoryFontTier::Primary,
+        );
+        for css_name in builtin_font_css_names(font) {
+            register_all_spellings(
+                font_manager,
+                css_name,
+                &bytes,
+                &coverage,
+                MemoryFontTier::Primary,
+            );
+        }
+        if let Some(generic) = builtin_generic_family(font) {
+            register_all_spellings(
+                font_manager,
+                generic,
+                &bytes,
+                &coverage,
+                MemoryFontTier::Fallback,
+            );
         }
     }
 }
@@ -402,6 +513,7 @@ pub fn xml_to_pdf_pages(
         }
     };
     register_input_fonts(&mut font_manager, &options.fonts);
+    register_builtin_fonts(&mut font_manager);
 
     // Use content size in CSS px for layout (converted from pt above)
     let content_size = LogicalSize::new(content_width_px, content_height_px);
@@ -706,6 +818,7 @@ pub fn xml_to_pdf_pages_debug(
         }
     };
     register_input_fonts(&mut font_manager, &options.fonts);
+    register_builtin_fonts(&mut font_manager);
     eprintln!("[DEBUG xml_to_pdf_pages_debug] Font manager created");
 
     // Use content size in CSS px for layout (converted from pt above)
