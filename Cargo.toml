@@ -1,6 +1,6 @@
 [package]
 name = "printpdf"
-version = "0.12.4"
+version = "0.12.5"
 authors = [
     "Felix Schütt <felix.schuett@maps4print.com>",
     "Julien Schminke <julien.schminke@web.de",
@@ -82,18 +82,18 @@ rust-fontconfig = { version = ">=4.4.9, <4.5", default-features = false, feature
 xmlparser = { version = "0.13.6", default-features = false, optional = true }
 web-sys = { version = "0.3.77", optional = true, default-features = false, features = ["console", "ImageData", "Window", "Document", "Blob", "CanvasRenderingContext2d", "HtmlCanvasElement", "HtmlImageElement", "ImageBitmap", "BlobPropertyBag"]}
 wasm-bindgen-futures = { version = "0.4.50", optional = true, default-features = false }
-# Tracking git until the next azul release. `register_named_font_in_tier` /
-# `MemoryFontTier` (the fallback tier that lets the embedded base-14 fonts stand
-# in for serif/sans-serif/monospace without displacing installed fonts) landed
-# after 0.0.12, and `register_builtin_fonts` in src/html/mod.rs needs it.
+# 0.0.13, not git. `register_named_font_in_tier` / `MemoryFontTier` (the
+# fallback tier that lets the embedded base-14 fonts stand in for
+# serif/sans-serif/monospace without displacing installed fonts) landed after
+# 0.0.12 and `register_builtin_fonts` in src/html/mod.rs needs it, so this
+# tracked the azul git branch until 0.0.13 was published. It now is.
 #
-# All three must come from the same source: azul-layout reaches its siblings by
-# in-repo path, so mixing a git azul-layout with a crates.io azul-core would put
-# two incompatible azul-cores in the graph. Swap all three back to a version
-# requirement together once azul-layout 0.0.13 is out.
-azul-css = { git = "https://github.com/fschutt/azul", branch = "master", default-features = false, features = ["parser"], optional = true }
-azul-core = { git = "https://github.com/fschutt/azul", branch = "master", default-features = false, features = ["std"], optional = true }
-azul-layout = { git = "https://github.com/fschutt/azul", branch = "master", default-features = false, optional = true }
+# All three must stay pinned to the SAME version: azul-layout reaches its
+# siblings by in-repo path, so mixing versions would put two incompatible
+# azul-cores in the graph. Bump them together or not at all.
+azul-css = { version = "0.0.13", default-features = false, features = ["parser"], optional = true }
+azul-core = { version = "0.0.13", default-features = false, features = ["std"], optional = true }
+azul-layout = { version = "0.0.13", default-features = false, optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 wasm-bindgen = { version = "0.2" }
