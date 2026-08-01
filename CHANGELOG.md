@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+**Break-aware pagination is ON.** HTML→PDF now goes through azul's
+`layout_document_paged_v2` with the full `BreakPolicy` enabled: `break-inside: avoid`
+pushes boxes below the page break intact, `widows`/`orphans` act on paragraph line
+counts, line boxes are never torn mid-line across pages, table rows stay whole, and
+`<thead>` repeats on continuation pages (with its height reserved in the break
+calculation). Documents that never hit a break constraint paginate exactly as
+before; ones that do will see breaks land earlier (pushed up, bounded to a third of
+the page height per break). The old fixed-interval slicing is what you get from azul
+directly with a default `BreakPolicy` — printpdf no longer uses it.
+
+The azul dependency is pinned to the git master rev that shipped the pagination and
+changeset refactor (`aaa700097`). Publishing to crates.io requires azul `0.0.14`
+to be published first; until then printpdf master builds from the git pin.
+
 ## `0.12.0`
 
 The release where OTF fonts display correctly in Acrobat again (#280), the parser grew

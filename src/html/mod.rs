@@ -19,7 +19,8 @@ use azul_core::{
 use azul_layout::{
     font::loading::build_font_cache,
     paged::FragmentationContext,
-    solver3::paged_layout::layout_document_paged_with_config,
+    solver3::page_breaks::BreakPolicy,
+    solver3::paged_layout::layout_document_paged_v2,
     solver3::pagination::FakePageConfig,
     text3::cache::FontHash,
     font_traits::{TextLayoutCache, FontManager},
@@ -418,6 +419,43 @@ fn default_page_height() -> Mm {
     Mm(297.0) // A4 height
 }
 
+/// Build the [`FakePageConfig`] shared by [`xml_to_pdf_pages`] and
+/// [`xml_to_pdf_pages_debug`] from the render options, with break-awareness
+/// fully enabled: `break-inside: avoid`, `widows`/`orphans`, atomic line
+/// boxes, atomic table rows and repeated `<thead>`s all act on page breaks.
+/// Documents that never hit a break constraint paginate exactly as before;
+/// ones that do get breaks pushed up (bounded by `max_push_distance`).
+fn build_page_config(options: &XmlRenderOptions) -> FakePageConfig {
+    let mut page_config = FakePageConfig::new();
+
+    if options.show_page_numbers {
+        page_config = page_config.with_footer_page_numbers();
+    }
+
+    if let Some(ref header) = options.header_text {
+        page_config = page_config.with_header_text(header.clone());
+    }
+
+    if let Some(ref footer) = options.footer_text {
+        page_config = page_config.with_footer_text(footer.clone());
+    }
+
+    if options.skip_first_page {
+        page_config = page_config.skip_first_page(true);
+    }
+
+    page_config.break_policy = BreakPolicy {
+        honor_break_inside: true,
+        widows_orphans: true,
+        atomic_lines: true,
+        atomic_table_rows: true,
+        repeat_table_headers: true,
+        ..BreakPolicy::default()
+    };
+
+    page_config
+}
+
 /// Convert XML/HTML content to PDF pages, returning pages, the font map, and the
 /// decoded `<img>` resources.
 ///
@@ -546,25 +584,9 @@ pub fn xml_to_pdf_pages(
     // Build page config from options
     // NOTE: Full CSS @page rule parsing is not yet implemented.
     // This uses FakePageConfig for programmatic control over headers/footers.
-    let mut page_config = FakePageConfig::new();
-    
-    if options.show_page_numbers {
-        page_config = page_config.with_footer_page_numbers();
-    }
-    
-    if let Some(ref header) = options.header_text {
-        page_config = page_config.with_header_text(header.clone());
-    }
-    
-    if let Some(ref footer) = options.footer_text {
-        page_config = page_config.with_footer_text(footer.clone());
-    }
-    
-    if options.skip_first_page {
-        page_config = page_config.skip_first_page(true);
-    }
-    
-    let display_lists = match layout_document_paged_with_config(
+    let page_config = build_page_config(options);
+
+    let display_lists = match layout_document_paged_v2(
         &mut layout_cache,
         &mut text_cache,
         fragmentation_context,
@@ -583,7 +605,7 @@ pub fn xml_to_pdf_pages(
         azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
         false, // print_timing
     ) {
-        Ok(lists) => lists,
+        Ok(result) => result.pages,
         Err(e) => {
             warnings.push(PdfWarnMsg::error(
                 0,
@@ -849,26 +871,10 @@ pub fn xml_to_pdf_pages_debug(
     };
 
     // Build page config from options
-    let mut page_config = FakePageConfig::new();
-    
-    if options.show_page_numbers {
-        page_config = page_config.with_footer_page_numbers();
-    }
-    
-    if let Some(ref header) = options.header_text {
-        page_config = page_config.with_header_text(header.clone());
-    }
-    
-    if let Some(ref footer) = options.footer_text {
-        page_config = page_config.with_footer_text(footer.clone());
-    }
-    
-    if options.skip_first_page {
-        page_config = page_config.skip_first_page(true);
-    }
-    
+    let page_config = build_page_config(options);
+
     eprintln!("[DEBUG xml_to_pdf_pages_debug] Starting paged layout...");
-    let display_lists = match layout_document_paged_with_config(
+    let display_lists = match layout_document_paged_v2(
         &mut layout_cache,
         &mut text_cache,
         fragmentation_context,
@@ -887,9 +893,14 @@ pub fn xml_to_pdf_pages_debug(
         azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
         false, // print_timing
     ) {
-        Ok(lists) => {
-            eprintln!("[DEBUG xml_to_pdf_pages_debug] Paged layout completed, got {} pages", lists.len());
-            lists
+        Ok(result) => {
+            eprintln!(
+                "[DEBUG xml_to_pdf_pages_debug] Paged layout completed, got {} pages ({} breaks, content height {:.1}px)",
+                result.pages.len(),
+                result.breaks.len(),
+                result.total_content_height,
+            );
+            result.pages
         },
         Err(e) => {
             warnings.push(PdfWarnMsg::error(
