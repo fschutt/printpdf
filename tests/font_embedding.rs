@@ -145,7 +145,7 @@ impl EmbeddedFont {
 fn stream_bytes(doc: &Document, obj: &Object) -> Vec<u8> {
     let obj = resolve(doc, obj);
     let stream = obj.as_stream().expect("expected a stream");
-    // Font programs are written uncompressed; ToUnicode CMaps may be compressed.
+    // Always inspect the decoded program; production saves may Flate-compress it.
     stream
         .decompressed_content()
         .unwrap_or_else(|_| stream.content.clone())
