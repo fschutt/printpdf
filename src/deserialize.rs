@@ -2497,7 +2497,7 @@ pub fn parse_op(
     op_id: usize,
     op: &lopdf::content::Operation,
     state: &mut PageState,
-    xobjects: &BTreeMap<XObjectId, XObject>,
+    _xobjects: &BTreeMap<XObjectId, XObject>,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> Result<Vec<Op>, String> {
     use crate::units::Pt;
@@ -5358,6 +5358,7 @@ mod parsefont {
     }
 
     /// Process a Type1 font
+    #[cfg(feature = "text_layout")]
     fn process_type1_font(
         doc: &Document,
         font_dict: &Dictionary,
@@ -5375,7 +5376,7 @@ mod parsefont {
 
     /// Process a standard font (Type1, TrueType, etc.)
     fn process_standard_font(
-        doc: &Document,
+        _doc: &Document,
         font_dict: &Dictionary,
         font_id: &FontId,
         warnings: &mut Vec<PdfWarnMsg>,
@@ -5393,7 +5394,7 @@ mod parsefont {
             None => {
                 #[cfg(feature = "text_layout")]
                 {
-                    match process_type1_font(doc, font_dict, font_id, warnings, page_num) {
+                    match process_type1_font(_doc, font_dict, font_id, warnings, page_num) {
                         Some(parsed_font) => {
                             Some(ParsedOrBuiltinFont::P(ParsedExternalFont {
                                 font: parsed_font,

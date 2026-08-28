@@ -53,7 +53,7 @@ pub fn html_to_document(input: HtmlToDocumentInput) -> Result<HtmlToDocumentOutp
 const ERR: &str = "Pdf_HtmlToDocument failed: feature --html not enabled for printpdf crate";
 
 #[cfg(not(feature = "html"))]
-pub fn html_to_document(input: HtmlToDocumentInput) -> Result<HtmlToDocumentOutput, String> {
+pub fn html_to_document(_input: HtmlToDocumentInput) -> Result<HtmlToDocumentOutput, String> {
     Err(ERR.to_string())
 }
 
@@ -76,7 +76,7 @@ pub async fn html_to_document_async(
 
 #[cfg(not(feature = "html"))]
 pub async fn html_to_document_async(
-    input: HtmlToDocumentInput,
+    _input: HtmlToDocumentInput,
 ) -> Result<HtmlToDocumentOutput, String> {
     Err(ERR.to_string())
 }
@@ -269,6 +269,7 @@ static REGISTERED_FONTS: std::sync::Mutex<BTreeMap<String, Vec<u8>>> =
     std::sync::Mutex::new(BTreeMap::new());
 
 /// Registry fonts (as `Raw`) overlaid with the call's own fonts.
+#[cfg(feature = "html")]
 pub(crate) fn fonts_with_registered(
     input_fonts: &BTreeMap<String, Base64OrRaw>,
 ) -> BTreeMap<String, Base64OrRaw> {
