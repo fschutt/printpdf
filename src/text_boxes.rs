@@ -494,7 +494,7 @@ impl PdfPage {
         let font_id = font.id();
         let (asc_em, desc_em) = vertical_extent_em(parsed);
 
-        let mut emit = |st: &mut TextState,
+        let emit = |st: &mut TextState,
                         builder: &mut Builder,
                         text: &str,
                         adv_em: f32,

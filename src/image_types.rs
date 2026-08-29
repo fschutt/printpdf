@@ -315,6 +315,7 @@ impl RawImage {
 /// crash. Alpha channels are split into a grayscale `/SMask` per the PDF spec;
 /// 16-bit and float data is downconverted to 8-bit (a fidelity loss, but a
 /// valid file — the `images` feature path keeps full depth).
+#[cfg(not(feature = "images"))]
 pub(crate) fn raw_image_to_basic_stream(
     im: &RawImage,
     doc: &mut lopdf::Document,

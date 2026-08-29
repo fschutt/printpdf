@@ -531,7 +531,7 @@ pub(crate) fn translate_operations(
     // the mistake is loud now.
     let mut in_text_section = false;
     let mut warned_outside_text_section = false;
-    let mut warn_outside = |op_idx: usize,
+    let warn_outside = |op_idx: usize,
                             op_name: &str,
                             warned: &mut bool,
                             warnings: &mut Vec<PdfWarnMsg>| {
@@ -1564,7 +1564,7 @@ fn rectangle_to_stream_ops(rectangle: &crate::Rect) -> Vec<LoOp> {
 pub(crate) fn prepare_fonts_for_serialization(
     resources: &PdfResources,
     pages: &[PdfPage],
-    do_subset: bool,
+    _do_subset: bool,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> (BTreeMap<FontId, RuntimeFontInfo>, BTreeMap<FontId, RuntimeSubsetInfo>) {
     let mut font_infos = BTreeMap::new();
@@ -1590,7 +1590,7 @@ pub(crate) fn prepare_fonts_for_serialization(
         
         // Create RuntimeSubsetInfo for font dictionary
         #[cfg(feature = "text_layout")]
-        let subset_info = if do_subset &&
+        let subset_info = if _do_subset &&
                              pdf_font.meta.requires_subsetting &&
                              pdf_font.meta.embedding_mode == crate::font::FontEmbeddingMode::Subset {
             // Try subsetting, fall back to full font if it fails

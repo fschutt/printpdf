@@ -36,7 +36,10 @@
 //! let ops = layout_to_ops(&layout, page_height, &font_id, Color::black());
 //! ```
 
-use crate::{Color, FontId, Op, Pt, Rect, Rgb};
+use crate::{Color, FontId, Pt, Rect, Rgb};
+
+#[cfg(feature = "text_layout")]
+use crate::Op;
 
 #[cfg(feature = "text_layout")]
 use azul_layout::text3::{
