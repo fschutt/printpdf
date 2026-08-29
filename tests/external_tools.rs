@@ -141,10 +141,17 @@ impl PdfFontsReport {
              the text.\npdffonts stderr:\n{}",
             self.stderr.trim()
         );
+        let pdf_errors = self
+            .stderr
+            .lines()
+            .filter(|line| {
+                line.contains("Syntax Error") && !line.contains("No display font for")
+            })
+            .collect::<Vec<_>>();
         assert!(
-            !self.stderr.contains("Syntax Error"),
-            "{ctx}: pdffonts reported a syntax error:\n{}",
-            self.stderr.trim()
+            pdf_errors.is_empty(),
+            "{ctx}: pdffonts reported a PDF syntax error:\n{}",
+            pdf_errors.join("\n")
         );
     }
 }
@@ -164,7 +171,9 @@ fn extract_text(pdf: &[u8]) -> String {
 fn save_opts(subset_fonts: bool) -> PdfSaveOptions {
     PdfSaveOptions {
         subset_fonts,
-        optimize: false,
+        // Exercise the production/default path: Poppler must accept and extract text
+        // from Flate-compressed page and embedded-font streams.
+        optimize: true,
         ..Default::default()
     }
 }

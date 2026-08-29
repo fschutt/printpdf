@@ -95,7 +95,7 @@ pub fn serialize_pdf<W: Write>(
 ) -> () {
     let mut doc = to_lopdf_doc(pdf, opts, warnings);
     if opts.optimize {
-        // doc.compress();
+        doc.compress();
     }
 
     let _ = doc.save_to(&mut writer);
@@ -1888,6 +1888,21 @@ fn get_normalized_widths(
     widths_list
 }
 
+fn font_program_stream(
+    mut dictionary: LoDictionary,
+    program: Vec<u8>,
+    requires_length1: bool,
+) -> LoStream {
+    // ISO 32000 defines /Length as the encoded stream size and /Length1 as the
+    // decoded TrueType program size. lopdf updates /Length when it applies
+    // /FlateDecode, so preserve the original size before handing it the stream.
+    if requires_length1 {
+        dictionary.set("Length1", Integer(program.len() as i64));
+    }
+
+    LoStream::new(dictionary, program).with_compression(true)
+}
+
 fn add_subset_font_to_pdf(
     doc: &mut lopdf::Document,
     font_id: &FontId,
@@ -1934,11 +1949,11 @@ fn add_subset_font_to_pdf(
         // A bare CFF font program goes in /FontFile3 as /Subtype /CIDFontType0C —
         // for bare table bytes (unlike a whole sfnt), that name is the truthful one.
         let font_tuple = has_font_program.then(|| {
-            let font_stream = LoStream::new(
+            let font_stream = font_program_stream(
                 LoDictionary::from_iter(vec![("Subtype", Name("CIDFontType0C".into()))]),
                 cff_table,
-            )
-            .with_compression(false);
+                false,
+            );
 
             ("FontFile3", Reference(doc.add_object(font_stream)))
         });
@@ -1949,21 +1964,19 @@ fn add_subset_font_to_pdf(
         // viewer) goes in /FontFile3 as /Subtype /OpenType (PDF 1.6+).
         // /CIDFontType0C would be a lie: that name means a *bare* CFF table, not an sfnt.
         let font_tuple = has_font_program.then(|| {
-            let font_stream = LoStream::new(
+            let font_stream = font_program_stream(
                 LoDictionary::from_iter(vec![("Subtype", Name("OpenType".into()))]),
                 program.clone(),
-            )
-            .with_compression(false);
+                false,
+            );
 
             ("FontFile3", Reference(doc.add_object(font_stream)))
         });
 
         ("CIDFontType0", font_tuple)
     } else {
-        // TrueType font stream must not be compressed
         let font_tuple = has_font_program.then(|| {
-            let font_stream = LoStream::new(LoDictionary::new(), program.clone())
-                .with_compression(false);
+            let font_stream = font_program_stream(LoDictionary::new(), program.clone(), true);
 
             ("FontFile2", Reference(doc.add_object(font_stream)))
         });
