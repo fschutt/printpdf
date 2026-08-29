@@ -1,6 +1,24 @@
 # Changelog
 
-## Unreleased
+## `0.12.7`
+
+**PDF streams are actually compressed when `optimize` is on (#284).** The save
+option advertised compression but the `Document::compress()` call was disabled
+and font programs were excluded outright. Page content and embedded font
+streams now go out Flate-compressed; `/Length1` keeps the DECODED TrueType
+program size per ISO 32000 (lopdf rewrites `/Length` when it compresses), so
+readers still load the fonts. Verified against poppler: `pdffonts` accepts the
+output and `pdftotext` round-trips the text of compressed documents.
+
+**Reduced-feature builds are warning-free (#285).** `--no-default-features
+--features gif` (and the other reduced combinations) compiled helpers whose
+consumers were feature-gated away; the helpers now carry matching gates and
+intentionally-unused parameters are underscore-prefixed. No behavior change.
+
+Admits rust-fontconfig 4.6 (the `FcScanConfig` injection release) through the
+existing `>=4.4.9, <5` range — printpdf uses none of the affected APIs.
+
+## `0.12.6`
 
 **Break-aware pagination is ON.** HTML→PDF now goes through azul's
 `layout_document_paged_v2` with the full `BreakPolicy` enabled: `break-inside: avoid`
@@ -12,9 +30,8 @@ before; ones that do will see breaks land earlier (pushed up, bounded to a third
 the page height per break). The old fixed-interval slicing is what you get from azul
 directly with a default `BreakPolicy` — printpdf no longer uses it.
 
-The azul dependency is pinned to the git master rev that shipped the pagination and
-changeset refactor (`aaa700097`). Publishing to crates.io requires azul `0.0.14`
-to be published first; until then printpdf master builds from the git pin.
+The azul dependency moved from the git pin (`aaa700097`, the rev that shipped the
+pagination and changeset refactor) to the published azul `0.0.14` crates.
 
 ## `0.12.0`
 
