@@ -1,5 +1,21 @@
 # Changelog
 
+## `0.12.8`
+
+**rust-fontconfig 5 + azul 0.0.15.** Font fallback in HTML→PDF now runs on
+rust-fontconfig 5's tiered `FontFallbackChain` (CSS families with per-script
+faces, script fallbacks, an explicit last resort) and its `FcFallbackConfig`
+generic-family model, through azul-layout 0.0.15. printpdf only uses the
+stable surface (`FcFontCache`, `FcPattern`/`FcFont`, `FcParseFontBytes`,
+`FontBytes`, `UnicodeRange`), so no printpdf code changed; the dependency
+range moved from `>=4.4.9, <5` to `>=5.0, <6`, intersecting azul-layout's
+`>=5.0, <5.1` on ONE rust-fontconfig (two copies would be two independent
+font caches: layout resolving a font the renderer cannot find). Verified
+against the azul tree at 865f63f47 (branch `feat/rust-fontconfig-5`): full
+default suite green, `html_font_resolution` and the ligature/subset canaries
+included; libazul (`build-dll`) built against this printpdf with ONE
+rust-fontconfig in the graph.
+
 ## `0.12.7`
 
 **PDF streams are actually compressed when `optimize` is on (#284).** The save
