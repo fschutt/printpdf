@@ -87,7 +87,9 @@ rust-fontconfig = { version = ">=5.0, <6", default-features = false, features = 
 xmlparser = { version = "0.13.6", default-features = false, optional = true }
 web-sys = { version = "0.3.77", optional = true, default-features = false, features = ["console", "ImageData", "Window", "Document", "Blob", "CanvasRenderingContext2d", "HtmlCanvasElement", "HtmlImageElement", "ImageBitmap", "BlobPropertyBag"]}
 wasm-bindgen-futures = { version = "0.4.50", optional = true, default-features = false }
-# 0.0.15 = the rust-fontconfig 5 release of azul (azul#457). Both pins move
+# 0.0.16 = the rust-fontconfig 5 release of azul (azul#457); 0.0.15 was the
+# same migration but pulled `uuid` into every wasm build and left
+# DocumentChangeset::apply_to_dom ungated, so it never worked here. Both pins move
 # together or the graph carries two FcFontCaches — see the rust-fontconfig
 # note above. Published from crates.io, never a git rev: `cargo publish`
 # strips [patch], so anything that only builds under one is not publishable
@@ -96,16 +98,16 @@ wasm-bindgen-futures = { version = "0.4.50", optional = true, default-features =
 # All three must stay pinned to the SAME version: azul-layout reaches its
 # siblings by in-repo path, so mixing versions would put two incompatible
 # azul-cores in the graph. Bump them together or not at all. On 0.0.x crates
-# a "0.0.15" requirement is EXACT, which is what that rule needs.
+# a "0.0.16" requirement is EXACT, which is what that rule needs.
 #
 # The exactness has a cost worth knowing: azul's workspace [patch] redirects
 # THIS dependency to its own path crates so the dll links one azul-layout, and
 # an exact pin stops matching the moment azul bumps in-tree. That is why the
 # two repos release as a pair — azul-* publish first, printpdf follows, then
 # azul re-pins printpdf. Never paper over it with a [patch] here.
-azul-css = { version = "0.0.15", default-features = false, features = ["parser"], optional = true }
-azul-core = { version = "0.0.15", default-features = false, features = ["std"], optional = true }
-azul-layout = { version = "0.0.15", default-features = false, optional = true }
+azul-css = { version = "0.0.16", default-features = false, features = ["parser"], optional = true }
+azul-core = { version = "0.0.16", default-features = false, features = ["std"], optional = true }
+azul-layout = { version = "0.0.16", default-features = false, optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 wasm-bindgen = { version = "0.2" }

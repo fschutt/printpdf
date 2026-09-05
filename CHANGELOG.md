@@ -2,10 +2,10 @@
 
 ## `0.12.8`
 
-**rust-fontconfig 5 + azul 0.0.15.** Font fallback in HTML→PDF now runs on
+**rust-fontconfig 5 + azul 0.0.16.** Font fallback in HTML→PDF now runs on
 rust-fontconfig 5's tiered `FontFallbackChain` (CSS families with per-script
 faces, script fallbacks, an explicit last resort) and its `FcFallbackConfig`
-generic-family model, through azul-layout 0.0.15. printpdf only uses the
+generic-family model, through azul-layout 0.0.16. printpdf only uses the
 stable surface (`FcFontCache`, `FcPattern`/`FcFont`, `FcParseFontBytes`,
 `FontBytes`, `UnicodeRange`), so no printpdf code changed; the dependency
 range moved from `>=4.4.9, <5` to `>=5.0, <6`, intersecting azul-layout's
@@ -42,6 +42,15 @@ candidates: 13 -> 27 fonts for `monospace`, 24 -> 63 for `sans-serif` on a
 typical macOS box). The filter is documented as a superset selector, not the
 final resolution, so this only means more fonts are available to fall back
 to; `Some(&[])` still scans nothing.
+
+The azul pin is 0.0.16, not 0.0.15. Building printpdf against the published
+0.0.15 surfaced two azul-layout defects that only printpdf's feature matrix
+reaches (it is the only consumer that builds azul-layout without `cpurender`
+and without `xml`, across all three wasm targets): `uuid` was pulled into
+every wasm build and refused to compile on `wasm32-unknown-unknown`, and
+`DocumentChangeset::apply_to_dom` called into the `xml`-gated `document_edit`
+from an ungated impl block, breaking `--no-default-features --features
+text_layout`. Both are fixed in azul-layout 0.0.16 (azul#465).
 
 ## `0.12.7`
 
