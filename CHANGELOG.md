@@ -11,10 +11,10 @@ stable surface (`FcFontCache`, `FcPattern`/`FcFont`, `FcParseFontBytes`,
 range moved from `>=4.4.9, <5` to `>=5.0, <6`, intersecting azul-layout's
 `>=5.0, <5.1` on ONE rust-fontconfig (two copies would be two independent
 font caches: layout resolving a font the renderer cannot find). Verified
-against the azul tree at 865f63f47 (branch `feat/rust-fontconfig-5`): full
-default suite green, `html_font_resolution` and the ligature/subset canaries
-included; libazul (`build-dll`) built against this printpdf with ONE
-rust-fontconfig in the graph.
+against azul#457 at 041e20eb6 (branch `feat/rust-fontconfig-5`, the rebase of
+the auto-closed #455): 199 tests over 33 binaries green, `html_font_resolution`
+and the ligature/subset canaries included, with ONE rust-fontconfig (5.0.0),
+one allsorts and one azul-core in the graph.
 
 ## `0.12.7`
 
