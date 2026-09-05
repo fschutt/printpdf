@@ -1596,17 +1596,58 @@ mod builtin_font_tests {
         }
     }
 
-    /// These subsets only cover Win-1252, so they have to declare that honestly:
-    /// azul skips empty-`unicode_ranges` faces during per-character fallback, so
-    /// an unclaimed range is a codepoint that can never fall through elsewhere.
+    /// These subsets cover a little over 200 codepoints each, so they have to
+    /// declare that honestly: azul skips empty-`unicode_ranges` faces during
+    /// per-character fallback, so an unclaimed codepoint is one that can never
+    /// fall through elsewhere.
+    ///
+    /// All fourteen, not just Helvetica. Under rust-fontconfig 4 the cmap block
+    /// probe returned NOTHING for Symbol and ZapfDingbats — both were silently
+    /// unreachable through fallback while a Helvetica-only assertion passed —
+    /// and it rounded everyone else up to whole blocks, so Helvetica claimed all
+    /// of U+0000..=U+00FF (256) against 213 real glyphs and Times-Italic claimed
+    /// the entire Cyrillic block on the strength of a few glyphs. rust-fontconfig
+    /// 5 reads the cmap segments exactly; every face now reports precisely the
+    /// codepoints that map to a non-.notdef glyph.
     #[test]
-    fn registered_faces_carry_real_coverage() {
+    fn every_builtin_face_carries_real_coverage() {
         let fm = registered();
-        for face in faces(&fm, "Helvetica") {
-            assert!(
-                !face.font_match.unicode_ranges.is_empty(),
-                "coverage must come from the font, not be left empty"
-            );
+        for font in crate::BuiltinFont::all_ids() {
+            let registered = faces(&fm, font.get_id());
+            assert!(!registered.is_empty(), "{} is not registered at all", font.get_id());
+            for face in registered {
+                assert!(
+                    !face.font_match.unicode_ranges.is_empty(),
+                    "{} carries empty coverage - unreachable in per-character fallback",
+                    font.get_id()
+                );
+            }
         }
+    }
+
+    /// Coverage is exact, never rounded up to the enclosing block. A face that
+    /// over-claims is worse than one that under-claims: the resolver stops at
+    /// the first font whose ranges contain the codepoint, so a bogus claim
+    /// wins the character and renders .notdef instead of falling through to a
+    /// font that actually has the glyph. Helvetica's cmap holds 213 mapped
+    /// codepoints; block-rounding reported 256.
+    #[test]
+    fn builtin_coverage_is_exact_not_block_rounded() {
+        let fm = registered();
+        let face = faces(&fm, "Helvetica")
+            .iter()
+            .find(|f| !(f.italic || f.oblique) && f.weight < FcWeight::Bold)
+            .expect("regular Helvetica");
+        let covered: u32 = face
+            .font_match
+            .unicode_ranges
+            .iter()
+            .map(|r| r.end - r.start + 1)
+            .sum();
+        assert_eq!(
+            covered, 213,
+            "expected the 213 codepoints Helvetica.subset.ttf actually maps, got {covered} \
+             (256 means coverage was rounded up to the Latin-1 block again)"
+        );
     }
 }

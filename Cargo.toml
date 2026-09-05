@@ -1,6 +1,6 @@
 [package]
 name = "printpdf"
-version = "0.12.7"
+version = "0.12.8"
 authors = [
     "Felix Schütt <felix.schuett@maps4print.com>",
     "Julien Schminke <julien.schminke@web.de",
@@ -74,31 +74,40 @@ flate2 = "1.0.35" # for decompression of builtin fonts
 serde_json = { version = "1" }
 smallvec = { version = "1.15.1", features = ["serde"] }
 # Feature-gated dependencies
-# Bounded below 4.5: 4.4.5 is the first release with a single allsorts 0.17 underneath —
-# 4.4.4 still carried allsorts 0.16, which linked two incompatible font parsers into
-# every build (the 0.11.1 headline fix; `only_one_allsorts_is_linked` guards the repo,
-# this bound guards consumers against an untested future 4.x drifting back).
-rust-fontconfig = { version = ">=4.4.9, <5", default-features = false, features = ["std", "parsing"], optional = true }
+# rust-fontconfig 5: the tiered FontFallbackChain (css groups with per-script
+# faces, script groups, last_resort) and the FcFallbackConfig generic-family
+# model that azul-layout 0.0.15 builds its font resolution on. printpdf only
+# touches the stable surface (FcFontCache, FcPattern/FcFont, FcParseFontBytes,
+# FontBytes, UnicodeRange), so no code changed — but the range MUST intersect
+# azul-layout's (`>=5.0, <5.1`) on one version: two rust-fontconfigs in one
+# binary are two independent FcFontCaches, i.e. layout resolving a font the
+# renderer cannot find. `only_one_allsorts_is_linked` still guards the repo
+# against a second allsorts underneath.
+rust-fontconfig = { version = ">=5.0, <6", default-features = false, features = ["std", "parsing"], optional = true }
 xmlparser = { version = "0.13.6", default-features = false, optional = true }
 web-sys = { version = "0.3.77", optional = true, default-features = false, features = ["console", "ImageData", "Window", "Document", "Blob", "CanvasRenderingContext2d", "HtmlCanvasElement", "HtmlImageElement", "ImageBitmap", "BlobPropertyBag"]}
 wasm-bindgen-futures = { version = "0.4.50", optional = true, default-features = false }
-# 0.0.13, not git. `register_named_font_in_tier` / `MemoryFontTier` (the
-# fallback tier that lets the embedded base-14 fonts stand in for
-# serif/sans-serif/monospace without displacing installed fonts) landed after
-# 0.0.12 and `register_builtin_fonts` in src/html/mod.rs needs it, so this
-# tracked the azul git branch until 0.0.13 was published. It now is.
+# 0.0.16 = the rust-fontconfig 5 release of azul (azul#457); 0.0.15 was the
+# same migration but pulled `uuid` into every wasm build and left
+# DocumentChangeset::apply_to_dom ungated, so it never worked here. Both pins move
+# together or the graph carries two FcFontCaches — see the rust-fontconfig
+# note above. Published from crates.io, never a git rev: `cargo publish`
+# strips [patch], so anything that only builds under one is not publishable
+# (the "No [patch]" CI gate enforces this).
 #
 # All three must stay pinned to the SAME version: azul-layout reaches its
 # siblings by in-repo path, so mixing versions would put two incompatible
-# azul-cores in the graph. Bump them together or not at all.
+# azul-cores in the graph. Bump them together or not at all. On 0.0.x crates
+# a "0.0.16" requirement is EXACT, which is what that rule needs.
 #
-# Published azul 0.0.14 (the release carrying the dense-text fixes this
-# crate's own ligature tests caught: the per-line y freeze and the
-# needs_detail byte-length gap). On 0.0.x crates a "0.0.14" requirement is
-# EXACT, which is what the same-version rule above needs.
-azul-css = { version = "0.0.14", default-features = false, features = ["parser"], optional = true }
-azul-core = { version = "0.0.14", default-features = false, features = ["std"], optional = true }
-azul-layout = { version = "0.0.14", default-features = false, optional = true }
+# The exactness has a cost worth knowing: azul's workspace [patch] redirects
+# THIS dependency to its own path crates so the dll links one azul-layout, and
+# an exact pin stops matching the moment azul bumps in-tree. That is why the
+# two repos release as a pair — azul-* publish first, printpdf follows, then
+# azul re-pins printpdf. Never paper over it with a [patch] here.
+azul-css = { version = "0.0.16", default-features = false, features = ["parser"], optional = true }
+azul-core = { version = "0.0.16", default-features = false, features = ["std"], optional = true }
+azul-layout = { version = "0.0.16", default-features = false, optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 wasm-bindgen = { version = "0.2" }

@@ -1,5 +1,57 @@
 # Changelog
 
+## `0.12.8`
+
+**rust-fontconfig 5 + azul 0.0.16.** Font fallback in HTML→PDF now runs on
+rust-fontconfig 5's tiered `FontFallbackChain` (CSS families with per-script
+faces, script fallbacks, an explicit last resort) and its `FcFallbackConfig`
+generic-family model, through azul-layout 0.0.16. printpdf only uses the
+stable surface (`FcFontCache`, `FcPattern`/`FcFont`, `FcParseFontBytes`,
+`FontBytes`, `UnicodeRange`), so no printpdf code changed; the dependency
+range moved from `>=4.4.9, <5` to `>=5.0, <6`, intersecting azul-layout's
+`>=5.0, <5.1` on ONE rust-fontconfig (two copies would be two independent
+font caches: layout resolving a font the renderer cannot find). Verified
+against azul#457 at 041e20eb6 (branch `feat/rust-fontconfig-5`, the rebase of
+the auto-closed #455): 199 tests over 33 binaries green, `html_font_resolution`
+and the ligature/subset canaries included, with ONE rust-fontconfig (5.0.0),
+one allsorts and one azul-core in the graph.
+
+**Font coverage is now exact, which changes fallback for the better.** No
+printpdf code changed, but rust-fontconfig 5 reads cmap segments directly
+instead of probing blocks, and that fixes two real defects in how the
+embedded base-14 fonts participated in per-character fallback:
+
+- **Symbol and ZapfDingbats reported NO coverage at all under rfc 4.** The
+  block probe could not read their cmap, so both declared empty
+  `unicode_ranges` — and azul skips empty-coverage faces during fallback, so
+  neither font could ever be chosen for any codepoint. They now declare the
+  43 and 10 codepoints they really map.
+- **Everyone else over-claimed.** Coverage was rounded up to the enclosing
+  block: Helvetica claimed all 256 of U+0000..=U+00FF against 213 real
+  glyphs, and Times-Italic claimed the whole Cyrillic block on the strength
+  of a handful of glyphs. Over-claiming is the harmful direction — the
+  resolver stops at the first font whose ranges contain the codepoint, so a
+  bogus claim wins the character and renders .notdef instead of falling
+  through to a font that has the glyph. Verified against the cmap tables:
+  all fourteen subsets now report exactly the codepoints that map to a
+  non-.notdef glyph.
+
+`build_font_pool(fonts, Some(&["monospace"]))` and friends also scan a wider
+superset than before (generic expansion now includes the per-script fallback
+candidates: 13 -> 27 fonts for `monospace`, 24 -> 63 for `sans-serif` on a
+typical macOS box). The filter is documented as a superset selector, not the
+final resolution, so this only means more fonts are available to fall back
+to; `Some(&[])` still scans nothing.
+
+The azul pin is 0.0.16, not 0.0.15. Building printpdf against the published
+0.0.15 surfaced two azul-layout defects that only printpdf's feature matrix
+reaches (it is the only consumer that builds azul-layout without `cpurender`
+and without `xml`, across all three wasm targets): `uuid` was pulled into
+every wasm build and refused to compile on `wasm32-unknown-unknown`, and
+`DocumentChangeset::apply_to_dom` called into the `xml`-gated `document_edit`
+from an ungated impl block, breaking `--no-default-features --features
+text_layout`. Both are fixed in azul-layout 0.0.16 (azul#465).
+
 ## `0.12.7`
 
 **PDF streams are actually compressed when `optimize` is on (#284).** The save
