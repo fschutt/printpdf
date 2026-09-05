@@ -16,6 +16,33 @@ the auto-closed #455): 199 tests over 33 binaries green, `html_font_resolution`
 and the ligature/subset canaries included, with ONE rust-fontconfig (5.0.0),
 one allsorts and one azul-core in the graph.
 
+**Font coverage is now exact, which changes fallback for the better.** No
+printpdf code changed, but rust-fontconfig 5 reads cmap segments directly
+instead of probing blocks, and that fixes two real defects in how the
+embedded base-14 fonts participated in per-character fallback:
+
+- **Symbol and ZapfDingbats reported NO coverage at all under rfc 4.** The
+  block probe could not read their cmap, so both declared empty
+  `unicode_ranges` — and azul skips empty-coverage faces during fallback, so
+  neither font could ever be chosen for any codepoint. They now declare the
+  43 and 10 codepoints they really map.
+- **Everyone else over-claimed.** Coverage was rounded up to the enclosing
+  block: Helvetica claimed all 256 of U+0000..=U+00FF against 213 real
+  glyphs, and Times-Italic claimed the whole Cyrillic block on the strength
+  of a handful of glyphs. Over-claiming is the harmful direction — the
+  resolver stops at the first font whose ranges contain the codepoint, so a
+  bogus claim wins the character and renders .notdef instead of falling
+  through to a font that has the glyph. Verified against the cmap tables:
+  all fourteen subsets now report exactly the codepoints that map to a
+  non-.notdef glyph.
+
+`build_font_pool(fonts, Some(&["monospace"]))` and friends also scan a wider
+superset than before (generic expansion now includes the per-script fallback
+candidates: 13 -> 27 fonts for `monospace`, 24 -> 63 for `sans-serif` on a
+typical macOS box). The filter is documented as a superset selector, not the
+final resolution, so this only means more fonts are available to fall back
+to; `Some(&[])` still scans nothing.
+
 ## `0.12.7`
 
 **PDF streams are actually compressed when `optimize` is on (#284).** The save
