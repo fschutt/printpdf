@@ -394,7 +394,11 @@ impl PdfDocument {
 
     /// Adds a new page-level bookmark on page `$page`, returning the bookmarks internal ID
     pub fn add_bookmark(&mut self, name: &str, page: usize) -> PageAnnotId {
-        let id = PageAnnotId::new();
+        let id = PageAnnotId(format!(
+            "bookmark_{:020}_{}",
+            self.bookmarks.map.len(),
+            crate::utils::random_character_string_32()
+        ));
         self.bookmarks.map.insert(
             id.clone(),
             PageAnnotation {

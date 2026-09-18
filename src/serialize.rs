@@ -342,7 +342,7 @@ pub fn to_lopdf_doc(
     if !pdf.bookmarks.map.is_empty() {
         let bookmarks_id = doc.new_object_id();
         let mut bookmarks_sorted = pdf.bookmarks.map.iter().collect::<Vec<_>>();
-        bookmarks_sorted.sort_by(|(_, v), (_, v2)| (v.page, &v.name).cmp(&(v2.page, &v2.name)));
+        bookmarks_sorted.sort_by(|(id, v), (id2, v2)| (v.page, id).cmp(&(v2.page, id2)));
         let bookmarks_sorted = bookmarks_sorted
             .into_iter()
             .filter_map(|(k, v)| {
