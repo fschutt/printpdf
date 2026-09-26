@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+
+**Regression test for azul#478 — multi-page tables broke about a third early.**
+`tests/html_table_page_breaks.rs` renders the reporter's fixture (one `<table>` of
+identical single-line rows, default A4, no `break-*` CSS), finds the single-page
+capacity by bisection, and asserts that once the table overflows every non-final
+page is still filled. Against azul-layout 0.0.16 a table of capacity + 1 rows
+paginates as 32 + 18 (the reporter saw 29 + 17), so both tests are `#[ignore]`d
+until the azul pins move past the fix; run them with `--ignored` to check a
+patched azul-layout, and drop the attribute on the bump.
+
+For the record, this is not the 0.12.6 policy switch: 0.12.6 already ran
+break-aware pagination against azul 0.0.14 and paginated the same fixture as
+45 + 1. Two azul-layout defects combine in 0.0.16. The trigger: the display
+list widens an overflow-visible node's text clip to its "scroll content size",
+which is floored at the node's BORDER box, from the content-box origin, so each
+cell's text clip runs `padding-top` pixels into the next row and the rows'
+avoid-ranges overlap. The amplifier, latent since the break-aware paginator was
+written:
+`page_breaks::snap_break_up` took every containing range as nesting, so after
+snapping to a row's top the break was "inside" the previous row, snapped again,
+and climbed row by row until the `max_push_distance` budget (0.33 × page) was
+spent. The azul fix lets only a range that ENCLOSES the range the break just
+left pull it further up (true nesting: a line inside a `break-inside: avoid`
+box), never a sibling that merely overlaps its top edge; a second azul fix
+stops the clip widening for a box whose only "overflow" is its own padding.
+The snap fix alone makes this test pass; with both, the break lands exactly at
+the top of the first row that no longer fits.
+
 ## `0.12.8`
 
 **rust-fontconfig 5 + azul 0.0.16.** Font fallback in HTML→PDF now runs on
