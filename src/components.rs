@@ -1,10 +1,12 @@
 //! printpdf's custom XML/HTML components for the data-driven azul component system.
 //!
 //! As of azul-core 0.0.8 the old `XmlComponentTrait` was replaced by a data-driven
-//! [`ComponentDef`] model (id = `collection:name`, a typed `data_model`, and bare
-//! `render_fn` / `compile_fn` function pointers). The `builtin` library shipped with
-//! azul-core already renders ~90 standard HTML tags (html/body/div/h1-h6/p/span/table/
-//! tr/td/a/ul/li/…), so printpdf no longer needs to register those itself.
+//! [`ComponentDef`] model (id = `collection:name`, a typed `data_model`, a bare
+//! `render_fn` function pointer, and a language-neutral `codegen` that says how
+//! generated code builds an instance; it replaced the per-language `compile_fn`).
+//! The `builtin` library shipped with azul-core already renders ~90 standard HTML
+//! tags (html/body/div/h1-h6/p/span/table/tr/td/a/ul/li/…), so printpdf no longer
+//! needs to register those itself.
 //!
 //! This module therefore only defines printpdf's **custom** components — the ones that
 //! are *not* part of azul's builtin library:
@@ -20,8 +22,8 @@
 //!
 //! The published azul-core `str_to_dom` rendering path (`render_dom_from_body_node_fast`
 //! → `xml_node_to_fast_dom`) maps tags straight to `NodeType` via `tag_to_node_type` and
-//! does **not** invoke any `ComponentDef::render_fn`. The `render_fn`/`compile_fn`
-//! machinery is only consumed by the code-generation / preview path (`str_to_rust_code`).
+//! does **not** invoke any `ComponentDef::render_fn`. The `render_fn` / `codegen`
+//! machinery is only consumed by the code-generation / preview path (`azul_core::codegen`).
 //! These custom defs are therefore primarily descriptive for that path; see the crate
 //! notes / issue #268 for the image-embedding follow-up.
 
@@ -30,9 +32,9 @@ use azul_core::{
     styled_dom::StyledDom,
     xml::{
         ComponentDataField, ComponentDataModel, ComponentDef, ComponentFieldType, ComponentId,
-        ComponentLibrary, ComponentMap, ComponentSource, ComponentDefaultValue,
-        CompileTarget, OptionComponentDefaultValue, RenderDomError,
-        ResultStringCompileError, ResultStyledDomRenderDomError,
+        ComponentCodegen, ComponentLibrary, ComponentMap, ComponentSource,
+        ComponentDefaultValue, OptionComponentDefaultValue, RenderDomError,
+        ResultStyledDomRenderDomError,
     },
 };
 use azul_css::{css::Css, AzString};
@@ -83,27 +85,10 @@ fn img_render_fn(
     r.into()
 }
 
-/// Compile function for the `<img>` component (code-generation / preview path).
-fn img_compile_fn(
-    _def: &ComponentDef,
-    target: &CompileTarget,
-    _data: &ComponentDataModel,
-    _indent: usize,
-) -> ResultStringCompileError {
-    let code = match target {
-        CompileTarget::Rust => "Dom::create_node(NodeType::Div) /* img */",
-        CompileTarget::C => "AzDom_createDiv() /* img */",
-        CompileTarget::Cpp => "Dom::div() /* img */",
-        CompileTarget::Python => "Dom.div() # img",
-    };
-    let r: Result<AzString, _> = Ok(AzString::from(code));
-    r.into()
-}
-
 /// `printpdf:img` — the `<img>` element (PDF image embedding).
 ///
 /// Mirrors azul-core's private `builtin_component_def`: a small typed data model
-/// (`src`, `alt`) plus the printpdf-specific render / compile functions.
+/// (`src`, `alt`) plus the printpdf-specific render function.
 pub fn img_component_def() -> ComponentDef {
     ComponentDef {
         id: ComponentId::new("printpdf", "img"),
@@ -131,9 +116,11 @@ pub fn img_component_def() -> ComponentDef {
             .into(),
         },
         render_fn: img_render_fn,
-        compile_fn: img_compile_fn,
+        // Generated code calls the component's own render function (azul's
+        // language-neutral `ComponentCodegen`, which replaced the per-language
+        // `compile_fn`).
+        codegen: ComponentCodegen::RenderFunction,
         render_fn_source: None.into(),
-        compile_fn_source: None.into(),
     }
 }
 
@@ -157,23 +144,6 @@ fn dynamic_xml_render_fn(
 ) -> ResultStyledDomRenderDomError {
     let mut dom = Dom::create_node(NodeType::Div);
     let r: Result<StyledDom, RenderDomError> = Ok(StyledDom::create(&mut dom, Css::empty()));
-    r.into()
-}
-
-/// Compile function for the `<component>` element (code-generation / preview path).
-fn dynamic_xml_compile_fn(
-    _def: &ComponentDef,
-    target: &CompileTarget,
-    _data: &ComponentDataModel,
-    _indent: usize,
-) -> ResultStringCompileError {
-    let code = match target {
-        CompileTarget::Rust => "Dom::create_node(NodeType::Div) /* component */",
-        CompileTarget::C => "AzDom_createDiv() /* component */",
-        CompileTarget::Cpp => "Dom::div() /* component */",
-        CompileTarget::Python => "Dom.div() # component",
-    };
-    let r: Result<AzString, _> = Ok(AzString::from(code));
     r.into()
 }
 
@@ -209,9 +179,11 @@ pub fn dynamic_xml_component_def() -> ComponentDef {
             .into(),
         },
         render_fn: dynamic_xml_render_fn,
-        compile_fn: dynamic_xml_compile_fn,
+        // Generated code calls the component's own render function (azul's
+        // language-neutral `ComponentCodegen`, which replaced the per-language
+        // `compile_fn`).
+        codegen: ComponentCodegen::RenderFunction,
         render_fn_source: None.into(),
-        compile_fn_source: None.into(),
     }
 }
 
