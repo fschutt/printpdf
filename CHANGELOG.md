@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+**HTML text now honours color alpha.** The HTML bridge emitted text fill
+colors from the RGB channels only, so `color: transparent` painted opaque
+black glyphs and `color: rgba(…, 0.5)` painted fully opaque ones. Each text
+run whose color is not opaque now gets its own `q … Q` scope:
+
+- alpha 0 (`transparent`) uses text rendering mode 3 (`3 Tr`, invisible). The
+  glyphs stay selectable, searchable and extractable, which is how OCR text
+  layers over a page scan work.
+- partial alpha loads an `ExtGState` with the fill/stroke alpha, the same way
+  translucent rects already did.
+
+Inline `background-color` behind glyph runs had the same bug (translucent
+backgrounds were painted opaque) and now gets the same `ExtGState`. Opaque text
+emits exactly the same ops as before. Tests: `tests/html_text_alpha.rs`.
+
 ## `0.12.8`
 
 **rust-fontconfig 5 + azul 0.0.16.** Font fallback in HTML→PDF now runs on
