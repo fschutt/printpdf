@@ -1629,7 +1629,7 @@ mod builtin_font_tests {
     /// over-claims is worse than one that under-claims: the resolver stops at
     /// the first font whose ranges contain the codepoint, so a bogus claim
     /// wins the character and renders .notdef instead of falling through to a
-    /// font that actually has the glyph. Helvetica's cmap holds 213 mapped
+    /// font that actually has the glyph. Helvetica's cmap holds 215 mapped
     /// codepoints; block-rounding reported 256.
     #[test]
     fn builtin_coverage_is_exact_not_block_rounded() {
@@ -1644,9 +1644,11 @@ mod builtin_font_tests {
             .iter()
             .map(|r| r.end - r.start + 1)
             .sum();
+        // 213 + U+0020 and U+00A0, mapped to the empty space glyph that
+        // scripts/add_space_glyphs.py added (#288)
         assert_eq!(
-            covered, 213,
-            "expected the 213 codepoints Helvetica.subset.ttf actually maps, got {covered} \
+            covered, 215,
+            "expected the 215 codepoints Helvetica.subset.ttf actually maps, got {covered} \
              (256 means coverage was rounded up to the Latin-1 block again)"
         );
     }
