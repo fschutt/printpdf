@@ -131,6 +131,34 @@ fn convert_color(color: &ColorU) -> Color {
     })
 }
 
+/// Open a q/Q scope for a text run whose color is not fully opaque and set its
+/// fill color inside it. Returns `false` (emitting nothing) for opaque colors so
+/// the caller can keep its cheaper cached-color path.
+///
+/// `alpha == 0` (`color: transparent`) switches to text rendering mode 3
+/// (invisible): the glyphs stay selectable/searchable — the standard OCR text
+/// layer — instead of being painted opaque black. Partial alpha gets an
+/// `ExtGState` when `bridge_res` is available; without it the text stays opaque.
+/// Text state (Tr) is part of the graphics state, so the caller's `Q` after `ET`
+/// resets both.
+fn begin_translucent_text(
+    ops: &mut Vec<Op>,
+    bridge_res: Option<&mut BridgeResources>,
+    color: &ColorU,
+) -> bool {
+    if color.a >= 255 {
+        return false;
+    }
+    ops.push(Op::SaveGraphicsState);
+    ops.push(Op::SetFillColor { col: convert_color(color) });
+    match (color.a, bridge_res) {
+        (0, _) => ops.push(Op::SetTextRenderingMode { mode: crate::TextRenderingMode::Invisible }),
+        (_, Some(res)) => apply_fill_alpha(ops, res, color),
+        (_, None) => {}
+    }
+    true
+}
+
 /// If `color` is translucent (`a < 255`), mint an `ExtGState` carrying the
 /// fill+stroke alpha, record it on `bridge_res`, and emit `LoadGraphicsState`
 /// so the subsequent fill/stroke draws with that alpha. Call this *inside* a
@@ -276,7 +304,7 @@ pub fn display_list_to_printpdf_ops_with_margins<T: ParsedFontTrait + 'static>(
         ) {
             if let Some((layout, bounds, color)) = pending_text.take() {
                 render_unified_layout_with_margins(
-                    &mut ops, layout, &bounds, color, &transform, font_manager,
+                    &mut ops, layout, &bounds, color, &transform, font_manager, bridge_res,
                 );
             }
         }
@@ -306,7 +334,7 @@ pub fn display_list_to_printpdf_ops_with_margins<T: ParsedFontTrait + 'static>(
 
     // Trailing TextLayout without any following Text item / scope change.
     if let Some((layout, bounds, color)) = pending_text.take() {
-        render_unified_layout_with_margins(&mut ops, layout, &bounds, color, &transform, font_manager);
+        render_unified_layout_with_margins(&mut ops, layout, &bounds, color, &transform, font_manager, bridge_res);
     }
 
     Ok(ops)
@@ -547,6 +575,11 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
             ops.push(Op::SetFillColor {
                 col: convert_color(color),
             });
+            match color.a {
+                255 => {}
+                0 => ops.push(Op::SetTextRenderingMode { mode: crate::TextRenderingMode::Invisible }),
+                _ => apply_fill_alpha(ops, bridge_res, color),
+            }
             
             if use_builtin_font {
                 // Use Helvetica for system-generated text (headers/footers)
@@ -928,7 +961,10 @@ fn render_unified_layout_impl<T: ParsedFontTrait + 'static>(
         }
 
         // Set color if it changed (BEFORE text section)
-        if current_color != Some(run.color) {
+        let scoped = begin_translucent_text(ops, None, &run.color);
+        if scoped {
+            current_color = None;
+        } else if current_color != Some(run.color) {
             ops.push(Op::SetFillColor {
                 col: convert_color(&run.color),
             });
@@ -988,6 +1024,9 @@ fn render_unified_layout_impl<T: ParsedFontTrait + 'static>(
 
         // End text section after this run
         ops.push(Op::EndTextSection);
+        if scoped {
+            ops.push(Op::RestoreGraphicsState);
+        }
     }
 }
 
@@ -1021,6 +1060,7 @@ fn render_unified_layout_with_margins<T: ParsedFontTrait + 'static>(
     _color: ColorU,  // Unused: per-glyph color from layout takes precedence
     transform: &CoordTransform,
     font_manager: &FontManager<T>,
+    bridge_res: &mut BridgeResources,
 ) {
     use azul_layout::text3::glyphs::get_glyph_runs_pdf;
 
@@ -1087,6 +1127,7 @@ fn render_unified_layout_with_margins<T: ParsedFontTrait + 'static>(
                     ops.push(Op::SetFillColor {
                         col: convert_color(&bg_color),
                     });
+                    apply_fill_alpha(ops, bridge_res, &bg_color);
                     ops.push(Op::DrawPolygon { polygon: make_rect_polygon_pt(pdf_x, pdf_y, pdf_w, pdf_h) });
                     ops.push(Op::RestoreGraphicsState);
                 }
@@ -1109,7 +1150,10 @@ fn render_unified_layout_with_margins<T: ParsedFontTrait + 'static>(
         }
 
         // Set color if it changed (BEFORE text section)
-        if current_color != Some(run.color) {
+        let scoped = begin_translucent_text(ops, Some(&mut *bridge_res), &run.color);
+        if scoped {
+            current_color = None;
+        } else if current_color != Some(run.color) {
             ops.push(Op::SetFillColor {
                 col: convert_color(&run.color),
             });
@@ -1185,6 +1229,9 @@ fn render_unified_layout_with_margins<T: ParsedFontTrait + 'static>(
 
         // End text section after this run
         ops.push(Op::EndTextSection);
+        if scoped {
+            ops.push(Op::RestoreGraphicsState);
+        }
     }
 
 }
