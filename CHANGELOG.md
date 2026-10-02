@@ -1,5 +1,48 @@
 # Changelog
 
+## Unreleased
+
+**HTML text now honours color alpha.** The HTML bridge emitted text fill
+colors from the RGB channels only, so `color: transparent` painted opaque
+black glyphs and `color: rgba(…, 0.5)` painted fully opaque ones. Each text
+run whose color is not opaque now gets its own `q … Q` scope:
+
+- alpha 0 (`transparent`) uses text rendering mode 3 (`3 Tr`, invisible). The
+  glyphs stay selectable, searchable and extractable, which is how OCR text
+  layers over a page scan work.
+- partial alpha loads an `ExtGState` with the fill/stroke alpha, the same way
+  translucent rects already did.
+
+Inline `background-color` behind glyph runs had the same bug (translucent
+backgrounds were painted opaque) and now gets the same `ExtGState`. Opaque text
+emits exactly the same ops as before. Tests: `tests/html_text_alpha.rs`.
+
+**Smaller text: one text object per line instead of one per word (#288).**
+A page of HTML text in a base-14 family wrote two text objects per word
+(`Tf BT /Span <</ActualText …>> BDC Tm TJ EMC ET` for the word, again for
+the space). On a 1000-word book page the Flate-compressed content stream
+goes from 45 KB to 17 KB with positioned words, and from 32 KB to 12 KB with
+flowing paragraphs. Rendering and extracted text are unchanged.
+
+- **The bundled base-14 subsets have a space.** None of the 14 fonts in
+  `defaultfonts/` had a glyph for U+0020 or U+00A0, so every space fell back
+  to a system font (HelveticaNeue on macOS): a font switch, and a new glyph
+  run, at every word, plus a second, machine-dependent font in the PDF. Each
+  subset now has an empty `space` glyph with the standard base-14 advance,
+  appended so existing glyph ids are unchanged (`scripts/add_space_glyphs.py`).
+  `!`, `”` and a few others are still missing (see #288).
+- **`optimize` merges text objects** (`src/text_merge.rs`): consecutive text
+  objects with only text state between them become one, a font or fill colour
+  that is already set is not set again, and `/ActualText` spans that follow
+  each other on one baseline become one span with the joined text.
+- **Glyph runs: whole-unit kerns, one string per unkerned sequence.** The
+  same-baseline merger wrote a kern after almost every glyph for the
+  fraction-of-a-unit difference between the layout's positions and the integer
+  `/W` widths (`[<0030> -0.16767642<0041> …]`). Kerns are now rounded to whole
+  thousandths of an em, with the exact pen position carried along so the error
+  stays below half a unit, and glyphs without a kern between them share one
+  hex string.
+
 ## `0.12.8`
 
 **rust-fontconfig 5 + azul 0.0.16.** Font fallback in HTML→PDF now runs on

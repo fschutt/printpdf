@@ -89,6 +89,8 @@ pub mod utils;
 use utils::*;
 /// Core utils for writing PDF
 pub mod serialize;
+/// Op clean-up the serializer runs with `PdfSaveOptions::optimize`
+mod text_merge;
 pub use serialize::*;
 /// Core utils for parsing PDF
 pub mod deserialize;
