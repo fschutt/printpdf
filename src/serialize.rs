@@ -311,8 +311,16 @@ pub fn to_lopdf_doc(
             page_resources.set("ExtGState", Reference(global_extgstate_dict_id));
             page_resources.set("Shading", Reference(global_shading_dict_id));
 
+            // one text object per line instead of per glyph run (see text_merge.rs)
+            let merged_ops;
+            let ops = if opts.optimize {
+                merged_ops = crate::text_merge::merge_text_runs(&page.ops);
+                &merged_ops
+            } else {
+                &page.ops
+            };
             let layer_stream = translate_operations(
-                &page.ops,
+                ops,
                 &font_infos,
                 &pdf.resources.xobjects.map,
                 opts.secure,
@@ -600,10 +608,15 @@ pub(crate) fn translate_operations(
                                 let r = glyph_run.as_mut().unwrap();
                                 let dx_em = (m[4] as f64 - r.matrix[4] as f64) * 1000.0
                                     / fs as f64;
-                                let kern = (r.pen - dx_em) as f32;
+                                // Whole thousandths of an em: the layout's positions and
+                                // the integer /W widths differ by fractions of a unit per
+                                // glyph, invisible but costly as a kern after every glyph.
+                                // `pen` keeps the exact position, so the error stays below
+                                // half a unit instead of adding up along the line.
+                                let kern = (r.pen - dx_em).round();
                                 if kern != 0.0 {
-                                    r.array.push(Real(kern));
-                                    r.pen -= kern as f64;
+                                    r.array.push(Integer(kern as i64));
+                                    r.pen -= kern;
                                 }
                             } else {
                                 flush_glyph_run(&mut glyph_run, &mut content);
@@ -638,9 +651,12 @@ pub(crate) fn translate_operations(
                             }
                             TextItem::GlyphIds(glyphs) => {
                                 for cp in glyphs {
-                                    let code = remap_gid(Some(fi), cp.gid);
-                                    r.array
-                                        .push(LoString(code.to_be_bytes().to_vec(), Hexadecimal));
+                                    let code = remap_gid(Some(fi), cp.gid).to_be_bytes();
+                                    // glyphs with no kern between them share one string
+                                    match r.array.last_mut() {
+                                        Some(LoString(bytes, Hexadecimal)) => bytes.extend_from_slice(&code),
+                                        _ => r.array.push(LoString(code.to_vec(), Hexadecimal)),
+                                    }
                                     r.pen +=
                                         get_scaled_glyph_width(&fi.parsed_font, cp.gid) as f64;
                                     if cp.offset != 0.0 {
