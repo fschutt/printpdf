@@ -146,6 +146,7 @@ fn font_is_set_again_after_restoring_graphics_state() {
     assert_eq!(count(&ops, "Tf"), 2);
 }
 
+#[cfg(feature = "html")]
 #[test]
 fn html_line_in_a_builtin_family_is_one_glyph_run() {
     // the bundled subsets had no space glyph, so every space came from a system font (#288)
@@ -166,6 +167,7 @@ fn html_line_in_a_builtin_family_is_one_glyph_run() {
     assert_eq!(fonts.len(), 1, "only Helvetica, no fallback font: {fonts:?}");
 }
 
+#[cfg(feature = "html")]
 #[test]
 fn optimizing_html_keeps_the_extracted_text() {
     let html = r#"<html><body><p style="font-family: Helvetica; font-size: 12pt">Hello world and more words here</p></body></html>"#;
