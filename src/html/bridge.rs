@@ -1533,6 +1533,31 @@ mod tests {
         assert!((ty - expect_ty).abs() < 0.5, "y placement (bottom-left, flipped)");
     }
 
+    /// The pictures a render needs are the `<img src>` tags its display lists
+    /// draw, each once however many pages or items draw it; an image without a
+    /// tag is not an `<img src>`.
+    #[test]
+    fn the_srcs_a_render_needs_are_the_img_tags_its_pages_draw_once_each() {
+        let image = |tag: &str| DisplayListItem::Image {
+            bounds: WindowLogicalRect(LogicalRect {
+                origin: LogicalPosition { x: 0.0, y: 0.0 },
+                size: LogicalSize { width: 10.0, height: 10.0 },
+            }),
+            image: ImageRef::null_image(10, 10, RawImageFormat::RGBA8, tag.as_bytes().to_vec()),
+            border_radius: BorderRadius::default(),
+        };
+        let mut first = DisplayList::default();
+        first.items.push(image("plate-1.png"));
+        first.items.push(image(""));
+        let mut second = DisplayList::default();
+        second.items.push(image("plate-1.png"));
+        second.items.push(image("plate-2.jpg"));
+
+        let srcs: Vec<String> = referenced_image_srcs(&[first, second]).into_iter().collect();
+
+        assert_eq!(srcs, ["plate-1.png", "plate-2.jpg"]);
+    }
+
     /// An image whose src has no matching entry in the resolved map renders
     /// nothing (no UseXobject, no panic).
     #[test]
