@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+**HTML: a page decodes only the pictures it shows.** `PdfDocument::from_html*`
+copied (and base64-decoded) every entry of the `images` map, and the bridge
+decoded every one of them, on every call, whether the page's HTML used it or
+not; every decoded picture was also embedded. Rendering a 1053-page book page
+by page with its 57 pictures in the map took 22 minutes (1.26 s a page);
+handing each page only the pictures its `<img src>` names took 3.5 (0.24 s a
+page). After layout, the renderer now collects the `<img src>` values the pages
+draw and looks up, decodes and embeds only those, once each
+(`bridge::referenced_image_srcs`). The same holds for `xml_to_pdf_pages`,
+`add_xml_to_document` and `from_html_debug*` (which also no longer decodes
+every picture twice). `bridge::resolve_html_images` still decodes a whole map.
+
+- An entry no page shows can no longer fail the call: a bad base64 string
+  there used to make `from_html*` return `Err("Base64 decode error: …")`.
+- A picture a page shows that has no entry, or whose entry cannot be
+  base64-decoded or decoded, is now a warning in `from_html*`'s `warnings`
+  naming its `src` (the `<img>` draws nothing, as before). A bad base64 string
+  for a shown picture used to fail the whole call.
+
+Tests: `tests/html_images_on_demand.rs`, and the decode count in
+`src/html/mod.rs` (`an_image_the_page_does_not_reference_is_not_decoded`).
+
 **HTML text now honours color alpha.** The HTML bridge emitted text fill
 colors from the RGB channels only, so `color: transparent` painted opaque
 black glyphs and `color: rgba(…, 0.5)` painted fully opaque ones. Each text

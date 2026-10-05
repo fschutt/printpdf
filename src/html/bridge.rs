@@ -10,7 +10,10 @@
 //! generate ShowText operations (with SetFont for font/size), which map 1:1 to PDF operators.
 //! which is necessary for proper text shaping in complex scripts.
 
-use std::collections::BTreeMap;
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet},
+};
 
 use azul_core::{
     geom::{LogicalRect, LogicalSize, LogicalPosition},
@@ -23,7 +26,7 @@ use azul_layout::{
 };
 
 use crate::{Color, Mm, Op, Pt, Rgb, FontId, RawImage, XObjectId, XObjectTransform,
-    ExtendedGraphicsState, ExtendedGraphicsStateId, XObject};
+    ExtendedGraphicsState, ExtendedGraphicsStateId, XObject, PdfWarnMsg};
 use crate::shading::{GradientStop, Shading, ShadingGeometry, ShadingId};
 use azul_css::props::basic::{
     color::ColorOrSystem,
@@ -105,6 +108,10 @@ pub fn image_xobject_id(src_key: &str) -> XObjectId {
 /// Decode every entry of an `images` map (key = `src`, value = raw image bytes)
 /// into a [`ResolvedImages`] table. Images that fail to decode are skipped (the
 /// corresponding `<img>` simply renders nothing).
+///
+/// This decodes the whole map, used or not. The renderers
+/// ([`crate::html::xml_to_pdf_pages`], `PdfDocument::from_html*`) decode only the
+/// `src` values their pages draw ([`referenced_image_srcs`]).
 pub fn resolve_html_images(images: &BTreeMap<String, Vec<u8>>) -> ResolvedImages {
     let mut out = ResolvedImages::new();
     for (key, bytes) in images.iter() {
@@ -130,6 +137,98 @@ thread_local! {
     /// How many images this thread decoded through [`decode_html_image`]: the
     /// tests check that a render decodes only the pictures its pages show.
     pub(crate) static HTML_IMAGE_DECODES: std::cell::Cell<usize> = std::cell::Cell::new(0);
+}
+
+/// The `src` of the `<img>` a display-list item draws, if it draws one. azul
+/// hands an HTML `<img>` to the display list as a `NullImage` whose `tag` is the
+/// `src` string (set by `xml_node_to_dom_fast`); the bytes are looked up by it.
+fn html_image_src(item: &DisplayListItem) -> Option<String> {
+    match item {
+        DisplayListItem::Image { image, .. } => match image.get_data() {
+            DecodedImage::NullImage { tag, .. } if !tag.is_empty() => {
+                String::from_utf8(tag.clone()).ok()
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Every `<img src>` the laid-out pages draw, once each. These are the only
+/// entries of the images map a render needs.
+///
+/// CSS `background-image: url(..)` is not in here: the HTML renderer resolves it
+/// through azul's `ImageCache`, which it leaves empty, so it draws nothing yet.
+pub fn referenced_image_srcs(display_lists: &[DisplayList]) -> BTreeSet<String> {
+    display_lists
+        .iter()
+        .flat_map(|display_list| display_list.items.iter())
+        .filter_map(html_image_src)
+        .collect()
+}
+
+/// Where a render looks up the encoded bytes of an `<img src>`: the
+/// `XmlRenderOptions::images` map, or the `Base64OrRaw` map handed to
+/// `PdfDocument::from_html*` (base64-decoded only when the page shows it).
+pub(crate) trait HtmlImageSource {
+    /// The encoded bytes stored under `src`: `None` if there is no such entry,
+    /// `Some(Err(..))` if the entry cannot be turned into bytes (bad base64).
+    fn image_bytes(&self, src: &str) -> Option<Result<Cow<'_, [u8]>, String>>;
+}
+
+impl HtmlImageSource for BTreeMap<String, Vec<u8>> {
+    fn image_bytes(&self, src: &str) -> Option<Result<Cow<'_, [u8]>, String>> {
+        self.get(src).map(|bytes| Ok(Cow::Borrowed(bytes.as_slice())))
+    }
+}
+
+impl HtmlImageSource for BTreeMap<String, crate::Base64OrRaw> {
+    fn image_bytes(&self, src: &str) -> Option<Result<Cow<'_, [u8]>, String>> {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        self.get(src).map(|entry| match entry {
+            crate::Base64OrRaw::Raw(bytes) => Ok(Cow::Borrowed(bytes.as_slice())),
+            // Decoded the way `from_html*` always did (plain standard alphabet).
+            crate::Base64OrRaw::B64(text) => match STANDARD.decode(text) {
+                Ok(bytes) => Ok(Cow::Owned(bytes)),
+                Err(e) => Err(format!("Base64 decode error: {}", e)),
+            },
+        })
+    }
+}
+
+/// Decode the pictures a render draws, once each: every `src` in `referenced`
+/// (see [`referenced_image_srcs`]), looked up in `images`. The other entries of
+/// `images` are not touched, so a page does not pay for the pictures of the rest
+/// of the book. A `src` without an entry, or whose entry cannot be read or
+/// decoded, is reported in `warnings`, and its `<img>` renders nothing.
+pub(crate) fn resolve_referenced_html_images(
+    referenced: &BTreeSet<String>,
+    images: &dyn HtmlImageSource,
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> ResolvedImages {
+    let mut out = ResolvedImages::new();
+    for src in referenced {
+        let decoded = match images.image_bytes(src) {
+            None => Err("no entry with this name in the images map".to_string()),
+            Some(Err(e)) => Err(e),
+            Some(Ok(bytes)) => decode_html_image(&bytes),
+        };
+        match decoded {
+            Ok(raw) => {
+                out.insert(src.clone(), (image_xobject_id(src), raw));
+            }
+            Err(e) => {
+                // A `src` can be a whole data URL: keep the message readable.
+                let shown: String = src.chars().take(80).collect();
+                warnings.push(PdfWarnMsg::warning(
+                    0,
+                    0,
+                    format!("<img src=\"{}\">: not drawn: {}", shown, e),
+                ));
+            }
+        }
+    }
+    out
 }
 
 use super::border::{
@@ -693,20 +792,13 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
             render_border(ops, &config);
         }
 
-        DisplayListItem::Image { bounds, image, border_radius: _ } => {
+        DisplayListItem::Image { bounds, .. } => {
             // The display-list `ImageRef` for an HTML `<img>` is a `NullImage`
             // whose `tag` carries the original `src` string (set by azul's
             // `xml_node_to_dom_fast`). We use that key to look up the decoded
             // bytes — already registered as a PDF Image XObject on the document —
             // and emit a `UseXobject` op positioned at `bounds`.
-            let src_key = match image.get_data() {
-                DecodedImage::NullImage { tag, .. } if !tag.is_empty() => {
-                    String::from_utf8(tag.clone()).ok()
-                }
-                _ => None,
-            };
-
-            let Some(src_key) = src_key else { return; };
+            let Some(src_key) = html_image_src(item) else { return; };
             let Some((xobject_id, raw_image)) = images.get(&src_key) else { return; };
 
             // Target placement rectangle in PDF pt.
