@@ -117,5 +117,5 @@ because `HtmlImg_plate_12_jpg` is embedded.
    (`images.iter().filter(|(name, _)| html.contains(&format!("src=\"{name}\"")))..`) and
    pass the full `images` map to `from_html_with_cache`.
 3. Render the 1053-page book: it should stay at about 0.24 s a page (3.5 min), not
-   1.26 s (22 min). Same output PDF as with the filter; any page whose picture is
+   1.26 s (22 min), with the same pictures on the pages as with the filter; any page whose picture is
    missing from the zip now shows up in `warnings` as `<img src="..">: not drawn: ..`.
