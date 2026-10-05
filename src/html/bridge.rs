@@ -108,12 +108,28 @@ pub fn image_xobject_id(src_key: &str) -> XObjectId {
 pub fn resolve_html_images(images: &BTreeMap<String, Vec<u8>>) -> ResolvedImages {
     let mut out = ResolvedImages::new();
     for (key, bytes) in images.iter() {
-        let mut warnings = Vec::new();
-        if let Ok(raw) = RawImage::decode_from_bytes(bytes, &mut warnings) {
+        if let Ok(raw) = decode_html_image(bytes) {
             out.insert(key.clone(), (image_xobject_id(key), raw));
         }
     }
     out
+}
+
+/// Decode the encoded bytes of one `<img>` entry. Every HTML image decode goes
+/// through here, so the tests can count them (`HTML_IMAGE_DECODES`).
+fn decode_html_image(bytes: &[u8]) -> Result<RawImage, String> {
+    #[cfg(test)]
+    {
+        HTML_IMAGE_DECODES.with(|n| n.set(n.get() + 1));
+    }
+    RawImage::decode_from_bytes(bytes, &mut Vec::new())
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many images this thread decoded through [`decode_html_image`]: the
+    /// tests check that a render decodes only the pictures its pages show.
+    pub(crate) static HTML_IMAGE_DECODES: std::cell::Cell<usize> = std::cell::Cell::new(0);
 }
 
 use super::border::{

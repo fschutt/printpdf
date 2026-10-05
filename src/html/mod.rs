@@ -1394,6 +1394,68 @@ mod tests {
         );
     }
 
+    /// Every entry of `options.images` used to be decoded on every render, used
+    /// or not: a 1053-page book rendered page by page with its 57 pictures in the
+    /// map took 1.26 s a page instead of 0.24 s. Only the `<img src>` the pages
+    /// draw may be decoded.
+    #[test]
+    fn an_image_the_page_does_not_reference_is_not_decoded() {
+        let xml = r#"
+            <html>
+                <body>
+                    <div>A page without pictures.</div>
+                </body>
+            </html>
+        "#;
+        let mut options = XmlRenderOptions::default();
+        // Not even an image: decoding it would fail, but it must not be tried.
+        options.images.insert("plate-12.png".to_string(), b"not an image".to_vec());
+
+        bridge::HTML_IMAGE_DECODES.with(|n| n.set(0));
+        xml_to_pdf_pages(xml, &options).expect("xml_to_pdf_pages should succeed");
+
+        assert_eq!(
+            bridge::HTML_IMAGE_DECODES.with(|n| n.get()),
+            0,
+            "the page shows no picture, so none may be decoded"
+        );
+    }
+
+    /// The picture a page shows is decoded once, however often the page shows
+    /// it, and the other entries of the map not at all.
+    #[cfg(all(feature = "images", feature = "jpeg"))]
+    #[test]
+    fn the_picture_a_page_shows_is_decoded_once_and_no_other() {
+        let cat_jpg: &[u8] = include_bytes!("../../examples/assets/img/cat.jpg");
+        let xml = r#"
+            <html>
+                <body>
+                    <div style="width: 300px; height: 169px;">
+                        <img src="cat.jpg" style="width: 300px; height: 169px;" />
+                    </div>
+                    <div style="width: 150px; height: 85px;">
+                        <img src="cat.jpg" style="width: 150px; height: 85px;" />
+                    </div>
+                    <div>caption text</div>
+                </body>
+            </html>
+        "#;
+        let mut options = XmlRenderOptions::default();
+        options.images.insert("cat.jpg".to_string(), cat_jpg.to_vec());
+        options.images.insert("plate-12.jpg".to_string(), cat_jpg.to_vec());
+
+        bridge::HTML_IMAGE_DECODES.with(|n| n.set(0));
+        let (_pages, _fonts, images, _bridge_res) =
+            xml_to_pdf_pages(xml, &options).expect("xml_to_pdf_pages should succeed");
+
+        assert_eq!(bridge::HTML_IMAGE_DECODES.with(|n| n.get()), 1, "cat.jpg, once");
+        assert!(images.contains_key("cat.jpg"), "the picture the page shows is resolved");
+        assert!(
+            !images.contains_key("plate-12.jpg"),
+            "a picture no page shows is not resolved"
+        );
+    }
+
     #[test]
     fn test_simple_xml_rendering() {
         let xml = r#"
