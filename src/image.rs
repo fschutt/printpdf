@@ -616,11 +616,6 @@ impl RawImage {
             self.convert_to_greyscale()?;
         }
 
-        // Apply dithering to greyscale images if requested
-        if options.dither_greyscale.unwrap_or_default() && self.is_greyscale_format() {
-            self.apply_dithering()?;
-        }
-
         // Resize image if it exceeds max size
         if let Some(max_size) = options
             .max_image_size
@@ -631,6 +626,12 @@ impl RawImage {
             if current_size > max_size {
                 self.resize_to_fit_size(max_size)?;
             }
+        }
+
+        // Apply dithering to greyscale images if requested. Last: scaling down keeps every n-th
+        // pixel, which of a dither pattern is not the picture's tone any more.
+        if options.dither_greyscale.unwrap_or_default() && self.is_greyscale_format() {
+            self.apply_dithering()?;
         }
 
         Ok(())
