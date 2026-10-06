@@ -63,6 +63,9 @@ pub use svg::*;
 pub mod image;
 #[cfg(feature = "images")]
 pub use image::*;
+/// Shrinking a finished PDF: its pictures (requires 'images' feature) and its /ActualText
+pub mod optimize;
+pub use optimize::*;
 /// HTML handling (using azul solver3 and DisplayList)
 #[cfg(feature = "html")]
 pub mod html;
@@ -459,15 +462,9 @@ impl PdfDocument {
         xml_options.footer_text = options.footer_text.clone();
         xml_options.skip_first_page = options.skip_first_page.unwrap_or(false);
         
-        // Convert images and fonts
-        for (key, img) in images {
-            let bytes = match img {
-                Base64OrRaw::Raw(b) => b.clone(),
-                Base64OrRaw::B64(s) => STANDARD.decode(s).map_err(|e| format!("Base64 decode error: {}", e))?,
-            };
-            xml_options.images.insert(key.clone(), bytes);
-        }
-        
+        // Images are not copied into `xml_options`: the render looks up (and
+        // base64-decodes, and decodes) only the `<img src>` its pages draw, in
+        // `images` itself. An entry the page does not show costs nothing.
         for (key, font) in fonts {
             let bytes = match font {
                 Base64OrRaw::Raw(b) => b.clone(),
@@ -480,7 +477,7 @@ impl PdfDocument {
         xml_options.font_pool = font_pool;
 
         // Render XML to pages
-        match crate::html::xml_to_pdf_pages(html, &xml_options) {
+        match crate::html::xml_to_pdf_pages_with_images(html, &xml_options, images, warnings) {
             Ok((pages, font_data, images, bridge_res)) => {
                 // Register fonts from font_data in pdf.resources.fonts
                 for (font_hash, parsed_font) in font_data.iter() {
@@ -559,15 +556,9 @@ impl PdfDocument {
         xml_options.footer_text = options.footer_text.clone();
         xml_options.skip_first_page = options.skip_first_page.unwrap_or(false);
         
-        // Convert images and fonts
-        for (key, img) in images {
-            let bytes = match img {
-                Base64OrRaw::Raw(b) => b.clone(),
-                Base64OrRaw::B64(s) => STANDARD.decode(s).map_err(|e| format!("Base64 decode error: {}", e))?,
-            };
-            xml_options.images.insert(key.clone(), bytes);
-        }
-        
+        // Images are not copied into `xml_options`: the render looks up (and
+        // base64-decodes, and decodes) only the `<img src>` its pages draw, in
+        // `images` itself. An entry the page does not show costs nothing.
         for (key, font) in fonts {
             let bytes = match font {
                 Base64OrRaw::Raw(b) => b.clone(),
@@ -580,8 +571,8 @@ impl PdfDocument {
         xml_options.font_pool = font_pool;
 
         // Render XML to pages with debug info
-        match crate::html::xml_to_pdf_pages_debug(html, &xml_options) {
-            Ok((pages, font_data, debug_info, bridge_res)) => {
+        match crate::html::xml_to_pdf_pages_debug_with_images(html, &xml_options, images, warnings) {
+            Ok((pages, font_data, debug_info, bridge_res, images)) => {
                 // Register fonts from font_data in pdf.resources.fonts
                 for (font_hash, parsed_font) in font_data.iter() {
                     let font_id = FontId(format!("F{}", font_hash.font_hash));
@@ -589,11 +580,8 @@ impl PdfDocument {
                     pdf.resources.fonts.map.insert(font_id, pdf_font);
                 }
                 // Register `<img>` images as PDF Image XObjects (ids match the
-                // bridge's `UseXobject` ops). Re-derived from the same bytes so
-                // it stays in sync with `xml_to_pdf_pages_debug`.
-                for (_src, (xobject_id, raw_image)) in
-                    crate::html::bridge::resolve_html_images(&xml_options.images).into_iter()
-                {
+                // bridge's `UseXobject` ops).
+                for (_src, (xobject_id, raw_image)) in images.into_iter() {
                     pdf.resources
                         .xobjects
                         .map
