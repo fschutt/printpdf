@@ -238,7 +238,7 @@ name = "image"
 required-features = ["images", "png"]
 
 [[example]]
-name = "optimize_images"
+name = "optimize_pdf"
 required-features = ["images"]
 
 [[example]]
