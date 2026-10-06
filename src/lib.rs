@@ -63,6 +63,11 @@ pub use svg::*;
 pub mod image;
 #[cfg(feature = "images")]
 pub use image::*;
+/// Re-encoding the pictures of a finished PDF (requires 'images' feature)
+#[cfg(feature = "images")]
+pub mod optimize;
+#[cfg(feature = "images")]
+pub use optimize::*;
 /// HTML handling (using azul solver3 and DisplayList)
 #[cfg(feature = "html")]
 pub mod html;
