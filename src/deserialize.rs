@@ -3355,7 +3355,21 @@ pub fn parse_op(
                 let y = Pt(to_f32(&op.operands[1]));
                 let width = Pt(to_f32(&op.operands[2]));
                 let height = Pt(to_f32(&op.operands[3]));
-                state.rectangle_builder.new(x, y, width, height);
+                // ISO 32000-1 8.5.2.1: `re` appends a closed rectangle to the
+                // CURRENT PATH (m, l, l, l, h) - the painting operator after it
+                // fills, strokes or clips it like any other subpath. It used to
+                // go to a builder only `n` emitted: `re f` / `re S` / `re B`
+                // drew nothing (every table background, box and rule), and
+                // `re W n` - a clip - came out as a FILLED rectangle.
+                let corner = |dx: f32, dy: f32| Point {
+                    x: Pt(x.0 + dx),
+                    y: Pt(y.0 + dy),
+                };
+                state.path_builder.move_to(corner(0.0, 0.0));
+                state.path_builder.line_to(corner(width.0, 0.0));
+                state.path_builder.line_to(corner(width.0, height.0));
+                state.path_builder.line_to(corner(0.0, height.0));
+                state.path_builder.close_path();
             } else {
                 warnings.push(PdfWarnMsg::error(
                     page,
@@ -3449,10 +3463,9 @@ pub fn parse_op(
             state.path_builder.clear();
         }
         "n" => {
-            // End path without filling or stroking
+            // End path without filling or stroking (a preceding `W` / `W*`
+            // already took it as the clip).
             state.path_builder.clear();
-            out_ops.extend_from_slice(&state.rectangle_builder.get_ops());
-            state.rectangle_builder.clear();
         }
         "W" => {
             // Set clip path using non-zero winding rule
