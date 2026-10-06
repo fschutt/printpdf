@@ -35,7 +35,7 @@ use serde_derive::{Deserialize, Serialize};
 use crate::{
     ops::{Op, PdfFontHandle},
     text::TextItem,
-    BuiltinFont, FontId, ParsedFont, PdfPage, PdfResources,
+    BuiltinFont, Color, FontId, ParsedFont, PdfPage, PdfResources, TextRenderingMode,
 };
 
 /// `[x0, y0, x1, y1]` in pt, top-left origin (hOCR `bbox` order).
@@ -84,6 +84,19 @@ pub struct TextWord {
     /// The font resource this word was shown with, if an external font.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub font: Option<FontId>,
+    /// The standard-14 font this word was shown with (`font` is `None` then):
+    /// a viewer draws it with a metric-compatible face of that name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builtin: Option<BuiltinFont>,
+    /// The fill colour in effect when the word was shown (`None` = the
+    /// initial black).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<Color>,
+    /// Shown with text rendering mode 3 (`Tr 3`, neither filled nor stroked):
+    /// the searchable text an OCR tool lays over a scanned page. A viewer
+    /// selects it but does not draw it.
+    #[serde(default, skip_serializing_if = "core::ops::Not::not")]
+    pub invisible: bool,
     /// Per-glyph boxes, for character-precise selection/hit-testing.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub glyphs: Vec<GlyphBox>,
@@ -151,7 +164,7 @@ fn quad_to_bbox(m: &Mat, x0: f32, y0: f32, x1: f32, y1: f32, page_height: f32) -
 /// standard-14 face (whose subset program ships with printpdf).
 enum FontRef<'a> {
     External(FontId, &'a ParsedFont),
-    Builtin(ParsedFont),
+    Builtin(BuiltinFont, ParsedFont),
     None,
 }
 
@@ -159,7 +172,7 @@ impl FontRef<'_> {
     fn parsed(&self) -> Option<&ParsedFont> {
         match self {
             FontRef::External(_, f) => Some(f),
-            FontRef::Builtin(f) => Some(f),
+            FontRef::Builtin(_, f) => Some(f),
             FontRef::None => None,
         }
     }
@@ -167,6 +180,13 @@ impl FontRef<'_> {
     fn id(&self) -> Option<FontId> {
         match self {
             FontRef::External(id, _) => Some(id.clone()),
+            _ => None,
+        }
+    }
+
+    fn builtin(&self) -> Option<BuiltinFont> {
+        match self {
+            FontRef::Builtin(b, _) => Some(*b),
             _ => None,
         }
     }
@@ -254,6 +274,16 @@ impl TextState {
     }
 }
 
+/// The graphics state a word is painted with, besides its font: saved and
+/// restored with `q` / `Q` like the CTM.
+#[derive(Debug, Clone, Default)]
+struct Paint {
+    /// `rg` / `g` / `k` / `sc`: `None` = the initial black.
+    fill: Option<Color>,
+    /// `Tr 3` (or `Tr 7`): the glyphs are neither filled nor stroked.
+    invisible: bool,
+}
+
 /// Accumulates glyphs into words into lines.
 struct Builder {
     lines: Vec<TextLine>,
@@ -270,6 +300,7 @@ impl Builder {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn push_glyph(
         &mut self,
         text: &str,
@@ -277,12 +308,17 @@ impl Builder {
         baseline_y: f32,
         font_size: f32,
         font: Option<FontId>,
+        builtin: Option<BuiltinFont>,
+        paint: &Paint,
     ) {
         let word = self.cur_word.get_or_insert_with(|| TextWord {
             bbox,
             text: String::new(),
             font_size,
             font: font.clone(),
+            builtin,
+            color: paint.fill.clone(),
+            invisible: paint.invisible,
             glyphs: Vec::new(),
         });
         word.bbox = bbox_union(word.bbox, bbox);
@@ -340,7 +376,8 @@ impl PdfPage {
         let mut builder = Builder::new();
         let mut st = TextState::default();
         let mut ctm = Mat::IDENTITY;
-        let mut ctm_stack: Vec<Mat> = Vec::new();
+        let mut ctm_stack: Vec<(Mat, Paint)> = Vec::new();
+        let mut paint = Paint::default();
         let mut in_text = false;
         let mut font: FontRef = FontRef::None;
         let mut builtin_cache: BTreeMap<BuiltinFont, ParsedFont> = BTreeMap::new();
@@ -362,10 +399,16 @@ impl PdfPage {
                     in_text = false;
                     builder.end_line();
                 }
-                Op::SaveGraphicsState => ctm_stack.push(ctm),
+                Op::SaveGraphicsState => ctm_stack.push((ctm, paint.clone())),
+                Op::SetFillColor { col } => paint.fill = Some(col.clone()),
+                Op::SetTextRenderingMode { mode } => {
+                    paint.invisible =
+                        matches!(mode, TextRenderingMode::Invisible | TextRenderingMode::Clip);
+                }
                 Op::RestoreGraphicsState => {
-                    if let Some(m) = ctm_stack.pop() {
+                    if let Some((m, p)) = ctm_stack.pop() {
                         ctm = m;
+                        paint = p;
                     }
                 }
                 Op::SetTransformationMatrix { matrix } => {
@@ -392,7 +435,7 @@ impl PdfPage {
                                 ParsedFont::from_bytes(&subset.bytes, 0, &mut Vec::new())
                                     .expect("builtin font programs always parse")
                             });
-                            FontRef::Builtin(parsed.clone())
+                            FontRef::Builtin(*b, parsed.clone())
                         }
                     };
                 }
@@ -445,6 +488,7 @@ impl PdfPage {
                         &mut st,
                         ctm,
                         &font,
+                        &paint,
                         &mut builder,
                         page_height,
                     );
@@ -454,7 +498,7 @@ impl PdfPage {
                     st.line_origin = (st.line_origin.0, st.line_origin.1 - st.leading);
                     st.pen_x = 0.0;
                     let items = [TextItem::Text(text.clone())];
-                    self.show_items(&items, &mut st, ctm, &font, &mut builder, page_height);
+                    self.show_items(&items, &mut st, ctm, &font, &paint, &mut builder, page_height);
                 }
                 Op::SetSpacingMoveAndShowText {
                     word_spacing,
@@ -467,7 +511,7 @@ impl PdfPage {
                     st.line_origin = (st.line_origin.0, st.line_origin.1 - st.leading);
                     st.pen_x = 0.0;
                     let items = [TextItem::Text(text.clone())];
-                    self.show_items(&items, &mut st, ctm, &font, &mut builder, page_height);
+                    self.show_items(&items, &mut st, ctm, &font, &paint, &mut builder, page_height);
                 }
                 _ => {}
             }
@@ -487,11 +531,13 @@ impl PdfPage {
         st: &mut TextState,
         ctm: Mat,
         font: &FontRef,
+        paint: &Paint,
         builder: &mut Builder,
         page_height: f32,
     ) {
         let parsed = font.parsed();
         let font_id = font.id();
+        let builtin = font.builtin();
         let (asc_em, desc_em) = vertical_extent_em(parsed);
 
         let emit = |st: &mut TextState,
@@ -529,6 +575,8 @@ impl PdfPage {
                 page_height - baseline_pdf,
                 st.font_size,
                 font_id.clone(),
+                builtin,
+                paint,
             );
             st.pen_x += adv_pt;
         };
