@@ -1281,7 +1281,9 @@ fn render_unified_layout_with_margins<T: ParsedFontTrait + 'static>(
         // Wrap the run's glyphs in an /ActualText marked-content span so copy-paste,
         // selection and accessibility use the real string. We position each glyph
         // with its own text matrix for pixel-accurate layout, which otherwise makes
-        // extractors treat every glyph as a separate word.
+        // extractors treat every glyph as a separate word. (Saving with `optimize` merges
+        // the glyphs into one TJ a line and drops the span again where they then read as
+        // the same text anyway: optimize.rs.)
         let run_text: String = run.glyphs.iter().map(|g| g.unicode_codepoint.as_str()).collect();
         let wrapped = !run_text.is_empty();
         if wrapped {
