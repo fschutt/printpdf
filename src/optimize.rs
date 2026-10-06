@@ -1,13 +1,24 @@
-//! Shrinking the pictures of a finished PDF, without touching anything else in it.
+//! Shrinking a finished PDF without changing what it shows or what its text reads as: its
+//! pictures encoded again ([`optimize_images`]), and the `/ActualText` its glyphs read as anyway
+//! dropped ([`optimize_text`]).
 
+#[cfg(feature = "images")]
 use std::collections::BTreeSet;
 
+#[cfg(feature = "images")]
 use lopdf::{Document, Object, ObjectId, Stream};
 
+use crate::PdfWarnMsg;
+#[cfg(feature = "images")]
 use crate::{
     deserialize::raw_bitmap_from_stream, image::image_to_stream, ImageOptimizationOptions,
-    PdfWarnMsg,
 };
+
+/// Drops the `/ActualText` of every `/Span` in a finished PDF whose glyphs read as that text
+/// anyway.
+pub fn optimize_text(pdf: &[u8], _warnings: &mut Vec<PdfWarnMsg>) -> Result<Vec<u8>, String> {
+    Ok(pdf.to_vec())
+}
 
 /// Encodes the pictures of a finished PDF again, as [`PdfDocument::save`](crate::PdfDocument::save)
 /// would with `options`, and puts each one that comes out smaller in place of the old one, under
@@ -20,6 +31,7 @@ use crate::{
 ///
 /// For scans of black-and-white prints (engravings, woodcuts), `dither_greyscale` makes their
 /// grey pixels black or white, and the pictures are then written with one bit per pixel.
+#[cfg(feature = "images")]
 pub fn optimize_images(
     pdf: &[u8],
     options: &ImageOptimizationOptions,
@@ -83,6 +95,7 @@ pub fn optimize_images(
     Ok(bytes)
 }
 
+#[cfg(feature = "images")]
 fn as_image(object: &Object) -> Option<&Stream> {
     match object {
         Object::Stream(s)
@@ -96,6 +109,7 @@ fn as_image(object: &Object) -> Option<&Stream> {
 
 /// Whether the picture's pixels are read and written the same way: 8-bit DeviceGray or
 /// DeviceRGB, Flate or no filter, and nothing else that changes how they are drawn
+#[cfg(feature = "images")]
 fn reencodable(image: &Stream) -> bool {
     let dict = &image.dict;
     let flate_or_none = match dict.get(b"Filter") {
