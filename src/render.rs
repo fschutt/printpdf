@@ -7,6 +7,7 @@ use crate::{
     ops::PdfPage, Actions, BlackGenerationExtraFunction,
     BlackGenerationFunction, BlendMode, BuiltinFont, BuiltinOrExternalFontId, ChangedField, Color,
     CurTransMat, Destination, ExtendedGraphicsState, FontId, HalftoneType, Line, LineCapStyle,
+    LinePoint,
     LineDashPattern, LineJoinStyle, OutputImageFormat, OverprintMode, PaintMode, PdfResources,
     PdfWarnMsg, Point, Polygon, Pt, RenderingIntent, SoftMask, TextItem, TextMatrix,
     TextRenderingMode, TransferExtraFunction, TransferFunction, UnderColorRemovalExtraFunction,
@@ -953,6 +954,37 @@ fn escape_xml_text(text: &str) -> String {
         .replace('\'', "&apos;")
 }
 
+/// SVG path data for `points` (PDF user space, y up) with the y axis
+/// flipped to the page (`H - y`): `M` the first point, `L` a plain point, `C`
+/// a cubic - two bezier handles and its end point, the way `c` / `v` / `y`
+/// are parsed (a lone handle, which no operator produces, is a `Q`).
+fn svg_path_data(points: &[LinePoint], page_height: f32) -> String {
+    let at = |p: &LinePoint| format!("{},{}", p.p.x.0, page_height - p.p.y.0);
+    let Some(first) = points.first() else {
+        return String::new();
+    };
+    let mut d = format!("M{}", at(first));
+    let mut i = 1;
+    while i < points.len() {
+        let point = &points[i];
+        match (point.bezier, points.get(i + 1), points.get(i + 2)) {
+            (true, Some(c2), Some(end)) if c2.bezier => {
+                d.push_str(&format!(" C{} {} {}", at(point), at(c2), at(end)));
+                i += 3;
+            }
+            (true, Some(end), _) => {
+                d.push_str(&format!(" Q{} {}", at(point), at(end)));
+                i += 2;
+            }
+            _ => {
+                d.push_str(&format!(" L{}", at(point)));
+                i += 1;
+            }
+        }
+    }
+    d
+}
+
 // Gets combined transform string for SVG elements
 fn get_svg_transform(
     ctm: &CurTransMat,
@@ -961,18 +993,23 @@ fn get_svg_transform(
 ) -> String {
     let mut transform = String::new();
 
-    // Apply CTM first
+    // Apply CTM first. The path points are already flipped to the page,
+    // u = (x, H - y), so the transform is flip . CTM . flip:
+    // (a x + c y + e, H - (b x + d y + f)) rewritten in u. The translation
+    // used to be (e, H - f), which left a scaled shape (`q 0.5 0 0 0.5 0 0
+    // cm`, every PDF that draws in its own units) d * H too low - mostly
+    // off the page.
     let ctm_array = ctm.as_array();
     if *ctm != CurTransMat::Identity {
-        // SVG coordinate system flips Y compared to PDF
+        let [a, b, c, d, e, f] = ctm_array;
         transform.push_str(&format!(
             "matrix({} {} {} {} {} {})",
-            ctm_array[0],
-            -ctm_array[1],
-            -ctm_array[2],
-            ctm_array[3],
-            ctm_array[4],
-            page_height - ctm_array[5]
+            a,
+            -b,
+            -c,
+            d,
+            e + c * page_height,
+            page_height - d * page_height - f
         ));
     }
 
@@ -1196,38 +1233,7 @@ fn render_line_to_svg(line: &Line, gst: &GraphicsStateVec, page_height: f32) -> 
     }
 
     // Generate SVG path data
-    let mut path_data = String::new();
-
-    // Start with the first point
-    let first_point = &line.points[0];
-    path_data.push_str(&format!(
-        "M{},{}",
-        first_point.p.x.0,
-        page_height - first_point.p.y.0
-    ));
-
-    // Process remaining points, handling bezier control points
-    let mut i = 1;
-    while i < line.points.len() {
-        let point = &line.points[i];
-
-        if point.bezier && i + 2 <= line.points.len() {
-            // This is a bezier control point
-            let next_point = &line.points[i + 1];
-            path_data.push_str(&format!(
-                " Q{},{} {},{}",
-                point.p.x.0,
-                page_height - point.p.y.0,
-                next_point.p.x.0,
-                page_height - next_point.p.y.0
-            ));
-            i += 2; // Skip the next point as it's the end of the bezier
-        } else {
-            // Regular line segment
-            path_data.push_str(&format!(" L{},{}", point.p.x.0, page_height - point.p.y.0));
-            i += 1;
-        }
-    }
+    let mut path_data = svg_path_data(&line.points, page_height);
 
     if line.is_closed {
         path_data.push_str(" Z"); // Close the path
@@ -1296,36 +1302,10 @@ fn render_polygon_to_svg(polygon: &Polygon, gst: &GraphicsStateVec, page_height:
             continue;
         }
 
-        // Start with the first point of this ring
-        let first_point = &ring.points[0];
-        path_data.push_str(&format!(
-            "M{},{}",
-            first_point.p.x.0,
-            page_height - first_point.p.y.0
-        ));
-
-        // Process remaining points, handling bezier curves
-        let mut i = 1;
-        while i < ring.points.len() {
-            let point = &ring.points[i];
-
-            if point.bezier && i + 2 <= ring.points.len() {
-                // This is a bezier control point
-                let next_point = &ring.points[i + 1];
-                path_data.push_str(&format!(
-                    " Q{},{} {},{}",
-                    point.p.x.0,
-                    page_height - point.p.y.0,
-                    next_point.p.x.0,
-                    page_height - next_point.p.y.0
-                ));
-                i += 2; // Skip the next point as it's the end of the bezier
-            } else {
-                // Regular line segment
-                path_data.push_str(&format!(" L{},{}", point.p.x.0, page_height - point.p.y.0));
-                i += 1;
-            }
+        if !path_data.is_empty() {
+            path_data.push(' ');
         }
+        path_data.push_str(&svg_path_data(&ring.points, page_height));
 
         // Close the path for this ring
         path_data.push_str(" Z");
