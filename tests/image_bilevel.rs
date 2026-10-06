@@ -298,6 +298,38 @@ fn a_dithered_image_is_written_with_one_bit_per_pixel() {
     assert_eq!(data.len(), 64 / 8 * 64);
 }
 
+#[test]
+fn a_grey_image_scaled_down_and_dithered_keeps_its_tone() {
+    // 16 KB of pixels, at most 1 KB: scaled down (nearest neighbour) to 32 x 32, then dithered.
+    // Dithered first, the scaling would keep every fourth pixel of the dither pattern, which
+    // for a flat grey is about a checkerboard: all black or all white.
+    let options = PdfSaveOptions {
+        image_optimization: Some(ImageOptimizationOptions {
+            max_image_size: Some("1kb".to_string()),
+            ..dither()
+        }),
+        ..Default::default()
+    };
+    let (dict, bits) = the_image(&pdf_with(&grey(128, 128, vec![128; 128 * 128]), &options));
+    let (width, height) = (
+        int(&dict, b"Width") as usize,
+        int(&dict, b"Height") as usize,
+    );
+    assert!(width < 128, "scaled down");
+    assert_eq!(int(&dict, b"BitsPerComponent"), 1);
+    let row = width.div_ceil(8);
+    let white = (0..height)
+        .flat_map(|y| (0..width).map(move |x| (y, x)))
+        .filter(|&(y, x)| bits[y * row + x / 8] & (0x80 >> (x % 8)) != 0)
+        .count();
+    let share = white as f32 / (width * height) as f32;
+    assert!(
+        (share - 128.0 / 255.0).abs() < 0.05,
+        "{:.0}% of the pixels are white, expected 50%",
+        share * 100.0
+    );
+}
+
 // --- optimize_images: a finished PDF, its pictures encoded again in place ---
 
 #[test]
