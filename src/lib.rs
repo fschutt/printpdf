@@ -92,6 +92,9 @@ pub mod serialize;
 /// Op clean-up the serializer runs with `PdfSaveOptions::optimize`
 mod text_merge;
 pub use serialize::*;
+/// Interactive forms (AcroForm): read the fields, fill / flatten them, stamp
+/// drawings (signatures) onto pages - on the PDF's own bytes
+pub mod forms;
 /// Core utils for parsing PDF
 pub mod deserialize;
 pub use deserialize::*;
