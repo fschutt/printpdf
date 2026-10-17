@@ -4,6 +4,9 @@
 //! The HTML renderer emits one text object per glyph run, and a run ends at every font change:
 //! a line whose spaces come from a fallback font becomes a text object per word and per space
 //! (#288). The glyphs, their matrices, fonts and colours must come out unchanged.
+//!
+//! Saving with `optimize` also drops an `/ActualText` that the glyphs read as anyway
+//! (`tests/actual_text.rs`), so the spans joined here are letter-spaced: theirs stays.
 
 use lopdf::content::Operation;
 use lopdf::Object;
@@ -70,9 +73,15 @@ fn spans(ops: &[Operation]) -> Vec<String> {
         .collect()
 }
 
+/// Character spacing: a reader takes the gaps for spaces, so the /ActualText stays.
+fn letter_spacing() -> Op {
+    Op::SetCharacterSpacing { multiplier: 1.0 }
+}
+
 /// "Hello" in font A, " " in font B, "world" in font A, all on one baseline, then a second line.
 fn two_lines(a: &FontId, b: &FontId) -> Vec<Op> {
     let mut ops = vec![Op::SetFillColor { col: Color::Rgb(Rgb { r: 0.0, g: 0.0, b: 0.0, icc_profile: None }) }];
+    ops.push(letter_spacing());
     ops.extend(run(a, "Hello", 2, 10.0, 700.0));
     ops.extend(run(b, " ", 1, 40.0, 700.0));
     ops.extend(run(a, "world", 3, 45.0, 700.0));
@@ -92,6 +101,16 @@ fn runs_become_one_text_object_with_one_span_per_line() {
     // every glyph keeps its own position
     assert_eq!(count(&ops, "Tm"), 4);
     assert_eq!(count(&ops, "rg"), 1);
+}
+
+#[test]
+fn spans_the_glyphs_read_as_anyway_are_dropped() {
+    let mut doc = PdfDocument::new("merge");
+    let (a, b) = fonts(&mut doc);
+    let plain: Vec<Op> = two_lines(&a, &b).into_iter().filter(|op| !matches!(op, Op::SetCharacterSpacing { .. })).collect();
+    let ops = save(doc, plain, true);
+    assert_eq!((count(&ops, "BT"), count(&ops, "BDC"), count(&ops, "EMC")), (1, 0, 0));
+    assert_eq!(count(&ops, "Tm"), 4);
 }
 
 #[test]
@@ -124,7 +143,8 @@ fn a_text_object_that_relies_on_bt_is_left_alone() {
 fn drawing_between_text_objects_keeps_them_apart() {
     let mut doc = PdfDocument::new("merge");
     let (a, _) = fonts(&mut doc);
-    let mut ops = run(&a, "One", 2, 10.0, 700.0);
+    let mut ops = vec![letter_spacing()];
+    ops.extend(run(&a, "One", 2, 10.0, 700.0));
     ops.push(Op::DrawLine {
         line: Line { points: vec![LinePoint { p: Point::new(Mm(1.0), Mm(1.0)), bezier: false }, LinePoint { p: Point::new(Mm(5.0), Mm(1.0)), bezier: false }], is_closed: false },
     });
@@ -158,7 +178,9 @@ fn html_line_in_a_builtin_family_is_one_glyph_run() {
     let (_, page_id) = pdf.get_pages().into_iter().next().expect("one page");
     let ops = pdf.get_and_decode_page_content(page_id).expect("content parses").operations;
     assert_eq!((count(&ops, "BT"), count(&ops, "Tf"), count(&ops, "Tm"), count(&ops, "TJ")), (1, 1, 1, 1));
-    assert_eq!(spans(&ops), ["Hello world and more words here"]);
+    // its glyphs read as the line, so it needs no /ActualText
+    assert_eq!(count(&ops, "BDC"), 0);
+    assert_eq!(glyph_text(&pdf, page_id, &ops), "Hello world and more words here");
     let fonts: Vec<_> = pdf.objects.values()
         .filter_map(|o| o.as_dict().ok())
         .filter(|d| d.get(b"Type").ok().and_then(|t| t.as_name().ok()) == Some(b"Font".as_slice()))
@@ -180,12 +202,47 @@ fn optimizing_html_keeps_the_extracted_text() {
         let bytes = doc.save(&opts, &mut Vec::new());
         let pdf = lopdf::Document::load_mem(&bytes).expect("PDF parses");
         let (_, page_id) = pdf.get_pages().into_iter().next().expect("one page");
-        pdf.get_and_decode_page_content(page_id).expect("content parses").operations
+        let ops = pdf.get_and_decode_page_content(page_id).expect("content parses").operations;
+        let text = glyph_text(&pdf, page_id, &ops);
+        (ops, text)
     };
-    let plain = content(doc_for(), false);
-    let merged = content(doc_for(), true);
+    let (plain, plain_text) = content(doc_for(), false);
+    let (merged, merged_text) = content(doc_for(), true);
     assert_eq!(count(&merged, "BT"), 1);
-    assert_eq!(spans(&merged).concat(), spans(&plain).concat());
-    assert_eq!(spans(&merged).concat(), "Hello world and more words here");
-    assert_eq!(count(&merged, "BDC"), 1, "one /ActualText span for the line");
+    assert_eq!(spans(&plain).concat(), "Hello world and more words here");
+    // optimized, the line has no /ActualText: its glyphs read as the same text
+    assert_eq!(count(&merged, "BDC"), 0);
+    assert_eq!(merged_text, "Hello world and more words here");
+    assert_eq!(merged_text, plain_text);
+}
+
+/// The text a reader gets from the glyphs: each code of a TJ through its font's /ToUnicode.
+#[cfg(feature = "html")]
+fn glyph_text(pdf: &lopdf::Document, page_id: lopdf::ObjectId, ops: &[Operation]) -> String {
+    let fonts = pdf.get_page_fonts(page_id).expect("page fonts");
+    let mut to_unicode = None;
+    let mut text = String::new();
+    for op in ops {
+        match op.operator.as_str() {
+            "Tf" => {
+                let font = fonts[op.operands[0].as_name().unwrap()];
+                let id = font.get(b"ToUnicode").and_then(Object::as_reference).expect("/ToUnicode");
+                let stream = pdf.get_object(id).and_then(Object::as_stream).unwrap();
+                let cmap = stream.decompressed_content().unwrap_or_else(|_| stream.content.clone());
+                to_unicode = Some(ToUnicodeCMap::parse(&String::from_utf8_lossy(&cmap)).unwrap());
+            }
+            "TJ" => {
+                for item in op.operands[0].as_array().unwrap() {
+                    if let Object::String(codes, _) = item {
+                        for code in codes.chunks(2) {
+                            let code = u16::from_be_bytes([code[0], code[1]]) as u32;
+                            text += &to_unicode.as_ref().unwrap().lookup_string(code).unwrap();
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    text
 }

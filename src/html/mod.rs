@@ -464,9 +464,25 @@ fn build_page_config(options: &XmlRenderOptions) -> FakePageConfig {
 /// so that the `UseXobject` ops emitted for `<img>` elements resolve. The
 /// document-assembly helpers ([`add_xml_to_document`], `PdfDocument::from_html`)
 /// do this automatically.
+///
+/// Only the entries of `options.images` that the pages draw (`<img src>`) are
+/// decoded and returned; the rest of the map is not touched.
 pub fn xml_to_pdf_pages(
     xml: &str,
     options: &XmlRenderOptions,
+) -> Result<(Vec<PdfPage>, BTreeMap<FontHash, ParsedFont>, bridge::ResolvedImages, bridge::BridgeResources), Vec<PdfWarnMsg>> {
+    xml_to_pdf_pages_with_images(xml, options, &options.images, &mut Vec::new())
+}
+
+/// [`xml_to_pdf_pages`], with the `<img>` bytes looked up in `images` (instead of
+/// `options.images`) for the `src` values the pages draw, and nothing else.
+/// Pictures that are drawn but cannot be found, read or decoded are reported in
+/// `image_warnings`.
+pub(crate) fn xml_to_pdf_pages_with_images(
+    xml: &str,
+    options: &XmlRenderOptions,
+    images: &dyn bridge::HtmlImageSource,
+    image_warnings: &mut Vec<PdfWarnMsg>,
 ) -> Result<(Vec<PdfPage>, BTreeMap<FontHash, ParsedFont>, bridge::ResolvedImages, bridge::BridgeResources), Vec<PdfWarnMsg>> {
     let mut warnings = Vec::new();
     // Type-safe preprocessing: RawHtml -> PreprocessedHtml
@@ -616,10 +632,16 @@ pub fn xml_to_pdf_pages(
         }
     };
 
-    // Decode any embedded `<img>` bytes once, keyed by `src`. Each decoded image
-    // gets a deterministic XObject id so the bridge's `UseXobject` ops and the
+    // Decode the `<img>` pictures the pages draw, once each, keyed by `src`, and
+    // only those: the map may hold every picture of a book, and decoding all of
+    // them for every page cost a page-by-page book render 1 s a page. Each gets
+    // a deterministic XObject id so the bridge's `UseXobject` ops and the
     // document-side XObject registration agree.
-    let resolved_images = bridge::resolve_html_images(&options.images);
+    let resolved_images = bridge::resolve_referenced_html_images(
+        &bridge::referenced_image_srcs(&display_lists),
+        images,
+        image_warnings,
+    );
     // Resources synthesized by the bridge (alpha/opacity ExtGStates, gradient
     // shadings, shadow XObjects), accumulated across pages and registered by
     // the caller (`from_html*`) via `BridgeResources::register_into`.
@@ -744,6 +766,19 @@ pub fn xml_to_pdf_pages_debug(
     xml: &str,
     options: &XmlRenderOptions,
 ) -> Result<(Vec<PdfPage>, BTreeMap<FontHash, ParsedFont>, PdfDebugInfo, bridge::BridgeResources), Vec<PdfWarnMsg>> {
+    xml_to_pdf_pages_debug_with_images(xml, options, &options.images, &mut Vec::new())
+        .map(|(pages, fonts, debug_info, bridge_res, _images)| (pages, fonts, debug_info, bridge_res))
+}
+
+/// [`xml_to_pdf_pages_debug`] with the `<img>` lookup of
+/// [`xml_to_pdf_pages_with_images`]; also returns the decoded pictures, so
+/// `PdfDocument::from_html_debug*` registers them without decoding them again.
+pub(crate) fn xml_to_pdf_pages_debug_with_images(
+    xml: &str,
+    options: &XmlRenderOptions,
+    images: &dyn bridge::HtmlImageSource,
+    image_warnings: &mut Vec<PdfWarnMsg>,
+) -> Result<(Vec<PdfPage>, BTreeMap<FontHash, ParsedFont>, PdfDebugInfo, bridge::BridgeResources, bridge::ResolvedImages), Vec<PdfWarnMsg>> {
     eprintln!("[DEBUG xml_to_pdf_pages_debug] Starting, xml length={}", xml.len());
     let mut warnings = Vec::new();
     let mut debug_info = PdfDebugInfo {
@@ -945,9 +980,13 @@ pub fn xml_to_pdf_pages_debug(
         debug_info.display_list_debug.push(tree_debug);
     }
 
-    // Decode embedded `<img>` bytes once (same deterministic ids as the
-    // document-side XObject registration).
-    let resolved_images = bridge::resolve_html_images(&options.images);
+    // Decode the `<img>` pictures the pages draw, once each and only those (same
+    // deterministic ids as the document-side XObject registration).
+    let resolved_images = bridge::resolve_referenced_html_images(
+        &bridge::referenced_image_srcs(&display_lists),
+        images,
+        image_warnings,
+    );
     let mut bridge_res = bridge::BridgeResources::default();
 
     // Convert each DisplayList to a PDF page
@@ -1074,7 +1113,7 @@ pub fn xml_to_pdf_pages_debug(
         .map(|(hash, font)| (hash, ParsedFont::from_azul(font)))
         .collect();
 
-    Ok((pages, font_data_map, debug_info, bridge_res))
+    Ok((pages, font_data_map, debug_info, bridge_res, resolved_images))
 }
 
 /// Add XML/HTML content to an existing PDF document
@@ -1391,6 +1430,68 @@ mod tests {
         assert!(
             referenced,
             "a page content stream should reference the cat.jpg image XObject"
+        );
+    }
+
+    /// Every entry of `options.images` used to be decoded on every render, used
+    /// or not: a 1053-page book rendered page by page with its 57 pictures in the
+    /// map took 1.26 s a page instead of 0.24 s. Only the `<img src>` the pages
+    /// draw may be decoded.
+    #[test]
+    fn an_image_the_page_does_not_reference_is_not_decoded() {
+        let xml = r#"
+            <html>
+                <body>
+                    <div>A page without pictures.</div>
+                </body>
+            </html>
+        "#;
+        let mut options = XmlRenderOptions::default();
+        // Not even an image: decoding it would fail, but it must not be tried.
+        options.images.insert("plate-12.png".to_string(), b"not an image".to_vec());
+
+        bridge::HTML_IMAGE_DECODES.with(|n| n.set(0));
+        xml_to_pdf_pages(xml, &options).expect("xml_to_pdf_pages should succeed");
+
+        assert_eq!(
+            bridge::HTML_IMAGE_DECODES.with(|n| n.get()),
+            0,
+            "the page shows no picture, so none may be decoded"
+        );
+    }
+
+    /// The picture a page shows is decoded once, however often the page shows
+    /// it, and the other entries of the map not at all.
+    #[cfg(all(feature = "images", feature = "jpeg"))]
+    #[test]
+    fn the_picture_a_page_shows_is_decoded_once_and_no_other() {
+        let cat_jpg: &[u8] = include_bytes!("../../examples/assets/img/cat.jpg");
+        let xml = r#"
+            <html>
+                <body>
+                    <div style="width: 300px; height: 169px;">
+                        <img src="cat.jpg" style="width: 300px; height: 169px;" />
+                    </div>
+                    <div style="width: 150px; height: 85px;">
+                        <img src="cat.jpg" style="width: 150px; height: 85px;" />
+                    </div>
+                    <div>caption text</div>
+                </body>
+            </html>
+        "#;
+        let mut options = XmlRenderOptions::default();
+        options.images.insert("cat.jpg".to_string(), cat_jpg.to_vec());
+        options.images.insert("plate-12.jpg".to_string(), cat_jpg.to_vec());
+
+        bridge::HTML_IMAGE_DECODES.with(|n| n.set(0));
+        let (_pages, _fonts, images, _bridge_res) =
+            xml_to_pdf_pages(xml, &options).expect("xml_to_pdf_pages should succeed");
+
+        assert_eq!(bridge::HTML_IMAGE_DECODES.with(|n| n.get()), 1, "cat.jpg, once");
+        assert!(images.contains_key("cat.jpg"), "the picture the page shows is resolved");
+        assert!(
+            !images.contains_key("plate-12.jpg"),
+            "a picture no page shows is not resolved"
         );
     }
 
