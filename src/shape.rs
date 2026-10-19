@@ -370,6 +370,22 @@ pub fn layout_to_ops_with_offset<T: ParsedFontTrait + 'static>(
             size: Pt(run.font_size_px),
         });
 
+        // Bold asked of a face with no bold cut is drawn thickened, as the
+        // screen draws it: filled and stroked in the text's colour, in a
+        // graphics state of its own so the stroke settings end with the run.
+        if run.synthetic_bold {
+            ops.push(Op::SaveGraphicsState);
+            ops.push(Op::SetOutlineColor {
+                col: coloru_to_color(&run.color),
+            });
+            ops.push(Op::SetOutlineThickness {
+                pt: Pt(run.font_size_px * azul_layout::text3::glyphs::SYNTHETIC_BOLD_STROKE_EM),
+            });
+            ops.push(Op::SetTextRenderingMode {
+                mode: crate::graphics::TextRenderingMode::FillStroke,
+            });
+        }
+
         // Start text section
         ops.push(Op::StartTextSection);
 
@@ -406,6 +422,10 @@ pub fn layout_to_ops_with_offset<T: ParsedFontTrait + 'static>(
 
         // End text section
         ops.push(Op::EndTextSection);
+
+        if run.synthetic_bold {
+            ops.push(Op::RestoreGraphicsState);
+        }
     }
 
     ops
