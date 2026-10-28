@@ -10,6 +10,11 @@
 //!      `@font-face` family did not match the `<text>` `font-family`.
 //!
 //! This test fails against the pre-fix renderer and passes after the fix.
+//!
+//! Shaped glyph runs (`TextItem::GlyphIds`, everything `from_html` writes) are
+//! painted from the glyph outlines now (`<use>` of a `<path>`, see
+//! `tests/arabic_shaping.rs`); the `<text>` checked here is their unpainted
+//! selection layer, positioned by the same text-space transform.
 
 use printpdf::*;
 use std::collections::BTreeMap;
