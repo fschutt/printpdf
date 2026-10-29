@@ -506,10 +506,7 @@ impl PdfDocument {
                 pdf.pages.extend(pages);
                 Ok(pdf)
             }
-            Err(errs) => {
-                warnings.extend(errs);
-                Ok(pdf)
-            }
+            Err(errs) => Err(html_conversion_failed(warnings, errs)),
         }
     }
 
@@ -596,16 +593,25 @@ impl PdfDocument {
                 pdf.pages.extend(pages);
                 Ok((pdf, debug_info))
             }
-            Err(errs) => {
-                warnings.extend(errs);
-                Ok((pdf, crate::html::PdfDebugInfo {
-                    display_list_debug: Vec::new(),
-                    pdf_ops_debug: Vec::new(),
-                }))
-            }
+            Err(errs) => Err(html_conversion_failed(warnings, errs)),
         }
     }
+}
 
+/// A conversion that produced no pages is an error, not an empty document: the
+/// messages go back as the `Err` (joined), and stay in `warnings` with their pages.
+#[cfg(feature = "html")]
+fn html_conversion_failed(warnings: &mut Vec<PdfWarnMsg>, errs: Vec<PdfWarnMsg>) -> String {
+    let msg = if errs.is_empty() {
+        "the HTML could not be converted".to_string()
+    } else {
+        errs.iter().map(|e| e.msg.as_str()).collect::<Vec<_>>().join("; ")
+    };
+    warnings.extend(errs);
+    msg
+}
+
+impl PdfDocument {
     /// Renders a PDF Page into an SVG String. Returns `None` on an invalid page number
     /// (note: 1-indexed, so the first PDF page is "page 1", not "page 0").
     pub fn page_to_svg(
