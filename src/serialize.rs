@@ -1846,8 +1846,9 @@ fn create_full_font_runtime_info(
     }
 }
 
-/// Look up the advance width for a glyph ID, normalized to 1000 units per em.
-fn get_scaled_glyph_width(font: &crate::font::ParsedFont, gid: u16) -> i64 {
+/// Look up the advance width for a glyph ID, normalized to 1000 units per em:
+/// the glyph's `/W` width, i.e. the advance a PDF viewer moves the pen by.
+pub(crate) fn get_scaled_glyph_width(font: &crate::font::ParsedFont, gid: u16) -> i64 {
     #[cfg(feature = "text_layout")]
     let raw_width = font.get_or_decode_glyph(gid).map(|g| g.horz_advance);
     #[cfg(not(feature = "text_layout"))]

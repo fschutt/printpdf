@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+**The SVG preview shows shaped text the way the PDF does (Arabic joins).**
+`PdfPage::to_svg`, which the web demo's page view uses, wrote every shaped
+glyph back out as its Unicode text, one `<text>` per glyph, and the browser
+shaped each character again on its own: Arabic came out as isolated,
+unjoined letters (and ligatures and Indic conjuncts fell apart), and a
+parsed PDF's visual-order line was bidi-reversed a second time. The PDF
+itself was always shaped correctly. Glyph-id runs are now painted from the
+glyph outlines (`<defs>` + `<use>`), pen-advanced by the same `/W` widths a
+PDF viewer uses; the `<text>` stays as an unpainted layer for selection and
+search. Text written as `TextItem::Text` and the builtin fonts render as
+before. Tests: `tests/arabic_shaping.rs`.
+
+**A CID-keyed CFF font read from a PDF keeps its glyph widths.** The
+synthesized `hmtx` of a bare CFF program took a glyph's first stem
+coordinate as its width when the first hint operator sat in a subroutine
+and had no width operand (NotoSansJP's 語: advance 0, so the rest of a
+parsed line was drawn on top of it). Test: `tests/parsed_cff_widths.rs`.
+
 **HTML text now honours color alpha.** The HTML bridge emitted text fill
 colors from the RGB channels only, so `color: transparent` painted opaque
 black glyphs and `color: rgba(…, 0.5)` painted fully opaque ones. Each text
