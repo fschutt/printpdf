@@ -67,6 +67,7 @@ p { margin: 10px 0; }
         show_page_numbers: Some(false),
         header_text: None,
         skip_first_page: Some(false),
+        page_sizes: None,
         ..Default::default()
     };
     
@@ -121,6 +122,7 @@ p { margin: 10px 0; }
         show_page_numbers: Some(true),
         header_text: Some("TEST HEADER".to_string()),
         skip_first_page: Some(true),
+        page_sizes: None,
         ..Default::default()
     };
     

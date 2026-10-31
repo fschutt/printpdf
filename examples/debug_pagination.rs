@@ -77,6 +77,7 @@ p { margin: 10px 0; line-height: 1.5; }
         header_text: None,
         footer_text: None,
         skip_first_page: None,
+        page_sizes: None,
         ..Default::default()
     };
     
@@ -104,6 +105,7 @@ p { margin: 10px 0; line-height: 1.5; }
         header_text: Some("DEBUG HEADER TEXT".to_string()),
         footer_text: None,
         skip_first_page: Some(false),
+        page_sizes: None,
         ..Default::default()
     };
     
@@ -131,6 +133,7 @@ p { margin: 10px 0; line-height: 1.5; }
         header_text: Some("SKIP FIRST HEADER".to_string()),
         footer_text: None,
         skip_first_page: Some(true),
+        page_sizes: None,
         ..Default::default()
     };
     

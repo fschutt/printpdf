@@ -43,6 +43,7 @@ fn main() {
         footer_text: None,
         // Skip header/footer on first page (title page)
         skip_first_page: Some(true),
+        page_sizes: None,
         ..Default::default()
     };
     

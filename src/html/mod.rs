@@ -129,6 +129,11 @@ pub struct XmlRenderOptions {
     /// Page height in millimeters
     #[serde(default = "default_page_height")]
     pub page_height: Mm,
+    /// The size of each page, in order: page `i` takes the `i`th size, the
+    /// pages after the list the last one. Empty: every page is
+    /// `page_width` x `page_height`.
+    #[serde(default)]
+    pub page_sizes: Vec<(Mm, Mm)>,
     /// Page margins - affects the content area available for layout
     #[serde(default)]
     pub margins: PageMargins,
@@ -163,6 +168,7 @@ impl Default for XmlRenderOptions {
             fonts: BTreeMap::new(),
             page_width: default_page_width(),
             page_height: default_page_height(),
+            page_sizes: Vec::new(),
             margins: PageMargins::default(),
             show_page_numbers: false,
             header_text: None,
@@ -456,6 +462,296 @@ fn build_page_config(options: &XmlRenderOptions) -> FakePageConfig {
     page_config
 }
 
+/// Millimetres to PDF points.
+const MM_TO_PT: f32 = 2.83465;
+
+/// PDF points to CSS px: the layout measures in CSS px (`12pt` is `16px`),
+/// the bridge turns its coordinates back into points.
+const PT_TO_CSS_PX: f32 = 96.0 / 72.0;
+
+/// The pages of a render: each page's size and the margins around its
+/// content.
+struct PageGeometry {
+    /// The size of a page the options do not list.
+    default: (Mm, Mm),
+    /// The listed sizes, in page order.
+    sizes: Vec<(Mm, Mm)>,
+    /// The margins of every page, in pt.
+    margin_top_pt: f32,
+    margin_right_pt: f32,
+    margin_bottom_pt: f32,
+    margin_left_pt: f32,
+}
+
+impl PageGeometry {
+    fn of(options: &XmlRenderOptions) -> Self {
+        Self {
+            default: (options.page_width, options.page_height),
+            sizes: options.page_sizes.clone(),
+            margin_top_pt: options.margins.top.0 * MM_TO_PT,
+            margin_right_pt: options.margins.right.0 * MM_TO_PT,
+            margin_bottom_pt: options.margins.bottom.0 * MM_TO_PT,
+            margin_left_pt: options.margins.left.0 * MM_TO_PT,
+        }
+    }
+
+    /// The size of page `index`: the listed one, the last one listed past
+    /// the list, the default without a list.
+    fn size(&self, index: usize) -> (Mm, Mm) {
+        self.sizes
+            .get(index)
+            .or_else(|| self.sizes.last())
+            .copied()
+            .unwrap_or(self.default)
+    }
+
+    /// The size of page `index` in pt.
+    fn size_pt(&self, index: usize) -> LogicalSize {
+        let (width, height) = self.size(index);
+        LogicalSize::new(width.0 * MM_TO_PT, height.0 * MM_TO_PT)
+    }
+
+    /// The content area of page `index` (the page less its margins), in
+    /// CSS px.
+    fn content_px(&self, index: usize) -> LogicalSize {
+        let page = self.size_pt(index);
+        LogicalSize::new(
+            (page.width - self.margin_left_pt - self.margin_right_pt) * PT_TO_CSS_PX,
+            (page.height - self.margin_top_pt - self.margin_bottom_pt) * PT_TO_CSS_PX,
+        )
+    }
+
+    /// The area the document is laid out in, in CSS px: as wide as the
+    /// widest page's content (a narrower page shows its own part of it) and
+    /// as tall as the first page's.
+    fn layout_px(&self) -> LogicalSize {
+        let widest = (0..self.sizes.len().max(1))
+            .map(|index| self.content_px(index).width)
+            .fold(0.0_f32, f32::max);
+        LogicalSize::new(widest, self.content_px(0).height)
+    }
+
+    /// The pages' setups when they differ in size: the page breaks fall
+    /// where each page's own content area ends.
+    fn page_sequence(
+        &self,
+        header_footer: &azul_layout::solver3::pagination::HeaderFooterConfig,
+    ) -> Option<azul_layout::solver3::pagination::PageSequence> {
+        use azul_layout::solver3::pagination::{PageMargins as SetupMargins, PageSequence, PageSetup};
+        if self.sizes.is_empty() {
+            return None;
+        }
+        let setup = |index: usize| {
+            let page = self.size_pt(index);
+            PageSetup {
+                header_footer: header_footer.clone(),
+                page_size: LogicalSize::new(page.width * PT_TO_CSS_PX, page.height * PT_TO_CSS_PX),
+                margins: SetupMargins::new(
+                    self.margin_top_pt * PT_TO_CSS_PX,
+                    self.margin_right_pt * PT_TO_CSS_PX,
+                    self.margin_bottom_pt * PT_TO_CSS_PX,
+                    self.margin_left_pt * PT_TO_CSS_PX,
+                ),
+            }
+        };
+        let mut sequence = PageSequence::uniform(setup(self.sizes.len() - 1));
+        for index in 0..self.sizes.len() - 1 {
+            sequence.set_override(index, setup(index));
+        }
+        Some(sequence)
+    }
+}
+
+/// What an HTML render laid out where: its pages and its named flows.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct HtmlLayoutReport {
+    /// Every page of the PDF, in order.
+    pub pages: Vec<HtmlPageReport>,
+    /// The named flows of the document (CSS Regions: `flow-into` and
+    /// `flow-from`), in the order their names first appear.
+    pub flows: Vec<HtmlFlowReport>,
+}
+
+/// One page of an HTML render.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct HtmlPageReport {
+    /// The page's width in mm.
+    pub width_mm: f32,
+    /// The page's height in mm.
+    pub height_mm: f32,
+}
+
+/// Where the content of one named flow went.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct HtmlFlowReport {
+    /// The flow's name.
+    pub name: String,
+    /// Its regions, in the order of the chain.
+    pub regions: Vec<HtmlRegionReport>,
+    /// What did not fit its last region, if anything.
+    pub overflow: Option<HtmlFlowOverflow>,
+}
+
+/// One region of a named flow and what it holds.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct HtmlRegionReport {
+    /// The page the region is on (0-based).
+    pub page: usize,
+    /// The region element's `id` attribute, if it has one.
+    pub element_id: Option<String>,
+    /// The region's border box on its page, in pt from the page's top left
+    /// corner: x, y, width, height.
+    pub rect_pt: [f32; 4],
+    /// The paragraphs whose lines it holds, in order.
+    pub paragraphs: Vec<HtmlParagraphReport>,
+    /// How many boxes it holds whole (pictures, tables, boxes that do not
+    /// break).
+    pub boxes: usize,
+}
+
+/// The lines of one paragraph in one region.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct HtmlParagraphReport {
+    /// The paragraph element's `id` attribute, if it has one (an anonymous
+    /// paragraph, text beside blocks, has its parent's).
+    pub element_id: Option<String>,
+    /// The index of its first line here, counted through the whole
+    /// paragraph.
+    pub first_line: usize,
+    /// How many of its lines are here.
+    pub lines: usize,
+}
+
+/// The content of a named flow left over after its last region.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct HtmlFlowOverflow {
+    /// The `id` attribute of the first element with content left, if it has
+    /// one.
+    pub element_id: Option<String>,
+    /// The byte offset of the first text left in its text node, as laid
+    /// out (white space collapsed), when that element is a paragraph.
+    pub byte_offset: Option<usize>,
+    /// How much taller the last region would have to be to hold the rest,
+    /// in pt.
+    pub needed_height_pt: f32,
+}
+
+/// The `id` attribute of the element `node` of `styled_dom` (or of its
+/// nearest ancestor element with one, for text and anonymous boxes).
+fn element_id_of(
+    styled_dom: &azul_core::styled_dom::StyledDom,
+    node: Option<azul_core::id::NodeId>,
+) -> Option<String> {
+    let nodes = styled_dom.node_data.as_container();
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let mut at = node;
+    while let Some(id) = at {
+        let found = nodes.get(id).and_then(|data| {
+            data.get_ids_and_classes().iter().find_map(|entry| match entry {
+                azul_core::dom::IdOrClass::Id(id) => Some(id.as_str().to_string()),
+                azul_core::dom::IdOrClass::Class(_) => None,
+            })
+        });
+        if found.is_some() {
+            return found;
+        }
+        at = hierarchy.get(id).and_then(|h| h.parent_id());
+    }
+    None
+}
+
+/// The report of a render whose layout ended in `tree` (positions in CSS px
+/// of the whole document), its pages ending at `page_ends` (CSS px).
+fn layout_report(
+    styled_dom: &azul_core::styled_dom::StyledDom,
+    tree: Option<&azul_layout::solver3::layout_tree::LayoutTree>,
+    page_ends: &[f32],
+    geometry: &PageGeometry,
+    page_count: usize,
+) -> HtmlLayoutReport {
+    let pages = (0..page_count)
+        .map(|index| {
+            let (width, height) = geometry.size(index);
+            HtmlPageReport {
+                width_mm: width.0,
+                height_mm: height.0,
+            }
+        })
+        .collect();
+    let Some(tree) = tree else {
+        return HtmlLayoutReport {
+            pages,
+            flows: Vec::new(),
+        };
+    };
+    let dom_of = |node: usize| {
+        tree.get(azul_layout::solver3::layout_tree::LayoutNodeId::new(node))
+            .and_then(|n| n.dom_node_id)
+    };
+    // The page a document y falls on, and that page's top.
+    let page_at = |y: f32| {
+        let index = page_ends.iter().position(|&end| y < end).unwrap_or(page_ends.len());
+        let top = if index == 0 { 0.0 } else { page_ends.get(index - 1).copied().unwrap_or(0.0) };
+        (index, top)
+    };
+    let px_to_pt = 1.0 / PT_TO_CSS_PX;
+    let flows = tree
+        .named_flows()
+        .iter()
+        .map(|flow| HtmlFlowReport {
+            name: flow.name.clone(),
+            regions: flow
+                .regions
+                .iter()
+                .map(|region| {
+                    let rect = region.border_box;
+                    let (page, top) = page_at(rect.origin.y + 0.01);
+                    HtmlRegionReport {
+                        page,
+                        element_id: element_id_of(styled_dom, region.dom_node),
+                        rect_pt: [
+                            rect.origin.x * px_to_pt + geometry.margin_left_pt,
+                            (rect.origin.y - top) * px_to_pt + geometry.margin_top_pt,
+                            rect.size.width * px_to_pt,
+                            rect.size.height * px_to_pt,
+                        ],
+                        paragraphs: region
+                            .paragraphs
+                            .iter()
+                            .map(|paragraph| HtmlParagraphReport {
+                                element_id: element_id_of(
+                                    styled_dom,
+                                    paragraph.dom_node.or_else(|| {
+                                        tree.get(
+                                            azul_layout::solver3::layout_tree::LayoutNodeId::new(
+                                                paragraph.node,
+                                            ),
+                                        )
+                                        .and_then(|n| n.parent)
+                                        .and_then(dom_of)
+                                    }),
+                                ),
+                                first_line: paragraph.first_line,
+                                lines: paragraph.lines,
+                            })
+                            .collect(),
+                        boxes: region.boxes.len(),
+                    }
+                })
+                .collect(),
+            overflow: flow.overflow.as_ref().map(|overflow| HtmlFlowOverflow {
+                element_id: element_id_of(
+                    styled_dom,
+                    overflow.dom_node.or_else(|| overflow.node.and_then(dom_of)),
+                ),
+                byte_offset: overflow.byte_offset,
+                needed_height_pt: overflow.needed_height * px_to_pt,
+            }),
+        })
+        .collect();
+    HtmlLayoutReport { pages, flows }
+}
+
 /// Convert XML/HTML content to PDF pages, returning pages, the font map, and the
 /// decoded `<img>` resources.
 ///
@@ -471,18 +767,19 @@ pub fn xml_to_pdf_pages(
     xml: &str,
     options: &XmlRenderOptions,
 ) -> Result<(Vec<PdfPage>, BTreeMap<FontHash, ParsedFont>, bridge::ResolvedImages, bridge::BridgeResources), Vec<PdfWarnMsg>> {
-    xml_to_pdf_pages_with_images(xml, options, &options.images, &mut Vec::new())
+    xml_to_pdf_pages_with_images(xml, options, &options.images, &mut Vec::new(), None)
 }
 
 /// [`xml_to_pdf_pages`], with the `<img>` bytes looked up in `images` (instead of
 /// `options.images`) for the `src` values the pages draw, and nothing else.
 /// Pictures that are drawn but cannot be found, read or decoded are reported in
-/// `image_warnings`.
+/// `image_warnings`. With `report`, what was laid out where is written there.
 pub(crate) fn xml_to_pdf_pages_with_images(
     xml: &str,
     options: &XmlRenderOptions,
     images: &dyn bridge::HtmlImageSource,
     image_warnings: &mut Vec<PdfWarnMsg>,
+    report: Option<&mut HtmlLayoutReport>,
 ) -> Result<(Vec<PdfPage>, BTreeMap<FontHash, ParsedFont>, bridge::ResolvedImages, bridge::BridgeResources), Vec<PdfWarnMsg>> {
     let mut warnings = Vec::new();
     // Type-safe preprocessing: RawHtml -> PreprocessedHtml
@@ -502,28 +799,14 @@ pub(crate) fn xml_to_pdf_pages_with_images(
         }
     };
 
-    // Calculate content area (page size minus margins)
-    let mm_to_pt = 2.83465;
-    let page_width_pt = options.page_width.0 * mm_to_pt;
-    let page_height_pt = options.page_height.0 * mm_to_pt;
-    let margin_top_pt = options.margins.top.0 * mm_to_pt;
-    let margin_right_pt = options.margins.right.0 * mm_to_pt;
-    let margin_bottom_pt = options.margins.bottom.0 * mm_to_pt;
-    let margin_left_pt = options.margins.left.0 * mm_to_pt;
-    
-    // Content area is the page minus margins
-    let content_width_pt = page_width_pt - margin_left_pt - margin_right_pt;
-    let content_height_pt = page_height_pt - margin_top_pt - margin_bottom_pt;
-
-    // CRITICAL: Convert content dimensions from PDF points to CSS pixels.
-    // The CSS resolver converts unit values to CSS px (e.g. 12pt → 16px via PT_TO_PX=96/72).
-    // The layout engine is unit-agnostic, so if we feed it pt-valued dimensions,
-    // CSS pt values get inflated by 96/72 relative to the coordinate system.
-    // Solution: express the viewport in CSS px so all CSS units resolve correctly.
-    // After layout, the bridge converts coordinates back from CSS px to PDF pt.
-    const PT_TO_CSS_PX: f32 = 96.0 / 72.0;
-    let content_width_px = content_width_pt * PT_TO_CSS_PX;
-    let content_height_px = content_height_pt * PT_TO_CSS_PX;
+    // The pages and their content areas (each page less its margins). The
+    // layout measures in CSS px (`12pt` is `16px`): the document is laid
+    // out as wide as the widest page's content, each page shows its own
+    // part, and the bridge turns the coordinates back into points.
+    let geometry = PageGeometry::of(options);
+    let margin_top_pt = geometry.margin_top_pt;
+    let margin_left_pt = geometry.margin_left_pt;
+    let content_size = geometry.layout_px();
 
     // Convert XML nodes to StyledDom with registered HTML components
     // Use content width in CSS px (not pt) for layout
@@ -532,7 +815,7 @@ pub(crate) fn xml_to_pdf_pages_with_images(
     let styled_dom = match str_to_dom(
         root_nodes.as_ref(),
         &component_map,
-        Some(content_width_px),
+        Some(content_size.width),
     ) {
         Ok(dom) => dom,
         Err(e) => {
@@ -569,9 +852,6 @@ pub(crate) fn xml_to_pdf_pages_with_images(
     register_input_fonts(&mut font_manager, &options.fonts);
     register_builtin_fonts(&mut font_manager);
 
-    // Use content size in CSS px for layout (converted from pt above)
-    let content_size = LogicalSize::new(content_width_px, content_height_px);
-
     // Create fragmentation context for paged layout using CONTENT size (in CSS px)
     // Page breaks happen at CSS px boundaries; the bridge converts back to pt.
     let fragmentation_context = FragmentationContext::new_paged(content_size);
@@ -579,13 +859,13 @@ pub(crate) fn xml_to_pdf_pages_with_images(
     // Create layout cache and text cache
     let mut layout_cache = Solver3LayoutCache::default();
     let mut text_cache = TextLayoutCache::new();
-    
+
     // Viewport is the content area in CSS px (layout is done within margins)
     let viewport = LogicalRect {
         origin: LogicalPosition::zero(),
         size: content_size,
     };
-    
+
     // Perform paged layout - returns Vec<DisplayList>
     let renderer_resources = RendererResources::default();
     let mut debug_messages = None; // None = skip debug format! overhead
@@ -600,9 +880,15 @@ pub(crate) fn xml_to_pdf_pages_with_images(
     // Build page config from options
     // NOTE: Full CSS @page rule parsing is not yet implemented.
     // This uses FakePageConfig for programmatic control over headers/footers.
-    let page_config = build_page_config(options);
+    let mut page_config = build_page_config(options);
+    if let Some(sequence) =
+        geometry.page_sequence(&page_config.to_header_footer_config())
+    {
+        page_config.page_sequence =
+            azul_layout::solver3::pagination::OptionPageSequence::Some(sequence);
+    }
 
-    let display_lists = match layout_document_paged_v2(
+    let paged = match layout_document_paged_v2(
         &mut layout_cache,
         &mut text_cache,
         fragmentation_context,
@@ -621,7 +907,7 @@ pub(crate) fn xml_to_pdf_pages_with_images(
         azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
         false, // print_timing
     ) {
-        Ok(result) => result.pages,
+        Ok(result) => result,
         Err(e) => {
             warnings.push(PdfWarnMsg::error(
                 0,
@@ -631,6 +917,17 @@ pub(crate) fn xml_to_pdf_pages_with_images(
             return Err(warnings);
         }
     };
+    let display_lists = paged.pages;
+    if let Some(report) = report {
+        let page_ends: Vec<f32> = paged.breaks.iter().map(|b| b.y).collect();
+        *report = layout_report(
+            &styled_dom,
+            layout_cache.tree.as_deref(),
+            &page_ends,
+            &geometry,
+            display_lists.len().max(1),
+        );
+    }
 
     // Decode the `<img>` pictures the pages draw, once each, keyed by `src`, and
     // only those: the map may hold every picture of a book, and decoding all of
@@ -652,34 +949,14 @@ pub(crate) fn xml_to_pdf_pages_with_images(
     // font_data_map now maps u64 (font hash) directly to ParsedFont
     let mut font_data_map: BTreeMap<FontHash, azul_layout::font::parsed::ParsedFont> = BTreeMap::new();
 
-    // Full page size for PDF coordinate transformation
-    let full_page_size = LogicalSize::new(page_width_pt, page_height_pt);
-
-    for display_list in display_lists.iter() {
-        // Skip pages that have no meaningful content (only plain background
-        // fills). A page is "real" if it has text, an image, a gradient or a
-        // shadow — anything a reader would actually perceive as content.
-        let has_real_content = display_list.items.iter().any(|item| {
-            use azul_layout::solver3::display_list::DisplayListItem;
-            matches!(item,
-                DisplayListItem::TextLayout { .. }
-                | DisplayListItem::Image { .. }
-                | DisplayListItem::LinearGradient { .. }
-                | DisplayListItem::RadialGradient { .. }
-                | DisplayListItem::ConicGradient { .. }
-                | DisplayListItem::BoxShadow { .. }
-            )
-        });
-
-        if !has_real_content {
-            // Skip this page - it only contains background rectangles
-            continue;
-        }
-
-        // Convert DisplayList to printpdf operations
-        // We pass the FULL page size for Y-coordinate transformation (PDF origin is bottom-left)
-        // The content was laid out in content_size, but coordinates need to be transformed
-        // relative to the full page height
+    // Every page the layout made is a page of the PDF, one that holds only
+    // backgrounds too (a blank page of a scan keeps its place, and the PDF's
+    // page numbers stay the document's), each at its own size.
+    for (page_index, display_list) in display_lists.iter().enumerate() {
+        // The FULL page size for the y-flip (PDF origin is bottom-left): the
+        // content was laid out in the page's content area, its coordinates
+        // are turned relative to the whole page's height.
+        let full_page_size = geometry.size_pt(page_index);
         let pdf_ops = bridge::display_list_to_printpdf_ops_with_margins(
             &display_list,
             full_page_size,
@@ -726,15 +1003,17 @@ pub(crate) fn xml_to_pdf_pages_with_images(
             }
         }
         
-        // Create a page for this display list (using full page dimensions)
-        let page = PdfPage::new(options.page_width, options.page_height, pdf_ops);
+        // Create a page for this display list, at its own size
+        let (width, height) = geometry.size(page_index);
+        let page = PdfPage::new(width, height, pdf_ops);
         pages.push(page);
     }
-    
+
     // If no pages were generated, create at least one empty page
     if pages.is_empty() {
         warnings.push(PdfWarnMsg::warning(0, 0, "No content generated, creating empty page".to_string()));
-        let page = PdfPage::new(options.page_width, options.page_height, Vec::new());
+        let (width, height) = geometry.size(0);
+        let page = PdfPage::new(width, height, Vec::new());
         pages.push(page);
     }
 
@@ -809,24 +1088,12 @@ pub(crate) fn xml_to_pdf_pages_debug_with_images(
         }
     };
 
-    // Calculate content area (page size minus margins)
-    let mm_to_pt = 2.83465;
-    let page_width_pt = options.page_width.0 * mm_to_pt;
-    let page_height_pt = options.page_height.0 * mm_to_pt;
-    let margin_top_pt = options.margins.top.0 * mm_to_pt;
-    let margin_right_pt = options.margins.right.0 * mm_to_pt;
-    let margin_bottom_pt = options.margins.bottom.0 * mm_to_pt;
-    let margin_left_pt = options.margins.left.0 * mm_to_pt;
-    
-    // Content area is the page minus margins
-    let content_width_pt = page_width_pt - margin_left_pt - margin_right_pt;
-    let content_height_pt = page_height_pt - margin_top_pt - margin_bottom_pt;
-
-    // CRITICAL: Convert content dimensions from PDF points to CSS pixels.
-    // See xml_to_pdf_pages() for detailed explanation.
-    const PT_TO_CSS_PX: f32 = 96.0 / 72.0;
-    let content_width_px = content_width_pt * PT_TO_CSS_PX;
-    let content_height_px = content_height_pt * PT_TO_CSS_PX;
+    // The pages and their content areas, as in `xml_to_pdf_pages_with_images`.
+    let geometry = PageGeometry::of(options);
+    let margin_top_pt = geometry.margin_top_pt;
+    let margin_left_pt = geometry.margin_left_pt;
+    let content_size = geometry.layout_px();
+    let content_width_px = content_size.width;
 
     // Convert XML nodes to StyledDom with registered HTML components
     eprintln!("[DEBUG xml_to_pdf_pages_debug] Converting to StyledDom...");
@@ -878,9 +1145,6 @@ pub(crate) fn xml_to_pdf_pages_debug_with_images(
     register_builtin_fonts(&mut font_manager);
     eprintln!("[DEBUG xml_to_pdf_pages_debug] Font manager created");
 
-    // Use content size in CSS px for layout (converted from pt above)
-    let content_size = LogicalSize::new(content_width_px, content_height_px);
-
     // Create fragmentation context for paged layout using CONTENT size (in CSS px)
     let fragmentation_context = FragmentationContext::new_paged(content_size);
 
@@ -906,7 +1170,13 @@ pub(crate) fn xml_to_pdf_pages_debug_with_images(
     };
 
     // Build page config from options
-    let page_config = build_page_config(options);
+    let mut page_config = build_page_config(options);
+    if let Some(sequence) =
+        geometry.page_sequence(&page_config.to_header_footer_config())
+    {
+        page_config.page_sequence =
+            azul_layout::solver3::pagination::OptionPageSequence::Some(sequence);
+    }
 
     eprintln!("[DEBUG xml_to_pdf_pages_debug] Starting paged layout...");
     let display_lists = match layout_document_paged_v2(
@@ -993,10 +1263,9 @@ pub(crate) fn xml_to_pdf_pages_debug_with_images(
     let mut pages = Vec::new();
     let mut font_data_map: BTreeMap<FontHash, azul_layout::font::parsed::ParsedFont> = BTreeMap::new();
 
-    // Full page size for PDF coordinate transformation
-    let full_page_size = LogicalSize::new(page_width_pt, page_height_pt);
-    
     for (page_idx, display_list) in display_lists.iter().enumerate() {
+        // The page's full size, for the y-flip.
+        let full_page_size = geometry.size_pt(page_idx);
         // Debug: capture display list info for first page only
         if page_idx == 0 {
             let mut dl_debug = String::new();
@@ -1095,7 +1364,8 @@ pub(crate) fn xml_to_pdf_pages_debug_with_images(
         }
         
         // Create a page for this display list
-        let page = PdfPage::new(options.page_width, options.page_height, pdf_ops);
+        let (width, height) = geometry.size(page_idx);
+        let page = PdfPage::new(width, height, pdf_ops);
         pages.push(page);
     }
     eprintln!("[DEBUG xml_to_pdf_pages_debug] Display lists converted to {} pages", pages.len());
@@ -1103,7 +1373,8 @@ pub(crate) fn xml_to_pdf_pages_debug_with_images(
     // If no pages were generated, create at least one empty page
     if pages.is_empty() {
         warnings.push(PdfWarnMsg::warning(0, 0, "No content generated, creating empty page".to_string()));
-        let page = PdfPage::new(options.page_width, options.page_height, Vec::new());
+        let (width, height) = geometry.size(0);
+        let page = PdfPage::new(width, height, Vec::new());
         pages.push(page);
     }
 

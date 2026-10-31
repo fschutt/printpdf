@@ -54,6 +54,7 @@ p {{ margin: 8px 0; }}
         header_text: None,
         footer_text: None,
         skip_first_page: None,
+        page_sizes: None,
         ..Default::default()
     };
     

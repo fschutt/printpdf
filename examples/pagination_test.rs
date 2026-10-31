@@ -31,6 +31,7 @@ fn main() {
         header_text: Some("Pagination Test".to_string()),
         footer_text: None,
         skip_first_page: Some(false),
+        page_sizes: None,
     };
     
     let mut warnings = Vec::new();

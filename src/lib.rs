@@ -144,6 +144,21 @@ pub struct GeneratePdfOptions {
     /// Skip header/footer on the first page
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skip_first_page: Option<bool>,
+    /// The size of each page, in order: page `i` takes the `i`th size, the
+    /// pages after the list the last one. Pages of several sizes in one
+    /// document (a book's cover and its pages, a scan's pages). Without it
+    /// every page is `page_width` x `page_height`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_sizes: Option<Vec<PdfPageSize>>,
+}
+
+/// The size of one page of a document rendered from HTML, in mm.
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
+pub struct PdfPageSize {
+    /// The page's width in mm.
+    pub width: f32,
+    /// The page's height in mm.
+    pub height: f32,
 }
 
 impl Default for GeneratePdfOptions {
@@ -161,6 +176,7 @@ impl Default for GeneratePdfOptions {
             header_text: None,
             footer_text: None,
             skip_first_page: None,
+            page_sizes: None,
         }
     }
 }
@@ -169,6 +185,17 @@ impl GeneratePdfOptions {
     fn is_default(&self) -> bool {
         *self == Self::default()
     }
+}
+
+/// The page sizes of `options`, in page order.
+#[cfg(feature = "html")]
+fn page_sizes_of(options: &GeneratePdfOptions) -> Vec<(Mm, Mm)> {
+    options
+        .page_sizes
+        .iter()
+        .flatten()
+        .map(|size| (Mm(size.width), Mm(size.height)))
+        .collect()
 }
 
 /// Base64 is necessary because there are a lot of JS issues surrounding
@@ -439,6 +466,48 @@ impl PdfDocument {
         warnings: &mut Vec<PdfWarnMsg>,
         font_pool: Option<crate::html::SharedFontPool>,
     ) -> Result<Self, String> {
+        Self::from_html_reporting(html, images, fonts, options, warnings, font_pool, None)
+    }
+
+    /// Like [`from_html_with_cache`], and also says what was laid out
+    /// where: the size of every page, and for every named flow of the
+    /// document (CSS Regions: `flow-into` / `flow-from`) the page and box of
+    /// each of its regions, the lines of each paragraph it holds, and what
+    /// did not fit the last region.
+    #[cfg(feature = "html")]
+    pub fn from_html_with_report(
+        html: &str,
+        images: &BTreeMap<String, Base64OrRaw>,
+        fonts: &BTreeMap<String, Base64OrRaw>,
+        options: &GeneratePdfOptions,
+        warnings: &mut Vec<PdfWarnMsg>,
+        font_pool: Option<crate::html::SharedFontPool>,
+    ) -> Result<(Self, crate::html::HtmlLayoutReport), String> {
+        let mut report = crate::html::HtmlLayoutReport::default();
+        let pdf = Self::from_html_reporting(
+            html,
+            images,
+            fonts,
+            options,
+            warnings,
+            font_pool,
+            Some(&mut report),
+        )?;
+        Ok((pdf, report))
+    }
+
+    /// [`from_html_with_cache`], writing what was laid out where into
+    /// `report` when asked to.
+    #[cfg(feature = "html")]
+    fn from_html_reporting(
+        html: &str,
+        images: &BTreeMap<String, Base64OrRaw>,
+        fonts: &BTreeMap<String, Base64OrRaw>,
+        options: &GeneratePdfOptions,
+        warnings: &mut Vec<PdfWarnMsg>,
+        font_pool: Option<crate::html::SharedFontPool>,
+        report: Option<&mut crate::html::HtmlLayoutReport>,
+    ) -> Result<Self, String> {
         use crate::html::{XmlRenderOptions, PageMargins};
         use base64::{engine::general_purpose::STANDARD, Engine as _};
 
@@ -448,7 +517,8 @@ impl PdfDocument {
         let mut xml_options = XmlRenderOptions::default();
         xml_options.page_width = Mm(options.page_width.unwrap_or(210.0));
         xml_options.page_height = Mm(options.page_height.unwrap_or(297.0));
-        
+        xml_options.page_sizes = page_sizes_of(options);
+
         // Apply page margins if configured
         xml_options.margins = PageMargins {
             top: Mm(options.margin_top.unwrap_or(0.0)),
@@ -480,7 +550,7 @@ impl PdfDocument {
         xml_options.font_pool = font_pool;
 
         // Render XML to pages
-        match crate::html::xml_to_pdf_pages_with_images(html, &xml_options, images, warnings) {
+        match crate::html::xml_to_pdf_pages_with_images(html, &xml_options, images, warnings, report) {
             Ok((pages, font_data, images, bridge_res)) => {
                 // Register fonts from font_data in pdf.resources.fonts
                 for (font_hash, parsed_font) in font_data.iter() {
@@ -542,6 +612,7 @@ impl PdfDocument {
         let mut xml_options = XmlRenderOptions::default();
         xml_options.page_width = Mm(options.page_width.unwrap_or(210.0));
         xml_options.page_height = Mm(options.page_height.unwrap_or(297.0));
+        xml_options.page_sizes = page_sizes_of(options);
         
         // Apply page margins if configured
         xml_options.margins = PageMargins {
