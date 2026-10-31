@@ -116,3 +116,63 @@ fn a_story_runs_through_shaped_frames_on_pages_of_their_own_sizes() {
     assert!(overflow.byte_offset.is_some_and(|b| b > 0), "{overflow:?}");
     assert!(overflow.needed_height_pt > 0.0, "{overflow:?}");
 }
+
+/// The story through one 260 x 120 pt frame on a 300 x 200 pt page, the
+/// frame's `region-fragment` being `rule`: the document and its report.
+fn one_frame(rule: &str) -> (PdfDocument, HtmlLayoutReport) {
+    let html = format!(
+        r#"<html><head><style>
+        * {{ margin: 0; padding: 0 }}
+        body {{ font-size: 10pt; line-height: 12pt }}
+        .story {{ flow-into: art7 }}
+        .page {{ position: relative; width: 300pt; height: 200pt; break-after: page }}
+        .frame {{ position: absolute; left: 20pt; top: 20pt; width: 260pt; height: 120pt;
+                  flow-from: art7; region-fragment: {rule} }}
+    </style></head><body>
+        <div class="story"><p id="para">{}</p></div>
+        <div class="page"><div class="frame" id="frame"></div></div>
+    </body></html>"#,
+        story()
+    );
+    let options: GeneratePdfOptions = serde_json::from_str(&format!(
+        r#"{{ "page_sizes": [ {{ "width": {}, "height": {} }} ],
+             "margin_top": 0, "margin_right": 0, "margin_bottom": 0, "margin_left": 0 }}"#,
+        mm(300.0),
+        mm(200.0)
+    ))
+    .expect("the options parse");
+    let mut warnings = Vec::new();
+    PdfDocument::from_html_with_report(
+        &html,
+        &BTreeMap::new(),
+        &BTreeMap::new(),
+        &options,
+        &mut warnings,
+        None,
+    )
+    .expect("the document renders")
+}
+
+#[test]
+fn a_last_frame_of_region_fragment_break_leaves_the_rest_of_the_story_out() {
+    let (doc, report) = one_frame("break");
+    assert_eq!(doc.pages.len(), 1, "the page box is the only page");
+    let overflow = report.flows[0]
+        .overflow
+        .as_ref()
+        .expect("two hundred words do not fit the frame");
+    let offset = overflow.byte_offset.expect("the overflow starts in the story's text");
+    let words = |text: &str| text.split_whitespace().count();
+    let shown = doc.extract_text()[0].join(" ");
+    assert_eq!(
+        words(&shown),
+        words(&story()[..offset]),
+        "the page shows the story up to where the overflow starts, and nothing after: {shown:?}"
+    );
+    assert!(overflow.needed_height_pt > 0.0, "{overflow:?}");
+
+    // The same frame of `region-fragment: auto` lets the rest run on below it.
+    let (doc, _) = one_frame("auto");
+    let runs_on = doc.extract_text().concat().join(" ");
+    assert!(words(&runs_on) > words(&shown), "{runs_on:?}");
+}
