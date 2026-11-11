@@ -708,7 +708,7 @@ pub(crate) fn xml_to_pdf_pages_with_images(
                     
                     // Look up each font hash in the font_manager
                     for font_hash in used_font_hashes {
-                        let font_hash_key = FontHash { font_hash };
+                        let font_hash_key = FontHash::from_hash(font_hash);
                         if !font_data_map.contains_key(&font_hash_key) {
                             // Get the font from the font manager by hash
                             if let Some(font_ref) = font_manager.get_font_by_hash(font_hash) {
@@ -1078,7 +1078,7 @@ pub(crate) fn xml_to_pdf_pages_debug_with_images(
                     }
                     
                     for font_hash in used_font_hashes {
-                        let font_hash_key = FontHash { font_hash };
+                        let font_hash_key = FontHash::from_hash(font_hash);
                         if !font_data_map.contains_key(&font_hash_key) {
                             if let Some(font_ref) = font_manager.get_font_by_hash(font_hash) {
                                 let parsed_font = unsafe {
