@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## `0.12.9`
+
+**azul 0.0.17 (azul#476).** The azul-css / azul-core / azul-layout pins move to
+0.0.17: the HTML components use azul-core's `ComponentCodegen`, `FontHash`
+carries `synthetic_bold`, and paged layout fixes azul#478 (a table that
+overflows a page now fills every non-final page; the regression tests from
+#291 run by default). Also in this release: pictures decoded per page and
+written with 1 bit where possible (#290), from_html errors (#294), Arabic
+shaping in the SVG preview (#293), text color alpha (#287), same-page bookmark
+order (#282) and the multiple-fonts example (#283).
+
 **`from_html` no longer answers `Ok` with an empty document.** When the HTML
 loader could not read the page (for example a character XML 1.0 excludes,
 such as U+FFFE or a C0 control, reaching azul's strict loader), the
