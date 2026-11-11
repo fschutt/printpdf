@@ -1221,7 +1221,7 @@ fn extract_smask(
 /// path is what makes printpdf's own output round-trippable: the pixel data
 /// carries no container magic bytes, so `RawImage::decode_from_bytes` (which
 /// sniffs PNG/JPEG/... signatures) can never decode it.
-fn raw_bitmap_from_stream(
+pub(crate) fn raw_bitmap_from_stream(
     doc: &LopdfDocument,
     stream: &LopdfStream,
 ) -> Option<RawImage> {

@@ -28,8 +28,9 @@ use crate::{
 // "fixed" to `rename_all` now, since that would break every existing client.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
 pub struct PdfSaveOptions {
-    /// If set to true (default), compresses streams and
-    /// prunes unreferenced PDF objects. Set to false for debugging
+    /// If set to true (default), compresses streams, prunes unreferenced PDF objects
+    /// and drops the /ActualText of text whose glyphs read as it anyway. Set to false
+    /// for debugging
     #[serde(default = "default_optimize")]
     pub optimize: bool,
     /// Whether to include the entire font or to subset it.
@@ -95,6 +96,8 @@ pub fn serialize_pdf<W: Write>(
 ) -> () {
     let mut doc = to_lopdf_doc(pdf, opts, warnings);
     if opts.optimize {
+        // the /ActualText of text whose glyphs read as it anyway (see optimize.rs)
+        crate::optimize::drop_redundant_actual_text(&mut doc);
         doc.compress();
     }
 

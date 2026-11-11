@@ -616,11 +616,6 @@ impl RawImage {
             self.convert_to_greyscale()?;
         }
 
-        // Apply dithering to greyscale images if requested
-        if options.dither_greyscale.unwrap_or_default() && self.is_greyscale_format() {
-            self.apply_dithering()?;
-        }
-
         // Resize image if it exceeds max size
         if let Some(max_size) = options
             .max_image_size
@@ -631,6 +626,12 @@ impl RawImage {
             if current_size > max_size {
                 self.resize_to_fit_size(max_size)?;
             }
+        }
+
+        // Apply dithering to greyscale images if requested. Last: scaling down keeps every n-th
+        // pixel, which of a dither pattern is not the picture's tone any more.
+        if options.dither_greyscale.unwrap_or_default() && self.is_greyscale_format() {
+            self.apply_dithering()?;
         }
 
         Ok(())
@@ -1274,6 +1275,12 @@ pub(crate) fn image_to_stream(
 
     let (rgb8, alpha) = split_rawimage_into_rgb_plus_alpha(im);
     let (bpc, cs) = rgb8.data_format.get_color_bits_and_space();
+    // A greyscale picture that is only black and white (line art, a scanned engraving, or one
+    // `dither_greyscale` made so) is written with one bit per pixel: the same picture, with an
+    // eighth of the data to compress.
+    let bits = pack_bilevel(&rgb8);
+    let bpc = if bits.is_some() { ColorBits::Bit1 } else { bpc };
+    let pixels: &[u8] = bits.as_deref().unwrap_or(&rgb8.pixels);
     let interpolate = false;
 
     let mut dict = lopdf::Dictionary::from_iter(vec![
@@ -1287,9 +1294,15 @@ pub(crate) fn image_to_stream(
     ]);
 
     // Apply compression filter based on options
-    let mut compressed_pixels = rgb8.pixels.clone();
+    let mut compressed_pixels = pixels.to_vec();
     if let Some(opts) = options {
         if let Some(filter) = get_compression_filter(opts, &rgb8) {
+            // JPEG has no one-bit pixels, and Flate is lossless and smaller for black and white
+            let filter = if bits.is_some() && filter == "DCTDecode" {
+                "FlateDecode"
+            } else {
+                filter
+            };
             match filter {
                 #[cfg(feature = "jpeg")]
                 "DCTDecode" => {
@@ -1301,30 +1314,30 @@ pub(crate) fn image_to_stream(
                     }
                 }
                 "FlateDecode" => {
-                    if let Some(flate_data) = flate_encode(&rgb8.pixels) {
+                    if let Some(flate_data) = flate_encode(pixels) {
                         compressed_pixels = flate_data;
                         dict.set("Filter", Name(filter.into()));
                     }
                 }
                 "LZWDecode" => {
-                    if let Some(flate_data) = flate_encode(&rgb8.pixels) {
+                    if let Some(flate_data) = flate_encode(pixels) {
                         compressed_pixels = flate_data;
                         dict.set("Filter", Name("FlateDecode".into()));
                     }
                     /*
-                    if let Some(lzw_data) = lzw_encode(&rgb8.pixels) {
+                    if let Some(lzw_data) = lzw_encode(pixels) {
                         compressed_pixels = lzw_data;
                         dict.set("Filter", Name(filter.into()));
                     }
                      */
                 }
                 "RunLengthDecode" => {
-                    if let Some(flate_data) = flate_encode(&rgb8.pixels) {
+                    if let Some(flate_data) = flate_encode(pixels) {
                         compressed_pixels = flate_data;
                         dict.set("Filter", Name("FlateDecode".into()));
                     }
                     /*
-                    if let Some(rle_data) = rle_encode(&rgb8.pixels) {
+                    if let Some(rle_data) = rle_encode(pixels) {
                         compressed_pixels = rle_data;
                         dict.set("Filter", Name(filter.into()));
                     }
@@ -1380,7 +1393,7 @@ pub(crate) fn image_to_stream(
                         alpha_filter_applied = true;
                     }
                     */
-                    if let Some(flate_data) = flate_encode(&rgb8.pixels) {
+                    if let Some(flate_data) = flate_encode(pixels) {
                         compressed_pixels = flate_data;
                         dict.set("Filter", Name("FlateDecode".into()));
                     }
@@ -1393,7 +1406,7 @@ pub(crate) fn image_to_stream(
                         alpha_filter_applied = true;
                     }
                     */
-                    if let Some(flate_data) = flate_encode(&rgb8.pixels) {
+                    if let Some(flate_data) = flate_encode(pixels) {
                         compressed_pixels = flate_data;
                         dict.set("Filter", Name("FlateDecode".into()));
                     }
@@ -1538,6 +1551,33 @@ fn jpeg_encode(image: &RawImageU8, quality: f32) -> Option<Vec<u8>> {
     } else {
         None
     }
+}
+
+/// The pixels of a greyscale picture that is only black and white, one bit per pixel (1 is
+/// white, as DeviceGray reads it) and each row padded to whole bytes, as /BitsPerComponent 1
+/// lays them out. None if the picture has a grey pixel, or colour.
+fn pack_bilevel(image: &RawImageU8) -> Option<Vec<u8>> {
+    if image.data_format != RawImageFormat::R8
+        || image.width == 0
+        || image.pixels.len() != image.width * image.height
+        || image.pixels.iter().any(|&p| p != 0 && p != 255)
+    {
+        return None;
+    }
+    let mut bits = Vec::with_capacity(image.width.div_ceil(8) * image.height);
+    for row in image.pixels.chunks(image.width) {
+        for eight in row.chunks(8) {
+            let byte = eight.iter().enumerate().fold(0u8, |byte, (i, &p)| {
+                if p == 255 {
+                    byte | 0x80 >> i
+                } else {
+                    byte
+                }
+            });
+            bits.push(byte);
+        }
+    }
+    Some(bits)
 }
 
 // FLATE (deflate) encoding

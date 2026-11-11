@@ -23,10 +23,8 @@
 //! row, snapped again, and climbed row by row until the `max_push_distance`
 //! budget (0.33 × page) was spent. Both are fixed in azul: only a range that
 //! ENCLOSES the range just left may pull the break further up, and a box's
-//! own padding no longer counts as overflow. The tests are `#[ignore]`d while
-//! the pinned azul-layout (0.0.16) still has the defects; run them with
-//! `--ignored` against a patched azul-layout to verify, and un-ignore on the
-//! bump.
+//! own padding no longer counts as overflow. The fixes are in azul-layout 0.0.17
+//! (the tests were `#[ignore]`d while the pins were 0.0.16).
 
 use std::collections::BTreeMap;
 
@@ -133,7 +131,6 @@ fn single_page_capacity() -> usize {
 }
 
 #[test]
-#[ignore = "azul#478: fixed in azul-layout's page_breaks::snap_break_up after 0.0.16; drop this once the azul-* pins move past it"]
 fn azul_issue_478_overflowing_table_fills_the_first_page() {
     let capacity = single_page_capacity();
     assert!(
@@ -158,7 +155,6 @@ fn azul_issue_478_overflowing_table_fills_the_first_page() {
 }
 
 #[test]
-#[ignore = "azul#478: fixed in azul-layout's page_breaks::snap_break_up after 0.0.16; drop this once the azul-* pins move past it"]
 fn azul_issue_478_long_table_fills_every_non_final_page() {
     let capacity = single_page_capacity();
     let total = 120;

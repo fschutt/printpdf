@@ -87,6 +87,8 @@ rust-fontconfig = { version = ">=5.0, <6", default-features = false, features = 
 xmlparser = { version = "0.13.6", default-features = false, optional = true }
 web-sys = { version = "0.3.77", optional = true, default-features = false, features = ["console", "ImageData", "Window", "Document", "Blob", "CanvasRenderingContext2d", "HtmlCanvasElement", "HtmlImageElement", "ImageBitmap", "BlobPropertyBag"]}
 wasm-bindgen-futures = { version = "0.4.50", optional = true, default-features = false }
+# 0.0.17 = azul#476 (fix/input-bugs-2026-09-19): ComponentCodegen replaces
+# compile_fn (the two html components), FontHash gains `synthetic_bold`.
 # 0.0.16 = the rust-fontconfig 5 release of azul (azul#457); 0.0.15 was the
 # same migration but pulled `uuid` into every wasm build and left
 # DocumentChangeset::apply_to_dom ungated, so it never worked here. Both pins move
@@ -98,16 +100,16 @@ wasm-bindgen-futures = { version = "0.4.50", optional = true, default-features =
 # All three must stay pinned to the SAME version: azul-layout reaches its
 # siblings by in-repo path, so mixing versions would put two incompatible
 # azul-cores in the graph. Bump them together or not at all. On 0.0.x crates
-# a "0.0.16" requirement is EXACT, which is what that rule needs.
+# a "0.0.17" requirement is EXACT, which is what that rule needs.
 #
 # The exactness has a cost worth knowing: azul's workspace [patch] redirects
 # THIS dependency to its own path crates so the dll links one azul-layout, and
 # an exact pin stops matching the moment azul bumps in-tree. That is why the
 # two repos release as a pair — azul-* publish first, printpdf follows, then
 # azul re-pins printpdf. Never paper over it with a [patch] here.
-azul-css = { version = "0.0.16", default-features = false, features = ["parser"], optional = true }
-azul-core = { version = "0.0.16", default-features = false, features = ["std"], optional = true }
-azul-layout = { version = "0.0.16", default-features = false, optional = true }
+azul-css = { version = "0.0.17", default-features = false, features = ["parser"], optional = true }
+azul-core = { version = "0.0.17", default-features = false, features = ["std"], optional = true }
+azul-layout = { version = "0.0.17", default-features = false, optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 wasm-bindgen = { version = "0.2" }
@@ -236,6 +238,10 @@ required-features = ["html"]
 [[example]]
 name = "image"
 required-features = ["images", "png"]
+
+[[example]]
+name = "optimize_pdf"
+required-features = ["images"]
 
 [[example]]
 name = "layers"
