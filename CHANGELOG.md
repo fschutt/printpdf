@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+**`from_html` no longer answers `Ok` with an empty document.** When the HTML
+loader could not read the page (for example a character XML 1.0 excludes,
+such as U+FFFE or a C0 control, reaching azul's strict loader), the
+conversion returned `Ok(PdfDocument)` with no pages and the reason only in
+`warnings`, so callers rendered blank output without noticing (pdfocr #11).
+`from_html`, `from_html_with_cache` and `from_html_debug_with_cache` now
+return `Err` with the loader's messages joined; `warnings` still gets the
+details. Test: `tests/html_errors.rs`.
+
+**The SVG preview shows shaped text the way the PDF does (Arabic joins).**
+`PdfPage::to_svg`, which the web demo's page view uses, wrote every shaped
+glyph back out as its Unicode text, one `<text>` per glyph, and the browser
+shaped each character again on its own: Arabic came out as isolated,
+unjoined letters (and ligatures and Indic conjuncts fell apart), and a
+parsed PDF's visual-order line was bidi-reversed a second time. The PDF
+itself was always shaped correctly. Glyph-id runs are now painted from the
+glyph outlines (`<defs>` + `<use>`), pen-advanced by the same `/W` widths a
+PDF viewer uses; the `<text>` stays as an unpainted layer for selection and
+search. Text written as `TextItem::Text` and the builtin fonts render as
+before. Tests: `tests/arabic_shaping.rs`.
+
+**A CID-keyed CFF font read from a PDF keeps its glyph widths.** The
+synthesized `hmtx` of a bare CFF program took a glyph's first stem
+coordinate as its width when the first hint operator sat in a subroutine
+and had no width operand (NotoSansJP's 語: advance 0, so the rest of a
+parsed line was drawn on top of it). Test: `tests/parsed_cff_widths.rs`.
+
 **HTML: a page decodes only the pictures it shows.** `PdfDocument::from_html*`
 copied (and base64-decoded) every entry of the `images` map, and the bridge
 decoded every one of them, on every call, whether the page's HTML used it or

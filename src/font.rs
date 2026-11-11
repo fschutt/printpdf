@@ -1209,8 +1209,8 @@ fn cff_charstring_width(
         &mut stack,
         0,
     ) {
-        Some(delta) => nominal_width as f64 + delta,
-        None => default_width as f64,
+        WidthScan::Decided(Some(delta)) => nominal_width as f64 + delta,
+        WidthScan::Decided(None) | WidthScan::Returned => default_width as f64,
     };
     width.round().clamp(0.0, u16::MAX as f64) as u16
 }
@@ -1227,6 +1227,23 @@ fn cff_subr_bias(count: usize) -> i32 {
     }
 }
 
+/// Where [`cff_charstring_width_delta`] stopped in one charstring or subroutine.
+#[cfg(feature = "text_layout")]
+enum WidthScan {
+    /// At the first stack-clearing operator: the leading width delta, if the
+    /// operand count proves one is there. `Decided(None)` also covers
+    /// charstrings the scan cannot follow; both mean `defaultWidthX`.
+    Decided(Option<f64>),
+    /// A subroutine ended (`return`, or ran out of bytes) before any
+    /// stack-clearing operator: the caller keeps scanning after its call.
+    ///
+    /// Kept apart from `Decided(None)`: a subroutine that runs the first
+    /// `hstemhm` with an even operand count has decided "no width", and
+    /// scanning on in the caller would read the next hint group's count instead
+    /// (NotoSansJP's 語 got the advance -30 -> 0 that way).
+    Returned,
+}
+
 /// Scan a Type2 charstring (following `callsubr`/`callgsubr`, depth-limited
 /// like allsorts' own interpreter) up to its first stack-clearing operator,
 /// returning the leading width delta if the operand count proves one is
@@ -1240,9 +1257,11 @@ fn cff_charstring_width_delta(
     global_subrs: &allsorts::cff::MaybeOwnedIndex<'_>,
     stack: &mut Vec<f64>,
     depth: u8,
-) -> Option<f64> {
+) -> WidthScan {
+    use WidthScan::{Decided, Returned};
+
     if depth > 10 {
-        return None;
+        return Decided(None);
     }
     let mut i = 0usize;
     while i < charstring.len() {
@@ -1251,32 +1270,43 @@ fn cff_charstring_width_delta(
             1 | 3 | 18 | 19 | 20 | 23 => {
                 // hstem/vstem/hstemhm/hintmask/cntrmask/vstemhm: width present iff
                 // the operand count is odd.
-                return (stack.len() % 2 == 1).then(|| stack[0]);
+                return Decided((stack.len() % 2 == 1).then(|| stack[0]));
             }
-            21 => return (stack.len() > 2).then(|| stack[0]), // rmoveto: 2 args
-            22 | 4 => return (stack.len() > 1).then(|| stack[0]), // h/vmoveto: 1 arg
-            14 => return (stack.len() == 1 || stack.len() == 5).then(|| stack[0]), // endchar
+            21 => return Decided((stack.len() > 2).then(|| stack[0])), // rmoveto: 2 args
+            22 | 4 => return Decided((stack.len() > 1).then(|| stack[0])), // h/vmoveto: 1 arg
+            14 => return Decided((stack.len() == 1 || stack.len() == 5).then(|| stack[0])), // endchar
             10 | 29 => {
                 // callsubr / callgsubr
-                let Some(idx) = stack.pop() else { return None };
+                let Some(idx) = stack.pop() else {
+                    return Decided(None);
+                };
                 let (subrs, bias) = if b0 == 10 {
-                    let subrs = local_subrs?;
+                    let Some(subrs) = local_subrs else {
+                        return Decided(None);
+                    };
                     (subrs, cff_subr_bias(subrs.len()))
                 } else {
                     (global_subrs, cff_subr_bias(global_subrs.len()))
                 };
                 let subr_idx = idx as i32 + bias;
-                let sub_bytes = usize::try_from(subr_idx)
+                let Some(sub_bytes) = usize::try_from(subr_idx)
                     .ok()
-                    .and_then(|si| subrs.read_object(si))?;
-                if let Some(w) =
-                    cff_charstring_width_delta(sub_bytes, local_subrs, global_subrs, stack, depth + 1)
-                {
-                    return Some(w);
+                    .and_then(|si| subrs.read_object(si))
+                else {
+                    return Decided(None);
+                };
+                match cff_charstring_width_delta(
+                    sub_bytes,
+                    local_subrs,
+                    global_subrs,
+                    stack,
+                    depth + 1,
+                ) {
+                    Returned => i += 1,
+                    decided => return decided,
                 }
-                i += 1;
             }
-            11 => return None, // return: no stack-clearing op seen in this chain
+            11 => return Returned, // return: no stack-clearing op seen in this subroutine
             12 => {
                 // Two-byte escape operators. The arithmetic ones have fixed,
                 // deterministic stack effects and may legally appear before the
@@ -1285,16 +1315,16 @@ fn cff_charstring_width_delta(
                 // ones (put/get/random) and path ops make the width undecidable
                 // from a static scan — bail to defaultWidthX for those.
                 if i + 2 > charstring.len() {
-                    return None;
+                    return Decided(None);
                 }
                 if !cff_apply_escape_op(charstring[i + 1], stack) {
-                    return None;
+                    return Decided(None);
                 }
                 i += 2;
             }
             28 => {
                 if i + 3 > charstring.len() {
-                    return None;
+                    return Decided(None);
                 }
                 let v = i16::from_be_bytes([charstring[i + 1], charstring[i + 2]]);
                 stack.push(f64::from(v));
@@ -1306,21 +1336,21 @@ fn cff_charstring_width_delta(
             }
             247..=250 => {
                 if i + 2 > charstring.len() {
-                    return None;
+                    return Decided(None);
                 }
                 stack.push((f64::from(b0) - 247.0) * 256.0 + f64::from(charstring[i + 1]) + 108.0);
                 i += 2;
             }
             251..=254 => {
                 if i + 2 > charstring.len() {
-                    return None;
+                    return Decided(None);
                 }
                 stack.push(-(f64::from(b0) - 251.0) * 256.0 - f64::from(charstring[i + 1]) - 108.0);
                 i += 2;
             }
             255 => {
                 if i + 5 > charstring.len() {
-                    return None;
+                    return Decided(None);
                 }
                 let bits = i32::from_be_bytes([
                     charstring[i + 1],
@@ -1331,10 +1361,10 @@ fn cff_charstring_width_delta(
                 stack.push(f64::from(bits) / 65536.0);
                 i += 5;
             }
-            _ => return None,
+            _ => return Decided(None),
         }
     }
-    None
+    Returned
 }
 
 /// Replay one two-byte (`12 x`) Type2 operator's stack effect for the width
