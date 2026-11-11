@@ -556,6 +556,7 @@ fn render_to_svg_internal(
     let mut gst = GraphicsStateVec::new();
     let mut in_text_section = false;
     let mut current_svg_group = Vec::new(); // Stack to track nested groups
+    let mut glyph_outlines = GlyphOutlineDefs::default();
 
     // Process all PDF operations
     for op in &page.ops {
@@ -633,25 +634,19 @@ fn render_to_svg_internal(
                 // ShowText requires that font was set previously via SetFont
                 // The renderer tracks current font in GraphicsState
                 if in_text_section {
-                    if let Some(current_font) = gst.get_current_font() {
-                        let text_svg = render_text_items_to_svg(
-                            items,
-                            &current_font,
-                            &gst,
-                            height,
-                        );
-                        svg.push_str(&text_svg);
-                    } else {
-                        // No font set - use default and emit warning if configured
-                        let default_font = BuiltinOrExternalFontId::Builtin(BuiltinFont::default());
-                        let text_svg = render_text_items_to_svg(
-                            items,
-                            &default_font,
-                            &gst,
-                            height,
-                        );
-                        svg.push_str(&text_svg);
-                    }
+                    // No font set: fall back to the default builtin font.
+                    let current_font = gst
+                        .get_current_font()
+                        .unwrap_or(BuiltinOrExternalFontId::Builtin(BuiltinFont::default()));
+                    let text_svg = render_show_text(
+                        items,
+                        &current_font,
+                        resources,
+                        &gst,
+                        height,
+                        &mut glyph_outlines,
+                    );
+                    svg.push_str(&text_svg);
                 }
             }
 
@@ -783,7 +778,13 @@ fn render_to_svg_internal(
                     let items = vec![TextItem::Text(text.clone())];
 
                     if let Some(font) = gst.get_current_font() {
-                        let text_svg = render_text_items_to_svg(&items, &font, &gst, height);
+                        let text_svg = render_text_items_to_svg(
+                            &items,
+                            &font,
+                            &gst,
+                            height,
+                            TextLayer::Painted,
+                        );
                         svg.push_str(&text_svg);
                     }
                 }
@@ -810,7 +811,13 @@ fn render_to_svg_internal(
                     let items = vec![TextItem::Text(text.clone())];
 
                     if let Some(font) = gst.get_current_font() {
-                        let text_svg = render_text_items_to_svg(&items, &font, &gst, height);
+                        let text_svg = render_text_items_to_svg(
+                            &items,
+                            &font,
+                            &gst,
+                            height,
+                            TextLayer::Painted,
+                        );
                         svg.push_str(&text_svg);
                     }
                 }
@@ -904,6 +911,7 @@ fn render_to_svg_internal(
         svg.push_str("</g>");
     }
 
+    svg.push_str(&glyph_outlines.to_svg());
     svg.push_str("</svg>");
     svg
 }
@@ -1012,6 +1020,207 @@ fn compose_matrix(outer: &[f32; 6], inner: &[f32; 6]) -> [f32; 6] {
     ]
 }
 
+/// Glyph outlines that text runs paint with `<use>`: one `<path>` per (font,
+/// glyph id), written once into a `<defs>` at the end of the page.
+#[derive(Debug, Default)]
+struct GlyphOutlineDefs {
+    /// `<path>` id -> path data in font units (y up). Empty for a glyph with
+    /// no outline (a space), which is cached so it is decoded only once.
+    paths: BTreeMap<String, String>,
+}
+
+impl GlyphOutlineDefs {
+    fn to_svg(&self) -> String {
+        let mut defs = String::new();
+        for (id, d) in self.paths.iter().filter(|(_, d)| !d.is_empty()) {
+            defs.push_str(&format!("<path id=\"{}\" d=\"{}\"/>", id, d));
+        }
+        if defs.is_empty() {
+            defs
+        } else {
+            format!("<defs>{}</defs>", defs)
+        }
+    }
+}
+
+/// Renders one `ShowText`.
+///
+/// Glyph ids from a shaper (`TextItem::GlyphIds`) are painted with the glyphs'
+/// own outlines, the way the PDF shows them. Writing them out as their Unicode
+/// text instead hands the text back to the browser to shape a second time,
+/// glyph by glyph: every Arabic letter then comes out in its isolated form,
+/// ligatures and Indic conjuncts fall apart, and a visual-order run read from a
+/// PDF is bidi-reversed again. The `<text>` is still written, unpainted, so the
+/// preview stays selectable and searchable.
+///
+/// Everything else (`TextItem::Text`, builtin fonts, faces without outlines)
+/// is a painted `<text>` as before.
+fn render_show_text(
+    items: &[TextItem],
+    font: &BuiltinOrExternalFontId,
+    resources: &PdfResources,
+    gst: &GraphicsStateVec,
+    page_height: f32,
+    outlines: &mut GlyphOutlineDefs,
+) -> String {
+    #[cfg(feature = "text_layout")]
+    if let BuiltinOrExternalFontId::External(font_id) = font {
+        if let Some(pdf_font) = resources.fonts.map.get(font_id) {
+            if let Some(glyphs) = render_glyph_outlines(
+                items,
+                font_id,
+                &pdf_font.parsed_font,
+                gst,
+                page_height,
+                outlines,
+            ) {
+                return glyphs
+                    + &render_text_items_to_svg(
+                        items,
+                        font,
+                        gst,
+                        page_height,
+                        TextLayer::Unpainted,
+                    );
+            }
+        }
+    }
+    #[cfg(not(feature = "text_layout"))]
+    let _ = (resources, outlines); // no glyph outlines without azul's font parser
+
+    render_text_items_to_svg(items, font, gst, page_height, TextLayer::Painted)
+}
+
+/// `id` of the outline `<path>` of `gid` in `font_id`: XML-safe, and the same on
+/// every page of a document, so a viewer that inlines several pages' SVGs into
+/// one HTML document resolves `<use>` to the same glyph whichever page's
+/// `<defs>` it finds first.
+#[cfg(feature = "text_layout")]
+fn glyph_outline_id(font_id: &crate::FontId, gid: u16) -> String {
+    let mut id = String::from("glyph-");
+    for c in font_id.0.chars() {
+        if c.is_ascii_alphanumeric() {
+            id.push(c);
+        } else {
+            id.push_str(&format!("_{:x}", c as u32));
+        }
+    }
+    id.push_str(&format!("-{}", gid));
+    id
+}
+
+/// SVG path data of a glyph's outline, in font units (y up). Empty for a glyph
+/// without contours; `None` if the face cannot decode the glyph at all.
+#[cfg(feature = "text_layout")]
+fn glyph_outline_path(font: &crate::ParsedFont, gid: u16) -> Option<String> {
+    use azul_core::resources::GlyphOutlineOperation as Seg;
+
+    let glyph = font.get_or_decode_glyph(gid)?;
+    let mut d = String::new();
+    for contour in &glyph.outline {
+        for seg in contour.operations.as_slice() {
+            let s = match seg {
+                Seg::MoveTo(p) => format!("M{} {}", p.x, p.y),
+                Seg::LineTo(p) => format!("L{} {}", p.x, p.y),
+                Seg::QuadraticCurveTo(q) => {
+                    format!("Q{} {} {} {}", q.ctrl_1_x, q.ctrl_1_y, q.end_x, q.end_y)
+                }
+                Seg::CubicCurveTo(c) => format!(
+                    "C{} {} {} {} {} {}",
+                    c.ctrl_1_x, c.ctrl_1_y, c.ctrl_2_x, c.ctrl_2_y, c.end_x, c.end_y
+                ),
+                Seg::ClosePath => "Z".to_string(),
+            };
+            d.push_str(&s);
+        }
+    }
+    Some(d)
+}
+
+/// Paints a run of glyph ids with their outlines, one `<use>` per glyph.
+///
+/// The pen advances through the run as a PDF viewer's does (ISO 32000-1
+/// 9.4.4): the glyph's `/W` width as printpdf writes it (whole thousandths of
+/// an em, which the merged TJ runs of a saved PDF are kerned against),
+/// character spacing, and the TJ adjustment after it. Word spacing does not
+/// apply: the codes are two bytes.
+///
+/// `None` if the run is not drawable this way: it has `TextItem::Text` (no
+/// glyph ids), or none of its visible glyphs has an outline.
+#[cfg(feature = "text_layout")]
+fn render_glyph_outlines(
+    items: &[TextItem],
+    font_id: &crate::FontId,
+    font: &crate::ParsedFont,
+    gst: &GraphicsStateVec,
+    page_height: f32,
+    outlines: &mut GlyphOutlineDefs,
+) -> Option<String> {
+    if items.iter().any(|i| matches!(i, TextItem::Text(_))) {
+        return None;
+    }
+    let units_per_em = f32::from(font.pdf_font_metrics.units_per_em);
+    if units_per_em <= 0.0 {
+        return None;
+    }
+    let font_size = gst
+        .get_font_size(&BuiltinOrExternalFontId::External(font_id.clone()))
+        .0;
+    let scale = font_size / units_per_em;
+    let char_spacing = gst.get_character_spacing();
+    let text_transform = text_space_to_svg(gst, page_height);
+    let (fill, stroke) = text_paint(gst);
+    // The stroke width is in text space; the `<use>` scales by `scale`.
+    let stroke_width = if stroke == "none" {
+        String::new()
+    } else {
+        format!(" stroke-width=\"{}\"", gst.get_stroke_width().0 / scale)
+    };
+
+    let mut uses = String::new();
+    let mut painted = false;
+    let mut unpaintable = false;
+    let mut pen = 0.0f32;
+    for item in items {
+        match item {
+            TextItem::Offset(o) => pen -= o / 1000.0 * font_size,
+            TextItem::GlyphIds(glyphs) => {
+                for g in glyphs {
+                    let id = glyph_outline_id(font_id, g.gid);
+                    let has_outline = !outlines
+                        .paths
+                        .entry(id.clone())
+                        .or_insert_with(|| glyph_outline_path(font, g.gid).unwrap_or_default())
+                        .is_empty();
+                    if has_outline {
+                        let m =
+                            compose_matrix(&text_transform, &[scale, 0.0, 0.0, -scale, pen, 0.0]);
+                        uses.push_str(&format!(
+                            "<use xlink:href=\"#{}\" transform=\"matrix({} {} {} {} {} {})\"{}/>",
+                            id, m[0], m[1], m[2], m[3], m[4], m[5], stroke_width
+                        ));
+                        painted = true;
+                    } else if g.cid.as_deref().is_some_and(|t| !t.trim().is_empty()) {
+                        unpaintable = true;
+                    }
+                    let width = crate::serialize::get_scaled_glyph_width(font, g.gid) as f32;
+                    pen += (width - g.offset) / 1000.0 * font_size + char_spacing;
+                }
+            }
+            TextItem::Text(_) => return None,
+        }
+    }
+    // A face that decodes no outlines at all (no glyf/CFF data): leave the run
+    // to the browser rather than paint nothing.
+    if unpaintable && !painted {
+        return None;
+    }
+    Some(format!(
+        "<g fill=\"{}\" stroke=\"{}\">{}</g>",
+        fill, stroke, uses
+    ))
+}
+
 // Builds the SVG `transform` matrix that maps PDF text space (y-up, origin at
 // bottom-left) to SVG user space (y-down, origin at top-left) while keeping the
 // glyphs upright (not mirrored).
@@ -1021,28 +1230,12 @@ fn compose_matrix(outer: &[f32; 6], inner: &[f32; 6]) -> [f32; 6] {
 // so the required transform is Flip ∘ M ∘ Flip0 (Flip0 = diag(1,-1)), which
 // works out to [a, -b, -c, d, e, H - f]. For the common translate-only case
 // (a=d=1, b=c=0) this is a plain translate(e, H - f) with upright glyphs.
-// Renders text items (with offsets) to SVG
-fn render_text_items_to_svg(
-    items: &[TextItem],
-    font_id: &BuiltinOrExternalFontId,
-    gst: &GraphicsStateVec,
-    page_height: f32,
-) -> String {
-    let mut result = String::new();
-
-    // Get font size
-    let font_size = gst.get_font_size(font_id);
-
-    // Get font family name
-    let font_family = match font_id {
-        BuiltinOrExternalFontId::Builtin(builtin_font) => builtin_font.get_svg_font_family(),
-        BuiltinOrExternalFontId::External(font_id) => &font_id.0, /* Use external font ID as
-                                                                   * family name */
-    };
-
-    // Build the PDF->SVG text transform. The glyph position lives entirely in
-    // this matrix (translation part), so the <text> x/y attributes stay at 0 to
-    // avoid double-applying the offset.
+//
+// Horizontal scaling (Tz) is folded into the x axis (text space, innermost), so
+// it scales both the glyph shapes and the pen advances, as in PDF.
+fn text_space_to_svg(gst: &GraphicsStateVec, page_height: f32) -> [f32; 6] {
+    // The glyph position lives entirely in this matrix (translation part), so
+    // the <text> x/y attributes stay at 0 to avoid double-applying the offset.
     //
     // Text is positioned two ways: azul's from_html sets a full text matrix (Tm),
     // while direct-API and parsed PDFs position with SetTextCursor / line breaks
@@ -1053,17 +1246,27 @@ fn render_text_items_to_svg(
     let tm_arr = gst.get_text_matrix().as_array();
     let cursor = gst.get_text_cursor();
     let eff_tm = if cursor.x.0 != 0.0 || cursor.y.0 != 0.0 {
-        [tm_arr[0], tm_arr[1], tm_arr[2], tm_arr[3], cursor.x.0, cursor.y.0]
+        [
+            tm_arr[0], tm_arr[1], tm_arr[2], tm_arr[3], cursor.x.0, cursor.y.0,
+        ]
     } else {
         tm_arr
     };
     let m = compose_matrix(&gst.get_transform_matrix().as_array(), &eff_tm);
-    let text_transform = [m[0], -m[1], -m[2], m[3], m[4], page_height - m[5]];
-    let (x, y) = (0.0f32, 0.0f32);
+    let h_scale = gst.get_horizontal_scaling() / 100.0; // percentage -> multiplier
+    [
+        m[0] * h_scale,
+        -m[1] * h_scale,
+        -m[2],
+        m[3],
+        m[4],
+        page_height - m[5],
+    ]
+}
 
-    // Get text rendering mode styling
-    let text_mode = gst.get_text_rendering_mode();
-    let (fill, stroke) = match text_mode {
+/// SVG `fill` and `stroke` for the current text rendering mode.
+fn text_paint(gst: &GraphicsStateVec) -> (String, String) {
+    match gst.get_text_rendering_mode() {
         TextRenderingMode::Fill => (color_to_svg(&gst.get_fill_color()), "none".to_string()),
         TextRenderingMode::Stroke => ("none".to_string(), color_to_svg(&gst.get_stroke_color())),
         TextRenderingMode::FillStroke => (
@@ -1080,6 +1283,46 @@ fn render_text_items_to_svg(
             color_to_svg(&gst.get_stroke_color()),
         ),
         TextRenderingMode::Clip => ("none".to_string(), "none".to_string()),
+    }
+}
+
+/// Whether a `<text>` element is what the viewer sees, or only the layer that
+/// makes glyphs drawn some other way selectable and searchable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TextLayer {
+    Painted,
+    Unpainted,
+}
+
+// Renders text items (with offsets) to SVG
+fn render_text_items_to_svg(
+    items: &[TextItem],
+    font_id: &BuiltinOrExternalFontId,
+    gst: &GraphicsStateVec,
+    page_height: f32,
+    layer: TextLayer,
+) -> String {
+    let mut result = String::new();
+
+    // Get font size
+    let font_size = gst.get_font_size(font_id);
+
+    // Get font family name
+    let font_family = match font_id {
+        BuiltinOrExternalFontId::Builtin(builtin_font) => builtin_font.get_svg_font_family(),
+        BuiltinOrExternalFontId::External(font_id) => &font_id.0, /* Use external font ID as
+                                                                   * family name */
+    };
+
+    let text_transform = text_space_to_svg(gst, page_height);
+    let (x, y) = (0.0f32, 0.0f32);
+
+    // Get text rendering mode styling
+    let (fill, stroke) = match layer {
+        TextLayer::Painted => text_paint(gst),
+        // Still a fill (not `none`), so the text keeps receiving pointer events
+        // for selection; the `fill-opacity="0"` below hides it.
+        TextLayer::Unpainted => (color_to_svg(&gst.get_fill_color()), "none".to_string()),
     };
 
     // Get other text style properties
@@ -1147,16 +1390,12 @@ fn render_text_items_to_svg(
     let char_spacing = gst.get_character_spacing();
     let word_spacing = gst.get_word_spacing();
 
-    // Get scaling factor if set
-    let h_scale = gst.get_horizontal_scaling() / 100.0; // Convert percentage to multiplier
-
-    // Get transform combining CTM and text matrix (already y-flipped, upright).
-    // Fold horizontal scaling into the matrix (text-space x-axis, innermost) so
-    // we emit a single valid `transform` attribute instead of a duplicate one.
+    // Transform combining CTM and text matrix (already y-flipped, upright, with
+    // horizontal scaling folded in): a single valid `transform` attribute.
     let transform = format!(
         "matrix({} {} {} {} {} {})",
-        text_transform[0] * h_scale,
-        text_transform[1] * h_scale,
+        text_transform[0],
+        text_transform[1],
         text_transform[2],
         text_transform[3],
         text_transform[4],
@@ -1169,6 +1408,9 @@ fn render_text_items_to_svg(
          font-style=\"{}\" fill=\"{}\" stroke=\"{}\" stroke-width=\"{}\"",
         x, y, font_family, font_size.0, font_weight, font_style, fill, stroke, stroke_width
     ));
+    if layer == TextLayer::Unpainted {
+        result.push_str(" fill-opacity=\"0\"");
+    }
 
     // Add optional attributes
     if !transform.is_empty() {

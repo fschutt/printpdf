@@ -2,6 +2,74 @@
 
 ## Unreleased
 
+**`from_html` no longer answers `Ok` with an empty document.** When the HTML
+loader could not read the page (for example a character XML 1.0 excludes,
+such as U+FFFE or a C0 control, reaching azul's strict loader), the
+conversion returned `Ok(PdfDocument)` with no pages and the reason only in
+`warnings`, so callers rendered blank output without noticing (pdfocr #11).
+`from_html`, `from_html_with_cache` and `from_html_debug_with_cache` now
+return `Err` with the loader's messages joined; `warnings` still gets the
+details. Test: `tests/html_errors.rs`.
+
+**The SVG preview shows shaped text the way the PDF does (Arabic joins).**
+`PdfPage::to_svg`, which the web demo's page view uses, wrote every shaped
+glyph back out as its Unicode text, one `<text>` per glyph, and the browser
+shaped each character again on its own: Arabic came out as isolated,
+unjoined letters (and ligatures and Indic conjuncts fell apart), and a
+parsed PDF's visual-order line was bidi-reversed a second time. The PDF
+itself was always shaped correctly. Glyph-id runs are now painted from the
+glyph outlines (`<defs>` + `<use>`), pen-advanced by the same `/W` widths a
+PDF viewer uses; the `<text>` stays as an unpainted layer for selection and
+search. Text written as `TextItem::Text` and the builtin fonts render as
+before. Tests: `tests/arabic_shaping.rs`.
+
+**A CID-keyed CFF font read from a PDF keeps its glyph widths.** The
+synthesized `hmtx` of a bare CFF program took a glyph's first stem
+coordinate as its width when the first hint operator sat in a subroutine
+and had no width operand (NotoSansJP's 語: advance 0, so the rest of a
+parsed line was drawn on top of it). Test: `tests/parsed_cff_widths.rs`.
+
+**HTML text now honours color alpha.** The HTML bridge emitted text fill
+colors from the RGB channels only, so `color: transparent` painted opaque
+black glyphs and `color: rgba(…, 0.5)` painted fully opaque ones. Each text
+run whose color is not opaque now gets its own `q … Q` scope:
+
+- alpha 0 (`transparent`) uses text rendering mode 3 (`3 Tr`, invisible). The
+  glyphs stay selectable, searchable and extractable, which is how OCR text
+  layers over a page scan work.
+- partial alpha loads an `ExtGState` with the fill/stroke alpha, the same way
+  translucent rects already did.
+
+Inline `background-color` behind glyph runs had the same bug (translucent
+backgrounds were painted opaque) and now gets the same `ExtGState`. Opaque text
+emits exactly the same ops as before. Tests: `tests/html_text_alpha.rs`.
+
+**Smaller text: one text object per line instead of one per word (#288).**
+A page of HTML text in a base-14 family wrote two text objects per word
+(`Tf BT /Span <</ActualText …>> BDC Tm TJ EMC ET` for the word, again for
+the space). On a 1000-word book page the Flate-compressed content stream
+goes from 45 KB to 17 KB with positioned words, and from 32 KB to 12 KB with
+flowing paragraphs. Rendering and extracted text are unchanged.
+
+- **The bundled base-14 subsets have a space.** None of the 14 fonts in
+  `defaultfonts/` had a glyph for U+0020 or U+00A0, so every space fell back
+  to a system font (HelveticaNeue on macOS): a font switch, and a new glyph
+  run, at every word, plus a second, machine-dependent font in the PDF. Each
+  subset now has an empty `space` glyph with the standard base-14 advance,
+  appended so existing glyph ids are unchanged (`scripts/add_space_glyphs.py`).
+  `!`, `”` and a few others are still missing (see #288).
+- **`optimize` merges text objects** (`src/text_merge.rs`): consecutive text
+  objects with only text state between them become one, a font or fill colour
+  that is already set is not set again, and `/ActualText` spans that follow
+  each other on one baseline become one span with the joined text.
+- **Glyph runs: whole-unit kerns, one string per unkerned sequence.** The
+  same-baseline merger wrote a kern after almost every glyph for the
+  fraction-of-a-unit difference between the layout's positions and the integer
+  `/W` widths (`[<0030> -0.16767642<0041> …]`). Kerns are now rounded to whole
+  thousandths of an em, with the exact pen position carried along so the error
+  stays below half a unit, and glyphs without a kern between them share one
+  hex string.
+
 **Regression test for azul#478 — multi-page tables broke about a third early.**
 `tests/html_table_page_breaks.rs` renders the reporter's fixture (one `<table>` of
 identical single-line rows, default A4, no `break-*` CSS), finds the single-page
