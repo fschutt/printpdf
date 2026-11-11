@@ -10,7 +10,16 @@ use printpdf::*;
 fn main() {
     let mut doc = PdfDocument::new("Demo of multiple fonts, subsetted");
 
-    let font_slice = include_bytes!("./assets/fonts/SourceHanSerif.ttc");
+    // Source Han Serif is a ~25 MB collection and not part of the repository (an
+    // `include_bytes!` of it broke `cargo test`, which builds the examples): download
+    // SourceHanSerif.ttc from https://github.com/adobe-fonts/source-han-serif/releases
+    // into examples/assets/fonts/ to run this example.
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/examples/assets/fonts/SourceHanSerif.ttc");
+    let font_bytes = std::fs::read(path).unwrap_or_else(|e| {
+        eprintln!("{path}: {e}\nDownload SourceHanSerif.ttc (see the comment above) to run this example.");
+        std::process::exit(1)
+    });
+    let font_slice = font_bytes.as_slice();
 
     // One group per language: each face in the collection cycles
     // JA/KR/SC/TC (verified against the collection's `name` table — this is
