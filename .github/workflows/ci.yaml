@@ -1,13 +1,20 @@
 name: Build and test
 on: [push, pull_request]
 
+# No token permissions by default: each job below asks for what it needs (it only reads).
+permissions: {}
+
 jobs:
 
   check-no-default-features:
     name: Check and test (no default features)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: stable
@@ -21,6 +28,8 @@ jobs:
   check-feature-combinations:
     name: Check feature combinations
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       matrix:
         features:
@@ -37,6 +46,8 @@ jobs:
           - "images,png,jpeg,gif,tiff,bmp,webp"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: stable
@@ -49,8 +60,12 @@ jobs:
         channel: [stable]
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Install ${{ matrix.channel }} toolchain
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
@@ -75,8 +90,12 @@ jobs:
         target-sys: ["i686-pc-windows", "x86_64-pc-windows"]
         target-abi: ["msvc"]
     runs-on: windows-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Install toolchain for ${{ matrix.target-sys }}-${{ matrix.target-abi }}
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
@@ -92,8 +111,12 @@ jobs:
       matrix:
         channel: [stable]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Install toolchain using wasm32-unknown-unknown target
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
@@ -129,8 +152,12 @@ jobs:
   check-all-features-native:
     name: Check --all-features on the docs.rs target
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: stable
@@ -146,8 +173,12 @@ jobs:
   font-verification-external:
     name: Verify fonts with external tools (poppler)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: stable
@@ -177,8 +208,12 @@ jobs:
   font-verification-viewer-semantics:
     name: Verify Identity-H codes with fontTools (Acrobat semantics, #280)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: stable
@@ -222,6 +257,8 @@ jobs:
   consumer-resolution:
     name: Fresh consumer resolution (ignore committed lockfile)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -233,6 +270,8 @@ jobs:
           - { args: "--no-default-features --features svg" }
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: stable
@@ -285,8 +324,12 @@ jobs:
   publish-safety:
     name: No [patch], and the published dep graph passes the font suite
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: stable
@@ -327,8 +370,12 @@ jobs:
   generate-pdf-artifacts:
     name: Generate PDF artifacts
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: stable
@@ -372,4 +419,3 @@ jobs:
           name: pdf-output-${{ github.sha }}
           path: pdf-artifacts/
           retention-days: 30
-
