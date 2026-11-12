@@ -7,8 +7,8 @@ use crate::{ColorBits, ColorSpace, PdfWarnMsg};
 
 // Re-export types from image_types
 pub use crate::image_types::{
-    ImageOptimizationOptions, ImageCompression, OutputImageFormat,
-    RawImage, RawImageData, RawImageFormat,
+    ImageCompression, ImageOptimizationOptions, OutputImageFormat, RawImage, RawImageData,
+    RawImageFormat,
 };
 
 struct RawImageU8 {
@@ -192,7 +192,7 @@ impl RawImage {
     pub fn decode_from_bytes(bytes: &[u8], warnings: &mut Vec<PdfWarnMsg>) -> Result<Self, String> {
         use image::DynamicImage::*;
 
-        let _im = match image::guess_format(bytes) {
+        let im = match image::guess_format(bytes) {
             Ok(format) => {
                 warnings.push(PdfWarnMsg::info(
                     0,
@@ -594,10 +594,12 @@ impl RawImage {
     /// Optimizes the image based on the provided options
     pub fn optimize(&mut self, options: &ImageOptimizationOptions) -> Result<(), String> {
         // Remove alpha channel if all pixels are opaque and auto-optimize is enabled
-        if options.auto_optimize.unwrap_or_default() && self.data_format.has_alpha()
-            && self.is_fully_opaque() {
-                self.remove_alpha_channel()?;
-            }
+        if options.auto_optimize.unwrap_or_default()
+            && self.data_format.has_alpha()
+            && self.is_fully_opaque()
+        {
+            self.remove_alpha_channel()?;
+        }
 
         // Check if color image is actually greyscale
         if options.auto_optimize.unwrap_or_default()
@@ -1566,13 +1568,17 @@ fn pack_bilevel(image: &RawImageU8) -> Option<Vec<u8>> {
     let mut bits = Vec::with_capacity(image.width.div_ceil(8) * image.height);
     for row in image.pixels.chunks(image.width) {
         for eight in row.chunks(8) {
-            let byte = eight.iter().enumerate().fold(0u8, |byte, (i, &p)| {
-                if p == 255 {
-                    byte | 0x80 >> i
-                } else {
-                    byte
-                }
-            });
+            let byte =
+                eight.iter().enumerate().fold(
+                    0u8,
+                    |byte, (i, &p)| {
+                        if p == 255 {
+                            byte | 0x80 >> i
+                        } else {
+                            byte
+                        }
+                    },
+                );
             bits.push(byte);
         }
     }
@@ -1947,3 +1953,5 @@ mod browser_image {
         Ok(bytes)
     }
 }
+
+// -- ⚝  by Dave -- in NeoVim ⚝  --
