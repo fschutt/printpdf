@@ -184,8 +184,8 @@ fn vertical_extent_em(font: Option<&ParsedFont>) -> (f32, f32) {
     {
         let upm = f.pdf_font_metrics.units_per_em as f32;
         if upm > 0.0 {
-            let asc = f.font_metrics.ascent as f32 / upm;
-            let desc = f.font_metrics.descent as f32 / upm;
+            let asc = f.font_metrics.ascent / upm;
+            let desc = f.font_metrics.descent / upm;
             if asc > 0.0 {
                 return (asc, desc.min(0.0));
             }

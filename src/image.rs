@@ -92,7 +92,7 @@ pub fn parse_size_string(size_str: &str) -> Result<usize, String> {
     let size_str = size_str.trim().to_lowercase();
     let numeric_part: String = size_str
         .chars()
-        .take_while(|c| c.is_digit(10) || *c == '.')
+        .take_while(|c| c.is_ascii_digit() || *c == '.')
         .collect();
     let unit_part: String = size_str.chars().skip(numeric_part.len()).collect();
 
@@ -192,7 +192,7 @@ impl RawImage {
     pub fn decode_from_bytes(bytes: &[u8], warnings: &mut Vec<PdfWarnMsg>) -> Result<Self, String> {
         use image::DynamicImage::*;
 
-        let im = match image::guess_format(bytes) {
+        let _im = match image::guess_format(bytes) {
             Ok(format) => {
                 warnings.push(PdfWarnMsg::info(
                     0,
@@ -594,11 +594,10 @@ impl RawImage {
     /// Optimizes the image based on the provided options
     pub fn optimize(&mut self, options: &ImageOptimizationOptions) -> Result<(), String> {
         // Remove alpha channel if all pixels are opaque and auto-optimize is enabled
-        if options.auto_optimize.unwrap_or_default() && self.data_format.has_alpha() {
-            if self.is_fully_opaque() {
+        if options.auto_optimize.unwrap_or_default() && self.data_format.has_alpha()
+            && self.is_fully_opaque() {
                 self.remove_alpha_channel()?;
             }
-        }
 
         // Check if color image is actually greyscale
         if options.auto_optimize.unwrap_or_default()
@@ -642,7 +641,7 @@ impl RawImage {
         match &self.pixels {
             RawImageData::U8(data) => match self.data_format {
                 RawImageFormat::RGBA8 => {
-                    for i in 3..data.len() as usize {
+                    for i in 3..data.len() {
                         if i % 4 == 3 && data[i] != 255 {
                             return false;
                         }
@@ -650,7 +649,7 @@ impl RawImage {
                     true
                 }
                 RawImageFormat::BGRA8 => {
-                    for i in 3..data.len() as usize {
+                    for i in 3..data.len() {
                         if i % 4 == 3 && data[i] != 255 {
                             return false;
                         }
@@ -661,7 +660,7 @@ impl RawImage {
             },
             RawImageData::U16(data) => match self.data_format {
                 RawImageFormat::RGBA16 => {
-                    for i in 3..data.len() as usize {
+                    for i in 3..data.len() {
                         if i % 4 == 3 && data[i] != 65535 {
                             return false;
                         }
@@ -672,7 +671,7 @@ impl RawImage {
             },
             RawImageData::F32(data) => match self.data_format {
                 RawImageFormat::RGBAF32 => {
-                    for i in 3..data.len() as usize {
+                    for i in 3..data.len() {
                         if i % 4 == 3 && data[i] < 0.999 {
                             return false;
                         }
@@ -979,7 +978,7 @@ impl RawImage {
 
                             if x + 1 < width {
                                 grid[y + 1][x + 1] =
-                                    (grid[y + 1][x + 1] + quant_error * 1 / 16).clamp(0, 255);
+                                    (grid[y + 1][x + 1] + quant_error / 16).clamp(0, 255);
                             }
                         }
                     }
@@ -1089,7 +1088,7 @@ impl RawImage {
         };
 
         // Calculate size in bytes (rounded up to nearest byte)
-        (self.width * self.height * bits_per_pixel + 7) / 8
+        (self.width * self.height * bits_per_pixel).div_ceil(8)
     }
 
     /// Resizes the image to fit within a maximum size in bytes

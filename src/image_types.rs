@@ -217,7 +217,7 @@ impl TryFrom<RawImageDataWire> for RawImageData {
                     return Err("u16b64 pixel data has odd byte length".to_string());
                 }
                 RawImageData::U16(
-                    b.chunks_exact(2)
+                    b.as_chunks::<2>().0.iter()
                         .map(|c| u16::from_le_bytes([c[0], c[1]]))
                         .collect(),
                 )
@@ -228,7 +228,7 @@ impl TryFrom<RawImageDataWire> for RawImageData {
                     return Err("f32b64 pixel data length not a multiple of 4".to_string());
                 }
                 RawImageData::F32(
-                    b.chunks_exact(4)
+                    b.as_chunks::<4>().0.iter()
                         .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
                         .collect(),
                 )

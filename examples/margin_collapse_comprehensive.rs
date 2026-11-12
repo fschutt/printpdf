@@ -47,7 +47,7 @@ fn test_empty_block_collapse_through() {
     let options = GeneratePdfOptions::default();
     let mut warnings = Vec::new();
     
-    match PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnings) {
+    match PdfDocument::from_html(html, &images, &fonts, &options, &mut warnings) {
         Ok(doc) => {
             let mut save_warnings = Vec::new();
             let pdf_bytes = doc.save(&PdfSaveOptions::default(), &mut save_warnings);
@@ -82,7 +82,7 @@ fn test_parent_child_top_escape() {
     let options = GeneratePdfOptions::default();
     let mut warnings = Vec::new();
     
-    match PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnings) {
+    match PdfDocument::from_html(html, &images, &fonts, &options, &mut warnings) {
         Ok(doc) => {
             let mut save_warnings = Vec::new();
             let pdf_bytes = doc.save(&PdfSaveOptions::default(), &mut save_warnings);
@@ -118,7 +118,7 @@ fn test_parent_child_bottom_escape() {
     let options = GeneratePdfOptions::default();
     let mut warnings = Vec::new();
     
-    match PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnings) {
+    match PdfDocument::from_html(html, &images, &fonts, &options, &mut warnings) {
         Ok(doc) => {
             let mut save_warnings = Vec::new();
             let pdf_bytes = doc.save(&PdfSaveOptions::default(), &mut save_warnings);
@@ -155,7 +155,7 @@ fn test_complex_nested_collapse() {
     let options = GeneratePdfOptions::default();
     let mut warnings = Vec::new();
     
-    match PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnings) {
+    match PdfDocument::from_html(html, &images, &fonts, &options, &mut warnings) {
         Ok(doc) => {
             let mut save_warnings = Vec::new();
             let pdf_bytes = doc.save(&PdfSaveOptions::default(), &mut save_warnings);
@@ -191,7 +191,7 @@ fn test_multiple_empty_blocks() {
     let options = GeneratePdfOptions::default();
     let mut warnings = Vec::new();
     
-    match PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnings) {
+    match PdfDocument::from_html(html, &images, &fonts, &options, &mut warnings) {
         Ok(doc) => {
             let mut save_warnings = Vec::new();
             let pdf_bytes = doc.save(&PdfSaveOptions::default(), &mut save_warnings);
@@ -229,7 +229,7 @@ fn test_parent_child_with_blockers() {
     let options = GeneratePdfOptions::default();
     let mut warnings = Vec::new();
     
-    match PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnings) {
+    match PdfDocument::from_html(html, &images, &fonts, &options, &mut warnings) {
         Ok(doc) => {
             let mut save_warnings = Vec::new();
             let pdf_bytes = doc.save(&PdfSaveOptions::default(), &mut save_warnings);

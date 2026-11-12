@@ -67,7 +67,7 @@ fn actual_text(op: &Op) -> Option<String> {
     let DictItem::String { data, .. } = map.get("ActualText")? else {
         return None;
     };
-    let units: Vec<u16> = data[2..].chunks_exact(2).map(|c| u16::from_be_bytes([c[0], c[1]])).collect();
+    let units: Vec<u16> = data[2..].as_chunks::<2>().0.iter().map(|c| u16::from_be_bytes([c[0], c[1]])).collect();
     String::from_utf16(&units).ok()
 }
 

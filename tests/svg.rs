@@ -9,7 +9,7 @@ fn test_op_svg_embed() {
     let parsed = parsed.stream.get_ops().unwrap();
 
     let tigerstream = include_str!("./tiger-svgstream.txt");
-    let ops = ExternalStream::decode_ops(&tigerstream).unwrap();
+    let ops = ExternalStream::decode_ops(tigerstream).unwrap();
 
     for i in 0..parsed.len() {
         pretty_assertions::assert_eq!(format!("{:#?}", parsed[i]), format!("{:#?}", ops[i]),);

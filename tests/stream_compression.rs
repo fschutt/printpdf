@@ -41,7 +41,7 @@ fn first_page_content_stream(doc: &Document) -> &Stream {
         .expect("page content stream")
 }
 
-fn first_font_program_stream<'a>(doc: &'a Document) -> (&'static str, &'a Stream) {
+fn first_font_program_stream(doc: &Document) -> (&'static str, &Stream) {
     let page_id = *doc
         .get_pages()
         .values()

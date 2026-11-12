@@ -155,22 +155,22 @@ fn scan_content(content: &[u8]) -> Result<UsedNames, String> {
     for op in &decoded.operations {
         match op.operator.as_str() {
             "Do" => {
-                if let Some(n) = op.operands.first().and_then(|o| name_of(o)) {
+                if let Some(n) = op.operands.first().and_then(&name_of) {
                     used.xobjects.push(n);
                 }
             }
             "gs" => {
-                if let Some(n) = op.operands.first().and_then(|o| name_of(o)) {
+                if let Some(n) = op.operands.first().and_then(&name_of) {
                     used.ext_g_states.push(n);
                 }
             }
             "Tf" => {
-                if let Some(n) = op.operands.first().and_then(|o| name_of(o)) {
+                if let Some(n) = op.operands.first().and_then(&name_of) {
                     used.fonts.push(n);
                 }
             }
             "cs" | "CS" => {
-                if let Some(n) = op.operands.first().and_then(|o| name_of(o)) {
+                if let Some(n) = op.operands.first().and_then(&name_of) {
                     // device spaces and /Pattern may be used without a resource entry
                     if !matches!(
                         n.as_str(),
@@ -189,7 +189,7 @@ fn scan_content(content: &[u8]) -> Result<UsedNames, String> {
                 }
             }
             "sh" => {
-                if let Some(n) = op.operands.first().and_then(|o| name_of(o)) {
+                if let Some(n) = op.operands.first().and_then(&name_of) {
                     used.shadings.push(n);
                 }
             }

@@ -198,7 +198,7 @@ fn test_utc_offset() {
     assert_eq!(offset.whole_hours(), 2);
     assert_eq!(offset.minutes_past_hour(), 30);
     assert_eq!(offset.seconds_past_minute(), 15);
-    assert_eq!(offset.is_negative(), false);
+    assert!(!offset.is_negative());
 
     let negative_offset = UtcOffset {
         hours: -5,
@@ -207,7 +207,7 @@ fn test_utc_offset() {
     };
 
     assert_eq!(negative_offset.whole_hours(), -5);
-    assert_eq!(negative_offset.is_negative(), true);
+    assert!(negative_offset.is_negative());
 
     // Test from_hms constructor
     let created_offset = UtcOffset::from_hms(2, 30, 15).unwrap();

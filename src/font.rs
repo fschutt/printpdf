@@ -589,7 +589,9 @@ pub enum Font {
 /// Standard built-in PDF fonts
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+#[derive(Default)]
 pub enum BuiltinFont {
+    #[default]
     TimesRoman,
     TimesBold,
     TimesItalic,
@@ -606,11 +608,6 @@ pub enum BuiltinFont {
     ZapfDingbats,
 }
 
-impl Default for BuiltinFont {
-    fn default() -> Self {
-        Self::TimesRoman // HTML default is serif (Times New Roman)
-    }
-}
 
 include!("../defaultfonts/mapping.rs");
 
@@ -1835,7 +1832,7 @@ mod test {
                 .map(|(k, (g, c))| (k, (g, c.to_string())))
                 .collect();
             let subset = crate::font::SubsetFont { bytes: subset_bytes, glyph_mapping };
-            tm2.insert(name.clone(), subset.bytes.len());
+            tm2.insert(*name, subset.bytes.len());
             let _ = std::fs::write(
                 format!(
                     "{}/defaultfonts/{}.subset.ttf",

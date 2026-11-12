@@ -146,7 +146,7 @@ fn issue_253_mediabox_survives_fractional_page_size() {
     let page_dict = parsed.get_dictionary(page_id).unwrap();
     let media_box = page_dict.get(b"MediaBox").unwrap().as_array().unwrap();
     let w = match &media_box[2] {
-        Object::Real(r) => *r as f32,
+        Object::Real(r) => *r,
         Object::Integer(i) => *i as f32,
         o => panic!("unexpected MediaBox entry: {o:?}"),
     };
@@ -334,7 +334,7 @@ fn issue_212_cff_fontbbox_is_not_zero_height() {
 
     let parsed = lopdf::Document::load_mem(&bytes).unwrap();
     let mut checked = 0;
-    for (_, obj) in parsed.objects.iter() {
+    for obj in parsed.objects.values() {
         let Ok(dict) = obj.as_dict() else { continue };
         if dict.get(b"Type").and_then(|t| t.as_name()).ok() != Some(b"FontDescriptor") {
             continue;

@@ -81,7 +81,7 @@ p { margin: 10px 0; line-height: 1.5; }
     };
     
     let mut warnings = Vec::new();
-    match PdfDocument::from_html(&html, &images, &fonts, &options_no_hf, &mut warnings) {
+    match PdfDocument::from_html(html, &images, &fonts, &options_no_hf, &mut warnings) {
         Ok(doc) => {
             println!("  Generated {} pages (no headers)", doc.pages.len());
             let bytes = doc.save(&PdfSaveOptions::default(), &mut Vec::new());
@@ -108,7 +108,7 @@ p { margin: 10px 0; line-height: 1.5; }
     };
     
     let mut warnings = Vec::new();
-    match PdfDocument::from_html(&html, &images, &fonts, &options_all_hf, &mut warnings) {
+    match PdfDocument::from_html(html, &images, &fonts, &options_all_hf, &mut warnings) {
         Ok(doc) => {
             println!("  Generated {} pages (headers on all)", doc.pages.len());
             let bytes = doc.save(&PdfSaveOptions::default(), &mut Vec::new());
@@ -135,7 +135,7 @@ p { margin: 10px 0; line-height: 1.5; }
     };
     
     let mut warnings = Vec::new();
-    match PdfDocument::from_html(&html, &images, &fonts, &options_skip_first, &mut warnings) {
+    match PdfDocument::from_html(html, &images, &fonts, &options_skip_first, &mut warnings) {
         Ok(doc) => {
             println!("  Generated {} pages (skip first)", doc.pages.len());
             let bytes = doc.save(&PdfSaveOptions::default(), &mut Vec::new());

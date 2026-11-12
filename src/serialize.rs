@@ -93,7 +93,7 @@ pub fn serialize_pdf<W: Write>(
     opts: &PdfSaveOptions,
     mut writer: &mut W,
     warnings: &mut Vec<PdfWarnMsg>,
-) -> () {
+) {
     let mut doc = to_lopdf_doc(pdf, opts, warnings);
     if opts.optimize {
         // the /ActualText of text whose glyphs read as it anyway (see optimize.rs)
@@ -902,7 +902,7 @@ pub(crate) fn translate_operations(
                 let props = Array(properties.iter().map(|item| item.to_lopdf()).collect());
                 content.push(LoOp::new("DP", vec![Name(tag.clone().into()), props]));
             }
-            Op::EndMarkedContent { .. } | Op::EndMarkedContentWithProperties { .. } | Op::EndOptionalContent { .. } => {
+            Op::EndMarkedContent | Op::EndMarkedContentWithProperties | Op::EndOptionalContent => {
                 content.push(LoOp::new("EMC", vec![]));
             }
             Op::BeginCompatibilitySection => {
@@ -1078,7 +1078,7 @@ fn needs_hex_encoding(bytes: &[u8]) -> bool {
         // - Control characters
         // - Non-ASCII characters
         // - Special characters like (, ), \, etc.
-        b < 32 || b > 126 || b == b'(' || b == b')' || b == b'\\' || b == b'%'
+        !(32..=126).contains(&b) || b == b'(' || b == b')' || b == b'\\' || b == b'%'
     })
 }
 
@@ -1243,7 +1243,7 @@ fn collect_used_glyphs_from_pages(
                 Op::ShowText { items } => {
                     if let Some(ref font_id) = current_font_id {
                         if let Some(pdf_font) = fonts.get(font_id) {
-                            let font_glyphs = used_glyphs.entry(font_id.clone()).or_insert_with(BTreeMap::new);
+                            let font_glyphs = used_glyphs.entry(font_id.clone()).or_default();
                             
                             for item in items {
                                 match item {
@@ -1298,7 +1298,7 @@ fn collect_used_glyphs_from_pages(
                         if let Some(pdf_font) = fonts.get(font_id) {
                             let font_glyphs = used_glyphs
                                 .entry(font_id.clone())
-                                .or_insert_with(BTreeMap::new);
+                                .or_default();
 
                             for c in text.chars() {
                                 if let Some(glyph_id) =
@@ -1687,7 +1687,7 @@ fn create_subset_runtime_info(
                 }
                 // The /W run-length groups and ToUnicode bfranges need ascending codes.
                 // Subset gids ascend with original gids, but charset CIDs need not.
-                coded_glyphs.sort_by(|a, b| a.0.cmp(&b.0));
+                coded_glyphs.sort_by_key(|a| a.0);
 
                 let coded_unicode: Vec<(u16, String)> = coded_glyphs
                     .iter()
@@ -1814,7 +1814,7 @@ fn create_full_font_runtime_info(
             .collect();
         // /W run groups and ToUnicode bfranges need ascending codes; charset CIDs
         // need not ascend with gids.
-        v.sort_by(|a, b| a.0.cmp(&b.0));
+        v.sort_by_key(|a| a.0);
         v
     };
 

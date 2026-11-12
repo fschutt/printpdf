@@ -158,8 +158,8 @@ fn spacing_and_scaling_fold_into_geometry() {
         Op::StartTextSection,
         Op::SetTextCursor {
             pos: Point {
-                x: Pt(100.0).into(),
-                y: Pt(100.0).into(),
+                x: Pt(100.0),
+                y: Pt(100.0),
             },
         },
         Op::SetFont {

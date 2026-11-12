@@ -28,7 +28,7 @@ fn main() {
     let options = GeneratePdfOptions::default();
     let mut warnings = Vec::new();
     
-    let pdf_doc = PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnings)
+    let pdf_doc = PdfDocument::from_html(html, &images, &fonts, &options, &mut warnings)
         .expect("Failed to create PDF");
     
     println!("[OK] PDF generated successfully");

@@ -116,7 +116,7 @@ fn hex_to_unicode_scalars(hex: &str) -> Result<Vec<u32>, String> {
         // single UTF-16 code unit (or fewer digits, e.g. `<20>`)
         return Ok(vec![hex_to_u32(hex)?]);
     }
-    if hex.len() % 4 != 0 {
+    if !hex.len().is_multiple_of(4) {
         // Not a whole number of UTF-16BE units; historic behavior parsed the
         // token as one number, keep that as a fallback for short odd tokens.
         return hex_to_u32(hex).map(|v| vec![v]);
@@ -311,7 +311,7 @@ impl ToUnicodeCMap {
             let high_byte = ((cid >> 8) & 0xFF) as u8;
             grouped_by_high_byte
                 .entry(high_byte)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push((cid, unicode_values));
         }
 
@@ -422,7 +422,7 @@ impl CidCMap {
 
         let hex_bytes = |hex: &str| -> Result<(u8, [u8; 4], u32), String> {
             let digits = hex.len();
-            if digits == 0 || digits > 8 || digits % 2 != 0 {
+            if digits == 0 || digits > 8 || !digits.is_multiple_of(2) {
                 return Err(format!("codespace hex <{hex}> is not 1–4 bytes"));
             }
             let len = (digits / 2) as u8;
@@ -655,7 +655,7 @@ pub fn get_to_unicode_cmap_from_font(
     let stream = match to_unicode_obj {
         Object::Reference(r) => doc
             .get_object(*r)
-            .and_then(|obj| obj.as_stream().map(|s| s.clone()))
+            .and_then(|obj| obj.as_stream().cloned())
             .map_err(|e| format!("Error getting ToUnicode stream: {}", e))?,
         Object::Stream(s) => s.clone(),
         _ => return Err("Unexpected type for ToUnicode entry".into()),
@@ -730,10 +730,7 @@ mod tests {
     fn bfrange_huge_range_is_bounded() {
         // Guard: a hostile few-byte bfrange must not allocate 2^21 entries.
         let cmap = "beginbfrange\n<000000> <1FFFFF> <0041>\nendbfrange";
-        match ToUnicodeCMap::parse(cmap) {
-            Ok(m) => assert!(m.mappings.len() <= 65_536),
-            Err(_) => {}
-        }
+        if let Ok(m) = ToUnicodeCMap::parse(cmap) { assert!(m.mappings.len() <= 65_536) }
     }
 
     #[test]

@@ -202,7 +202,7 @@ pub fn decode_tj_operands(operands: &[Object], to_unicode: Option<&impl CMap>) -
                 items.push(TextItem::Offset(*i as f32));
             }
             Object::Real(r) => {
-                items.push(TextItem::Offset(*r as f32));
+                items.push(TextItem::Offset(*r));
             }
             _ => {
                 // Ignore unsupported types or log a warning.
@@ -252,7 +252,7 @@ pub fn decode_tj_operands_as_glyph_ids(operands: &[Object]) -> Vec<TextItem> {
                 if !current_glyphs.is_empty() {
                     items.push(TextItem::GlyphIds(std::mem::take(&mut current_glyphs)));
                 }
-                items.push(TextItem::Offset(*r as f32));
+                items.push(TextItem::Offset(*r));
             }
             _ => {
                 // Ignore unsupported types
@@ -273,7 +273,7 @@ pub fn decode_tj_string_as_glyph_ids(bytes: &[u8]) -> Vec<TextItem> {
     let mut glyphs = Vec::new();
     
     // Extract glyph IDs from the byte string
-    if bytes.len() >= 2 && bytes.len() % 2 == 0 {
+    if bytes.len() >= 2 && bytes.len().is_multiple_of(2) {
         // Assume CID font (2 bytes per glyph)
         for chunk in bytes.chunks(2) {
             if chunk.len() == 2 {

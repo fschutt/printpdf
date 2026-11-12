@@ -212,7 +212,7 @@ fn main() {
 
     println!("Parsing HTML and generating PDF...");
     
-    let doc = match PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnings) {
+    let doc = match PdfDocument::from_html(html, &images, &fonts, &options, &mut warnings) {
         Ok(doc) => {
             println!("[OK] Successfully generated PDF");
             if !warnings.is_empty() {
@@ -252,9 +252,9 @@ fn main() {
             match file.write_all(&bytes) {
                 Ok(_) => {
                     println!("[OK] PDF saved successfully!");
-                    println!("");
+                    println!();
                     println!("Open {} to verify baseline alignment visually.", output_path);
-                    println!("");
+                    println!();
                     println!("What to check:");
                     println!("1. Text of different sizes should share a common baseline");
                     println!("2. Sub/superscripts should be positioned correctly");

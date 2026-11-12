@@ -14,9 +14,17 @@ use lopdf::{
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
+    cmap::ToUnicodeCMap,
+    conformance::PdfConformance,
+    date::{parse_pdf_date, OffsetDateTime},
     font::ParsedFont,
     xobject::{ExternalStream, ExternalXObject},
-    BuiltinFont, BuiltinOrExternalFontId, Color, DictItem, ExtendedGraphicsState, ExtendedGraphicsStateId, ExtendedGraphicsStateMap, FontId, LayerInternalId, Line, LineDashPattern, LinePoint, LinkAnnotation, Op, PageAnnotId, PageAnnotMap, PaintMode, PdfDocument, PdfDocumentInfo, PdfFontMap, PdfLayerMap, PdfMetadata, PdfPage, PdfResources, Point, Polygon, PolygonRing, Pt, RawImage, Rect, RenderingIntent, TextMatrix, TextRenderingMode, WindingOrder, XObject, XObjectId, XObjectMap, cmap::ToUnicodeCMap, conformance::PdfConformance, date::{OffsetDateTime, parse_pdf_date}
+    BuiltinFont, BuiltinOrExternalFontId, Color, DictItem, ExtendedGraphicsState,
+    ExtendedGraphicsStateId, ExtendedGraphicsStateMap, FontId, LayerInternalId, Line,
+    LineDashPattern, LinePoint, LinkAnnotation, Op, PageAnnotId, PageAnnotMap, PaintMode,
+    PdfDocument, PdfDocumentInfo, PdfFontMap, PdfLayerMap, PdfMetadata, PdfPage, PdfResources,
+    Point, Polygon, PolygonRing, Pt, RawImage, Rect, RenderingIntent, TextMatrix,
+    TextRenderingMode, WindingOrder, XObject, XObjectId, XObjectMap,
 };
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -170,8 +178,8 @@ fn parse_pdf_from_bytes_start(
         .trailer
         .get(b"Info")
         .ok()
-        .and_then(|s| get_dict_or_resolve_ref(&format!("document_info"), &doc, s, warnings, None))
-        .map(|s| parse_document_info(s))
+        .and_then(|s| get_dict_or_resolve_ref("document_info", &doc, s, warnings, None))
+        .map(parse_document_info)
         .unwrap_or_default();
 
     let link_annots = links_and_bookmarks::extract_link_annotations(&doc);
@@ -391,7 +399,10 @@ pub enum ParsedOrBuiltinFont {
     /// parsed (e.g. not embedded). It cannot be re-embedded, but its code
     /// layout (`/Encoding` CMap) and ToUnicode CMap are kept so the text still
     /// *decodes* correctly for extraction.
-    CidStub(Option<Arc<ToUnicodeCMap>>, Option<Arc<crate::cmap::CidCMap>>),
+    CidStub(
+        Option<Arc<ToUnicodeCMap>>,
+        Option<Arc<crate::cmap::CidCMap>>,
+    ),
 }
 
 impl ParsedOrBuiltinFont {
@@ -471,7 +482,7 @@ fn get_dict_or_resolve_ref<'a>(
                         0,
                         format!("{id}: Invalid dictionary reference {r:?}"),
                     ));
-                    return None;
+                    None
                 }
             },
         },
@@ -479,9 +490,9 @@ fn get_dict_or_resolve_ref<'a>(
             warnings.push(PdfWarnMsg::error(
                 page.unwrap_or(0),
                 0,
-                format!("Unexpected type for XObject resource"),
+                "Unexpected type for XObject resource".to_string(),
             ));
-            return None;
+            None
         }
     }
 }
@@ -503,7 +514,7 @@ fn get_stream_or_resolve_ref<'a>(
                     0,
                     format!("Invalid stream reference {r:?}"),
                 ));
-                return None;
+                None
             }
             Err(e) => {
                 warnings.push(PdfWarnMsg::error(
@@ -511,16 +522,16 @@ fn get_stream_or_resolve_ref<'a>(
                     0,
                     format!("Invalid stream reference {r:?}: {e:?}"),
                 ));
-                return None;
+                None
             }
         },
         _ => {
             warnings.push(PdfWarnMsg::error(
                 page.unwrap_or(0),
                 0,
-                format!("Unexpected type for XObject resource"),
+                "Unexpected type for XObject resource".to_string(),
             ));
-            return None;
+            None
         }
     }
 }
@@ -674,7 +685,9 @@ fn extract_shadings(
             Some(dict)
         };
         let Some(resources) = resources else { continue };
-        let Ok(shading_res) = resources.get(b"Shading") else { continue };
+        let Ok(shading_res) = resources.get(b"Shading") else {
+            continue;
+        };
         let Some(shading_dict) = get_dict_or_resolve_ref(
             &format!("extract_shadings Shading page {page_num}"),
             doc,
@@ -748,7 +761,7 @@ fn parse_shading_dict(
             other => other,
         }
     }
-    fn fn_dict<'a>(o: &'a LopdfObject) -> Option<&'a LopdfDictionary> {
+    fn fn_dict(o: &LopdfObject) -> Option<&LopdfDictionary> {
         match o {
             LopdfObject::Dictionary(d) => Some(d),
             LopdfObject::Stream(s) => Some(&s.dict),
@@ -799,7 +812,8 @@ fn parse_shading_dict(
 
     let func_obj = resolve(
         doc,
-        dict.get(b"Function").map_err(|_| "shading without Function")?,
+        dict.get(b"Function")
+            .map_err(|_| "shading without Function")?,
     );
     let func = fn_dict(func_obj).ok_or("shading Function is not a dictionary/stream")?;
     let func_type = func
@@ -1178,10 +1192,7 @@ fn stream_filters(stream: &LopdfStream) -> Vec<Vec<u8>> {
 }
 
 /// Resolve and decode the `/SMask` of an image stream to 8-bit gray alpha.
-fn extract_smask(
-    doc: &LopdfDocument,
-    stream: &LopdfStream,
-) -> Option<SMaskData> {
+fn extract_smask(doc: &LopdfDocument, stream: &LopdfStream) -> Option<SMaskData> {
     let smask_obj = stream.dict.get(b"SMask").ok()?;
     let smask_stream = match smask_obj {
         Object::Reference(r) => match doc.get_object(*r).ok()? {
@@ -1247,7 +1258,12 @@ pub(crate) fn raw_bitmap_from_stream(
         }
     }
     if let Ok(Object::Dictionary(dp)) = stream.dict.get(b"DecodeParms") {
-        if dp.get(b"Predictor").map(|p| p.as_i64().unwrap_or(1)).unwrap_or(1) > 1 {
+        if dp
+            .get(b"Predictor")
+            .map(|p| p.as_i64().unwrap_or(1))
+            .unwrap_or(1)
+            > 1
+        {
             return None;
         }
     }
@@ -1289,7 +1305,9 @@ pub(crate) fn raw_bitmap_from_stream(
                 RawImageFormat::R16
             };
             let pixels: Vec<u16> = data[..expected]
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|c| u16::from_be_bytes([c[0], c[1]]))
                 .collect();
             Some(RawImage {
@@ -1588,7 +1606,10 @@ fn collect_page_refs_inner(
             warnings.push(PdfWarnMsg::warning(
                 0,
                 0,
-                format!("Pages tree contains object {:?} more than once, skipping", r),
+                format!(
+                    "Pages tree contains object {:?} more than once, skipping",
+                    r
+                ),
             ));
             continue;
         }
@@ -1814,8 +1835,8 @@ fn parse_page(
     };
     let mut printpdf_ops = Vec::new();
     for (op_id, op) in ops.iter().enumerate() {
-        let parsed_op = parse_op(num, op_id, &op, &mut page_state, xobjects, warnings)?;
-        printpdf_ops.extend(parsed_op.into_iter());
+        let parsed_op = parse_op(num, op_id, op, &mut page_state, xobjects, warnings)?;
+        printpdf_ops.extend(parsed_op);
     }
 
     Ok(PdfPage {
@@ -1898,7 +1919,9 @@ impl RectangleBuilder {
         if self.rectangle.is_none() {
             vec![]
         } else {
-            vec![Op::DrawRectangle { rectangle: self.rectangle.as_ref().unwrap().clone() }]
+            vec![Op::DrawRectangle {
+                rectangle: self.rectangle.as_ref().unwrap().clone(),
+            }]
         }
     }
 
@@ -2104,9 +2127,9 @@ fn parse_pdf_stream(stream: &str) -> Vec<(String, Vec<f32>)> {
     let mut current_operands = Vec::new();
 
     // Simple tokenizer for PDF path operations
-    let mut tokens = stream.split_whitespace().peekable();
+    let tokens = stream.split_whitespace().peekable();
 
-    while let Some(token) = tokens.next() {
+    for token in tokens {
         // Check if token is a number
         if let Ok(num) = token.parse::<f32>() {
             current_operands.push(num);
@@ -2382,16 +2405,20 @@ fn decode_show_text_string(
         Some(FontTextDecodeKind::Builtin(_)) => {
             TextItem::Text(decode_simple_font_bytes(bytes, None))
         }
-        Some(FontTextDecodeKind::Simple { to_unicode }) => TextItem::Text(
-            decode_simple_font_bytes(bytes, to_unicode.as_deref()),
-        ),
-        Some(FontTextDecodeKind::Cid { to_unicode, encoding_cmap, cid_to_gid }) => {
+        Some(FontTextDecodeKind::Simple { to_unicode }) => {
+            TextItem::Text(decode_simple_font_bytes(bytes, to_unicode.as_deref()))
+        }
+        Some(FontTextDecodeKind::Cid {
+            to_unicode,
+            encoding_cmap,
+            cid_to_gid,
+        }) => {
             // bytes -> codes: variable-width per the /Encoding CMap's codespace
             // ranges, or fixed 2-byte big-endian for Identity-H (`None`).
             let codes: Vec<(u32, u8)> = match encoding_cmap {
                 Some(cmap) => cmap.split_codes(bytes),
                 None => {
-                    if bytes.len() % 2 != 0 {
+                    if !bytes.len().is_multiple_of(2) {
                         warnings.push(PdfWarnMsg::warning(
                             page,
                             op_id,
@@ -2403,7 +2430,9 @@ fn decode_show_text_string(
                         ));
                     }
                     bytes
-                        .chunks_exact(2)
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
                         .map(|c| (u16::from_be_bytes([c[0], c[1]]) as u32, 2))
                         .collect()
                 }
@@ -2519,7 +2548,7 @@ pub fn parse_op(
                 warnings.push(PdfWarnMsg::error(
                     page,
                     op_id,
-                    format!("Warning: 'Q' with empty transform stack"),
+                    "Warning: 'Q' with empty transform stack".to_string(),
                 ));
             }
             out_ops.push(Op::RestoreGraphicsState);
@@ -2780,7 +2809,7 @@ pub fn parse_op(
                     op_id,
                     "Warning: 'TJ' with no operands".to_string(),
                 ));
-            } else if let Some(arr) = op.operands.get(0).and_then(|o| o.as_array().ok()) {
+            } else if let Some(arr) = op.operands.first().and_then(|o| o.as_array().ok()) {
                 // Warn if no font was set via Tf operator
                 if state.current_font_resource.is_none() {
                     warnings.push(PdfWarnMsg::warning(
@@ -2801,9 +2830,7 @@ pub fn parse_op(
                 );
 
                 // Emit new ShowText operation (1:1 PDF mapping)
-                out_ops.push(Op::ShowText {
-                    items: text_items,
-                });
+                out_ops.push(Op::ShowText { items: text_items });
             } else {
                 warnings.push(PdfWarnMsg::error(
                     page,
@@ -2848,9 +2875,7 @@ pub fn parse_op(
                 )];
 
                 // Emit new ShowText operation (1:1 PDF mapping)
-                out_ops.push(Op::ShowText {
-                    items: text_items,
-                });
+                out_ops.push(Op::ShowText { items: text_items });
             } else {
                 warnings.push(PdfWarnMsg::error(
                     page,
@@ -2978,7 +3003,7 @@ pub fn parse_op(
                 return Ok(Vec::new());
             }
             let mode = match &op.operands[0] {
-                Object::Integer(i) => *i as i64,
+                Object::Integer(i) => *i,
                 Object::Real(r) => *r as i64,
                 _ => {
                     warnings.push(PdfWarnMsg::error(
@@ -3045,16 +3070,16 @@ pub fn parse_op(
                     // Times-Roman and destroy both decode and re-encode.
                     state.current_font_decode = match state.font_decode.get(&font_name) {
                         Some(kind) => Some(kind.clone()),
-                        None => {
-                            BuiltinFont::from_id(&font_name).map(FontTextDecodeKind::Builtin)
-                        }
+                        None => BuiltinFont::from_id(&font_name).map(FontTextDecodeKind::Builtin),
                     };
                 }
                 let size_val = to_f32(&op.operands[1]);
                 state.current_font_size = Some(crate::units::Pt(size_val));
 
                 // Emit new SetFont operation (1:1 PDF mapping)
-                if let (Some(font_resource), Some(sz)) = (&state.current_font_resource, &state.current_font_size) {
+                if let (Some(font_resource), Some(sz)) =
+                    (&state.current_font_resource, &state.current_font_size)
+                {
                     // Builtin or external is decided by the resolved decode
                     // kind (falling back to the F1-F14 name heuristic when the
                     // document's resources don't describe the font).
@@ -3062,9 +3087,9 @@ pub fn parse_op(
                         Some(FontTextDecodeKind::Builtin(b)) => {
                             crate::ops::PdfFontHandle::Builtin(*b)
                         }
-                        Some(_) => {
-                            crate::ops::PdfFontHandle::External(crate::FontId(font_resource.clone()))
-                        }
+                        Some(_) => crate::ops::PdfFontHandle::External(crate::FontId(
+                            font_resource.clone(),
+                        )),
                         None => {
                             if let Some(builtin) = BuiltinFont::from_id(font_resource) {
                                 crate::ops::PdfFontHandle::Builtin(builtin)
@@ -3092,11 +3117,7 @@ pub fn parse_op(
                 ));
                 out_ops.push(Op::Unknown {
                     key: "Tf".into(),
-                    value: op
-                        .operands
-                        .iter()
-                        .map(|s| DictItem::from_lopdf(s))
-                        .collect(),
+                    value: op.operands.iter().map(DictItem::from_lopdf).collect(),
                 });
             }
         }
@@ -3164,7 +3185,7 @@ pub fn parse_op(
                             tag: marked_content_nm.clone(),
                             properties: DictItem::from_lopdf(&Object::Dictionary(dict.to_owned())),
                         });
-                    },
+                    }
                     Err(_err) => {
                         warnings.push(PdfWarnMsg::warning(
                             page,
@@ -3173,11 +3194,7 @@ pub fn parse_op(
                         ));
                         out_ops.push(Op::Unknown {
                             key: "BDC".into(),
-                            value: op
-                                .operands
-                                .iter()
-                                .map(|s| DictItem::from_lopdf(s))
-                                .collect(),
+                            value: op.operands.iter().map(DictItem::from_lopdf).collect(),
                         });
                     }
                 }
@@ -3211,12 +3228,12 @@ pub fn parse_op(
         }
         "EMC" => {
             if let Some(_marked_content_str) = state.current_marked_content.pop() {
-                out_ops.push(Op::EndMarkedContent { });
+                out_ops.push(Op::EndMarkedContent {});
             } else {
                 warnings.push(PdfWarnMsg::error(
                     page,
                     op_id,
-                    format!("Warning: 'EMC' with no current_marked_content"),
+                    "Warning: 'EMC' with no current_marked_content".to_string(),
                 ));
             }
         }
@@ -3240,7 +3257,7 @@ pub fn parse_op(
                 warnings.push(PdfWarnMsg::error(
                     page,
                     op_id,
-                    format!("Warning: 'cm' expects 6 floats"),
+                    "Warning: 'cm' expects 6 floats".to_string(),
                 ));
             }
         }
@@ -3249,14 +3266,14 @@ pub fn parse_op(
         // --- Path building: moveTo (m), lineTo (l), closepath (h), curveTo (c), etc. ---
         "m" => {
             // Start a new subpath
-            let x = to_f32(&op.operands.get(0).unwrap_or(&lopdf::Object::Null));
-            let y = to_f32(&op.operands.get(1).unwrap_or(&lopdf::Object::Null));
+            let x = to_f32(op.operands.first().unwrap_or(&lopdf::Object::Null));
+            let y = to_f32(op.operands.get(1).unwrap_or(&lopdf::Object::Null));
             state.path_builder.move_to(Point { x: Pt(x), y: Pt(y) });
         }
         "l" => {
             // lineTo
-            let x = to_f32(&op.operands.get(0).unwrap_or(&lopdf::Object::Null));
-            let y = to_f32(&op.operands.get(1).unwrap_or(&lopdf::Object::Null));
+            let x = to_f32(op.operands.first().unwrap_or(&lopdf::Object::Null));
+            let y = to_f32(op.operands.get(1).unwrap_or(&lopdf::Object::Null));
             state.path_builder.line_to(Point { x: Pt(x), y: Pt(y) });
         }
         "c" => {
@@ -3463,21 +3480,27 @@ pub fn parse_op(
                 out_ops.push(path_to_op(&path));
             }
             // Note: We don't clear the path here since clipping doesn't consume the path
-            state.rectangle_builder.set_winding_order(WindingOrder::NonZero);
+            state
+                .rectangle_builder
+                .set_winding_order(WindingOrder::NonZero);
         }
         "W*" => {
             // Set clip path using even-odd winding rule
             let path = state
                 .path_builder
                 .build(PaintMode::Clip, WindingOrder::EvenOdd);
-            if !path.subpaths.is_empty() || out_ops.last().is_some_and(|last_op| match last_op {
-                Op::DrawRectangle { .. } => true,
-                _ => false,
-            }) {
+            if !path.subpaths.is_empty()
+                || out_ops.last().is_some_and(|last_op| match last_op {
+                    Op::DrawRectangle { .. } => true,
+                    _ => false,
+                })
+            {
                 out_ops.push(path_to_op(&path));
             }
             // Note: We don't clear the path here since clipping doesn't consume the path
-            state.rectangle_builder.set_winding_order(WindingOrder::EvenOdd);
+            state
+                .rectangle_builder
+                .set_winding_order(WindingOrder::EvenOdd);
         }
 
         // --- Painting state operators
@@ -3485,7 +3508,7 @@ pub fn parse_op(
             // Set line width
             // "w" sets the line width (stroke thickness in user‐space units)
             // e.g. "3 w" => 3pt line width
-            if let Some(val) = op.operands.get(0) {
+            if let Some(val) = op.operands.first() {
                 let width = to_f32(val);
                 out_ops.push(Op::SetOutlineThickness {
                     pt: crate::units::Pt(width),
@@ -3498,7 +3521,7 @@ pub fn parse_op(
             // PDF operator "M <limit>" sets the miter limit.
             // You don't currently have a specific Op variant for that,
             // so you can either create one or store as `Unknown`.
-            if let Some(val) = op.operands.get(0) {
+            if let Some(val) = op.operands.first() {
                 let limit = to_f32(val);
                 // If you create an Op::SetMiterLimit, do that here:
                 out_ops.push(Op::SetMiterLimit { limit: Pt(limit) });
@@ -3508,7 +3531,7 @@ pub fn parse_op(
         "j" => {
             // Set line join style
             // "0 j" => miter join, "1 j" => round join, "2 j" => bevel
-            if let Some(val) = op.operands.get(0) {
+            if let Some(val) = op.operands.first() {
                 let style_num = to_f32(val).round() as i64;
                 let style = match style_num {
                     0 => crate::graphics::LineJoinStyle::Miter,
@@ -3523,7 +3546,7 @@ pub fn parse_op(
         "J" => {
             // Set line cap style
             // "0 J" => butt cap, "1 J" => round cap, "2 J" => projecting square
-            if let Some(val) = op.operands.get(0) {
+            if let Some(val) = op.operands.first() {
                 let style_num = to_f32(val).round() as i64;
                 let style = match style_num {
                     0 => crate::graphics::LineCapStyle::Butt,
@@ -3540,12 +3563,12 @@ pub fn parse_op(
             // "d [2 2] 0" => dash 2 on, 2 off, offset=0
             if op.operands.len() == 2 {
                 // operand 0 is the dash array, operand 1 is the dash offset
-                if let Some(arr_obj) = op.operands.get(0) {
+                if let Some(arr_obj) = op.operands.first() {
                     // parse array of numbers
                     if let Ok(arr) = arr_obj.as_array() {
-                        let pattern = arr.iter().map(|item| to_f32(item)).collect();
+                        let pattern = arr.iter().map(to_f32).collect();
                         let offset = to_f32(&op.operands[1]);
-                        let dash = LineDashPattern{offset, pattern};
+                        let dash = LineDashPattern { offset, pattern };
                         out_ops.push(Op::SetLineDashPattern { dash });
                     }
                 }
@@ -3595,11 +3618,7 @@ pub fn parse_op(
                     // fallback
                     out_ops.push(Op::Unknown {
                         key: op.operator.clone(),
-                        value: op
-                            .operands
-                            .iter()
-                            .map(|s| DictItem::from_lopdf(s))
-                            .collect(),
+                        value: op.operands.iter().map(DictItem::from_lopdf).collect(),
                     });
                 }
             }
@@ -3642,11 +3661,7 @@ pub fn parse_op(
                 _ => {
                     out_ops.push(Op::Unknown {
                         key: op.operator.clone(),
-                        value: op
-                            .operands
-                            .iter()
-                            .map(|s| DictItem::from_lopdf(s))
-                            .collect(),
+                        value: op.operands.iter().map(DictItem::from_lopdf).collect(),
                     });
                 }
             }
@@ -3658,7 +3673,7 @@ pub fn parse_op(
         // into `Op::Unknown`, which the (default, `secure`) serializer drops —
         // deleting the text from the round-tripped document.
         "'" => {
-            if let Some(lopdf::Object::String(bytes, _)) = op.operands.get(0) {
+            if let Some(lopdf::Object::String(bytes, _)) = op.operands.first() {
                 let text = decode_show_text_to_string(
                     bytes,
                     state.current_font_decode.as_ref(),
@@ -3703,7 +3718,10 @@ pub fn parse_op(
                 warnings.push(PdfWarnMsg::error(
                     page,
                     op_id,
-                    format!("Warning: `\"` expects 3 operands, got {}", op.operands.len()),
+                    format!(
+                        "Warning: `\"` expects 3 operands, got {}",
+                        op.operands.len()
+                    ),
                 ));
             }
         }
@@ -3712,7 +3730,7 @@ pub fn parse_op(
         // typed op so the default (`secure`) save no longer deletes it as
         // `Op::Unknown` — gradients used to vanish on every round trip.
         "sh" => {
-            if let Some(name_str) = as_name(&op.operands.get(0).unwrap_or(&lopdf::Object::Null)) {
+            if let Some(name_str) = as_name(op.operands.first().unwrap_or(&lopdf::Object::Null)) {
                 out_ops.push(Op::PaintShading {
                     id: crate::ShadingId(name_str),
                 });
@@ -3720,7 +3738,7 @@ pub fn parse_op(
         }
 
         "Do" => {
-            if let Some(name_str) = as_name(&op.operands.get(0).unwrap_or(&lopdf::Object::Null)) {
+            if let Some(name_str) = as_name(op.operands.first().unwrap_or(&lopdf::Object::Null)) {
                 let xobj_id = crate::XObjectId(name_str);
                 // The document's own `cm` operators (already emitted as
                 // `Op::SetTransformationMatrix`) fully position this XObject —
@@ -3745,11 +3763,7 @@ pub fn parse_op(
             ));
             out_ops.push(Op::Unknown {
                 key: op.operator.clone(),
-                value: op
-                    .operands
-                    .iter()
-                    .map(|s| DictItem::from_lopdf(s))
-                    .collect(),
+                value: op.operands.iter().map(DictItem::from_lopdf).collect(),
             });
         }
     }
@@ -3778,7 +3792,7 @@ pub fn parse_document_info(dict: &LopdfDictionary) -> PdfDocumentInfo {
         .get(b"CreationDate")
         .ok()
         .and_then(|obj| match &obj {
-            Object::String(s, _) => parse_pdf_date(&String::from_utf8_lossy(s).to_string()).ok(),
+            Object::String(s, _) => parse_pdf_date(String::from_utf8_lossy(s).as_ref()).ok(),
             _ => None,
         })
         .unwrap_or_else(default_date);
@@ -3787,13 +3801,13 @@ pub fn parse_document_info(dict: &LopdfDictionary) -> PdfDocumentInfo {
         .get(b"ModDate")
         .ok()
         .and_then(|obj| match &obj {
-            Object::String(s, _) => parse_pdf_date(&String::from_utf8_lossy(s).to_string()).ok(),
+            Object::String(s, _) => parse_pdf_date(String::from_utf8_lossy(s).as_ref()).ok(),
             _ => None,
         })
         .unwrap_or_else(default_date);
 
     // If metadata date wasn't separately written, we default to the modification date.
-    let metadata_date = modification_date.clone();
+    let metadata_date = modification_date;
 
     let conformance = dict
         .get(b"GTS_PDFXVersion")
@@ -4011,7 +4025,7 @@ mod links_and_bookmarks {
                 }
             };
             // The first element should be a reference to a page.
-            let page_num = if let Some(Object::Reference(page_id)) = dest_array.get(0) {
+            let page_num = if let Some(Object::Reference(page_id)) = dest_array.first() {
                 *page_map.get(page_id).unwrap_or(&0)
             } else {
                 0
@@ -4108,7 +4122,7 @@ mod links_and_bookmarks {
                             let coords: Vec<f32> = rect_arr
                                 .iter()
                                 .filter_map(|obj| match obj {
-                                    Object::Real(r) => Some(*r as f32),
+                                    Object::Real(r) => Some(*r),
                                     Object::Integer(i) => Some(*i as f32),
                                     _ => None,
                                 })
@@ -4182,7 +4196,7 @@ mod links_and_bookmarks {
             .iter()
             .filter_map(|obj| match obj {
                 Object::Integer(i) => Some(*i as f32),
-                Object::Real(r) => Some(*r as f32),
+                Object::Real(r) => Some(*r),
                 _ => None,
             })
             .collect();
@@ -4207,7 +4221,7 @@ mod links_and_bookmarks {
             .iter()
             .filter_map(|obj| match obj {
                 Object::Integer(i) => Some(*i as f32),
-                Object::Real(r) => Some(*r as f32),
+                Object::Real(r) => Some(*r),
                 _ => None,
             })
             .collect();
@@ -4227,23 +4241,23 @@ mod links_and_bookmarks {
         match action_type {
             n if n == b"GoTo" => {
                 let arr = dict.get(b"D").ok()?.as_array().ok()?;
-                let page = if let Some(Object::Reference(page_id)) = arr.get(0) {
+                let page = if let Some(Object::Reference(page_id)) = arr.first() {
                     *page_map.get(page_id).unwrap_or(&0)
                 } else {
                     0
                 };
                 let left = arr.get(2).and_then(|obj| match obj {
-                    Object::Real(r) => Some(*r as f32),
+                    Object::Real(r) => Some(*r),
                     Object::Integer(i) => Some(*i as f32),
                     _ => None,
                 });
                 let top = arr.get(3).and_then(|obj| match obj {
-                    Object::Real(r) => Some(*r as f32),
+                    Object::Real(r) => Some(*r),
                     Object::Integer(i) => Some(*i as f32),
                     _ => None,
                 });
                 let zoom = arr.get(4).and_then(|obj| match obj {
-                    Object::Real(r) => Some(*r as f32),
+                    Object::Real(r) => Some(*r),
                     Object::Integer(i) => Some(*i as f32),
                     _ => None,
                 });
@@ -4255,7 +4269,7 @@ mod links_and_bookmarks {
                 }))
             }
             n if n == b"URI" => {
-                let uri = String::from_utf8_lossy(&dict.get(b"URI").ok()?.as_str().ok()?);
+                let uri = String::from_utf8_lossy(dict.get(b"URI").ok()?.as_str().ok()?);
                 Some(Actions::Uri(uri.to_string()))
             }
             _ => None,
@@ -4323,12 +4337,7 @@ mod layers {
         }
 
         // Get the catalog from the trailer.
-        let catalog = match doc
-            .trailer
-            .get(b"Root")
-            .ok()
-            .map(|o| resolve(doc, o))
-        {
+        let catalog = match doc.trailer.get(b"Root").ok().map(|o| resolve(doc, o)) {
             Some(Object::Dictionary(dict)) => dict,
             _ => return vec![],
         };
@@ -4349,7 +4358,7 @@ mod layers {
         // to decide which layers are turned on by default.
         let default_on = match ocprops.get(b"D").ok().map(|o| resolve(doc, o)) {
             Some(Object::Dictionary(d_dict)) => {
-                if let Some(Object::Array(on_arr)) = d_dict.get(b"ON").ok() {
+                if let Ok(Object::Array(on_arr)) = d_dict.get(b"ON") {
                     on_arr
                         .iter()
                         .filter_map(|obj| {
@@ -4397,39 +4406,36 @@ mod layers {
             };
 
             // Extract usage info from the "Usage" key (inline dict or reference).
-            let (creator, usage_subtype) = match layer_dict
-                .get(b"Usage")
-                .ok()
-                .map(|o| resolve(doc, o))
-            {
-                Some(Object::Dictionary(usage_dict)) => {
-                    if let Some(Object::Dictionary(creator_info)) = usage_dict
-                        .get(b"CreatorInfo")
-                        .ok()
-                        .map(|o| resolve(doc, o))
-                    {
-                        let creator = match creator_info.get(b"Creator").ok() {
-                            Some(Object::String(s, _)) => String::from_utf8_lossy(&s).to_string(),
-                            _ => String::new(),
-                        };
-                        let usage_subtype = match creator_info.get(b"Subtype").ok() {
-                            Some(Object::Name(n)) => match n.as_slice() {
-                                b"Artwork" => LayerSubtype::Artwork,
+            let (creator, usage_subtype) =
+                match layer_dict.get(b"Usage").ok().map(|o| resolve(doc, o)) {
+                    Some(Object::Dictionary(usage_dict)) => {
+                        if let Some(Object::Dictionary(creator_info)) =
+                            usage_dict.get(b"CreatorInfo").ok().map(|o| resolve(doc, o))
+                        {
+                            let creator = match creator_info.get(b"Creator").ok() {
+                                Some(Object::String(s, _)) => {
+                                    String::from_utf8_lossy(s).to_string()
+                                }
+                                _ => String::new(),
+                            };
+                            let usage_subtype = match creator_info.get(b"Subtype").ok() {
+                                Some(Object::Name(n)) => match n.as_slice() {
+                                    b"Artwork" => LayerSubtype::Artwork,
+                                    _ => LayerSubtype::Artwork,
+                                },
                                 _ => LayerSubtype::Artwork,
-                            },
-                            _ => LayerSubtype::Artwork,
-                        };
-                        (creator, usage_subtype)
-                    } else {
-                        (String::new(), LayerSubtype::Artwork)
+                            };
+                            (creator, usage_subtype)
+                        } else {
+                            (String::new(), LayerSubtype::Artwork)
+                        }
                     }
-                }
-                _ => (String::new(), LayerSubtype::Artwork),
-            };
+                    _ => (String::new(), LayerSubtype::Artwork),
+                };
 
             // Decide final intent: if this layer's object ID is in the default "ON" set,
             // we treat its intent as View.
-            let final_intent = if default_on.contains(&layer_ref) {
+            let final_intent = if default_on.contains(layer_ref) {
                 LayerIntent::View
             } else {
                 intent
@@ -4469,14 +4475,14 @@ mod extgstate {
         let mut gs = ExtendedGraphicsState::default();
         let mut changed = HashSet::new();
 
-        if let Some(obj) = dict.get(b"LW").ok() {
+        if let Ok(obj) = dict.get(b"LW") {
             if let Some(num) = parse_f32(obj) {
                 gs.line_width = num;
                 changed.insert(ChangedField::LineWidth);
             }
         }
 
-        if let Some(obj) = dict.get(b"LC").ok() {
+        if let Ok(obj) = dict.get(b"LC") {
             if let Some(num) = parse_i64(obj) {
                 gs.line_cap = match num {
                     0 => LineCapStyle::Butt,
@@ -4488,7 +4494,7 @@ mod extgstate {
             }
         }
 
-        if let Some(obj) = dict.get(b"LJ").ok() {
+        if let Ok(obj) = dict.get(b"LJ") {
             if let Some(num) = parse_i64(obj) {
                 gs.line_join = match num {
                     0 => LineJoinStyle::Miter,
@@ -4500,21 +4506,21 @@ mod extgstate {
             }
         }
 
-        if let Some(obj) = dict.get(b"ML").ok() {
+        if let Ok(obj) = dict.get(b"ML") {
             if let Some(num) = parse_f32(obj) {
                 gs.miter_limit = num;
                 changed.insert(ChangedField::MiterLimit);
             }
         }
 
-        if let Some(obj) = dict.get(b"FL").ok() {
+        if let Ok(obj) = dict.get(b"FL") {
             if let Some(num) = parse_f32(obj) {
                 gs.flatness_tolerance = num;
                 changed.insert(ChangedField::FlatnessTolerance);
             }
         }
 
-        if let Some(obj) = dict.get(b"RI").ok() {
+        if let Ok(obj) = dict.get(b"RI") {
             if let Some(name) = parse_name(obj) {
                 gs.rendering_intent = match name.as_str() {
                     "AbsoluteColorimetric" => RenderingIntent::AbsoluteColorimetric,
@@ -4527,28 +4533,28 @@ mod extgstate {
             }
         }
 
-        if let Some(obj) = dict.get(b"SA").ok() {
+        if let Ok(obj) = dict.get(b"SA") {
             if let Some(b) = parse_bool(obj) {
                 gs.stroke_adjustment = b;
                 changed.insert(ChangedField::StrokeAdjustment);
             }
         }
 
-        if let Some(obj) = dict.get(b"OP").ok() {
+        if let Ok(obj) = dict.get(b"OP") {
             if let Some(b) = parse_bool(obj) {
                 gs.overprint_fill = b;
                 changed.insert(ChangedField::OverprintFill);
             }
         }
 
-        if let Some(obj) = dict.get(b"op").ok() {
+        if let Ok(obj) = dict.get(b"op") {
             if let Some(b) = parse_bool(obj) {
                 gs.overprint_stroke = b;
                 changed.insert(ChangedField::OverprintStroke);
             }
         }
 
-        if let Some(obj) = dict.get(b"OPM").ok() {
+        if let Ok(obj) = dict.get(b"OPM") {
             if let Some(num) = parse_i64(obj) {
                 gs.overprint_mode = match num {
                     0 => OverprintMode::EraseUnderlying,
@@ -4563,50 +4569,53 @@ mod extgstate {
         // (fill) alpha. The write side (graphics.rs) emits them that way; parse
         // them back to the matching fields (previously swapped — broke the
         // ExtGState save->parse roundtrip).
-        if let Some(obj) = dict.get(b"CA").ok() {
+        if let Ok(obj) = dict.get(b"CA") {
             if let Some(num) = parse_f32(obj) {
                 gs.current_stroke_alpha = num;
                 changed.insert(ChangedField::CurrentStrokeAlpha);
             }
         }
 
-        if let Some(obj) = dict.get(b"ca").ok() {
+        if let Ok(obj) = dict.get(b"ca") {
             if let Some(num) = parse_f32(obj) {
                 gs.current_fill_alpha = num;
                 changed.insert(ChangedField::CurrentFillAlpha);
             }
         }
 
-        if let Some(obj) = dict.get(b"BM").ok() {
+        if let Ok(obj) = dict.get(b"BM") {
             if let Some(name) = parse_name(obj) {
                 gs.blend_mode = parse_blend_mode(&name);
                 changed.insert(ChangedField::BlendMode);
             }
         }
 
-        if let Some(obj) = dict.get(b"AIS").ok() {
+        if let Ok(obj) = dict.get(b"AIS") {
             if let Some(b) = parse_bool(obj) {
                 gs.alpha_is_shape = b;
                 changed.insert(ChangedField::AlphaIsShape);
             }
         }
 
-        if let Some(obj) = dict.get(b"TK").ok() {
+        if let Ok(obj) = dict.get(b"TK") {
             if let Some(b) = parse_bool(obj) {
                 gs.text_knockout = b;
                 changed.insert(ChangedField::TextKnockout);
             }
         }
 
-        if let Some(obj) = dict.get(b"D").ok() {
-            if let Some(arr) = obj.as_array().ok() {
-                let pattern = arr.iter().filter_map(|o| parse_f32(o)).collect();
-                gs.line_dash_pattern = Some(LineDashPattern{offset: 0.0, pattern}); // default offset = 0
+        if let Ok(obj) = dict.get(b"D") {
+            if let Ok(arr) = obj.as_array() {
+                let pattern = arr.iter().filter_map(parse_f32).collect();
+                gs.line_dash_pattern = Some(LineDashPattern {
+                    offset: 0.0,
+                    pattern,
+                }); // default offset = 0
                 changed.insert(ChangedField::LineDashPattern);
             }
         }
 
-        if let Some(obj) = dict.get(b"Font").ok() {
+        if let Ok(obj) = dict.get(b"Font") {
             if let Some(name) = parse_name(obj) {
                 // Here we assume FontId is a newtype wrapping a String.
                 gs.font = Some(match BuiltinFont::from_id(&name) {
@@ -4617,7 +4626,7 @@ mod extgstate {
             }
         }
 
-        if let Some(obj) = dict.get(b"SM").ok() {
+        if let Ok(obj) = dict.get(b"SM") {
             if let Some(name) = parse_name(obj) {
                 // When written, a missing soft mask was output as "None"
                 if name == "None" {
@@ -4723,8 +4732,8 @@ mod parsefont {
         font: &ParsedFont,
         cid_to_gid: Option<&BTreeMap<u16, u16>>,
     ) -> Option<ToUnicodeCMap> {
-        let gid_to_cid: Option<BTreeMap<u16, u16>> = cid_to_gid
-            .map(|m| m.iter().map(|(cid, gid)| (*gid, *cid)).collect());
+        let gid_to_cid: Option<BTreeMap<u16, u16>> =
+            cid_to_gid.map(|m| m.iter().map(|(cid, gid)| (*gid, *cid)).collect());
         let mut mappings: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
         // The full scalar-value range: supplementary-plane codepoints (CJK Ext B+,
         // emoji) are exactly what the CJK fonts hitting this path use.
@@ -4892,7 +4901,9 @@ mod parsefont {
                 Some(s.content.clone())
             })?;
             Some(
-                data.chunks_exact(2)
+                data.as_chunks::<2>()
+                    .0
+                    .iter()
                     .enumerate()
                     .filter_map(|(cid, b)| {
                         let cid = u16::try_from(cid).ok()?;
@@ -4938,7 +4949,9 @@ mod parsefont {
             let mut identity_hits = 0usize;
             for (code, unis) in tu.mappings.iter() {
                 let Some(&cp) = unis.first() else { continue };
-                let Ok(code16) = u16::try_from(*code) else { continue };
+                let Ok(code16) = u16::try_from(*code) else {
+                    continue;
+                };
                 let Some(cmap_gid) = parsed_font.lookup_glyph_index(cp) else {
                     continue;
                 };
@@ -5042,9 +5055,7 @@ mod parsefont {
                         // U+FFFD and the re-saved ToUnicode would be garbage;
                         // synthesize one from the font's own cmap table.
                         let to_unicode = to_unicode_cmap
-                            .or_else(|| {
-                                synthesize_to_unicode(&parsed_font, cid_to_gid.as_deref())
-                            })
+                            .or_else(|| synthesize_to_unicode(&parsed_font, cid_to_gid.as_deref()))
                             .map(Arc::new);
                         fonts_map.insert(
                             font_id,
@@ -5081,20 +5092,17 @@ mod parsefont {
             } else {
                 match process_standard_font(doc, font_dict, &font_id, warnings, page_num) {
                     Some(ParsedOrBuiltinFont::B(builtin)) => {
-                        fonts_map.insert(
-                            font_id,
-                            ParsedOrBuiltinFont::B(builtin)
-                        );
-                    },
+                        fonts_map.insert(font_id, ParsedOrBuiltinFont::B(builtin));
+                    }
                     Some(ParsedOrBuiltinFont::P(p)) => {
                         fonts_map.insert(
                             font_id,
                             ParsedOrBuiltinFont::P(ParsedExternalFont {
                                 to_unicode: to_unicode_cmap.map(Arc::new),
                                 ..p
-                            })
+                            }),
                         );
-                    },
+                    }
                     Some(ParsedOrBuiltinFont::CidStub(..)) | None => {}
                 }
             }
@@ -5243,7 +5251,7 @@ mod parsefont {
                         None
                     }
                 }
-            },
+            }
             Ok(Object::Reference(id)) => doc.get_dictionary(*id).ok(),
             _ => {
                 warnings.push(PdfWarnMsg::warning(
@@ -5315,7 +5323,8 @@ mod parsefont {
 
                 // Parse the font
                 let mut font_warnings = Vec::new();
-                if let Some(parsed_font) = ParsedFont::from_bytes(&font_data, 0, &mut font_warnings) {
+                if let Some(parsed_font) = ParsedFont::from_bytes(&font_data, 0, &mut font_warnings)
+                {
                     // No cfg split needed any more: `from_bytes` now takes the same warning
                     // type with and without `text_layout` (#260).
                     for fw in font_warnings {
@@ -5367,8 +5376,7 @@ mod parsefont {
         page_num: usize,
     ) -> Option<ParsedFont> {
         // Get the font descriptor
-        let font_descriptor =
-            get_font_descriptor(doc, font_dict, font_id, warnings, page_num)?;
+        let font_descriptor = get_font_descriptor(doc, font_dict, font_id, warnings, page_num)?;
 
         // Process font data (no need to handle CMap here anymore)
         process_font_data(doc, font_dict, font_descriptor, font_id, warnings, page_num)
@@ -5404,7 +5412,7 @@ mod parsefont {
                                 cid_to_gid: None,
                                 encoding_cmap: None,
                             }))
-                        },
+                        }
                         None => {
                             let substitute = builtin_substitute(&basefont);
                             warnings.push(PdfWarnMsg::warning(
@@ -5446,11 +5454,18 @@ mod parsefont {
     fn builtin_substitute(basefont: &str) -> BuiltinFont {
         use crate::BuiltinFont::*;
         // Strip the "ABCDEF+" subset prefix if present.
-        let name = basefont.rsplit('+').next().unwrap_or(basefont).to_ascii_lowercase();
+        let name = basefont
+            .rsplit('+')
+            .next()
+            .unwrap_or(basefont)
+            .to_ascii_lowercase();
         let bold = name.contains("bold");
         let italic = name.contains("italic") || name.contains("oblique");
-        if name.contains("times") || name.contains("serif") || name.contains("georgia")
-            || name.contains("garamond") || name.contains("book")
+        if name.contains("times")
+            || name.contains("serif")
+            || name.contains("georgia")
+            || name.contains("garamond")
+            || name.contains("book")
         {
             match (bold, italic) {
                 (true, true) => TimesBoldItalic,
@@ -5498,5 +5513,11 @@ fn decode_text_from_utf16be(bytes: &[u8]) -> String {
     let string = char::decode_utf16(chunks.iter().copied().map(u16::from_be_bytes))
         .map(|r| r.unwrap_or(char::REPLACEMENT_CHARACTER))
         .collect();
-    if remainder.is_empty() { string } else { string + "\u{FFFD}" }
+    if remainder.is_empty() {
+        string
+    } else {
+        string + "\u{FFFD}"
+    }
 }
+
+// -- ⚝  by Dave -- in NeoVim ⚝  --

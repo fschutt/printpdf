@@ -229,11 +229,8 @@ impl Svg {
         // that over keeps alpha compositing (group opacity, soft masks)
         // correct — Acrobat is strict about this.
         if let Ok(group) = page_dict.get(b"Group") {
-            match inline_lopdf_object(&doc, group, 0, warnings) {
-                DictItem::Dict { map } => {
-                    dict.insert("Group".to_string(), DictItem::Dict { map });
-                }
-                _ => {}
+            if let DictItem::Dict { map } = inline_lopdf_object(&doc, group, 0, warnings) {
+                dict.insert("Group".to_string(), DictItem::Dict { map });
             }
         }
 
@@ -400,7 +397,7 @@ fn collect_font_name_aliases(data: &[u8]) -> Vec<String> {
                 // Unicode / Windows: UTF-16 BE
                 0 | 3 => {
                     let units: Vec<u16> = bytes
-                        .chunks_exact(2)
+                        .as_chunks::<2>().0.iter()
                         .map(|c| u16::from_be_bytes([c[0], c[1]]))
                         .collect();
                     if let Ok(s) = String::from_utf16(&units) {

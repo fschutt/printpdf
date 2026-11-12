@@ -2,7 +2,6 @@ extern crate printpdf;
 
 use printpdf::*;
 use std::collections::BTreeMap;
-use std::fs::File;
 
 fn main() {
     println!("=== Margin Collapsing Test ===\n");
@@ -20,7 +19,7 @@ fn main() {
 
     println!("\nParsing HTML and generating PDF...");
     
-    let doc = match PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnings) {
+    let doc = match PdfDocument::from_html(html, &images, &fonts, &options, &mut warnings) {
         Ok(doc) => {
             println!("[OK] Successfully generated PDF");
             if !warnings.is_empty() {

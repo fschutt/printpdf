@@ -234,7 +234,7 @@ fn test_html_to_document() {
     println!();
 
     let mut warnings = Vec::new();
-    let output = PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnings)
+    let output = PdfDocument::from_html(html, &images, &fonts, &options, &mut warnings)
         .map_err(|e| {
             println!("HTML to PDF conversion failed: {e:?}");
             for w in &warnings {
@@ -373,7 +373,7 @@ fn test_html_uses_positioned_glyphs_not_text_operators() {
     let mut warnings = Vec::new();
     
     println!("Calling PdfDocument::from_html()...");
-    let doc = PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnings)
+    let doc = PdfDocument::from_html(html, &images, &fonts, &options, &mut warnings)
         .map_err(|e| {
             println!("\n!!! HTML to PDF conversion FAILED !!!");
             println!("Error: {e:?}");
@@ -591,7 +591,7 @@ li { display: list-item; margin: 5px 0; }
     println!("Unique Y positions: {:?}", unique_y_positions);
     
     // Verify Y positions exist and list items are on different lines
-    assert!(y_positions.len() >= 1, "Should have at least 1 Y position");
+    assert!(!y_positions.is_empty(), "Should have at least 1 Y position");
     assert!(unique_y_positions.len() >= 2, "Should have at least 2 unique Y positions (header + list items)");
     
     // Verify that unique positions are actually different (no exact overlap between lines)

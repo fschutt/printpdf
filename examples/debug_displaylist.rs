@@ -71,7 +71,7 @@ p { margin: 10px 0; }
     };
     
     let mut warnings = Vec::new();
-    match PdfDocument::from_html(&html, &images, &fonts, &options_no_header, &mut warnings) {
+    match PdfDocument::from_html(html, &images, &fonts, &options_no_header, &mut warnings) {
         Ok(doc) => {
             println!("Generated {} pages (no headers)", doc.pages.len());
             for (page_idx, page) in doc.pages.iter().enumerate() {
@@ -125,7 +125,7 @@ p { margin: 10px 0; }
     };
     
     warnings.clear();
-    match PdfDocument::from_html(&html, &images, &fonts, &options_with_header, &mut warnings) {
+    match PdfDocument::from_html(html, &images, &fonts, &options_with_header, &mut warnings) {
         Ok(doc) => {
             println!("Generated {} pages (with headers)", doc.pages.len());
             for (page_idx, page) in doc.pages.iter().enumerate() {

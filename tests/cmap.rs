@@ -210,10 +210,7 @@ end
         // range — scaled to <FFFFFFFF> that is a 2^32-entry allocation from a
         // few-byte input. The parser must refuse, not allocate.
         let cmap = "begincmap\nbeginbfrange\n<000000> <1FFFFF> <0041>\nendbfrange\nendcmap\n";
-        match ToUnicodeCMap::parse(cmap) {
-            Ok(m) => assert!(m.mappings.len() <= 65_536),
-            Err(_) => {}
-        }
+        if let Ok(m) = ToUnicodeCMap::parse(cmap) { assert!(m.mappings.len() <= 65_536) }
     }
 }
 

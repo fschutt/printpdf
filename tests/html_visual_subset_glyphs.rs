@@ -147,7 +147,7 @@ fn shown_gids_for_font(pdf: &lopdf::Document, font_resource: &str) -> Vec<u16> {
     fn collect(obj: &lopdf::Object, out: &mut Vec<u16>) {
         match obj {
             lopdf::Object::String(bytes, lopdf::StringFormat::Hexadecimal) => {
-                for ch in bytes.chunks_exact(2) {
+                for ch in bytes.as_chunks::<2>().0 {
                     out.push(u16::from_be_bytes([ch[0], ch[1]]));
                 }
             }
@@ -176,13 +176,12 @@ fn shown_gids_for_font(pdf: &lopdf::Document, font_resource: &str) -> Vec<u16> {
                         .map(|n| n == font_resource.as_bytes())
                         .unwrap_or(false);
                 }
-                "Tj" | "TJ" => {
-                    if selected {
+                "Tj" | "TJ"
+                    if selected => {
                         for operand in &op.operands {
                             collect(operand, &mut out);
                         }
                     }
-                }
                 _ => {}
             }
         }
@@ -465,7 +464,7 @@ fn page_rasterizes_with_text_ink() {
     let (w, h, rgb) = parse_ppm(&ppm);
     assert!(w > 0 && h > 0);
     let dark = rgb
-        .chunks_exact(3)
+        .as_chunks::<3>().0.iter()
         .filter(|p| p[0] < 120 && p[1] < 120 && p[2] < 120)
         .count();
     assert!(

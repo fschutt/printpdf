@@ -93,8 +93,8 @@ fn audit_roundtrip(name: &str, bytes: &[u8]) -> (Vec<u8>, Vec<String>) {
     if text_orig != text_re {
         report.push(format!(
             "  TEXT DIVERGED:\n    orig: {:?}\n    re:   {:?}",
-            &text_orig.chars().take(160).collect::<String>(),
-            &text_re.chars().take(160).collect::<String>()
+            text_orig.chars().take(160).collect::<String>(),
+            text_re.chars().take(160).collect::<String>()
         ));
     } else {
         report.push(format!(

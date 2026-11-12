@@ -311,7 +311,7 @@ fn dump(label: &str, html: &str) {
 
     println!("\n########## {label} ##########");
     println!("embedded fonts ({}):", doc.resources.fonts.map.len());
-    for (id, _f) in &doc.resources.fonts.map {
+    for id in doc.resources.fonts.map.keys() {
         println!("    {}", id.0);
     }
     if !warnings.is_empty() {
@@ -400,7 +400,7 @@ fn dump_dl_html(label: &str, html: &str) {
     let (_doc, dbg) =
         PdfDocument::from_html_debug(html, &images, &fonts, &options, &mut warnings).unwrap();
     println!("########## {label} DISPLAY LIST ##########");
-    if let Some(dl) = dbg.display_list_debug.get(0) {
+    if let Some(dl) = dbg.display_list_debug.first() {
         for line in dl.lines() {
             let l = line.trim();
             if l.contains("at (") || l.contains("size") || l.contains("Rect") || l.contains("TextLayout") || l.contains("Text ") {

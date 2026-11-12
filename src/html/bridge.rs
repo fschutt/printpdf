@@ -136,7 +136,7 @@ fn decode_html_image(bytes: &[u8]) -> Result<RawImage, String> {
 thread_local! {
     /// How many images this thread decoded through [`decode_html_image`]: the
     /// tests check that a render decodes only the pictures its pages show.
-    pub(crate) static HTML_IMAGE_DECODES: std::cell::Cell<usize> = std::cell::Cell::new(0);
+    pub(crate) static HTML_IMAGE_DECODES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// The `src` of the `<img>` a display-list item draws, if it draws one. azul

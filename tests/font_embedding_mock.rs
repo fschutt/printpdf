@@ -31,8 +31,7 @@ use std::collections::BTreeMap;
 use lopdf::{Dictionary, Document, Object};
 use printpdf::{
     ops::PdfFontHandle,
-    units::{Mm, Pt},
-    FontId, Op, ParsedFont, PdfDocument, PdfPage, PdfParseErrorSeverity, PdfParseOptions,
+    units::{Mm, Pt}, Op, ParsedFont, PdfDocument, PdfPage, PdfParseErrorSeverity, PdfParseOptions,
     PdfSaveOptions, PdfWarnMsg, TextItem, ToUnicodeCMap,
 };
 
@@ -260,7 +259,7 @@ fn content_stream_codes(pdf: &[u8]) -> Vec<u16> {
                 _ => continue,
             };
             for s in strings {
-                for pair in s.chunks_exact(2) {
+                for pair in s.as_chunks::<2>().0 {
                     codes.push(u16::from_be_bytes([pair[0], pair[1]]));
                 }
             }

@@ -298,7 +298,7 @@ fn content_stream_gids(pdf: &[u8]) -> Vec<u16> {
                 _ => continue,
             };
             for s in strings {
-                for pair in s.chunks_exact(2) {
+                for pair in s.as_chunks::<2>().0 {
                     gids.push(u16::from_be_bytes([pair[0], pair[1]]));
                 }
             }

@@ -50,7 +50,7 @@ fn main() {
         let options = GeneratePdfOptions::default();
         let mut warnings = Vec::new();
         
-        let pdf_doc = PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnings)
+        let pdf_doc = PdfDocument::from_html(html, &images, &fonts, &options, &mut warnings)
             .expect("Failed to create PDF");
         
         let filename = format!("margin_collapse_border_test_{}.pdf", i + 1);

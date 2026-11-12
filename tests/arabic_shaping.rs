@@ -181,7 +181,7 @@ fn content_codes(pdf: &lopdf::Document) -> Vec<u16> {
             lopdf::Object::String(bytes, lopdf::StringFormat::Hexadecimal) => {
                 out.extend(
                     bytes
-                        .chunks_exact(2)
+                        .as_chunks::<2>().0.iter()
                         .map(|c| u16::from_be_bytes([c[0], c[1]])),
                 );
             }

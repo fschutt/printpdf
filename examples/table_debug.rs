@@ -81,7 +81,7 @@ fn main() {
     let mut warnings = Vec::new();
 
     println!("Generating PDF from HTML...");
-    let doc = match PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnings) {
+    let doc = match PdfDocument::from_html(html, &images, &fonts, &options, &mut warnings) {
         Ok(d) => d,
         Err(e) => {
             eprintln!("Error: {:?}", e);
