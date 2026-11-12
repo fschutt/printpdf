@@ -419,3 +419,25 @@ jobs:
           name: pdf-output-${{ github.sha }}
           path: pdf-artifacts/
           retention-days: 30
+
+  # Static analysis of the workflows themselves (https://docs.zizmor.sh/, configured by .github/zizmor.yml):
+  # every `uses:` is pinned to a full commit SHA, a pin is a commit of the action's own repository (not of a
+  # fork) and its version comment names a tag that points at it (the online audits), and the usual checks for
+  # script injection, token permissions and persisted credentials. The action installs zizmor from a
+  # hash-verified wheel; the job fails on any finding.
+  zizmor:
+    name: Lint the workflows (zizmor)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: zizmorcore/zizmor-action@53290badfa369cb0bf7ad16342cb62c2fa47ac7b # v0.8.0
+        with:
+          version: 1.31.1
+          inputs: .github
+          config: .github/zizmor.yml
+          advanced-security: false

@@ -4,3 +4,13 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # A release is at least 14 days old before Dependabot proposes it.
+    cooldown:
+      default-days: 14
+  # Keeps the SHA pins of the actions in .github/workflows and their `# vX.Y.Z` comments up to date.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 14
