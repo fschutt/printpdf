@@ -7,8 +7,10 @@ jobs:
     name: Check and test (no default features)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
       - run: cargo check --no-default-features --verbose
       # Not just `--lib`: the no-`text_layout` fallback font parser is only compiled in
       # this configuration, and it was returning a blank shell (no cmap, no widths) so that
@@ -34,8 +36,10 @@ jobs:
           - "images,webp"
           - "images,png,jpeg,gif,tiff,bmp,webp"
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
       - run: cargo check --no-default-features --features "${{ matrix.features }}" --verbose
 
   check-and-test-unix:
@@ -46,9 +50,9 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install ${{ matrix.channel }} toolchain
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: ${{ matrix.channel }}
       - run: cargo check --verbose --examples
@@ -72,10 +76,11 @@ jobs:
         target-abi: ["msvc"]
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install toolchain for ${{ matrix.target-sys }}-${{ matrix.target-abi }}
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
+          toolchain: stable
           targets: ${{ matrix.target-sys }}-${{ matrix.target-abi }}
       - run: cargo check --verbose --target ${{ matrix.target-sys }}-${{ matrix.target-abi }} --examples
       - run: cargo check --verbose --target ${{ matrix.target-sys }}-${{ matrix.target-abi }}
@@ -88,9 +93,9 @@ jobs:
         channel: [stable]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install toolchain using wasm32-unknown-unknown target
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           target: wasm32-unknown-unknown
           toolchain: ${{ matrix.channel }}
@@ -125,8 +130,10 @@ jobs:
     name: Check --all-features on the docs.rs target
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
       - run: cargo check --all-features --verbose
 
   # Verifies the produced PDFs with poppler, which shares no code with printpdf.
@@ -140,8 +147,10 @@ jobs:
     name: Verify fonts with external tools (poppler)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
       - name: Install poppler-utils
         run: sudo apt-get update && sudo apt-get install -y poppler-utils
       - run: pdffonts -v && pdftotext -v
@@ -169,8 +178,10 @@ jobs:
     name: Verify Identity-H codes with fontTools (Acrobat semantics, #280)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
       - name: Install fontTools + poppler
         run: |
           pip install fonttools
@@ -221,8 +232,10 @@ jobs:
           - { args: "--no-default-features --features jpeg", regression279: true }
           - { args: "--no-default-features --features svg" }
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
       - name: Build as a consumer would (fresh lockfile, registry dependencies)
         env:
           ADD_ARGS: ${{ matrix.args }}
@@ -273,8 +286,10 @@ jobs:
     name: No [patch], and the published dep graph passes the font suite
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
       - name: Install poppler-utils
         run: sudo apt-get update && sudo apt-get install -y poppler-utils
       - name: Refuse to build with a [patch.crates-io] section
@@ -313,8 +328,10 @@ jobs:
     name: Generate PDF artifacts
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
 
       # No-feature examples
       - name: Run no-feature examples
@@ -350,7 +367,7 @@ jobs:
           find . -maxdepth 1 -name '*.pdf' -exec cp {} pdf-artifacts/ \;
           ls -la pdf-artifacts/
       - name: Upload PDF artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: pdf-output-${{ github.sha }}
           path: pdf-artifacts/

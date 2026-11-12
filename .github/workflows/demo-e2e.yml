@@ -33,9 +33,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
+          toolchain: stable
           targets: wasm32-unknown-unknown
       - name: Install wasm-pack (prebuilt)
         run: |
@@ -73,7 +74,7 @@ jobs:
           [ "$found" -eq 1 ] || { echo "::error::e2e produced no PDF downloads"; exit 1; }
       - name: Upload artifacts (screenshots, PDFs, console log)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: demo-e2e-${{ github.sha }}
           path: ${{ runner.temp }}/e2e-artifacts/
