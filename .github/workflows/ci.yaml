@@ -1,14 +1,23 @@
 name: Build and test
 on: [push, pull_request]
 
+# No token permissions by default: each job below asks for what it needs (it only reads).
+permissions: {}
+
 jobs:
 
   check-no-default-features:
     name: Check and test (no default features)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
       - run: cargo check --no-default-features --verbose
       # Not just `--lib`: the no-`text_layout` fallback font parser is only compiled in
       # this configuration, and it was returning a blank shell (no cmap, no widths) so that
@@ -19,6 +28,8 @@ jobs:
   check-feature-combinations:
     name: Check feature combinations
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       matrix:
         features:
@@ -34,8 +45,12 @@ jobs:
           - "images,webp"
           - "images,png,jpeg,gif,tiff,bmp,webp"
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
       - run: cargo check --no-default-features --features "${{ matrix.features }}" --verbose
 
   check-and-test-unix:
@@ -45,10 +60,14 @@ jobs:
         channel: [stable]
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Install ${{ matrix.channel }} toolchain
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: ${{ matrix.channel }}
       - run: cargo check --verbose --examples
@@ -71,11 +90,16 @@ jobs:
         target-sys: ["i686-pc-windows", "x86_64-pc-windows"]
         target-abi: ["msvc"]
     runs-on: windows-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - name: Install toolchain for ${{ matrix.target-sys }}-${{ matrix.target-abi }}
-        uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          persist-credentials: false
+      - name: Install toolchain for ${{ matrix.target-sys }}-${{ matrix.target-abi }}
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
           targets: ${{ matrix.target-sys }}-${{ matrix.target-abi }}
       - run: cargo check --verbose --target ${{ matrix.target-sys }}-${{ matrix.target-abi }} --examples
       - run: cargo check --verbose --target ${{ matrix.target-sys }}-${{ matrix.target-abi }}
@@ -87,10 +111,14 @@ jobs:
       matrix:
         channel: [stable]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Install toolchain using wasm32-unknown-unknown target
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           target: wasm32-unknown-unknown
           toolchain: ${{ matrix.channel }}
@@ -124,9 +152,15 @@ jobs:
   check-all-features-native:
     name: Check --all-features on the docs.rs target
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
       - run: cargo check --all-features --verbose
 
   # Verifies the produced PDFs with poppler, which shares no code with printpdf.
@@ -139,9 +173,15 @@ jobs:
   font-verification-external:
     name: Verify fonts with external tools (poppler)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
       - name: Install poppler-utils
         run: sudo apt-get update && sudo apt-get install -y poppler-utils
       - run: pdffonts -v && pdftotext -v
@@ -168,9 +208,15 @@ jobs:
   font-verification-viewer-semantics:
     name: Verify Identity-H codes with fontTools (Acrobat semantics, #280)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
       - name: Install fontTools + poppler
         run: |
           pip install fonttools
@@ -211,6 +257,8 @@ jobs:
   consumer-resolution:
     name: Fresh consumer resolution (ignore committed lockfile)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -221,8 +269,12 @@ jobs:
           - { args: "--no-default-features --features jpeg", regression279: true }
           - { args: "--no-default-features --features svg" }
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
       - name: Build as a consumer would (fresh lockfile, registry dependencies)
         env:
           ADD_ARGS: ${{ matrix.args }}
@@ -272,9 +324,15 @@ jobs:
   publish-safety:
     name: No [patch], and the published dep graph passes the font suite
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
       - name: Install poppler-utils
         run: sudo apt-get update && sudo apt-get install -y poppler-utils
       - name: Refuse to build with a [patch.crates-io] section
@@ -312,9 +370,15 @@ jobs:
   generate-pdf-artifacts:
     name: Generate PDF artifacts
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
 
       # No-feature examples
       - name: Run no-feature examples
@@ -350,9 +414,30 @@ jobs:
           find . -maxdepth 1 -name '*.pdf' -exec cp {} pdf-artifacts/ \;
           ls -la pdf-artifacts/
       - name: Upload PDF artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: pdf-output-${{ github.sha }}
           path: pdf-artifacts/
           retention-days: 30
 
+  # Static analysis of the workflows themselves (https://docs.zizmor.sh/, configured by .github/zizmor.yml):
+  # every `uses:` is pinned to a full commit SHA, a pin is a commit of the action's own repository (not of a
+  # fork) and its version comment names a tag that points at it (the online audits), and the usual checks for
+  # script injection, token permissions and persisted credentials. The action installs zizmor from a
+  # hash-verified wheel; the job fails on any finding.
+  zizmor:
+    name: Lint the workflows (zizmor)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: zizmorcore/zizmor-action@53290badfa369cb0bf7ad16342cb62c2fa47ac7b # v0.8.0
+        with:
+          version: 1.31.1
+          inputs: .github
+          config: .github/zizmor.yml
+          advanced-security: false
