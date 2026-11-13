@@ -433,18 +433,27 @@ fn assert_no_dangling_refs(
 }
 
 #[test]
-fn svg_dropped_text_is_reported_loudly() {
-    // Issue #184's worst failure mode was *silent*: a <text> whose
-    // font-family resolves to nothing simply vanished. It must produce a
-    // warning now.
+fn svg_text_is_rendered_or_drop_is_reported() {
+    // Issue #184's worst failure mode was silent data loss. Depending on the
+    // host's installed fonts, usvg may render this with its generic serif
+    // fallback. If no fallback exists and the text is dropped, it must produce
+    // a warning instead.
     let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="40">
         <text x="0" y="20" font-family="No Such Font Family 987" font-size="12">hi</text>
     </svg>"#;
     let mut warnings = Vec::new();
-    let _ = Svg::parse(svg, &mut warnings).expect("svg parses");
+    let parsed = Svg::parse(svg, &mut warnings).expect("svg parses");
+    let text_was_rendered = parsed
+        .stream
+        .get_ops()
+        .expect("SVG content stream decodes")
+        .iter()
+        .any(|op| matches!(op, Op::DrawPolygon { .. } | Op::DrawLine { .. }));
+    let drop_was_reported = warnings.iter().any(|w| w.msg.contains("<text>"));
+
     assert!(
-        warnings.iter().any(|w| w.msg.contains("<text>")),
-        "dropping a <text> element must push a warning, got: {warnings:#?}"
+        text_was_rendered || drop_was_reported,
+        "<text> must either render or push a warning when dropped, got: {warnings:#?}"
     );
 }
 
@@ -468,7 +477,14 @@ fn svg_form_xobjects_are_self_contained() {
             .expect("form xobject is a stream");
         let mut visited = HashSet::new();
         visited.insert(*id);
-        audit_form_recursive(&doc, &format!("/XObject/{name}"), stream, &mut visited, &mut failures, 0);
+        audit_form_recursive(
+            &doc,
+            &format!("/XObject/{name}"),
+            stream,
+            &mut visited,
+            &mut failures,
+            0,
+        );
     }
 
     assert!(
@@ -590,7 +606,10 @@ fn svg_gradients_survive_as_pattern_or_shading_paint() {
 
     // union of all content streams in the SVG xobject subtree
     let mut pattern_paint_found = false;
-    let mut stack: Vec<ObjectId> = svg_form_xobjects(&doc).into_iter().map(|(_, id)| id).collect();
+    let mut stack: Vec<ObjectId> = svg_form_xobjects(&doc)
+        .into_iter()
+        .map(|(_, id)| id)
+        .collect();
     assert!(!stack.is_empty(), "no SVG form xobject found");
     let mut seen = HashSet::new();
     while let Some(id) = stack.pop() {
@@ -639,3 +658,5 @@ fn svg_gradients_survive_as_pattern_or_shading_paint() {
          flattened (issue #113 regression)"
     );
 }
+
+// -- ⚝  by Dave -- in NeoVim ⚝  --
