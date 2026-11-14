@@ -26,7 +26,7 @@ fn debug_html_bounds() {
     };
 
     let mut warnings = Vec::new();
-    let doc = PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnings).unwrap();
+    let doc = PdfDocument::from_html(html, &images, &fonts, &options, &mut warnings).unwrap();
 
     println!("\n=== GENERATED PDF OPERATIONS ===");
     for (page_idx, page) in doc.pages.iter().enumerate() {

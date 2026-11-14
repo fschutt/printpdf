@@ -59,7 +59,7 @@ fn main() {
 
     println!("Generating PDF using azul text3 integration...");
     
-    let doc = match PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnings) {
+    let doc = match PdfDocument::from_html(html, &images, &fonts, &options, &mut warnings) {
         Ok(doc) => {
             println!("[OK] Successfully generated PDF using text shaping");
             

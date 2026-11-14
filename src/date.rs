@@ -125,8 +125,8 @@ impl DateTime {
                 millisecond: now.millisecond(),
             },
             offset: Offset {
-                hours: now.offset().whole_hours() as i8,
-                minutes: now.offset().minutes_past_hour() as i8,
+                hours: now.offset().whole_hours(),
+                minutes: now.offset().minutes_past_hour(),
                 seconds: 0,
                 milliseconds: 0,
             },
@@ -239,9 +239,9 @@ impl DateTime {
         };
 
         let offset = match time::UtcOffset::from_hms(
-            self.offset.hours as i8,
-            self.offset.minutes as i8,
-            self.offset.seconds as i8,
+            self.offset.hours,
+            self.offset.minutes,
+            self.offset.seconds,
         ) {
             Ok(o) => o,
             Err(_) => time::UtcOffset::UTC,
@@ -274,8 +274,8 @@ impl DateTime {
                 millisecond: dt.millisecond(),
             },
             offset: Offset {
-                hours: dt.offset().whole_hours() as i8,
-                minutes: dt.offset().minutes_past_hour() as i8,
+                hours: dt.offset().whole_hours(),
+                minutes: dt.offset().minutes_past_hour(),
                 seconds: 0,
                 milliseconds: 0,
             },
@@ -843,7 +843,7 @@ fn check_date_valid(d: &DateTime) -> Result<(), String> {
 
 // Add this function at the module level
 fn is_valid_date(year: i32, month: u8, day: u8) -> bool {
-    if month < 1 || month > 12 {
+    if !(1..=12).contains(&month) {
         return false;
     }
 

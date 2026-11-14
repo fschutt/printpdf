@@ -681,7 +681,7 @@ pub(crate) fn xml_to_pdf_pages_with_images(
         // The content was laid out in content_size, but coordinates need to be transformed
         // relative to the full page height
         let pdf_ops = bridge::display_list_to_printpdf_ops_with_margins(
-            &display_list,
+            display_list,
             full_page_size,
             margin_left_pt,
             margin_top_pt,
@@ -709,7 +709,7 @@ pub(crate) fn xml_to_pdf_pages_with_images(
                     // Look up each font hash in the font_manager
                     for font_hash in used_font_hashes {
                         let font_hash_key = FontHash::from_hash(font_hash);
-                        if !font_data_map.contains_key(&font_hash_key) {
+                        if let std::collections::btree_map::Entry::Vacant(e) = font_data_map.entry(font_hash_key) {
                             // Get the font from the font manager by hash
                             if let Some(font_ref) = font_manager.get_font_by_hash(font_hash) {
                                 // Extract ParsedFont from FontRef
@@ -718,7 +718,7 @@ pub(crate) fn xml_to_pdf_pages_with_images(
                                     let parsed_font = &*(parsed_ptr as *const azul_layout::font::parsed::ParsedFont);
                                     parsed_font.clone()
                                 };
-                                font_data_map.insert(font_hash_key, parsed_font);
+                                e.insert(parsed_font);
                             }
                         }
                     }
@@ -1043,7 +1043,7 @@ pub(crate) fn xml_to_pdf_pages_debug_with_images(
         
         // Convert DisplayList to printpdf operations
         let pdf_ops = bridge::display_list_to_printpdf_ops_with_margins(
-            &display_list,
+            display_list,
             full_page_size,
             margin_left_pt,
             margin_top_pt,
@@ -1079,14 +1079,14 @@ pub(crate) fn xml_to_pdf_pages_debug_with_images(
                     
                     for font_hash in used_font_hashes {
                         let font_hash_key = FontHash::from_hash(font_hash);
-                        if !font_data_map.contains_key(&font_hash_key) {
+                        if let std::collections::btree_map::Entry::Vacant(e) = font_data_map.entry(font_hash_key) {
                             if let Some(font_ref) = font_manager.get_font_by_hash(font_hash) {
                                 let parsed_font = unsafe {
                                     let parsed_ptr = font_ref.get_parsed();
                                     let parsed_font = &*(parsed_ptr as *const azul_layout::font::parsed::ParsedFont);
                                     parsed_font.clone()
                                 };
-                                font_data_map.insert(font_hash_key, parsed_font);
+                                e.insert(parsed_font);
                             }
                         }
                     }
@@ -1232,8 +1232,8 @@ fn extract_html_config(xml: &str) -> HtmlExtractedConfig {
             let content = extract_attribute(meta_tag, "content");
             
             if let (Some(name), Some(content)) = (name, content) {
-                if name.starts_with("pdf.options.") {
-                    let option_name = &name[12..]; // Skip "pdf.options."
+                if let Some(option_name) = name.strip_prefix("pdf.options.") {
+                    // Skip "pdf.options."
                     match option_name {
                         "pageWidth" => {
                             if let Ok(width) = content.parse::<f32>() {
@@ -1247,8 +1247,8 @@ fn extract_html_config(xml: &str) -> HtmlExtractedConfig {
                         }
                         _ => {}
                     }
-                } else if name.starts_with("pdf.metadata.") {
-                    let metadata_key = &name[13..]; // Skip "pdf.metadata."
+                } else if let Some(metadata_key) = name.strip_prefix("pdf.metadata.") {
+                    // Skip "pdf.metadata."
                     config.metadata.insert(metadata_key.to_string(), content);
                 }
             }

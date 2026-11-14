@@ -33,7 +33,7 @@ fn main() {
     let options = GeneratePdfOptions::default();
     let mut warnings = Vec::new();
 
-    let doc = PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnings).unwrap();
+    let doc = PdfDocument::from_html(html, &images, &fonts, &options, &mut warnings).unwrap();
     
     let output_path = "html_full_debug.pdf";
     let save_options = PdfSaveOptions::default();

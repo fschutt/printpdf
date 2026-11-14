@@ -159,7 +159,7 @@ impl ExternalStream {
 
     fn get_ops_internal(s: &[u8]) -> Result<Vec<Op>, String> {
         // Decode the content stream into a vector of lopdf operations.
-        let content = lopdf::content::Content::decode(&s)
+        let content = lopdf::content::Content::decode(s)
             .map_err(|e| format!("Failed to decode content stream: {}", e))?;
 
         // Convert lopdf operations to printpdf Ops.
@@ -170,12 +170,12 @@ impl ExternalStream {
             let parsed_op = crate::deserialize::parse_op(
                 0,
                 op_id,
-                &op,
+                op,
                 &mut page_state,
                 &BTreeMap::new(),
                 &mut Vec::new(),
             )?;
-            printpdf_ops.extend(parsed_op.into_iter());
+            printpdf_ops.extend(parsed_op);
         }
 
         Ok(printpdf_ops)
@@ -289,7 +289,7 @@ impl DictItem {
                     .iter()
                     .map(|s| {
                         (
-                            String::from_utf8_lossy(&s.0).to_string(),
+                            String::from_utf8_lossy(s.0).to_string(),
                             DictItem::from_lopdf(s.1),
                         )
                     })
@@ -304,7 +304,7 @@ impl DictItem {
                         .iter()
                         .map(|s| {
                             (
-                                String::from_utf8_lossy(&s.0).to_string(),
+                                String::from_utf8_lossy(s.0).to_string(),
                                 DictItem::from_lopdf(s.1),
                             )
                         })
@@ -467,15 +467,15 @@ fn form_xobject_to_stream(f: &FormXObject, doc: &mut lopdf::Document) -> lopdf::
     }
 
     if let Some(r) = f.ref_dict.as_ref() {
-        dict.set("Ref", build_dict(&r));
+        dict.set("Ref", build_dict(r));
     }
 
     if let Some(r) = f.metadata.as_ref() {
-        dict.set("Metadata", doc.add_object(build_dict(&r)));
+        dict.set("Metadata", doc.add_object(build_dict(r)));
     }
 
     if let Some(r) = f.piece_info.as_ref() {
-        dict.set("PieceInfo", doc.add_object(build_dict(&r)));
+        dict.set("PieceInfo", doc.add_object(build_dict(r)));
     }
 
     if let Some(r) = f.last_modified.as_ref() {
@@ -489,11 +489,11 @@ fn form_xobject_to_stream(f: &FormXObject, doc: &mut lopdf::Document) -> lopdf::
     }
 
     if let Some(r) = f.opi.as_ref() {
-        dict.set("OPI", build_dict(&r));
+        dict.set("OPI", build_dict(r));
     }
 
     if let Some(r) = f.oc.as_ref() {
-        dict.set("OC", build_dict(&r));
+        dict.set("OC", build_dict(r));
     }
 
     if let Some(r) = f.name.as_ref() {

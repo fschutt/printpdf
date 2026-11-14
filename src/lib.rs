@@ -236,6 +236,12 @@ impl PageAnnotId {
     }
 }
 
+impl Default for PageAnnotId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Internal ID for XObjects
 #[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -244,6 +250,12 @@ pub struct XObjectId(pub String);
 impl XObjectId {
     pub fn new() -> Self {
         Self(crate::utils::random_character_string_32())
+    }
+}
+
+impl Default for XObjectId {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -258,6 +270,12 @@ impl FontId {
     }
 }
 
+impl Default for FontId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Internal ID for Layers
 #[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -266,6 +284,12 @@ pub struct LayerInternalId(pub String);
 impl LayerInternalId {
     pub fn new() -> Self {
         Self(crate::utils::random_character_string_32())
+    }
+}
+
+impl Default for LayerInternalId {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -280,6 +304,12 @@ impl ExtendedGraphicsStateId {
     }
 }
 
+impl Default for ExtendedGraphicsStateId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Internal ID for ICC profiles
 #[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -288,6 +318,12 @@ pub struct IccProfileId(pub String);
 impl IccProfileId {
     pub fn new() -> Self {
         Self(crate::utils::random_character_string_32())
+    }
+}
+
+impl Default for IccProfileId {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -692,7 +728,7 @@ impl PdfDocument {
         let pages_to_insert = other.pages.len();
         
         // Adjust existing bookmarks that point to pages after insertion point
-        for (_, annot) in self.bookmarks.map.iter_mut() {
+        for annot in self.bookmarks.map.values_mut() {
             if annot.page >= insert_at {
                 annot.page += pages_to_insert;
             }
@@ -705,7 +741,7 @@ impl PdfDocument {
         let mut new_pages = Vec::with_capacity(self.pages.len() + pages_to_insert);
         new_pages.extend(self.pages.drain(..insert_at));
         new_pages.extend(other.pages);
-        new_pages.extend(self.pages.drain(..));
+        new_pages.append(&mut self.pages);
         self.pages = new_pages;
     }
 

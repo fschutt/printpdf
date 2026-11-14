@@ -38,7 +38,7 @@ fn multi_word_font_family_from_fonts_map_is_embedded() {
 
     let parsed = lopdf::Document::load_mem(&bytes).expect("output parses");
     let mut base_fonts = Vec::new();
-    for (_, obj) in parsed.objects.iter() {
+    for obj in parsed.objects.values() {
         if let lopdf::Object::Dictionary(d) = obj {
             let is_font = d
                 .get(b"Type")

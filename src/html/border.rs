@@ -99,8 +99,10 @@ pub struct BorderRadii {
 
 /// Border style types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum BorderStyleType {
     None,
+    #[default]
     Solid,
     Dashed,
     Dotted,
@@ -111,11 +113,6 @@ pub enum BorderStyleType {
     Outset,
 }
 
-impl Default for BorderStyleType {
-    fn default() -> Self {
-        BorderStyleType::Solid
-    }
-}
 
 impl Default for BorderColors {
     fn default() -> Self {
@@ -317,7 +314,7 @@ fn create_rounded_rect_path_with_margins_internal(
     margin_left: f32,
     margin_top: f32,
 ) -> Vec<crate::graphics::LinePoint> {
-    const KAPPA: f32 = 0.5522847498;
+    const KAPPA: f32 = 0.552_284_8;
     
     // Apply margins: add margin_left to X, subtract margin_top from Y before PDF transformation
     let x = x + margin_left;

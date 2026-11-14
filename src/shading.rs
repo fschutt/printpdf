@@ -28,6 +28,12 @@ impl ShadingId {
     }
 }
 
+impl Default for ShadingId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// A single gradient color stop: `offset ∈ [0,1]` along the gradient axis and an
 /// RGB color with components in `[0,1]`.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]

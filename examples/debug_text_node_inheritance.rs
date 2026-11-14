@@ -34,7 +34,7 @@ fn main() {
     let options = GeneratePdfOptions::default();
     let mut warnings = Vec::new();
 
-    match PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnings) {
+    match PdfDocument::from_html(html, &images, &fonts, &options, &mut warnings) {
         Ok(_doc) => {
             println!("[OK] PDF generated successfully");
             println!("\nCheck the styled_dom debug output above");

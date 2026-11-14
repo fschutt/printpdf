@@ -167,28 +167,28 @@ impl GraphicsStateVec {
             last.miter_limit = Some(Pt(g.miter_limit));
         }
         if g.changed_fields.contains(&ChangedField::BlackGeneration) {
-            last.black_generation = g.black_generation.clone();
+            last.black_generation = g.black_generation;
         }
         if g.changed_fields
             .contains(&ChangedField::BlackGenerationExtra)
         {
-            last.black_generation_extra = g.black_generation_extra.clone();
+            last.black_generation_extra = g.black_generation_extra;
         }
         if g.changed_fields.contains(&ChangedField::UnderColorRemoval) {
-            last.under_color_removal = g.under_color_removal.clone();
+            last.under_color_removal = g.under_color_removal;
         }
         if g.changed_fields
             .contains(&ChangedField::UnderColorRemovalExtra)
         {
-            last.under_color_removal_extra = g.under_color_removal_extra.clone();
+            last.under_color_removal_extra = g.under_color_removal_extra;
         }
         if g.changed_fields.contains(&ChangedField::TransferFunction) {
-            last.transfer_function = g.transfer_function.clone();
+            last.transfer_function = g.transfer_function;
         }
         if g.changed_fields
             .contains(&ChangedField::TransferFunctionExtra)
         {
-            last.transfer_extra_function = g.transfer_extra_function.clone();
+            last.transfer_extra_function = g.transfer_extra_function;
         }
         if g.changed_fields.contains(&ChangedField::HalftoneDictionary) {
             last.halftone_dictionary = g.halftone_dictionary.clone();
@@ -208,7 +208,7 @@ impl GraphicsStateVec {
             last.stroke_adjustment = Some(g.stroke_adjustment);
         }
         if g.changed_fields.contains(&ChangedField::BlendMode) {
-            last.blend_mode = Some(g.blend_mode.clone());
+            last.blend_mode = Some(g.blend_mode);
         }
         if g.changed_fields.contains(&ChangedField::CurrentStrokeAlpha) {
             last.current_stroke_alpha = Some(g.current_stroke_alpha);
@@ -520,7 +520,7 @@ fn render_to_svg_internal(
     svg.push('\n');
 
     // Handle fonts
-    let (_, subset_fonts) = crate::serialize::prepare_fonts_for_serialization(resources, &[page.clone()], true, warnings);
+    let (_, subset_fonts) = crate::serialize::prepare_fonts_for_serialization(resources, std::slice::from_ref(page), true, warnings);
     if !subset_fonts.is_empty() {
         // Embed fonts via a <style> block
         svg.push_str("<style>\n");
@@ -584,10 +584,10 @@ fn render_to_svg_internal(
                 gst.set_text_cursor(*pos);
             }
             Op::SetTransformationMatrix { matrix } => {
-                gst.set_cur_trans_mat(matrix.clone());
+                gst.set_cur_trans_mat(*matrix);
             }
             Op::SetTextMatrix { matrix } => {
-                gst.set_text_mat(matrix.clone());
+                gst.set_text_mat(*matrix);
             }
             Op::SetFillColor { col } => {
                 gst.set_fill_color(col.clone());
@@ -1381,7 +1381,7 @@ fn render_text_items_to_svg(
             TextItem::Offset(offset) => {
                 // Convert from thousandths of an em to points
                 // In PDF, positive offset means moving LEFT (decreasing X)
-                x_offset -= *offset as f32 * font_size.0 / 1000.0;
+                x_offset -= *offset * font_size.0 / 1000.0;
             }
         }
     }

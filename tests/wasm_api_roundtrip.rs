@@ -71,7 +71,7 @@ fn doc_with_roboto(text: &str) -> Value {
         Mm(297.0),
         show_text_ops(&font_id, text),
     )]);
-    serde_json::to_value(&doc).expect("PdfDocument must serialize to JSON")
+    serde_json::to_value(doc).expect("PdfDocument must serialize to JSON")
 }
 
 fn show_text_ops(font_id: &FontId, text: &str) -> Vec<Op> {
@@ -88,7 +88,7 @@ fn show_text_ops(font_id: &FontId, text: &str) -> Vec<Op> {
     ]
 }
 
-fn font_map<'a>(doc: &'a Value) -> &'a serde_json::Map<String, Value> {
+fn font_map(doc: &Value) -> &serde_json::Map<String, Value> {
     doc["resources"]["fonts"]
         .as_object()
         .expect("resources.fonts must be a JSON object")
