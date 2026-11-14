@@ -190,3 +190,30 @@ fn the_span_is_a_utf16_actual_text() {
     }
     assert_eq!(data, &expected);
 }
+
+#[test]
+fn a_glyph_without_text_keeps_the_text_it_was_shown_with() {
+    // glyph 2 shown as "A", then as part of a cluster whose text another glyph carries (""),
+    // glyph 3 first without a text, then as "B": each reads as its letter both times
+    let glyphs = [
+        glyph(2, 0.0, 0.0, "A"),
+        glyph(2, 3.0, 0.0, ""),
+        glyph(3, 6.0, 0.0, ""),
+        glyph(3, 9.5, 0.0, "B"),
+    ];
+    let mut doc = PdfDocument::new("placed glyphs");
+    let font = ParsedFont::from_bytes(MOCK_TTF, 0, &mut Vec::new()).expect("mock font parses");
+    let id = doc.add_font(&font);
+    let mut ops = vec![
+        Op::StartTextSection,
+        Op::SetTextMatrix { matrix: TextMatrix::Translate(Pt(50.0), Pt(700.0)) },
+    ];
+    ops.extend(show_placed_glyphs(&[(id, &*font)], Pt(10.0), &glyphs, None));
+    ops.push(Op::EndTextSection);
+    let page = PdfPage::new(Mm(210.0), Mm(297.0), ops);
+    let opts = PdfSaveOptions { optimize: false, ..Default::default() };
+    let pdf = doc.with_pages(vec![page]).save(&opts, &mut Vec::new());
+    let parsed = PdfDocument::parse(&pdf, &PdfParseOptions::default(), &mut Vec::new()).expect("parses");
+    let text: String = parsed.extract_text().concat().concat().chars().filter(|c| !c.is_whitespace()).collect();
+    assert_eq!(text, "AABB");
+}

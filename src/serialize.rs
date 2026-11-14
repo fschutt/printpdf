@@ -1277,7 +1277,12 @@ fn collect_used_glyphs_from_pages(
                                             // map and the font is never embedded, producing a PDF
                                             // that references missing glyphs. The fallback char
                                             // ('\u{FFFD}') only affects the ToUnicode mapping.
-                                            font_glyphs.insert(codepoint.gid, character);
+                                            // An empty text (a glyph that is part of a cluster
+                                            // whose text another glyph carries: a mark, a dot)
+                                            // never replaces the text a glyph was shown with.
+                                            if !character.is_empty() || !font_glyphs.contains_key(&codepoint.gid) {
+                                                font_glyphs.insert(codepoint.gid, character);
+                                            }
                                         }
                                     }
                                     TextItem::Offset(_) => {

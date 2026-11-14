@@ -22,6 +22,12 @@ shared body, told apart only by their dots) read as one and the same letter
 from the font's `/ToUnicode`; with the span they copy and search as written.
 Saving with `optimize` drops the span where the glyphs read as it anyway.
 
+**A glyph shown without text keeps the text it was shown with.** A glyph
+shown as part of a cluster whose text another glyph carries (`Codepoint`
+with an empty `cid`: a mark, a dot drawn apart from its letter) replaced the
+glyph's earlier text in the `/ToUnicode` map with nothing; an empty text now
+only fills a glyph that has none.
+
 ## `0.12.9`
 
 **azul 0.0.17 (azul#476).** The azul-css / azul-core / azul-layout pins move to
