@@ -1138,29 +1138,16 @@ fn render_unified_layout_impl<T: ParsedFontTrait + 'static>(
     }
 }
 
-/// Render UnifiedLayout to PDF operations with margin support
 /// Build a `BDC /Span << /ActualText (UTF-16BE) >>` marked-content op. Wrapping a
 /// run of individually-positioned glyphs in this span makes PDF text extraction
 /// (copy/paste, selection, accessibility) use `text` verbatim instead of trying to
 /// reconstruct it from per-glyph positions — which otherwise inserts a spurious
 /// space between every glyph. Close the span with `Op::EndMarkedContent`.
 fn actualtext_span_begin(text: &str) -> Op {
-    let mut data = vec![0xFE, 0xFF]; // UTF-16BE byte-order mark
-    for u in text.encode_utf16() {
-        data.push((u >> 8) as u8);
-        data.push((u & 0xFF) as u8);
-    }
-    let mut map = std::collections::BTreeMap::new();
-    map.insert(
-        "ActualText".to_string(),
-        crate::DictItem::String { data, literal: false },
-    );
-    Op::BeginMarkedContentWithProperties {
-        tag: "Span".to_string(),
-        properties: crate::DictItem::Dict { map },
-    }
+    crate::text::actual_text_span(text)
 }
 
+/// Render UnifiedLayout to PDF operations with margin support
 fn render_unified_layout_with_margins<T: ParsedFontTrait + 'static>(
     ops: &mut Vec<Op>,
     layout: &UnifiedLayout,

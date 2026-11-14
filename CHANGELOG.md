@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+**`show_placed_glyphs`: glyphs drawn where a text layout put them.** An app
+that lays text out itself (with azul's text3, or any other shaper) had to
+build the `TJ` array on its own, measuring every kern against the `/W` width
+printpdf would write for the glyph - a rounding rule it could only copy.
+`show_placed_glyphs(fonts, size, glyphs, actual_text)` takes the glyphs with
+their places on the baseline (`PlacedGlyph`: font, glyph id, x, y, text) and
+returns the operations: one `TJ` per stretch of a font, kerned against the
+widths printpdf writes (`glyph_pdf_width`, the same function the `/W` array
+and the glyph-run merger use), a mark above or below the baseline shown with
+the text rise, which is 0 again at the end. It works in a rotated text matrix.
+Tests: `tests/placed_glyphs.rs`.
+
+**Text that copies as it reads: a public `/ActualText` span.**
+`actual_text_span(text)` is the `BDC /Span << /ActualText >>` the HTML
+renderer wraps its glyph runs in; `show_placed_glyphs` wraps its glyphs in
+it when given a text. Two letters drawn with one glyph (Arabic letters on a
+shared body, told apart only by their dots) read as one and the same letter
+from the font's `/ToUnicode`; with the span they copy and search as written.
+Saving with `optimize` drops the span where the glyphs read as it anyway.
+
 ## `0.12.9`
 
 **azul 0.0.17 (azul#476).** The azul-css / azul-core / azul-layout pins move to

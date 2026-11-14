@@ -391,3 +391,154 @@ pub fn encode_text_items(items: &[TextItem]) -> Vec<Object> {
     }
     objs
 }
+
+/// The `BDC` that opens a `/Span` marked-content sequence with `text` as its `/ActualText`
+/// (UTF-16BE with its byte-order mark); close it with [`crate::Op::EndMarkedContent`].
+///
+/// Copying, searching and accessibility read the span's glyphs as `text`, instead of
+/// reconstructing it from the glyphs: from their `/ToUnicode` text, which a glyph shared by two
+/// letters has only once (Arabic letters drawn as one body and their dots), and from their
+/// positions, which a layout that places every glyph turns into spurious spaces. Saving with
+/// [`crate::PdfSaveOptions::optimize`] drops the span again where its glyphs read as `text`
+/// anyway ([`crate::optimize_text`]).
+pub fn actual_text_span(text: &str) -> crate::Op {
+    let mut data = vec![0xFE, 0xFF];
+    for u in text.encode_utf16() {
+        data.extend_from_slice(&u.to_be_bytes());
+    }
+    let mut map = std::collections::BTreeMap::new();
+    map.insert(
+        "ActualText".to_string(),
+        crate::DictItem::String {
+            data,
+            literal: false,
+        },
+    );
+    crate::Op::BeginMarkedContentWithProperties {
+        tag: "Span".to_string(),
+        properties: crate::DictItem::Dict { map },
+    }
+}
+
+/// A glyph where a text layout put it - azul's text3 (the glyphs of its positioned clusters),
+/// or any other shaper - for [`show_placed_glyphs`] to draw it there.
+#[cfg(feature = "text_layout")]
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlacedGlyph {
+    /// Its font: an index into the fonts given to [`show_placed_glyphs`]
+    pub font: usize,
+    /// Its glyph id in that font
+    pub gid: u16,
+    /// Where it is drawn: its origin from the start of the baseline, in pt of the text space
+    /// (the text matrix in force), x along the baseline, y up from it (a mark raised over its
+    /// letter)
+    pub x: f32,
+    pub y: f32,
+    /// The text it stands for in the font's `/ToUnicode` map: its cluster's text on one glyph
+    /// of the cluster, empty on the others (a mark, a dot drawn apart from its letter)
+    pub text: String,
+}
+
+/// The operations that draw `glyphs` - one line of them, left to right, each in its font of
+/// `fonts` at `size` - exactly where a text layout put them, inside a text section whose text
+/// matrix stands at the start of their baseline (after [`crate::Op::StartTextSection`] and the
+/// matrix; the character spacing `Tc` at 0 and the horizontal scaling `Tz` at 100, as a PDF
+/// starts):
+///
+/// - one `TJ` per stretch of one font and one rise, the pen moved to each glyph with a kern
+///   against the glyph's width in the font's `/W` - the width printpdf writes there
+///   ([`glyph_pdf_width`]), which a PDF viewer moves the pen on by - so kerning, mark offsets,
+///   a run drawn right to left and letter spacing all land where the layout put them;
+/// - a glyph above or below the baseline (a mark) shown with the text rise `Ts`, which is 0
+///   again at the end;
+/// - with an `actual_text`, all of it in an [`actual_text_span`] of that text, so the PDF's
+///   text reads as the layout's text where the glyphs can not say it.
+///
+/// `fonts` are each font's resource id (as added to the document) with its parsed face, whose
+/// glyph widths the kerns are measured against; a glyph's `font` past their end is the first's.
+#[cfg(feature = "text_layout")]
+pub fn show_placed_glyphs(
+    fonts: &[(crate::FontId, &crate::font::AzulParsedFont)],
+    size: crate::Pt,
+    glyphs: &[PlacedGlyph],
+    actual_text: Option<&str>,
+) -> Vec<crate::Op> {
+    use crate::Op;
+
+    fn flush(ops: &mut Vec<Op>, items: &mut Vec<TextItem>, run: &mut Vec<Codepoint>) {
+        if !run.is_empty() {
+            items.push(TextItem::GlyphIds(std::mem::take(run)));
+        }
+        if !items.is_empty() {
+            ops.push(Op::ShowText {
+                items: std::mem::take(items),
+            });
+        }
+    }
+
+    let mut ops = Vec::new();
+    if fonts.is_empty() || size.0 <= 0.0 || glyphs.is_empty() {
+        return ops;
+    }
+    let span = actual_text.filter(|t| !t.is_empty());
+    if let Some(text) = span {
+        ops.push(actual_text_span(text));
+    }
+    // where the viewer's pen stands and the rise in force, in pt from the baseline's start
+    let mut pen = 0.0f32;
+    let mut rise = 0.0f32;
+    let mut current: Option<usize> = None;
+    let mut items: Vec<TextItem> = Vec::new();
+    let mut run: Vec<Codepoint> = Vec::new();
+    for g in glyphs {
+        let font = if g.font < fonts.len() { g.font } else { 0 };
+        if current != Some(font) {
+            flush(&mut ops, &mut items, &mut run);
+            ops.push(Op::SetFont {
+                font: crate::ops::PdfFontHandle::External(fonts[font].0.clone()),
+                size,
+            });
+            current = Some(font);
+        }
+        if (g.y - rise).abs() > 1e-5 {
+            flush(&mut ops, &mut items, &mut run);
+            ops.push(Op::SetLineOffset { multiplier: g.y });
+            rise = g.y;
+        }
+        // a TJ number moves the pen back by a thousandth of the font size
+        let kern = (g.x - pen) / size.0 * 1000.0;
+        if kern.abs() > 1e-3 {
+            match run.last_mut() {
+                Some(last) => last.offset -= kern,
+                None => items.push(TextItem::Offset(-kern)),
+            }
+        }
+        run.push(Codepoint {
+            gid: g.gid,
+            offset: 0.0,
+            cid: Some(g.text.clone()),
+        });
+        pen = g.x + glyph_pdf_width(fonts[font].1, g.gid) as f32 / 1000.0 * size.0;
+    }
+    flush(&mut ops, &mut items, &mut run);
+    if rise != 0.0 {
+        ops.push(Op::SetLineOffset { multiplier: 0.0 });
+    }
+    if span.is_some() {
+        ops.push(Op::EndMarkedContent);
+    }
+    ops
+}
+
+/// A glyph's width in the font's `/W` array as printpdf writes it: its advance in thousandths
+/// of an em, cut to a whole number. A PDF viewer moves the pen on by it after showing the glyph.
+#[cfg(feature = "text_layout")]
+pub fn glyph_pdf_width(font: &crate::font::AzulParsedFont, gid: u16) -> i64 {
+    let units_per_em = f32::from(font.pdf_font_metrics.units_per_em);
+    if units_per_em <= 0.0 {
+        return 0;
+    }
+    font.get_or_decode_glyph(gid)
+        .map(|g| (f32::from(g.horz_advance) * 1000.0 / units_per_em) as i64)
+        .unwrap_or(0)
+}

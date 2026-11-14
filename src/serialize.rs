@@ -1852,15 +1852,18 @@ fn create_full_font_runtime_info(
 /// Look up the advance width for a glyph ID, normalized to 1000 units per em:
 /// the glyph's `/W` width, i.e. the advance a PDF viewer moves the pen by.
 pub(crate) fn get_scaled_glyph_width(font: &crate::font::ParsedFont, gid: u16) -> i64 {
+    // one definition for the /W array, the glyph-run merger and `show_placed_glyphs`
     #[cfg(feature = "text_layout")]
-    let raw_width = font.get_or_decode_glyph(gid).map(|g| g.horz_advance);
-    #[cfg(not(feature = "text_layout"))]
-    let raw_width = font.get_glyph_width(gid);
+    return crate::text::glyph_pdf_width(font, gid);
 
-    let units_per_em = font.pdf_font_metrics.units_per_em as f32;
-    raw_width
-        .map(|w| (w as f32 * 1000.0 / units_per_em) as i64)
-        .unwrap_or(0)
+    #[cfg(not(feature = "text_layout"))]
+    {
+        let raw_width = font.get_glyph_width(gid);
+        let units_per_em = font.pdf_font_metrics.units_per_em as f32;
+        raw_width
+            .map(|w| (w as f32 * 1000.0 / units_per_em) as i64)
+            .unwrap_or(0)
+    }
 }
 
 /// Generate the CID `/W` array with run-length encoding, from entries of
