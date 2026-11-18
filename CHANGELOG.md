@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+**SVG shapes in HTML are drawn as paths (azul 0.0.18).** A `<path>` in an
+`<svg>` passed to `from_html` printed as a solid box when it was filled and
+was missing when it was stroked. The stroke arrives from azul-layout as a
+`StrokedPath` item with its geometry, which the bridge now writes as a PDF
+stroke: width, caps, joins, miter limit and dashes scaled from the view box.
+The fill arrives as its colour (or gradient) under a mask clip; with azul
+0.0.18 that clip carries the path it was made from, and the bridge clips to
+it with the shape's fill rule. A mask that is only an image still needs a
+soft mask and is painted unclipped. The azul-css / azul-core / azul-layout
+pins move to 0.0.18 for this. Tests: the `stroke` and `svg_fill` tests of the
+bridge.
+
 **`show_placed_glyphs`: glyphs drawn where a text layout put them.** An app
 that lays text out itself (with azul's text3, or any other shaper) had to
 build the `TJ` array on its own, measuring every kern against the `/W` width
