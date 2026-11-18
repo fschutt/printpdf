@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## `0.12.11`
+
 **`from_html` writes each page as the layout cuts it.** It used to collect the
 display list of every page and convert them afterwards, so a second copy of
 the whole document's display list stayed alive during the conversion. It now
