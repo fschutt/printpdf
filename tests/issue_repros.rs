@@ -108,9 +108,14 @@ fn pdftotext_available() -> bool {
 #[cfg(feature = "html")]
 fn pdftotext_layout(pdf: &[u8]) -> String {
     use std::io::Write;
+    // One file per call. The tests of this binary run in parallel threads of one
+    // process, and with a shared `in.pdf` a test could read the PDF another test
+    // had just written (issue_254 read the line-break test's text on Windows).
+    static CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let call = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let dir = std::env::temp_dir().join(format!("printpdf_issue_repros_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let pdf_path = dir.join("in.pdf");
+    let pdf_path = dir.join(format!("in_{call}.pdf"));
     let mut f = std::fs::File::create(&pdf_path).unwrap();
     f.write_all(pdf).unwrap();
     drop(f);
