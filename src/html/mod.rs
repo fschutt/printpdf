@@ -20,7 +20,7 @@ use azul_layout::{
     font::loading::build_font_cache,
     paged::FragmentationContext,
     solver3::page_breaks::BreakPolicy,
-    solver3::paged_layout::layout_document_paged_v2,
+    solver3::paged_layout::{layout_document_paged_streaming, layout_document_paged_v2},
     solver3::pagination::FakePageConfig,
     text3::cache::FontHash,
     font_traits::{TextLayoutCache, FontManager},
@@ -602,46 +602,13 @@ pub(crate) fn xml_to_pdf_pages_with_images(
     // This uses FakePageConfig for programmatic control over headers/footers.
     let page_config = build_page_config(options);
 
-    let display_lists = match layout_document_paged_v2(
-        &mut layout_cache,
-        &mut text_cache,
-        fragmentation_context,
-        &styled_dom,
-        viewport,
-        &mut font_manager,
-        &std::collections::BTreeMap::new(), // No scroll offsets for PDF
-        &mut debug_messages,
-        None, // No GPU cache for PDF
-        &renderer_resources,
-        azul_core::resources::IdNamespace(0),
-        DomId::ROOT_ID,
-        font_loader,
-        page_config,
-        &azul_core::resources::ImageCache::default(), // No image cache for PDF
-        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
-        false, // print_timing
-    ) {
-        Ok(result) => result.pages,
-        Err(e) => {
-            warnings.push(PdfWarnMsg::error(
-                0,
-                0,
-                format!("Layout solving failed: {:?}", e),
-            ));
-            return Err(warnings);
-        }
-    };
-
-    // Decode the `<img>` pictures the pages draw, once each, keyed by `src`, and
-    // only those: the map may hold every picture of a book, and decoding all of
-    // them for every page cost a page-by-page book render 1 s a page. Each gets
-    // a deterministic XObject id so the bridge's `UseXobject` ops and the
-    // document-side XObject registration agree.
-    let resolved_images = bridge::resolve_referenced_html_images(
-        &bridge::referenced_image_srcs(&display_lists),
-        images,
-        image_warnings,
-    );
+    // The pictures the pages draw are decoded once each, keyed by `src`, and only
+    // those: the map may hold every picture of a book, and decoding all of them
+    // for every page cost a page-by-page book render 1 s a page. They are decoded
+    // when the first page that draws them arrives. Each gets a deterministic
+    // XObject id so the bridge's `UseXobject` ops and the document-side XObject
+    // registration agree.
+    let mut resolved_images = bridge::ResolvedImages::new();
     // Resources synthesized by the bridge (alpha/opacity ExtGStates, gradient
     // shadings, shadow XObjects), accumulated across pages and registered by
     // the caller (`from_html*`) via `BridgeResources::register_into`.
@@ -655,7 +622,29 @@ pub(crate) fn xml_to_pdf_pages_with_images(
     // Full page size for PDF coordinate transformation
     let full_page_size = LogicalSize::new(page_width_pt, page_height_pt);
 
-    for display_list in display_lists.iter() {
+    // The layout holds the font manager mutably while it hands the pages over,
+    // and writing a page needs the fonts. This handle shares the manager's faces:
+    // what the layout parsed is what the page finds.
+    let page_fonts = font_manager.clone_shared();
+    let mut conversion_error: Option<String> = None;
+
+    // Each page is written when the layout has cut it, and its display list is
+    // dropped before the next one is cut (azul#483). Collecting every page's
+    // list first kept a second copy of the whole document's display list alive
+    // for no reason: a page is converted on its own.
+    let mut write_page = |display_list: azul_layout::solver3::display_list::DisplayList|
+     -> azul_layout::solver3::Result<()> {
+        let display_list = &display_list;
+        let page_images = bridge::resolve_referenced_html_images(
+            &bridge::referenced_image_srcs(std::slice::from_ref(display_list))
+                .into_iter()
+                .filter(|src| !resolved_images.contains_key(src))
+                .collect(),
+            images,
+            image_warnings,
+        );
+        resolved_images.extend(page_images);
+
         // Skip pages that have no meaningful content (only plain background
         // fills). A page is "real" if it has text, an image, a gradient or a
         // shadow — anything a reader would actually perceive as content.
@@ -673,22 +662,29 @@ pub(crate) fn xml_to_pdf_pages_with_images(
 
         if !has_real_content {
             // Skip this page - it only contains background rectangles
-            continue;
+            return Ok(());
         }
 
         // Convert DisplayList to printpdf operations
         // We pass the FULL page size for Y-coordinate transformation (PDF origin is bottom-left)
         // The content was laid out in content_size, but coordinates need to be transformed
         // relative to the full page height
-        let pdf_ops = bridge::display_list_to_printpdf_ops_with_margins(
+        let pdf_ops = match bridge::display_list_to_printpdf_ops_with_margins(
             display_list,
             full_page_size,
             margin_left_pt,
             margin_top_pt,
-            &font_manager,
+            &page_fonts,
             &resolved_images,
             &mut bridge_res,
-        ).map_err(|e| vec![PdfWarnMsg::warning(0, 0, format!("Failed to convert display list: {}", e))])?;
+        ) {
+            Ok(ops) => ops,
+            Err(e) => {
+                // Remembered for the caller; the layout error only stops the pages.
+                conversion_error = Some(format!("Failed to convert display list: {}", e));
+                return Err(azul_layout::solver3::LayoutError::DisplayListFailed);
+            }
+        };
         
         // Extract fonts from TextLayout items by collecting font hashes from the layout
         // and then looking them up in the font_manager
@@ -711,7 +707,7 @@ pub(crate) fn xml_to_pdf_pages_with_images(
                         let font_hash_key = FontHash::from_hash(font_hash);
                         if let std::collections::btree_map::Entry::Vacant(e) = font_data_map.entry(font_hash_key) {
                             // Get the font from the font manager by hash
-                            if let Some(font_ref) = font_manager.get_font_by_hash(font_hash) {
+                            if let Some(font_ref) = page_fonts.get_font_by_hash(font_hash) {
                                 // Extract ParsedFont from FontRef
                                 let parsed_font = unsafe {
                                     let parsed_ptr = font_ref.get_parsed();
@@ -727,10 +723,42 @@ pub(crate) fn xml_to_pdf_pages_with_images(
         }
         
         // Create a page for this display list (using full page dimensions)
-        let page = PdfPage::new(options.page_width, options.page_height, pdf_ops);
-        pages.push(page);
+        pages.push(PdfPage::new(options.page_width, options.page_height, pdf_ops));
+        Ok(())
+    };
+
+    let layout_result = layout_document_paged_streaming(
+        &mut layout_cache,
+        &mut text_cache,
+        fragmentation_context,
+        &styled_dom,
+        viewport,
+        &mut font_manager,
+        &std::collections::BTreeMap::new(), // No scroll offsets for PDF
+        &mut debug_messages,
+        None, // No GPU cache for PDF
+        &renderer_resources,
+        azul_core::resources::IdNamespace(0),
+        DomId::ROOT_ID,
+        font_loader,
+        page_config,
+        &azul_core::resources::ImageCache::default(), // No image cache for PDF
+        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+        false, // print_timing
+        &mut write_page,
+    );
+    if let Some(message) = conversion_error {
+        return Err(vec![PdfWarnMsg::warning(0, 0, message)]);
     }
-    
+    if let Err(e) = layout_result {
+        warnings.push(PdfWarnMsg::error(
+            0,
+            0,
+            format!("Layout solving failed: {:?}", e),
+        ));
+        return Err(warnings);
+    }
+
     // If no pages were generated, create at least one empty page
     if pages.is_empty() {
         warnings.push(PdfWarnMsg::warning(0, 0, "No content generated, creating empty page".to_string()));

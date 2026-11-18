@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+**`from_html` writes each page as the layout cuts it.** It used to collect the
+display list of every page and convert them afterwards, so a second copy of
+the whole document's display list stayed alive during the conversion. It now
+uses azul-layout's `layout_document_paged_streaming`: a page's display list is
+converted to PDF operations and dropped before the next page is cut. The pages
+are the same. Peak memory for a 227-page text document went from 599 MB to
+437 MB in a debug build.
+
 ## `0.12.10`
 
 **azul 0.0.18.** The azul-css / azul-core / azul-layout pins move to 0.0.18.
