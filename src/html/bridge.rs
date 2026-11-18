@@ -548,7 +548,7 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
             }
         }
 
-        DisplayListItem::Text { glyphs, font_hash, font_size_px, color, clip_rect: _, source_node_index: _ } => {
+        DisplayListItem::Text { glyphs, font_hash, font_size_px, color, .. } => {
             // Render simple text items (used for headers/footers)
             // These use Unicode codepoints as glyph indices and a placeholder font hash (0)
             // 
