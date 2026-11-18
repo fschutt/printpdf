@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## `0.12.10`
+
+**azul 0.0.18.** The azul-css / azul-core / azul-layout pins move to 0.0.18.
+
+**AcroForm fields, text box details and render fixes, from the branch azul
+built against.** `forms` reads a PDF's AcroForm fields, fills or flattens
+them and stamps drawings onto pages. A word of `text_boxes` records its
+standard-14 font, its fill colour and whether it is invisible. The SVG
+renderer draws cubic curves as cubics and puts a shape under a `cm` transform
+where the PDF puts it; `re` appends a closed rectangle to the current path
+when a PDF is read; a run in synthetic bold is filled and stroked.
+
 **SVG shapes in HTML are drawn as paths (azul 0.0.18).** A `<path>` in an
 `<svg>` passed to `from_html` printed as a solid box when it was filled and
 was missing when it was stroked. The stroke arrives from azul-layout as a
