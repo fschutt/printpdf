@@ -1,9 +1,10 @@
 //! A justified line that a `<br>` ends is not spread to the width of its box.
 //!
-//! CSS Text 3, section 7.1 (`text-align`): `justify` behaves as `start` on a line that
-//! ends in a forced break, as it does on the last line of a block. Verses set as one
-//! paragraph with a `<br>` after each line (a hymn, a poem) were printed with every
-//! short line pulled out to both edges. Fixed in azul-layout 0.0.19 (`text3`: a line
+//! CSS Text 3, section 6.3 (`text-align-last`): "the last line of a block or a line
+//! right before a forced line break" is aligned by `text-align-last`, and under its
+//! initial value `auto` a justified block sets such a line from the start edge. Verses
+//! set as one paragraph with a `<br>` after each line (a hymn, a poem) were printed
+//! with every short line pulled out to both edges. Fixed in azul-layout 0.0.19 (`text3`: a line
 //! is justified by its own resolved alignment); pinned here end to end.
 
 #![cfg(feature = "html")]
