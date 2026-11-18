@@ -808,7 +808,7 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
             }
         }
 
-        DisplayListItem::Text { glyphs, font_hash, font_size_px, color, clip_rect: _, source_node_index: _ } => {
+        DisplayListItem::Text { glyphs, font_hash, font_size_px, color, .. } => {
             // Render simple text items (used for headers/footers)
             // These use Unicode codepoints as glyph indices and a placeholder font hash (0)
             // 
@@ -1222,10 +1222,49 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
             ops.push(Op::RestoreGraphicsState);
         }
 
+        DisplayListItem::PushImageMaskClip { bounds, geometry, .. } => {
+            // What follows, up to the matching pop, is painted through a mask.
+            // The fill of an SVG shape arrives like this: the fill colour (or
+            // gradient) as a rectangle, under a mask made from the path. Where
+            // the item carries that path, the PDF clips to it, which is exact at
+            // any zoom. The scope is opened in every case so that the pop below
+            // always has a `q` to close.
+            ops.push(Op::SaveGraphicsState);
+            if let Some(geometry) = geometry {
+                let to_page = SvgToPage::new(bounds.inner(), geometry.view_box, transform);
+                let rings: Vec<crate::graphics::PolygonRing> =
+                    svg_path_to_lines(&geometry.path, &to_page)
+                        .into_iter()
+                        .map(|line| crate::graphics::PolygonRing { points: line.points })
+                        .collect();
+                let mut polygon = if rings.is_empty() {
+                    // A path that encloses nothing lets nothing through. A clip
+                    // operator needs a path, so this one is a rectangle of no size.
+                    make_rect_polygon_pt(0.0, 0.0, 0.0, 0.0)
+                } else {
+                    crate::graphics::Polygon {
+                        rings,
+                        mode: crate::graphics::PaintMode::Clip,
+                        winding_order: if geometry.even_odd {
+                            crate::graphics::WindingOrder::EvenOdd
+                        } else {
+                            crate::graphics::WindingOrder::NonZero
+                        },
+                    }
+                };
+                polygon.mode = crate::graphics::PaintMode::Clip;
+                ops.push(Op::DrawPolygon { polygon });
+            }
+            // A mask that is only an image (no geometry) would need a soft mask;
+            // its content is still painted unclipped.
+        }
+
+        DisplayListItem::PopImageMaskClip => {
+            ops.push(Op::RestoreGraphicsState);
+        }
+
         _ => {
             // Remaining items not yet wired for PDF:
-            //  - PushImageMaskClip/PopImageMaskClip: alpha-mask clipping (would
-            //    need an SMask); content currently renders unclipped (graceful).
             //  - PushScrollFrame/PushStackingContext/Push(Backdrop)Filter/
             //    PushTextShadow and their Pops, VirtualView*, ScrollBar*,
             //    Selection/Cursor (screen-only).
@@ -2083,5 +2122,98 @@ mod tests {
         };
         assert!(ops_for(item(ColorU { r: 0, g: 0, b: 0, a: 0 }, 2.0)).is_empty());
         assert!(ops_for(item(ColorU { r: 0, g: 0, b: 0, a: 255 }, 0.0)).is_empty());
+    }
+
+    fn masked_rect(geometry: Option<azul_layout::solver3::display_list::MaskGeometry>) -> Vec<Op> {
+        let bounds = WindowLogicalRect(LogicalRect {
+            origin: LogicalPosition { x: 10.0, y: 20.0 },
+            size: LogicalSize { width: 120.0, height: 60.0 },
+        });
+        let mut dl = DisplayList::default();
+        dl.items.push(DisplayListItem::PushImageMaskClip {
+            bounds,
+            mask_image: None,
+            mask_rect: bounds,
+            geometry,
+        });
+        dl.items.push(DisplayListItem::Rect {
+            bounds,
+            color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+            border_radius: BorderRadius::default(),
+        });
+        dl.items.push(DisplayListItem::PopImageMaskClip);
+        display_list_to_printpdf_ops_with_margins(
+            &dl,
+            LogicalSize { width: 595.0, height: 842.0 },
+            0.0,
+            0.0,
+            &empty_font_manager(),
+            &ResolvedImages::new(),
+            &mut BridgeResources::default(),
+        )
+        .expect("bridge conversion")
+    }
+
+    /// The fill of an SVG shape is its fill colour painted as a rectangle under a
+    /// mask made from the path. The mask clip used to be skipped, so the whole
+    /// rectangle was printed. With the path on the clip item, the PDF clips to
+    /// it before the rectangle is filled, and leaves the clip afterwards.
+    #[test]
+    fn svg_fill_is_clipped_to_its_path() {
+        // <path d="M10 50 L60 10 L110 50 Z" fill-rule="evenodd"/> in a 120x60 view box
+        let ops = masked_rect(Some(azul_layout::solver3::display_list::MaskGeometry {
+            path: one_ring(vec![
+                svg_line((10.0, 50.0), (60.0, 10.0)),
+                svg_line((60.0, 10.0), (110.0, 50.0)),
+                svg_line((110.0, 50.0), (10.0, 50.0)),
+            ]),
+            view_box: Some((0.0, 0.0, 120.0, 60.0)),
+            even_odd: true,
+        }));
+
+        let polygons: Vec<(usize, &crate::graphics::Polygon)> = ops
+            .iter()
+            .enumerate()
+            .filter_map(|(i, op)| match op {
+                Op::DrawPolygon { polygon } => Some((i, polygon)),
+                _ => None,
+            })
+            .collect();
+        let (clip_at, clip) = polygons
+            .iter()
+            .find(|(_, p)| matches!(p.mode, crate::graphics::PaintMode::Clip))
+            .expect("a clip path");
+        let (fill_at, _) = polygons
+            .iter()
+            .find(|(_, p)| matches!(p.mode, crate::graphics::PaintMode::Fill))
+            .expect("the rectangle that carries the fill colour");
+        assert!(clip_at < fill_at, "the clip is set before the fill is painted");
+        assert!(matches!(clip.winding_order, crate::graphics::WindingOrder::EvenOdd));
+        assert_eq!(clip.rings.len(), 1);
+        assert_eq!(clip.rings[0].points.len(), 3, "three corners; a ring closes itself");
+        // The apex: x = (10 + 60) px = 52.5 pt; y = 842 - (20 + 10) px * 0.75 = 819.5 pt
+        assert!((clip.rings[0].points[1].p.x.0 - 52.5).abs() < 1e-2);
+        assert!((clip.rings[0].points[1].p.y.0 - 819.5).abs() < 1e-2);
+
+        let saves = ops.iter().filter(|op| matches!(op, Op::SaveGraphicsState)).count();
+        let restores = ops.iter().filter(|op| matches!(op, Op::RestoreGraphicsState)).count();
+        assert_eq!(saves, restores, "the clip ends with the mask");
+        let last_restore = ops.iter().rposition(|op| matches!(op, Op::RestoreGraphicsState));
+        assert!(last_restore.expect("a restore") > *fill_at, "the fill is inside the clip scope");
+    }
+
+    /// A mask that is only an image has no path to clip to. Its content is
+    /// painted, and the scope the mask opens is still closed again.
+    #[test]
+    fn image_mask_without_geometry_keeps_the_state_balanced() {
+        let ops = masked_rect(None);
+        assert!(!ops.iter().any(|op| matches!(
+            op,
+            Op::DrawPolygon { polygon } if matches!(polygon.mode, crate::graphics::PaintMode::Clip)
+        )));
+        let saves = ops.iter().filter(|op| matches!(op, Op::SaveGraphicsState)).count();
+        let restores = ops.iter().filter(|op| matches!(op, Op::RestoreGraphicsState)).count();
+        assert_eq!(saves, restores);
+        assert!(ops.iter().any(|op| matches!(op, Op::DrawPolygon { .. })), "the content is painted");
     }
 }
