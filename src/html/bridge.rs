@@ -560,6 +560,151 @@ impl CoordTransform {
     }
 }
 
+/// Maps SVG geometry from the user space of its `<svg>` to PDF points on the page.
+///
+/// A shape's coordinates are in the `viewBox` of the nearest `<svg>`, and the
+/// display list says which box (`bounds`, CSS px) that view box was laid out
+/// into. The mapping is the one azul's own renderers use
+/// (`svg_user_space_mapping`): the view box is scaled onto the box, each axis by
+/// itself. Without a view box the geometry is in CSS px already, relative to
+/// the box.
+#[derive(Clone, Copy)]
+struct SvgToPage {
+    /// CSS px per user unit, per axis.
+    scale: (f32, f32),
+    /// The view box's origin in user units.
+    min: (f32, f32),
+    /// The box's origin in CSS px.
+    origin: (f32, f32),
+    transform: CoordTransform,
+}
+
+impl SvgToPage {
+    fn new(
+        bounds: &LogicalRect,
+        view_box: Option<(f32, f32, f32, f32)>,
+        transform: CoordTransform,
+    ) -> Self {
+        let (scale, min) = match view_box {
+            Some((min_x, min_y, w, h)) if w > 0.0 && h > 0.0 => (
+                (bounds.size.width / w, bounds.size.height / h),
+                (min_x, min_y),
+            ),
+            _ => ((1.0, 1.0), (0.0, 0.0)),
+        };
+        Self {
+            scale,
+            min,
+            origin: (bounds.origin.x, bounds.origin.y),
+            transform,
+        }
+    }
+
+    /// A point of the path, on the page.
+    fn point(&self, p: &azul_css::props::basic::SvgPoint) -> crate::graphics::Point {
+        let x = self.origin.0 + (p.x - self.min.0) * self.scale.0;
+        let y = self.origin.1 + (p.y - self.min.1) * self.scale.1;
+        crate::graphics::Point::new(
+            pt_to_mm(self.transform.x(x)),
+            pt_to_mm(self.transform.y(y)),
+        )
+    }
+
+    /// CSS px per user unit for a length that has no direction, such as a stroke
+    /// width. Where the axes scale differently no single width is exact; the
+    /// mean is what azul's CPU renderer strokes with.
+    fn mean_scale(&self) -> f32 {
+        (self.scale.0 + self.scale.1) / 2.0
+    }
+}
+
+/// The sub-paths of an SVG path as printpdf lines, one per run of connected
+/// segments. A run that ends where it began is closed, so that its last corner
+/// gets a join and not two caps.
+fn svg_path_to_lines(
+    path: &azul_core::svg::SvgMultiPolygon,
+    to_page: &SvgToPage,
+) -> Vec<crate::graphics::Line> {
+    use azul_core::svg::SvgPathElement;
+    use azul_css::props::basic::SvgPoint;
+
+    const EPSILON: f32 = 1e-4;
+    let same = |a: &SvgPoint, b: &SvgPoint| (a.x - b.x).abs() < EPSILON && (a.y - b.y).abs() < EPSILON;
+    let corner = |p: &SvgPoint| crate::graphics::LinePoint { p: to_page.point(p), bezier: false };
+    let control = |p: &SvgPoint| crate::graphics::LinePoint { p: to_page.point(p), bezier: true };
+
+    // (points, where the run began, where it is now, whether its last segment was straight)
+    struct Run {
+        points: Vec<crate::graphics::LinePoint>,
+        start: SvgPoint,
+        end: SvgPoint,
+        last_is_line: bool,
+    }
+    let finish = |run: Run, lines: &mut Vec<crate::graphics::Line>| {
+        let Run { mut points, start, end, last_is_line } = run;
+        if points.len() < 2 {
+            return;
+        }
+        let is_closed = points.len() > 2 && same(&start, &end);
+        if is_closed && last_is_line {
+            // The closing operator draws this last straight segment itself.
+            points.pop();
+        }
+        lines.push(crate::graphics::Line { points, is_closed });
+    };
+
+    let mut lines = Vec::new();
+    for ring in path.rings.as_ref() {
+        let mut run: Option<Run> = None;
+        for element in ring.items.as_ref() {
+            let (start, end) = match element {
+                SvgPathElement::Line(l) => (l.start, l.end),
+                SvgPathElement::QuadraticCurve(q) => (q.start, q.end),
+                SvgPathElement::CubicCurve(c) => (c.start, c.end),
+            };
+            if run.as_ref().is_some_and(|r| !same(&r.end, &start)) {
+                if let Some(done) = run.take() {
+                    finish(done, &mut lines);
+                }
+            }
+            let current = run.get_or_insert_with(|| Run {
+                points: vec![corner(&start)],
+                start,
+                end: start,
+                last_is_line: false,
+            });
+            match element {
+                SvgPathElement::Line(_) => {
+                    current.points.push(corner(&end));
+                    current.last_is_line = true;
+                }
+                SvgPathElement::QuadraticCurve(q) => {
+                    // PDF has cubic curves only: the same curve, one degree higher.
+                    let lift = |from: &SvgPoint| SvgPoint {
+                        x: from.x + (q.ctrl.x - from.x) * 2.0 / 3.0,
+                        y: from.y + (q.ctrl.y - from.y) * 2.0 / 3.0,
+                    };
+                    current.points.push(control(&lift(&q.start)));
+                    current.points.push(control(&lift(&q.end)));
+                    current.points.push(corner(&end));
+                    current.last_is_line = false;
+                }
+                SvgPathElement::CubicCurve(c) => {
+                    current.points.push(control(&c.ctrl_1));
+                    current.points.push(control(&c.ctrl_2));
+                    current.points.push(corner(&end));
+                    current.last_is_line = false;
+                }
+            }
+            current.end = end;
+        }
+        if let Some(done) = run.take() {
+            finish(done, &mut lines);
+        }
+    }
+    lines
+}
+
 fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
     ops: &mut Vec<Op>,
     item: &'a DisplayListItem,
@@ -1002,6 +1147,78 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
         }
 
         DisplayListItem::PopClip => {
+            ops.push(Op::RestoreGraphicsState);
+        }
+
+        DisplayListItem::StrokedPath {
+            bounds,
+            path,
+            view_box,
+            color,
+            width,
+            outline,
+            // The stroke pre-rasterised for renderers that cannot stroke a path.
+            // A PDF can, so the geometry is written and stays sharp at any zoom.
+            mask: _,
+        } => {
+            if color.a == 0 || !width.is_finite() || *width <= 0.0 {
+                return;
+            }
+            let to_page = SvgToPage::new(bounds.inner(), *view_box, transform);
+            let lines = svg_path_to_lines(path, &to_page);
+            if lines.is_empty() {
+                return;
+            }
+            // One user unit of the path, in PDF pt: stroke width and dashes are
+            // given in user units and scale with the geometry.
+            let unit = to_page.mean_scale() * CSS_PX_TO_PT;
+
+            ops.push(Op::SaveGraphicsState);
+            apply_fill_alpha(ops, bridge_res, color);
+            ops.push(Op::SetOutlineColor { col: convert_color(color) });
+            ops.push(Op::SetOutlineThickness { pt: Pt(*width * unit) });
+            ops.push(Op::SetLineCapStyle {
+                cap: match outline.cap {
+                    azul_core::svg::SvgLineCap::Butt => crate::graphics::LineCapStyle::Butt,
+                    azul_core::svg::SvgLineCap::Round => crate::graphics::LineCapStyle::Round,
+                    azul_core::svg::SvgLineCap::Square => {
+                        crate::graphics::LineCapStyle::ProjectingSquare
+                    }
+                },
+            });
+            match outline.join {
+                // PDF has no `miter-clip`: past the limit it bevels, as `miter` does.
+                azul_core::svg::SvgLineJoin::Miter | azul_core::svg::SvgLineJoin::MiterClip => {
+                    ops.push(Op::SetLineJoinStyle { join: crate::graphics::LineJoinStyle::Miter });
+                    if outline.miter_limit.is_finite() && outline.miter_limit >= 1.0 {
+                        // A ratio, not a length; the op's type is `Pt` for historical reasons.
+                        ops.push(Op::SetMiterLimit { limit: Pt(outline.miter_limit) });
+                    }
+                }
+                azul_core::svg::SvgLineJoin::Round => {
+                    ops.push(Op::SetLineJoinStyle { join: crate::graphics::LineJoinStyle::Round });
+                }
+                azul_core::svg::SvgLineJoin::Bevel => {
+                    ops.push(Op::SetLineJoinStyle { join: crate::graphics::LineJoinStyle::Bevel });
+                }
+            }
+            let dash_total: f32 = outline.dashes.iter().map(|(dash, gap)| dash + gap).sum();
+            if dash_total.is_finite() && dash_total > 0.0 {
+                let mut pattern = smallvec::SmallVec::new();
+                for (dash, gap) in &outline.dashes {
+                    pattern.push(dash * unit);
+                    pattern.push(gap * unit);
+                }
+                ops.push(Op::SetLineDashPattern {
+                    dash: crate::graphics::LineDashPattern {
+                        offset: outline.dash_offset * unit,
+                        pattern,
+                    },
+                });
+            }
+            for line in lines {
+                ops.push(Op::DrawLine { line });
+            }
             ops.push(Op::RestoreGraphicsState);
         }
 
@@ -1683,5 +1900,188 @@ mod tests {
         assert!(has_filter, "image XObject should be a DCTDecode (JPEG) stream");
         let has_width = contains(b"/Width") && contains(b"/Height");
         assert!(has_width, "serialized PDF must declare image width/height");
+    }
+
+    fn svg_point(x: f32, y: f32) -> azul_css::props::basic::SvgPoint {
+        azul_css::props::basic::SvgPoint { x, y }
+    }
+
+    fn svg_line(from: (f32, f32), to: (f32, f32)) -> azul_core::svg::SvgPathElement {
+        azul_core::svg::SvgPathElement::Line(azul_core::svg::SvgLine {
+            start: svg_point(from.0, from.1),
+            end: svg_point(to.0, to.1),
+        })
+    }
+
+    fn one_ring(items: Vec<azul_core::svg::SvgPathElement>) -> azul_core::svg::SvgMultiPolygon {
+        azul_core::svg::SvgMultiPolygon {
+            rings: vec![azul_core::svg::SvgPath { items: items.into() }].into(),
+        }
+    }
+
+    fn plain_stroke() -> azul_layout::solver3::display_list::StrokeOutline {
+        azul_layout::solver3::display_list::StrokeOutline {
+            cap: azul_core::svg::SvgLineCap::Butt,
+            join: azul_core::svg::SvgLineJoin::Miter,
+            miter_limit: 4.0,
+            dashes: Vec::new(),
+            dash_offset: 0.0,
+        }
+    }
+
+    fn ops_for(item: DisplayListItem) -> Vec<Op> {
+        let mut dl = DisplayList::default();
+        dl.items.push(item);
+        display_list_to_printpdf_ops_with_margins(
+            &dl,
+            LogicalSize { width: 595.0, height: 842.0 },
+            0.0,
+            0.0,
+            &empty_font_manager(),
+            &ResolvedImages::new(),
+            &mut BridgeResources::default(),
+        )
+        .expect("bridge conversion")
+    }
+
+    /// The stroke of an SVG shape reaches the bridge as a `StrokedPath` carrying
+    /// its geometry. It used to fall through to the catch-all arm and vanish
+    /// from the PDF; it must be written as a stroked path, curve and all.
+    #[test]
+    fn stroked_svg_path_is_written_as_a_pdf_stroke() {
+        // <svg width="120" height="60" viewBox="0 0 120 60"> laid out at (10, 20):
+        // <path d="M10 50 C40 0 80 0 110 50" stroke="#000" stroke-width="3"/>
+        let ops = ops_for(DisplayListItem::StrokedPath {
+            bounds: WindowLogicalRect(LogicalRect {
+                origin: LogicalPosition { x: 10.0, y: 20.0 },
+                size: LogicalSize { width: 120.0, height: 60.0 },
+            }),
+            path: one_ring(vec![azul_core::svg::SvgPathElement::CubicCurve(
+                azul_css::props::basic::SvgCubicCurve {
+                    start: svg_point(10.0, 50.0),
+                    ctrl_1: svg_point(40.0, 0.0),
+                    ctrl_2: svg_point(80.0, 0.0),
+                    end: svg_point(110.0, 50.0),
+                },
+            )]),
+            view_box: Some((0.0, 0.0, 120.0, 60.0)),
+            color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+            width: 3.0,
+            outline: plain_stroke(),
+            mask: None,
+        });
+
+        let thickness = ops.iter().find_map(|op| match op {
+            Op::SetOutlineThickness { pt } => Some(pt.0),
+            _ => None,
+        });
+        // 3 user units = 3 CSS px = 2.25 pt
+        assert!((thickness.expect("a stroke width") - 2.25).abs() < 1e-3);
+
+        let lines: Vec<&crate::graphics::Line> = ops
+            .iter()
+            .filter_map(|op| match op {
+                Op::DrawLine { line } => Some(line),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(lines.len(), 1, "one sub-path");
+        let line = lines[0];
+        assert!(!line.is_closed);
+        let flags: Vec<bool> = line.points.iter().map(|p| p.bezier).collect();
+        assert_eq!(flags, [false, true, true, false], "start, two control points, end");
+        // Start point: x = (10 + 10) px = 15 pt; y = 842 - (20 + 50) px * 0.75 = 789.5 pt
+        assert!((line.points[0].p.x.0 - 15.0).abs() < 1e-2);
+        assert!((line.points[0].p.y.0 - 789.5).abs() < 1e-2);
+        // End point: x = (10 + 110) px = 90 pt, same height
+        assert!((line.points[3].p.x.0 - 90.0).abs() < 1e-2);
+        assert!((line.points[3].p.y.0 - 789.5).abs() < 1e-2);
+
+        let saves = ops.iter().filter(|op| matches!(op, Op::SaveGraphicsState)).count();
+        let restores = ops.iter().filter(|op| matches!(op, Op::RestoreGraphicsState)).count();
+        assert_eq!(saves, restores, "the stroke state stays local");
+        assert!(ops.iter().any(|op| matches!(op, Op::SetOutlineColor { .. })));
+    }
+
+    /// Width and dashes are in the path's user units: an icon drawn in a 24-unit
+    /// view box and laid out twice as large gets a stroke twice as wide. A ring
+    /// that returns to its start is closed, so its last corner is joined.
+    #[test]
+    fn stroke_scales_with_the_view_box_and_closes_rings() {
+        let mut outline = plain_stroke();
+        outline.join = azul_core::svg::SvgLineJoin::Round;
+        outline.cap = azul_core::svg::SvgLineCap::Round;
+        outline.dashes = vec![(4.0, 2.0)];
+        outline.dash_offset = 1.0;
+        let ops = ops_for(DisplayListItem::StrokedPath {
+            bounds: WindowLogicalRect(LogicalRect {
+                origin: LogicalPosition { x: 0.0, y: 0.0 },
+                size: LogicalSize { width: 48.0, height: 48.0 },
+            }),
+            path: one_ring(vec![
+                svg_line((2.0, 22.0), (12.0, 2.0)),
+                svg_line((12.0, 2.0), (22.0, 22.0)),
+                svg_line((22.0, 22.0), (2.0, 22.0)),
+            ]),
+            view_box: Some((0.0, 0.0, 24.0, 24.0)),
+            color: ColorU { r: 200, g: 0, b: 0, a: 255 },
+            width: 2.0,
+            outline,
+            mask: None,
+        });
+
+        // One user unit = 2 CSS px = 1.5 pt
+        let thickness = ops.iter().find_map(|op| match op {
+            Op::SetOutlineThickness { pt } => Some(pt.0),
+            _ => None,
+        });
+        assert!((thickness.expect("a stroke width") - 3.0).abs() < 1e-3);
+        let dash = ops.iter().find_map(|op| match op {
+            Op::SetLineDashPattern { dash } => Some(dash.clone()),
+            _ => None,
+        });
+        let dash = dash.expect("a dash pattern");
+        assert_eq!(dash.pattern.as_slice(), [6.0, 3.0]);
+        assert!((dash.offset - 1.5).abs() < 1e-3);
+        assert!(ops.iter().any(|op| matches!(
+            op,
+            Op::SetLineJoinStyle { join: crate::graphics::LineJoinStyle::Round }
+        )));
+        assert!(ops.iter().any(|op| matches!(
+            op,
+            Op::SetLineCapStyle { cap: crate::graphics::LineCapStyle::Round }
+        )));
+
+        let line = ops
+            .iter()
+            .find_map(|op| match op {
+                Op::DrawLine { line } => Some(line),
+                _ => None,
+            })
+            .expect("the triangle");
+        assert!(line.is_closed);
+        assert_eq!(line.points.len(), 3, "three corners; the closing side is implied");
+        // Top corner: x = 12 units = 24 px = 18 pt; y = 842 - 2 units * 2 px * 0.75
+        assert!((line.points[1].p.x.0 - 18.0).abs() < 1e-2);
+        assert!((line.points[1].p.y.0 - 839.0).abs() < 1e-2);
+    }
+
+    /// A stroke nobody could see writes nothing at all, not even an empty q/Q.
+    #[test]
+    fn invisible_stroke_writes_nothing() {
+        let item = |color: ColorU, width: f32| DisplayListItem::StrokedPath {
+            bounds: WindowLogicalRect(LogicalRect {
+                origin: LogicalPosition { x: 0.0, y: 0.0 },
+                size: LogicalSize { width: 10.0, height: 10.0 },
+            }),
+            path: one_ring(vec![svg_line((0.0, 0.0), (10.0, 10.0))]),
+            view_box: None,
+            color,
+            width,
+            outline: plain_stroke(),
+            mask: None,
+        };
+        assert!(ops_for(item(ColorU { r: 0, g: 0, b: 0, a: 0 }, 2.0)).is_empty());
+        assert!(ops_for(item(ColorU { r: 0, g: 0, b: 0, a: 255 }, 0.0)).is_empty());
     }
 }
