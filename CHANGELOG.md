@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## `0.12.12`
+
+**azul 0.0.19.** The azul-css / azul-core / azul-layout pins move to 0.0.19.
+
+**A justified line that `<br>` ends is not spread (azul 0.0.19).** With
+`text-align: justify`, every line of a paragraph but the last was pulled out to
+both edges of its box, also a line that ended in a forced break. Verses written
+as one paragraph with a `<br>` after each line came out with two or three words
+spread across the page. Such a line is now set from the start edge, as CSS Text
+3 says. Test: `tests/html_justify_forced_break.rs`.
+
 ## `0.12.11`
 
 **`from_html` writes each page as the layout cuts it.** It used to collect the
