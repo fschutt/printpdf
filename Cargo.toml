@@ -1,6 +1,6 @@
 [package]
 name = "printpdf"
-version = "0.12.12"
+version = "0.12.13"
 authors = [
   "Felix Schütt <felix.schuett@maps4print.com>",
   "Julien Schminke <julien.schminke@web.de",
@@ -105,6 +105,9 @@ web-sys = { version = "0.3.77", optional = true, default-features = false, featu
   "BlobPropertyBag",
 ] }
 wasm-bindgen-futures = { version = "0.4.50", optional = true, default-features = false }
+# 0.0.20 = the same branch with footnotes on paged media (`float: footnote`,
+# `@page { @footnote }`), margin notes beside a column, and static positions of
+# out-of-flow boxes inside a line and inside columns.
 # 0.0.19 = the same branch again: a justified line that a forced break ends is
 # no longer spread, and text anti-aliasing is one `TextAntialiasing` on `AppConfig`.
 # 0.0.18 = the same branch with the display list the SVG-fill fix needs:
@@ -123,20 +126,20 @@ wasm-bindgen-futures = { version = "0.4.50", optional = true, default-features =
 # All three must stay pinned to the SAME version: azul-layout reaches its
 # siblings by in-repo path, so mixing versions would put two incompatible
 # azul-cores in the graph. Bump them together or not at all. On 0.0.x crates
-# a "0.0.19" requirement is EXACT, which is what that rule needs.
+# a "0.0.20" requirement is EXACT, which is what that rule needs.
 #
 # The exactness has a cost worth knowing: azul's workspace [patch] redirects
 # THIS dependency to its own path crates so the dll links one azul-layout, and
 # an exact pin stops matching the moment azul bumps in-tree. That is why the
 # two repos release as a pair — azul-* publish first, printpdf follows, then
 # azul re-pins printpdf. Never paper over it with a [patch] here.
-azul-css = { version = "0.0.19", default-features = false, features = [
+azul-css = { version = "0.0.20", default-features = false, features = [
   "parser",
 ], optional = true }
-azul-core = { version = "0.0.19", default-features = false, features = [
+azul-core = { version = "0.0.20", default-features = false, features = [
   "std",
 ], optional = true }
-azul-layout = { version = "0.0.19", default-features = false, optional = true }
+azul-layout = { version = "0.0.20", default-features = false, optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 wasm-bindgen = { version = "0.2" }

@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+## `0.12.13`
+
+**azul 0.0.20.** The azul-css / azul-core / azul-layout pins move to 0.0.20.
+
+**Footnotes at the foot of the page (azul 0.0.20).** `from_html` now honours
+`float: footnote` (CSS Generated Content for Paged Media): an element with
+it is taken out of the text and printed at the bottom of the page on which
+its place in the text lands; the text of that page ends above its notes; a
+note that fits no page continues on the next. The call in the text and the
+marker of the note are generated from the `footnote` counter (`content: none`
+on `::footnote-call` and `::footnote-marker` turns them off), and
+`@page { @footnote { ... } }` styles the area: `border-top`, `padding`,
+`margin-top`, `max-height`. Test: `tests/html_footnotes.rs`.
+
+**Margin notes (azul 0.0.20).** An absolutely positioned box with
+`--azul-margin-note: outside` inside a multi-column block is placed outside
+the block, on the side of the column its place is in, at the height of its
+line. This is an extension of the layout engine, not CSS.
+
+**Repeated table heads are drawn on continuation pages (azul 0.0.20).** Their
+text was missing from the PDF: it reached the page in a form the PDF writer
+skipped.
+
 ## `0.12.12`
 
 **azul 0.0.19.** The azul-css / azul-core / azul-layout pins move to 0.0.19.
