@@ -247,9 +247,9 @@ fn form_fields(doc: &Document) -> Vec<FormField> {
 
 /// Page object id -> 0-based index.
 fn page_index_of(doc: &Document) -> BTreeMap<ObjectId, usize> {
-    doc.get_pages()
-        .iter()
-        .map(|(num, id)| (*id, (*num as usize).saturating_sub(1)))
+    crate::deserialize::numbered_pages(doc)
+        .into_iter()
+        .map(|(num, id)| (id, num.saturating_sub(1)))
         .collect()
 }
 

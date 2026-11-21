@@ -131,7 +131,10 @@ pub(crate) fn drop_redundant_actual_text(doc: &mut Document) -> DroppedSpans {
         kept: 0,
         rewritten: Vec::new(),
     };
-    let pages: Vec<ObjectId> = doc.get_pages().into_values().collect();
+    let pages: Vec<ObjectId> = crate::deserialize::numbered_pages(doc)
+        .into_iter()
+        .map(|(_, id)| id)
+        .collect();
     let mut uses: BTreeMap<ObjectId, usize> = BTreeMap::new();
     for page in &pages {
         for id in doc.get_page_contents(*page) {

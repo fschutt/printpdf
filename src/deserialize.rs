@@ -4290,7 +4290,7 @@ fn as_name(obj: &Object) -> Option<String> {
 /// This is the list [`LopdfDocument::get_pages`] gives, read one page at a time: `get_pages`
 /// collects the pages into a map first, and that reserves memory for the number of pages the
 /// `/Count` entries of the page tree announce, which a file can set to any number.
-fn numbered_pages(doc: &LopdfDocument) -> Vec<(usize, ObjectId)> {
+pub(crate) fn numbered_pages(doc: &LopdfDocument) -> Vec<(usize, ObjectId)> {
     let mut pages = Vec::new();
     for (index, id) in doc.page_iter().enumerate() {
         pages.push((index.saturating_add(1), id));
