@@ -1,3 +1,71 @@
+//! Fonts: the 14 built-in PDF fonts, fonts embedded from font files, and the helpers that write them.
+//!
+//! # Fonts in a PDF
+//!
+//! A page selects a font by name (`/F1`, `/Tf`) and then shows text with it. There are two kinds:
+//!
+//! - **Built-in fonts.** The 14 standard fonts (Times, Helvetica, Courier, Symbol, ZapfDingbats)
+//!   are expected to exist in every viewer, so nothing is embedded. They are written with
+//!   `/WinAnsiEncoding`, one byte per character, and cover Latin text only. See [`BuiltinFont`].
+//! - **Embedded fonts.** The font file (TrueType or OpenType) is copied into the PDF as a font
+//!   program, so the page looks the same everywhere and can use any script. printpdf writes
+//!   them as Type0 composite fonts with `/Encoding /Identity-H`: the content stream does not
+//!   contain characters but two-byte *codes*. A code is a CID (character identifier); for
+//!   TrueType and name-keyed CFF fonts it is the glyph id, for CID-keyed CFF fonts it is the
+//!   CID of the font's own charset (see [`cff_charset_gid_to_cid_map`]).
+//!
+//! Because the content stream holds glyph ids and no text, an embedded font needs two more
+//! things so that viewers can measure and copy the text:
+//!
+//! - `/W`, the advance width of every code used, in 1/1000 em ([`get_normalized_widths_codes`]);
+//! - `/ToUnicode`, a CMap stream that maps each code back to Unicode, which is what copy, paste
+//!   and search use (see [`crate::cmap`]).
+//!
+//! Embedded fonts are *subset* on save: only the glyphs the document uses are kept and the glyph
+//! ids are renumbered, because a full CJK font can be several megabytes. See
+//! [`PdfSaveOptions::subset_fonts`](crate::PdfSaveOptions::subset_fonts).
+//!
+//! # How printpdf models fonts
+//!
+//! - [`ParsedFont`] is one parsed face. It always keeps the font file bytes it was parsed from,
+//!   because embedding writes those bytes (after subsetting) into the PDF.
+//! - [`PdfFont`] is a [`ParsedFont`] plus embedding settings ([`PrintpdfFontMeta`]). A document
+//!   stores them in its resources, keyed by [`FontId`](crate::FontId).
+//! - [`PdfDocument::add_font`](crate::PdfDocument::add_font) registers a font and returns its
+//!   [`FontId`](crate::FontId).
+//! - [`PdfFontHandle`](crate::PdfFontHandle) names the font of an
+//!   [`Op::SetFont`](crate::Op::SetFont): a [`BuiltinFont`] or an external `FontId`.
+//!
+//! Without the `text_layout` feature, [`ParsedFont`] is a simpler struct with public fields that
+//! is parsed with `allsorts` but cannot shape text or subset fonts. With it, [`ParsedFont`]
+//! wraps azul-layout's face.
+//!
+//! # Examples
+//!
+//! Load a font file, register it and write text with it:
+//!
+//! ```
+//! use printpdf::*;
+//!
+//! let bytes = std::fs::read("examples/assets/fonts/RobotoMedium.ttf").unwrap();
+//! let font = ParsedFont::from_bytes(&bytes, 0, &mut Vec::new()).unwrap();
+//!
+//! let mut doc = PdfDocument::new("Fonts");
+//! let font_id = doc.add_font(&font);
+//!
+//! let ops = vec![
+//!     Op::StartTextSection,
+//!     Op::SetTextCursor { pos: Point { x: Mm(10.0).into(), y: Mm(270.0).into() } },
+//!     Op::SetFont { font: PdfFontHandle::External(font_id), size: Pt(16.0) },
+//!     Op::ShowText { items: vec![TextItem::Text("Hello, fonts".to_string())] },
+//!     Op::EndTextSection,
+//! ];
+//! doc.pages.push(PdfPage::new(Mm(210.0), Mm(297.0), ops));
+//!
+//! let pdf = doc.save(&PdfSaveOptions::default(), &mut Vec::new());
+//! assert!(pdf.starts_with(b"%PDF"));
+//! ```
+
 use std::{
     collections::btree_map::BTreeMap,
     vec::Vec,
@@ -9,7 +77,7 @@ use crate::{
     FontId,
 };
 
-// Use azul-layout's types instead of redefining them
+// Re-exported from azul-layout, which does the parsing and shaping.
 #[cfg(feature = "text_layout")]
 pub use azul_layout::{
     PdfFontMetrics as FontMetrics, FontParseWarning as PdfFontParseWarning, FontType, OwnedGlyph,
@@ -17,8 +85,10 @@ pub use azul_layout::{
 
 /// azul-layout's raw font face.
 ///
-/// Prefer printpdf's [`ParsedFont`], which wraps this and guarantees the source
-/// bytes stay attached — PDF embedding cannot work without them.
+/// Prefer printpdf's [`ParsedFont`], which wraps this type and keeps the source bytes
+/// attached; PDF embedding cannot work without them.
+///
+/// Requires the `text_layout` feature.
 #[cfg(feature = "text_layout")]
 pub use azul_layout::ParsedFont as AzulParsedFont;
 
@@ -34,61 +104,57 @@ mod parsed_font {
 
     use super::{AzulParsedFont, PdfFontParseWarning};
 
-    /// The `data:` URI prefix azul-layout (de)serializes a font face as.
-    ///
-    /// Duplicated here on purpose: printpdf needs its *own* `Deserialize`, because
-    /// azul's routes through `AzulParsedFont::from_bytes`, which drops the source
-    /// bytes on azul-layout 0.0.9 (see [`ParsedFont`]). Round-tripping a `PdfFont`
-    /// through serde would otherwise silently produce an unembeddable font.
+    // Prefix of the `data:` URI a font is serialized as. printpdf has its own `Deserialize`
+    // because azul's goes through `AzulParsedFont::from_bytes`, which does not keep the source
+    // bytes, so a round-tripped font would not be embeddable.
     const FONT_B64_START: &str = "data:font/ttf;base64,";
 
-    /// A parsed font face whose source bytes are guaranteed to still be attached.
+    /// A parsed font face that keeps the font file bytes it was parsed from.
     ///
-    /// # Why this is a newtype rather than a re-export of `azul_layout::ParsedFont`
+    /// Wraps [`AzulParsedFont`] and dereferences to it, so its lookup and metric methods
+    /// (`lookup_glyph_index`, `num_glyphs`, `font_metrics`, ...) can be called directly.
     ///
-    /// azul-layout deliberately does not retain the source bytes in
-    /// `ParsedFont::from_bytes`: layout, shaping and the rasterizer never read them,
-    /// and keeping them duplicated a 4.27 MiB `.ttc` once per parsed face. PDF
-    /// embedding is the one consumer that *does* need them — the raw bytes literally
-    /// *are* the `/FontFile2` stream, and subsetting reads the sfnt tables back out
-    /// of them.
+    /// azul-layout's own `from_bytes` does not keep the source bytes, because layout and
+    /// shaping never read them. PDF embedding does: the bytes are the `/FontFile2` stream and
+    /// subsetting reads the font tables out of them. A face without them is written as an empty
+    /// font file, so build faces with [`ParsedFont::from_bytes`] or
+    /// [`ParsedFont::from_shared_bytes`] and check [`ParsedFont::has_source_bytes`] on faces
+    /// that come from elsewhere.
     ///
-    /// So printpdf attaches them itself, via `AzulParsedFont::with_source_bytes`.
-    /// Doing that here — instead of trusting whatever the linked azul-layout happens
-    /// to default to — is what makes font embedding correct against *any*
-    /// azul-layout version, including the published 0.0.9, whose `from_bytes` yields
-    /// `original_bytes: None`. That default is exactly why every external font in
-    /// printpdf 0.10.0 embedded as an empty, corrupt `/FontFile2` (issue #277).
+    /// Serialized with serde as a `data:font/ttf;base64,...` string holding the source bytes.
     ///
-    /// Deref gives you the full `AzulParsedFont` API (`lookup_glyph_index`,
-    /// `num_glyphs`, `font_metrics`, …) unchanged.
+    /// Requires the `text_layout` feature.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use printpdf::ParsedFont;
+    ///
+    /// let bytes = std::fs::read("examples/assets/fonts/RobotoMedium.ttf").unwrap();
+    /// let mut warnings = Vec::new();
+    /// let font = ParsedFont::from_bytes(&bytes, 0, &mut warnings).unwrap();
+    /// assert!(font.has_source_bytes());
+    /// assert!(font.lookup_glyph_index('A' as u32).is_some());
+    /// ```
     #[derive(Debug, Clone, PartialEq)]
     pub struct ParsedFont(AzulParsedFont);
 
     impl ParsedFont {
-        /// Parse a font face from raw sfnt bytes, retaining those bytes for embedding.
+        /// Parses one face from font file bytes and keeps the bytes for embedding.
         ///
-        /// `font_index` selects the face inside a TrueType/OpenType *collection*
-        /// (`.ttc`/`.otc`); pass `0` for a plain single-face `.ttf`/`.otf`.
+        /// `font_index` selects the face inside a TrueType/OpenType collection (`.ttc`,
+        /// `.otc`); use `0` for a plain `.ttf` or `.otf`. Returns `None` when the bytes do not
+        /// parse as a font; recoverable problems are pushed to `warnings`. A bare CID-keyed CFF
+        /// table, as printpdf embeds it (see [`super::extract_cid_keyed_cff`]), is accepted too.
         pub fn from_bytes(
             bytes: &[u8],
             font_index: usize,
             warnings: &mut Vec<PdfFontParseWarning>,
         ) -> Option<Self> {
-            // A bare CID-keyed CFF table (what we embed as `/FontFile3`
-            // `/CIDFontType0C` — see `crate::font::extract_cid_keyed_cff`) has no
-            // `head`/`hhea`/`maxp`/`hmtx` of its own, which `AzulParsedFont::from_bytes`
-            // requires. Wrap it in a synthetic sfnt just to satisfy that parse.
-            //
-            // The face keeps the SYNTHETIC wrapper (not the original bare bytes) as
-            // its retained source: azul indexes into those retained bytes by
-            // byte-range (`hmtx_range` etc.) computed against whatever it actually
-            // parsed, so swapping in the shorter original afterwards would leave
-            // those ranges pointing past the end of the buffer. This doesn't cost us
-            // round-trip fidelity — `extract_cid_keyed_cff` (the only thing that
-            // reads these bytes back out for embedding) just extracts the `CFF `
-            // table again, which is byte-for-byte the original bare table regardless
-            // of whether the sfnt around it is real or synthesized here (#280).
+            // A bare CID-keyed CFF table has no head/hhea/maxp/hmtx, which azul's parser
+            // requires, so it is wrapped in a synthetic sfnt. The face keeps the wrapper as its
+            // source bytes, because azul indexes them by byte ranges computed against the
+            // wrapped data. Embedding reads the CFF table back out of it unchanged.
             if let Some(wrapped) = crate::font::wrap_bare_cff_as_sfnt(bytes) {
                 let inner = AzulParsedFont::from_bytes(&wrapped, 0, warnings)?;
                 return Some(Self::attach_source_bytes(inner, &wrapped));
@@ -97,13 +163,12 @@ mod parsed_font {
             Some(Self::attach_source_bytes(inner, bytes))
         }
 
-        /// Parse a font face from bytes the caller already holds shared, without copying them:
-        /// the face keeps this allocation as its source bytes (what embedding and subsetting
-        /// read) and decodes its glyph outlines from it lazily (azul's `from_bytes_shared`), where
-        /// [`ParsedFont::from_bytes`] copies the bytes once for the face and once more for its
-        /// loca/glyf tables. The same face as `from_bytes` of the same bytes. A bare CID-keyed
-        /// CFF table is wrapped in a synthetic sfnt as `from_bytes` does (the wrapper is new
-        /// bytes: a copy, as there).
+        /// Like [`ParsedFont::from_bytes`] for bytes that are already shared in an `Arc`.
+        ///
+        /// The face keeps that allocation as its source bytes instead of copying it, and decodes
+        /// glyph outlines from it lazily. The result is the same face as `from_bytes` gives for
+        /// the same bytes. A bare CID-keyed CFF table is still wrapped in a synthetic sfnt,
+        /// which is a copy.
         pub fn from_shared_bytes(
             bytes: Arc<[u8]>,
             font_index: usize,
@@ -121,20 +186,17 @@ mod parsed_font {
             Some(Self(inner.with_source_bytes(shared)))
         }
 
-        /// Adopt a face that azul already parsed (e.g. one handed back by the HTML
-        /// layout font cache).
+        /// Adopts a face that azul-layout already parsed, for example one from the HTML layout
+        /// font cache.
         ///
-        /// The cache builds faces through `from_bytes_shared`, which keeps the source
-        /// `Arc<FontBytes>` alive in its lazy loca/glyf slot, so those already satisfy
-        /// the byte-retention invariant and are adopted as-is. A face that somehow
-        /// arrives without bytes is returned unchanged — [`ParsedFont::has_source_bytes`]
-        /// reports that, and serialization refuses to embed it rather than writing an
-        /// empty font program.
+        /// Faces from the cache already carry their source bytes. A face that arrives without
+        /// them is kept as it is: [`ParsedFont::has_source_bytes`] returns `false` and saving
+        /// reports an error instead of embedding an empty font program.
         pub fn from_azul(inner: AzulParsedFont) -> Self {
             Self(inner)
         }
 
-        /// Re-attach `bytes` unless the face already carries its source bytes.
+        /// Attaches `bytes` as the source bytes unless the face already carries some.
         fn attach_source_bytes(inner: AzulParsedFont, bytes: &[u8]) -> Self {
             if inner.source_bytes_for_subset().is_some() {
                 return Self(inner);
@@ -144,26 +206,24 @@ mod parsed_font {
             ))))
         }
 
-        /// The sfnt bytes this face was parsed from, if still available.
+        /// The font file bytes this face was parsed from, if they are still attached.
         ///
-        /// Always `Some` for faces built by [`ParsedFont::from_bytes`]. Checks both
-        /// places azul may keep them: the explicit `original_bytes` slot and the lazy
-        /// loca/glyf slot used by the font cache.
+        /// Always `Some` for faces built by [`ParsedFont::from_bytes`].
         pub fn source_bytes(&self) -> Option<Arc<rust_fontconfig::FontBytes>> {
             self.0.source_bytes_for_subset()
         }
 
-        /// Whether this face can still be embedded into a PDF.
+        /// Whether the source bytes are attached, which a face needs to be embedded in a PDF.
         pub fn has_source_bytes(&self) -> bool {
             self.source_bytes().is_some()
         }
 
-        /// Borrow the underlying azul face.
+        /// Borrows the underlying azul-layout face.
         pub fn as_azul(&self) -> &AzulParsedFont {
             &self.0
         }
 
-        /// Unwrap to the underlying azul face.
+        /// Unwraps to the underlying azul-layout face.
         pub fn into_inner(self) -> AzulParsedFont {
             self.0
         }
@@ -192,17 +252,12 @@ mod parsed_font {
         fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
             use base64::Engine;
 
-            // Same wire format as azul, but it must not silently emit an empty font:
-            // a `ParsedFont` that can't produce its bytes cannot be embedded, and a
-            // caller round-tripping one through serde needs to hear about it here
-            // rather than get a corrupt PDF later.
+            // Same wire format as azul, but an empty font is an error: a face that cannot
+            // produce its bytes cannot be embedded.
             //
-            // Prefer the retained source bytes verbatim. Rebuilding via
-            // `to_bytes(None)` walks a hardcoded TrueType table list, which fails on
-            // CFF faces (no glyf/loca) and on the subset fonts printpdf itself
-            // writes (no OS/2/NAME/POST) — i.e. documents we saved could never be
-            // deserialized again. `to_bytes` stays only as a fallback for faces
-            // that somehow lost their bytes.
+            // The retained source bytes are written verbatim. Rebuilding them with
+            // `to_bytes(None)` walks a fixed TrueType table list, which fails for CFF faces
+            // and for the subset fonts printpdf writes itself, so it is only the fallback.
             let encoded = match self.source_bytes() {
                 Some(b) => base64::prelude::BASE64_STANDARD.encode(b.as_slice()),
                 None => {
@@ -232,8 +287,7 @@ mod parsed_font {
                 .decode(b64)
                 .map_err(serde::de::Error::custom)?;
 
-            // Route through *our* `from_bytes`, not azul's: this is what re-attaches
-            // the source bytes, so a deserialized font is still embeddable.
+            // Goes through printpdf's `from_bytes`, which re-attaches the source bytes.
             let mut warnings = Vec::new();
             ParsedFont::from_bytes(&bytes, 0, &mut warnings).ok_or_else(|| {
                 serde::de::Error::custom(format!("font deserialization error: {warnings:?}"))
@@ -242,42 +296,57 @@ mod parsed_font {
     }
 }
 
-// Stub types when text_layout is disabled
+// Without the `text_layout` feature these simplified types take the place of azul-layout's. The
+// signatures match, so code that compiles with one configuration compiles with the other.
+/// A parsed font face for builds without the `text_layout` feature.
+///
+/// Holds the font file bytes and the few tables embedding needs (character to glyph map,
+/// advance widths, metrics). It cannot shape text or subset fonts. Build it with
+/// [`ParsedFont::from_bytes`].
 #[cfg(not(feature = "text_layout"))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ParsedFont {
+    /// The font file bytes the face was parsed from; embedded as is, since there is no subsetting.
     pub original_bytes: Vec<u8>,
+    /// Index of the face inside a font collection (`0` for a plain font file).
     pub font_index: u32,
+    /// The font's name, if known.
     pub font_name: Option<String>,
-    /// Manual Unicode codepoint -> glyph ID mapping
-    /// Used when text_layout is disabled to provide character to glyph mapping
+    /// Unicode codepoint to glyph id, from the font's `cmap` table.
     pub codepoint_to_glyph: BTreeMap<u32, u16>,
-    /// Manual glyph widths mapping (glyph_id -> width in font units)
-    /// Used when text_layout is disabled to provide font metrics
+    /// Advance width of each glyph id, in font units (`units_per_em` per em).
     pub glyph_widths: BTreeMap<u16, u16>,
-    /// Manual units per em value (typically 1000 or 2048)
+    /// Font units per em, typically 1000 or 2048.
     pub units_per_em: u16,
-    /// Manual font metrics
+    /// Ascent and descent in font units.
     pub font_metrics: FontMetrics,
-    /// Font type (TrueType vs OpenType/CFF) - needed for correct PDF serialization
+    /// Whether the outlines are TrueType (`glyf`) or CFF; decides how the font is embedded.
     pub font_type: FontType,
-    /// PDF font bounding box and metrics - needed for font descriptor in PDF
+    /// Bounding box and slope metrics for the PDF font descriptor.
     pub pdf_font_metrics: PdfFontMetricsStub,
 }
 
-/// Minimal font metrics needed for PDF font descriptors when text_layout is disabled
+/// The metrics the PDF font descriptor needs, for builds without the `text_layout` feature.
+///
+/// Lengths are in font units (`units_per_em` per em).
 #[cfg(not(feature = "text_layout"))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PdfFontMetricsStub {
+    /// Font units per em.
     pub units_per_em: u16,
+    /// Left edge of the font bounding box (`head.xMin`).
     pub x_min: i16,
+    /// Bottom edge of the font bounding box (`head.yMin`).
     pub y_min: i16,
+    /// Right edge of the font bounding box (`head.xMax`).
     pub x_max: i16,
+    /// Top edge of the font bounding box (`head.yMax`).
     pub y_max: i16,
-    /// hhea caret slope — the FontDescriptor's `/ItalicAngle` is derived from it.
+    /// Rise of the caret slope (`hhea`); the descriptor's `/ItalicAngle` is derived from it.
     pub caret_slope_rise: i16,
+    /// Run of the caret slope (`hhea`).
     pub caret_slope_run: i16,
-    /// OS/2 usWeightClass (100–900). `/StemV` is estimated from it. 0 when OS/2 is absent.
+    /// `OS/2` `usWeightClass` (100 to 900), from which `/StemV` is estimated; 0 when the font has no `OS/2` table.
     pub us_weight_class: u16,
 }
 
@@ -290,7 +359,7 @@ impl Default for PdfFontMetricsStub {
             y_min: -200,
             x_max: 1000,
             y_max: 800,
-            // Upright (rise 1, run 0) and "no OS/2", which /StemV falls back on.
+            // Upright (rise 1, run 0), and no OS/2 table.
             caret_slope_rise: 1,
             caret_slope_run: 0,
             us_weight_class: 0,
@@ -300,32 +369,24 @@ impl Default for PdfFontMetricsStub {
 
 #[cfg(not(feature = "text_layout"))]
 impl ParsedFont {
-    /// The sfnt bytes this face was parsed from, if any (mirrors the
-    /// `text_layout` build's API so shared call sites compile in both
-    /// configurations — the `text_layout` version returns the retained
-    /// `Arc<FontBytes>`, this one clones the stub's `original_bytes`).
+    /// The font file bytes this face was parsed from, or `None` when there are none.
+    ///
+    /// Mirrors the `text_layout` API, where the result is the shared `Arc<FontBytes>`.
     pub fn source_bytes(&self) -> Option<Vec<u8>> {
         (!self.original_bytes.is_empty()).then(|| self.original_bytes.clone())
     }
 
-    /// Whether this face can still be embedded into a PDF.
+    /// Whether the source bytes are present, which a face needs to be embedded in a PDF.
     pub fn has_source_bytes(&self) -> bool {
         !self.original_bytes.is_empty()
     }
 
-    /// Parse a font face from raw sfnt bytes.
+    /// Parses one face from font file bytes.
     ///
-    /// Same signature as the `text_layout` build (#260), so calling code is portable
-    /// across the feature.
-    ///
-    /// This used to return a shell: `codepoint_to_glyph` was left **empty**, so
-    /// `lookup_glyph_index` returned `None` for every character, every glyph in the
-    /// content stream came out as `.notdef`, and no text rendered at all — which is
-    /// issue #258 ("external fonts + `default-features = false` show no text").
-    /// `glyph_widths` and the metrics were empty/hardcoded for the same reason.
-    ///
-    /// It parses the font properly now. `allsorts` is a non-optional dependency, so it is
-    /// available in every build, `text_layout` or not — there was never a reason to guess.
+    /// Same signature as with the `text_layout` feature. `index` selects the face inside a
+    /// font collection (`0` for a plain font file). Returns `None` when the bytes do not
+    /// parse as a font; a missing Unicode `cmap` or `hmtx` table is reported in `warnings`.
+    /// Reads the character to glyph map, advance widths and metrics with `allsorts`.
     pub fn from_bytes(
         bytes: &[u8],
         index: usize,
@@ -361,8 +422,7 @@ impl ParsedFont {
             .ok()
             .and_then(|d| ReadScope::new(&d).read::<HheaTable>().ok())?;
 
-        // Character -> glyph. Without this every glyph id is 0 and the page is blank.
-        // (The table data has to outlive the parsed view that borrows it.)
+        // Character to glyph map; without it every character would be glyph 0.
         let mut codepoint_to_glyph = BTreeMap::new();
         let cmap_data = provider.read_table_data(tag::CMAP).ok();
         match cmap_data
@@ -378,7 +438,7 @@ impl ParsedFont {
             None => warn("font has no usable Unicode cmap subtable; text will not map to glyphs"),
         }
 
-        // Advance widths, in font units. `/W` scales these to 1/1000 em at write time.
+        // Advance widths in font units; `/W` scales them to 1/1000 em when the PDF is written.
         let mut glyph_widths = BTreeMap::new();
         let hmtx_data = provider.read_table_data(tag::HMTX).ok();
         match hmtx_data.as_deref().and_then(|d| {
@@ -444,7 +504,7 @@ impl ParsedFont {
         })
     }
 
-    /// Create a ParsedFont with manual glyph mappings and widths
+    /// Creates a face from a font file and a hand-made glyph table, without parsing it.
     pub fn with_glyph_data(
         bytes: Vec<u8>,
         index: u32,
@@ -467,36 +527,39 @@ impl ParsedFont {
         }
     }
 
-    /// Set Unicode codepoint to glyph ID mapping
+    /// Maps a Unicode codepoint to a glyph id.
     pub fn set_codepoint_mapping(&mut self, codepoint: u32, gid: u16) {
         self.codepoint_to_glyph.insert(codepoint, gid);
     }
 
-    /// Set glyph width for a specific glyph ID
+    /// Sets the advance width of a glyph id, in font units.
     pub fn set_glyph_width(&mut self, gid: u16, width: u16) {
         self.glyph_widths.insert(gid, width);
     }
 
-    /// Get glyph width for a specific glyph ID
+    /// The advance width of a glyph id in font units, if known.
     pub fn get_glyph_width(&self, gid: u16) -> Option<u16> {
         self.glyph_widths.get(&gid).copied()
     }
 
-    /// Lookup glyph index for a Unicode codepoint
+    /// The glyph id of a Unicode codepoint, if the font has one.
     pub fn lookup_glyph_index(&self, codepoint: u32) -> Option<u16> {
         self.codepoint_to_glyph.get(&codepoint).copied()
     }
 
-    /// Returns None without panicking - reverse lookup is not available without text_layout feature
+    /// Always `None`: finding the character of a glyph id needs the `text_layout` feature.
     pub fn get_glyph_primary_char(&self, _gid: u16) -> Option<char> {
         None
     }
 }
 
+/// Outline format of a font, for builds without the `text_layout` feature.
 #[cfg(not(feature = "text_layout"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FontType {
+    /// TrueType outlines (`glyf` table).
     TrueType,
+    /// CFF outlines in an OpenType (`OTTO`) font.
     OpenTypeCFF(()),
 }
 
@@ -504,66 +567,79 @@ pub enum FontType {
 #[cfg(not(feature = "text_layout"))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FontParseSeverity {
+    /// Informational.
     Info,
+    /// The font parsed, but something is missing or off.
     Warning,
+    /// The font could not be used.
     Error,
 }
 
-/// Stand-in for azul-layout's `FontParseWarning` when `text_layout` is off.
-///
-/// This used to be `type FontParseWarning = String`, which meant
-/// `ParsedFont::from_bytes` really did take a different type with and without the feature
-/// (#260): code that read `w.message` compiled with `text_layout` and failed without it.
-/// Mirroring the real shape keeps the signature — and the calling code — identical either
-/// way.
+/// A problem found while parsing a font; stand-in for azul-layout's `FontParseWarning` in
+/// builds without the `text_layout` feature.
 #[cfg(not(feature = "text_layout"))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FontParseWarning {
+    /// How serious the problem is.
     pub severity: FontParseSeverity,
+    /// Human-readable description.
     pub message: String,
 }
 
+/// Alias matching the name azul-layout exports with the `text_layout` feature.
 #[cfg(not(feature = "text_layout"))]
 pub type PdfFontParseWarning = FontParseWarning;
 
+/// Placeholder for azul-layout's decoded glyph type, which does not exist without `text_layout`.
 #[cfg(not(feature = "text_layout"))]
 pub type OwnedGlyph = ();
 
+/// Vertical font metrics, for builds without the `text_layout` feature.
 #[cfg(not(feature = "text_layout"))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FontMetrics {
+    /// Distance from the baseline to the top of the line, in font units (`hhea` ascender).
     pub ascent: i16,
+    /// Distance from the baseline to the bottom of the line, in font units; negative below the
+    /// baseline (`hhea` descender).
     pub descent: i16,
 }
 
-/// Result of subsetting a font
+/// A font program reduced to the glyphs a document uses.
 #[derive(Debug, Clone)]
 pub struct SubsetFont {
+    /// The subset font file (an sfnt).
     pub bytes: Vec<u8>,
+    /// Original glyph id to `(glyph id in the subset, text the glyph stands for)`. The text is
+    /// several characters for a ligature.
     pub glyph_mapping: BTreeMap<u16, (u16, String)>,
 }
 
-/// PDF-specific metadata for fonts that doesn't belong in azul_layout::ParsedFont
-/// This stores information needed for PDF generation but not for layout
+/// PDF-specific settings of a font that do not belong in the layout face.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PrintpdfFontMeta {
-    /// Original GID -> CID mapping (if this font was loaded from a PDF)
+    /// Glyph id to CID map of the source PDF, when the font was read from one. The serializer
+    /// does not read it.
     pub original_gid_to_cid: Option<BTreeMap<u16, u16>>,
-    /// ToUnicode CMap data (if this font was loaded from a PDF)
+    /// The `/ToUnicode` CMap text of the source PDF, when the font was read from one. The
+    /// serializer does not read it; it generates a new CMap from the glyphs used.
     pub original_to_unicode_map: Option<String>,
-    /// Font embedding preferences
+    /// How the font is embedded.
     pub embedding_mode: FontEmbeddingMode,
-    /// Whether this font requires special handling
+    /// The font is subset on save only when this is `true`, [`Self::embedding_mode`] is
+    /// [`FontEmbeddingMode::Subset`] and `PdfSaveOptions::subset_fonts` is set.
     pub requires_subsetting: bool,
 }
 
+/// How a font is embedded when the document is saved.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum FontEmbeddingMode {
-    /// Embed the full font
+    /// Embed the whole font file.
     Full,
-    /// Subset the font (default)
+    /// Embed only the glyphs the document uses (default).
     Subset,
-    /// Reference only (for system fonts)
+    /// Meant for system fonts that are not embedded. Saving does not act on it: the font is
+    /// embedded in full, as with `Full`.
     Reference,
 }
 
@@ -578,16 +654,17 @@ impl Default for PrintpdfFontMeta {
     }
 }
 
-/// Combined font data for PDF generation
+/// A font as stored in a document's resources: the face plus its PDF settings.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PdfFont {
-    /// The actual font data
+    /// The parsed face, with its source bytes.
     pub parsed_font: ParsedFont,
-    /// PDF-specific metadata
+    /// Embedding settings.
     pub meta: PrintpdfFontMeta,
 }
 
 impl PdfFont {
+    /// Wraps a face with the default settings: subset on save.
     pub fn new(parsed_font: ParsedFont) -> Self {
         Self {
             parsed_font,
@@ -595,40 +672,56 @@ impl PdfFont {
         }
     }
 
+    /// Wraps a face with explicit settings.
     pub fn with_meta(parsed_font: ParsedFont, meta: PrintpdfFontMeta) -> Self {
         Self { parsed_font, meta }
     }
 }
 
-/// Builtin or external font
+/// A font that is either one of the 14 built-in fonts or a parsed external one.
 #[derive(Debug, Clone)]
 pub enum Font {
-    /// Represents one of the 14 built-in fonts (Arial, Helvetica, etc.)
+    /// One of the 14 built-in fonts.
     BuiltinFont(BuiltinFont),
-    /// Represents a font loaded from an external file
-    /// Contains both the ParsedFont and PDF-specific metadata
+    /// A font loaded from a font file, with its PDF settings.
     ExternalFont(ParsedFont, PrintpdfFontMeta),
 }
 
-/// Standard built-in PDF fonts
+/// The 14 standard PDF fonts. Every viewer has them, so they are never embedded.
+///
+/// Serialized with serde as kebab-case names, for example `"times-roman"`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 #[derive(Default)]
 pub enum BuiltinFont {
+    /// Times Roman (serif).
     #[default]
     TimesRoman,
+    /// Times Bold.
     TimesBold,
+    /// Times Italic.
     TimesItalic,
+    /// Times Bold Italic.
     TimesBoldItalic,
+    /// Helvetica (sans-serif).
     Helvetica,
+    /// Helvetica Bold.
     HelveticaBold,
+    /// Helvetica Oblique.
     HelveticaOblique,
+    /// Helvetica Bold Oblique.
     HelveticaBoldOblique,
+    /// Courier (monospace).
     Courier,
+    /// Courier Oblique.
     CourierOblique,
+    /// Courier Bold.
     CourierBold,
+    /// Courier Bold Oblique.
     CourierBoldOblique,
+    /// Symbol (Greek letters and mathematical symbols).
     Symbol,
+    /// ZapfDingbats (ornaments and arrows).
     ZapfDingbats,
 }
 
@@ -636,6 +729,7 @@ pub enum BuiltinFont {
 include!("../defaultfonts/mapping.rs");
 
 impl BuiltinFont {
+    /// The built-in font whose bundled subset font file is byte-identical to `bytes`, if any.
     pub fn check_if_matches(bytes: &[u8]) -> Option<Self> {
         let matching_based_on_len = match_len(bytes)?;
         // if the length is equal, check for equality
@@ -646,15 +740,15 @@ impl BuiltinFont {
         }
     }
 
-    /// Get a ParsedFont for this builtin font
-    /// This allows builtin fonts to support text shaping
+    /// Parses the bundled subset font file of this built-in font, so that its glyphs can be
+    /// measured and shaped. `None` if parsing fails.
     pub fn get_parsed_font(&self) -> Option<ParsedFont> {
         let subset = self.get_subset_font();
         ParsedFont::from_bytes(&subset.bytes, 0, &mut Vec::new())
     }
 
-    /// Returns a CSS font-family string appropriate for the built-in PDF font.
-    /// For example, TimesRoman maps to "Times New Roman, Times, serif".
+    /// A CSS `font-family` list for this font, for example `"Times New Roman, Times, serif"`
+    /// for [`BuiltinFont::TimesRoman`].
     pub fn get_svg_font_family(&self) -> &'static str {
         match self {
             BuiltinFont::TimesRoman => "Times New Roman, Times, serif",
@@ -674,7 +768,7 @@ impl BuiltinFont {
         }
     }
 
-    /// Returns the CSS font-weight for the built-in font.
+    /// The CSS `font-weight` of this font: `"bold"` or `"normal"`.
     pub fn get_font_weight(&self) -> &'static str {
         match self {
             BuiltinFont::TimesRoman
@@ -694,7 +788,7 @@ impl BuiltinFont {
         }
     }
 
-    /// Returns the CSS font-style for the built-in font.
+    /// The CSS `font-style` of this font: `"italic"` (also for oblique) or `"normal"`.
     pub fn get_font_style(&self) -> &'static str {
         match self {
             BuiltinFont::TimesItalic
@@ -707,7 +801,8 @@ impl BuiltinFont {
         }
     }
 
-    /// Returns the already-subsetted font (Win-1252 codepage)
+    /// The bundled font file of this font, already subset to the WinAnsi (Windows-1252)
+    /// characters, with the mapping from original to subset glyph ids.
     pub fn get_subset_font(&self) -> SubsetFont {
         use self::BuiltinFont::*;
 
@@ -769,6 +864,7 @@ impl BuiltinFont {
         }
     }
 
+    /// The resource name of this font in a content stream, `"F1"` to `"F14"`.
     pub fn get_pdf_id(&self) -> &'static str {
         use self::BuiltinFont::*;
         match self {
@@ -789,6 +885,7 @@ impl BuiltinFont {
         }
     }
 
+    /// The index of this font in declaration order, `0` to `13`.
     pub fn get_num(&self) -> usize {
         use self::BuiltinFont::*;
         match self {
@@ -809,6 +906,8 @@ impl BuiltinFont {
         }
     }
 
+    /// Looks a font up by its [`BuiltinFont::get_id`] name (`"Helvetica-Bold"`) or its
+    /// [`BuiltinFont::get_pdf_id`] resource name (`"F6"`).
     pub fn from_id(s: &str) -> Option<Self> {
         use self::BuiltinFont::*;
         match s {
@@ -830,6 +929,7 @@ impl BuiltinFont {
         }
     }
 
+    /// The PDF base font name of this font, for example `"Helvetica-Bold"` (the `/BaseFont`).
     pub fn get_id(&self) -> &'static str {
         use self::BuiltinFont::*;
         match self {
@@ -850,6 +950,7 @@ impl BuiltinFont {
         }
     }
 
+    /// All 14 built-in fonts, in declaration order.
     pub fn all_ids() -> [BuiltinFont; 14] {
         use self::BuiltinFont::*;
         [
@@ -872,7 +973,7 @@ impl BuiltinFont {
 }
 
 impl Font {
-    /// Get the ParsedFont if this is an ExternalFont, None otherwise
+    /// The parsed face of an external font, `None` for a built-in one.
     pub fn get_parsed_font(&self) -> Option<&ParsedFont> {
         match self {
             Font::BuiltinFont(_) => None,
@@ -880,7 +981,7 @@ impl Font {
         }
     }
 
-    /// Get mutable reference to the ParsedFont if this is an ExternalFont
+    /// The parsed face of an external font, mutably.
     pub fn get_parsed_font_mut(&mut self) -> Option<&mut ParsedFont> {
         match self {
             Font::BuiltinFont(_) => None,
@@ -888,7 +989,7 @@ impl Font {
         }
     }
 
-    /// Get the font metadata if this is an ExternalFont
+    /// The PDF settings of an external font, `None` for a built-in one.
     pub fn get_font_meta(&self) -> Option<&PrintpdfFontMeta> {
         match self {
             Font::BuiltinFont(_) => None,
@@ -896,7 +997,7 @@ impl Font {
         }
     }
 
-    /// Get mutable reference to the font metadata if this is an ExternalFont
+    /// The PDF settings of an external font, mutably.
     pub fn get_font_meta_mut(&mut self) -> Option<&mut PrintpdfFontMeta> {
         match self {
             Font::BuiltinFont(_) => None,
@@ -905,13 +1006,18 @@ impl Font {
     }
 }
 
+/// Reduces `font` to the glyphs in `glyph_ids` (glyph id to the text it stands for).
+///
+/// Glyph 0 (`.notdef`) is always kept and comes first; the other glyphs are renumbered in
+/// ascending order of their original id, and [`SubsetFont::glyph_mapping`] records the new
+/// ids. Fails when the face has no source bytes or the font tables cannot be read.
+///
+/// Requires the `text_layout` feature; without it the whole font is returned.
 #[cfg(feature = "text_layout")]
 pub fn subset_font(font: &ParsedFont, glyph_ids: &BTreeMap<u16, String>) -> Result<SubsetFont, String> {
     use allsorts::{binary::read::ReadScope, font_data::FontData, subset::CmapTarget};
 
-    // Subsetting reads the sfnt tables straight out of the source bytes. `source_bytes`
-    // finds them wherever azul kept them (the explicit slot, or the font cache's lazy
-    // loca/glyf slot); `ParsedFont::from_bytes` guarantees they're there at all.
+    // Subsetting reads the font tables from the source bytes.
     let original_bytes = font
         .source_bytes()
         .ok_or_else(|| "ParsedFont has no source bytes to subset".to_string())?;
@@ -921,26 +1027,17 @@ pub fn subset_font(font: &ParsedFont, glyph_ids: &BTreeMap<u16, String>) -> Resu
         .table_provider(font.original_index)
         .map_err(|e| e.to_string())?;
 
-    // Glyph 0 (.notdef) must be the first entry, and there must be no duplicates —
-    // allsorts documents both as hard requirements of `subset()`.
-    //
-    // Omitting it does not fail loudly: allsorts happily renumbers, and the *first used
-    // glyph* lands in slot 0. The subset then has no .notdef at all, and its cmap maps a
-    // real character to glyph 0 — which every reader treats as "missing glyph". Roboto's
-    // "Roboto" subsetted to `R->0, b->1, o->2, t->3`, so the R was drawn as .notdef.
-    // (BTreeMap keys are already sorted and unique.)
+    // Glyph 0 (.notdef) must come first and there must be no duplicates, which allsorts
+    // requires of `subset()`. Without .notdef, allsorts renumbers silently and the first used
+    // glyph lands in slot 0, which readers treat as a missing glyph. The keys of a `BTreeMap`
+    // are already sorted and unique.
     let ids: Vec<u16> = std::iter::once(0)
         .chain(glyph_ids.keys().copied().filter(|gid| *gid != 0))
         .collect();
 
-    // Use SubsetProfile::Pdf for PDF embedding and CmapTarget::Unicode for Unicode cmap.
-    //
-    // (Up to allsorts-azul 0.16.5, a used-glyph set with no cmap-reachable glyph did not
-    // just produce an empty subset cmap, it *panicked* — `CmapSubtableFormat4::
-    // from_mappings` did `mappings.iter().next().unwrap()` under a "safe as mappings is
-    // non-empty" comment. It isn't. 0.17 handles it, and an empty subset cmap is fine for
-    // us: rendering goes through Identity-H glyph ids and text extraction through
-    // /ToUnicode + /ActualText, neither of which consults the font's own cmap.)
+    // `SubsetProfile::Pdf` and a Unicode cmap. The subset cmap may be empty: rendering goes
+    // through Identity-H glyph ids and text extraction through /ToUnicode and /ActualText,
+    // and neither reads the font's own cmap.
     let bytes = allsorts::subset::subset(
         &provider,
         &ids,
@@ -948,32 +1045,18 @@ pub fn subset_font(font: &ParsedFont, glyph_ids: &BTreeMap<u16, String>) -> Resu
         CmapTarget::Unicode,
     ).map_err(|e| e.to_string())?;
 
-    // Build the old->new glyph id mapping. allsorts renumbers every requested glyph to
-    // its POSITION in the `ids` slice: the glyf subsetter builds `old_to_new_id` from
-    // `records.iter().enumerate()` (tables/glyf/subset.rs) and the CFF subsetter pushes
-    // charstrings in input order (cff/subset.rs), so subset gid i == ids[i] for both
-    // outline formats. Component glyphs of composites are *appended after* the requested
-    // ids, so the requested positions are stable.
-    //
-    // This input-order mapping is authoritative. It must NOT be recovered by looking
-    // characters up in the subset's cmap (as an earlier revision did): glyphs the shaper
-    // substituted have no cmap entry of their own — ligatures (the "fi" in "Configure"),
-    // and alternate forms where the font's cmap points a codepoint at a *different*
-    // default glyph (Noto CJK maps ASCII digits to a different digit form than the
-    // shaper picks for list markers / page numbers). Those glyphs fell out of the
-    // cmap-recovered remap, the content stream then emitted gid 0 for them, and every
-    // list marker rendered as a .notdef box (#220 F2b) while "Configure" lost its
-    // ligature (#220 F5).
+    // allsorts renumbers each requested glyph to its position in `ids` (the glyf and the CFF
+    // subsetter both keep the input order), so the new glyph id is the index. Component glyphs
+    // of composites are appended after the requested ids. The mapping must come from this
+    // order and not from the subset's cmap: glyphs the shaper substituted (ligatures, alternate
+    // forms) have no cmap entry of their own.
     let glyph_mapping: BTreeMap<u16, (u16, String)> = ids
         .iter()
         .enumerate()
         .filter_map(|(idx, &original_gid)| {
             glyph_ids.get(&original_gid).map(|ch| {
-                // New GID = position in `ids` (position 0 is .notdef).
-                // `ch` is the full extraction text for the glyph — possibly
-                // several chars (ligatures like "fi"); ToUnicode keeps all of
-                // them (multi-char targets were truncated to the first char
-                // before, so copy-pasting "Configure" yielded "Confgure").
+                // `ch` is the whole text of the glyph, several characters for a ligature, and
+                // ToUnicode keeps all of them.
                 (original_gid, (idx as u16, ch.clone()))
             })
         })
@@ -985,18 +1068,21 @@ pub fn subset_font(font: &ParsedFont, glyph_ids: &BTreeMap<u16, String>) -> Resu
     })
 }
 
+/// Returns the whole font file without subsetting, with an empty glyph mapping.
+///
+/// Without the `text_layout` feature fonts cannot be subset.
 #[cfg(not(feature = "text_layout"))]
 pub fn subset_font(font: &ParsedFont, _glyph_ids: &BTreeMap<u16, String>) -> Result<SubsetFont, String> {
     Ok(SubsetFont {
-        // Without text_layout, just return the original font bytes without subsetting
         bytes: font.original_bytes.clone(),
-        // Empty mapping - user provides glyph info via Codepoint
         glyph_mapping: BTreeMap::new(),
     })
 }
 
-// PDF-specific helper functions for ParsedFont
-
+/// Builds the `/ToUnicode` CMap text of an embedded font.
+///
+/// `glyph_ids` pairs each code used in the content stream with the text it stands for, and
+/// `font_id` names the CMap. See [`crate::cmap::ToUnicodeCMap::to_cmap_string`].
 pub fn generate_cmap_string(_font: &ParsedFont, font_id: &FontId, glyph_ids: &[(u16, String)]) -> String {
     let mappings = glyph_ids
         .iter()
@@ -1009,14 +1095,10 @@ pub fn generate_cmap_string(_font: &ParsedFont, font_id: &FontId, glyph_ids: &[(
     cmap.to_cmap_string(&font_id.0)
 }
 
-/// Repackage one face of a TrueType/OpenType *collection* (`ttcf`) as a standalone
-/// sfnt, so it can be embedded as a valid `/FontFile2`/`/FontFile3` program.
+/// Repackages one face of a TrueType/OpenType collection (`ttcf`) as a standalone font file.
 ///
-/// A PDF font program must be a single face: embedding the whole collection produces
-/// a stream no conforming reader accepts (and the descendant subtype is decided from
-/// the outer magic, which for a collection is neither `OTTO` nor `\0\1\0\0`, so the
-/// dictionary would mislabel it too). Returns `None` when `bytes` is not a collection
-/// (nothing to do) or the face cannot be extracted.
+/// A font program in a PDF must be a single face, so a collection cannot be embedded as is.
+/// Returns `None` when `bytes` is not a collection or the face at `index` cannot be extracted.
 pub fn extract_collection_face(bytes: &[u8], index: usize) -> Option<Vec<u8>> {
     use allsorts::{
         binary::read::ReadScope, font_data::FontData, subset::whole_font,
@@ -1032,30 +1114,29 @@ pub fn extract_collection_face(bytes: &[u8], index: usize) -> Option<Vec<u8>> {
     whole_font(&provider, &tags).ok()
 }
 
-/// Glyph id -> CID map read from the CFF charset of the font program that is about to be
-/// embedded, or `None` when the codes in the content stream can stay glyph ids.
+/// The glyph id to CID map of the CFF charset of a font program, or `None` when the codes in
+/// the content stream can stay glyph ids.
 ///
-/// Under `/Encoding /Identity-H` the two-byte codes in the content stream ARE the CIDs.
-/// How a viewer turns a CID into a glyph depends on the descendant font:
+/// Under `/Encoding /Identity-H` the two-byte codes in the content stream are CIDs. How a
+/// viewer turns a CID into a glyph depends on the descendant font:
 ///
-/// - `CIDFontType2` (TrueType `glyf`): via `/CIDToGIDMap`, which we leave at the default
-///   `/Identity` — so CID == GID and the codes are glyph ids. `None`.
-/// - `CIDFontType0`, name-keyed CFF: the CID is used as the glyph index directly. `None`.
-/// - `CIDFontType0`, **CID-keyed** CFF: the viewer maps CID -> GID through the CFF
-///   charset (ISO 32000-1, 9.7.4.2). The charset is NOT identity in real fonts —
-///   NotoSansJP diverges from glyph 365 on — and the allsorts subsetter preserves the
-///   *original* CIDs in the subset charset. Emitting glyph ids here made Acrobat and
-///   Preview pick wrong glyphs while PDFium-based viewers (which fall back to
-///   CID == GID) looked fine (#280). The content stream, `/W` and `/ToUnicode` must all
-///   be keyed by these CIDs instead.
+/// - `CIDFontType2` (TrueType `glyf`): through `/CIDToGIDMap`, which printpdf leaves at
+///   `/Identity`, so CID and glyph id are equal. `None`.
+/// - `CIDFontType0`, name-keyed CFF: the CID is the glyph index. `None`.
+/// - `CIDFontType0`, CID-keyed CFF: the viewer maps the CID to a glyph through the CFF
+///   charset (ISO 32000-1, 9.7.4.2). The charset is not the identity in real fonts, and the
+///   subsetter keeps the original CIDs, so the content stream, `/W` and `/ToUnicode` must all
+///   be keyed by the CIDs this function returns.
+///
+/// `font_bytes` is a whole sfnt or a bare `CFF ` table; `index` selects the face of a
+/// collection.
 pub fn cff_charset_gid_to_cid_map(font_bytes: &[u8], index: usize) -> Option<BTreeMap<u16, u16>> {
     use allsorts::{
         binary::read::ReadScope, cff::CFF, font_data::FontData, tables::FontTableProvider, tag,
     };
 
-    // Accept both a whole sfnt (extract the `CFF ` table) and a bare `CFF ` table
-    // — the latter is what we now embed for a CID-keyed CFF (see
-    // `extract_cid_keyed_cff`), and what we read back on parse.
+    // Accept both a whole sfnt (take its `CFF ` table) and a bare `CFF ` table, which is
+    // what is embedded for a CID-keyed CFF and read back on parse.
     let cff_data: Vec<u8> = (|| -> Option<Vec<u8>> {
         let font_file = ReadScope::new(font_bytes).read::<FontData<'_>>().ok()?;
         let provider = font_file.table_provider(index).ok()?;
@@ -1075,28 +1156,19 @@ pub fn cff_charset_gid_to_cid_map(font_bytes: &[u8], index: usize) -> Option<BTr
     )
 }
 
-/// The bare `CFF ` table of an `OTTO` sfnt, extracted for embedding as
-/// `/FontFile3` `/Subtype /CIDFontType0C` — but only when that CFF is CID-keyed.
-/// `None` for TrueType faces and for name-keyed CFFs, which keep their current
-/// wrappers (code == glyph id is already correct in every viewer there).
+/// The bare `CFF ` table of an `OTTO` font, for embedding as `/FontFile3` with
+/// `/Subtype /CIDFontType0C`; `None` unless that CFF is CID-keyed (TrueType faces and
+/// name-keyed CFF fonts keep their usual wrappers, where code and glyph id agree in every
+/// viewer).
 ///
-/// The wrapper decides which resolution semantics FreeType-based viewers apply
-/// to the charset-CID codes we emit (see `cff_charset_gid_to_cid_map`). For a
-/// whole OTTO sfnt (`/Subtype /OpenType`) FreeType does not flag the face as
-/// CID-keyed, so PDFium (Chrome) and poppler use the Identity-H codes directly
-/// as glyph indices and never consult the charset — while Acrobat and Preview
-/// resolve the same codes *through* the charset. With a non-identity charset no
-/// code assignment renders identically in both families: emitting glyph ids
-/// broke Acrobat/Preview (#280), emitting charset CIDs breaks Chrome/poppler
-/// (codes above the glyph count draw nothing at all; NotoSansJP puts 日 at CID
-/// 20616 in a 17,802-glyph font). For a *bare* CID-keyed CFF, FreeType sets
-/// FT_FACE_FLAG_CID_KEYED and both families resolve through the charset, so the
-/// CIDs render the same everywhere — which is what the pre-rewrite embedding
-/// from #215 relied on, and why 0.9.x was correct in Acrobat AND Chrome.
+/// The wrapper decides how FreeType-based viewers resolve the charset CIDs that are written
+/// to the content stream (see [`cff_charset_gid_to_cid_map`]). For a whole `OTTO` font,
+/// PDFium and poppler use the codes as glyph indices and never read the charset, while
+/// Acrobat and Preview resolve them through it, so no code assignment renders the same in
+/// both. For a bare CID-keyed CFF all viewers resolve through the charset.
 ///
-/// The returned bytes are the verbatim table `cff_charset_gid_to_cid_map` read
-/// the charset from, so the emitted codes stay consistent with the embedded
-/// program by construction.
+/// The returned bytes are the table [`cff_charset_gid_to_cid_map`] reads the charset from,
+/// so the codes stay consistent with the embedded program.
 pub fn extract_cid_keyed_cff(font_bytes: &[u8], index: usize) -> Option<Vec<u8>> {
     use allsorts::{
         binary::read::ReadScope, cff::CFF, font_data::FontData, tables::FontTableProvider, tag,
@@ -1115,16 +1187,13 @@ pub fn extract_cid_keyed_cff(font_bytes: &[u8], index: usize) -> Option<Vec<u8>>
     Some(cff_data.into_owned())
 }
 
-/// Wrap a bare `CFF ` table (as embedded by [`extract_cid_keyed_cff`]) in a
-/// minimal `OTTO` sfnt, so it can be handed to `AzulParsedFont::from_bytes` —
-/// which requires `head`/`hhea`/`maxp`/`hmtx`, tables a bare CFF byte stream
-/// doesn't carry. Used only to reconstruct an in-memory parsed font when
-/// *reading back* our own bare-CFF `/FontFile3` embedding (see
-/// [`ParsedFont::from_bytes`]); the bytes actually written to a PDF stay
-/// bare — wrapping them there would defeat the FreeType CID-keyed detection
-/// `extract_cid_keyed_cff` exists for (#280).
+/// Wraps a bare `CFF ` table (as embedded by [`extract_cid_keyed_cff`]) in a minimal `OTTO`
+/// font file, so it can be parsed: azul's parser needs the `head`, `hhea`, `maxp` and `hmtx`
+/// tables a bare CFF does not have. Used only to rebuild an in-memory face when reading back
+/// such an embedding; the bytes written to a PDF stay bare, because a wrapper would hide the
+/// CID-keyed CFF from FreeType.
 ///
-/// `None` if `bytes` already looks like an sfnt, or doesn't parse as CFF.
+/// `None` if `bytes` already looks like an sfnt or does not parse as CFF.
 #[cfg(feature = "text_layout")]
 pub(crate) fn wrap_bare_cff_as_sfnt(bytes: &[u8]) -> Option<Vec<u8>> {
     use allsorts::{binary::read::ReadScope, cff::CFF};
@@ -1151,12 +1220,10 @@ pub(crate) fn wrap_bare_cff_as_sfnt(bytes: &[u8]) -> Option<Vec<u8>> {
     Some(build_minimal_sfnt(bytes, num_glyphs, &widths, units_per_em))
 }
 
-/// Units-per-em implied by the CFF top-dict `FontMatrix` — `round(1/m[0])`,
-/// 1000 for the default `0.001` matrix. The synthesized `head`/`hhea`/`hmtx`
-/// must agree with the space the charstring coordinates (and the widths
-/// scanned out of them) actually live in: a font with `FontMatrix 0.0005`
-/// draws in a 2000-unit em, and stamping 1000 into `head` would double every
-/// metric derived from it. Clamped to `head`'s legal 16..=16384 range.
+/// Units per em implied by the CFF top dict `FontMatrix`, `round(1/m[0])`; 1000 for the
+/// default `0.001` matrix. The synthesized `head`, `hhea` and `hmtx` must use the same space
+/// as the charstring coordinates and the widths scanned from them. Clamped to the legal
+/// 16 to 16384 range of `head`.
 #[cfg(feature = "text_layout")]
 fn cff_units_per_em(font: &allsorts::cff::Font<'_>) -> u16 {
     use allsorts::cff::{Operand, Operator};
@@ -1176,11 +1243,10 @@ fn cff_units_per_em(font: &allsorts::cff::Font<'_>) -> u16 {
     }
 }
 
-/// A glyph's advance width, read directly from its Type2 charstring —
-/// `defaultWidthX`/`nominalWidthX` plus the optional leading width delta
-/// before the first stack-clearing operator (Adobe TN5177 §16). A bare CFF
-/// table has no `hmtx` of its own to read widths from instead; used by
-/// [`wrap_bare_cff_as_sfnt`] to synthesize one.
+/// A glyph's advance width read from its Type2 charstring: `defaultWidthX` or
+/// `nominalWidthX` plus the optional leading width delta before the first stack-clearing
+/// operator (Adobe TN5177, 16). Used by [`wrap_bare_cff_as_sfnt`] to synthesize an `hmtx`,
+/// since a bare CFF has none.
 #[cfg(feature = "text_layout")]
 fn cff_charstring_width(
     cff: &allsorts::cff::CFF<'_>,
@@ -1251,17 +1317,16 @@ fn cff_subr_bias(count: usize) -> i32 {
 /// Where [`cff_charstring_width_delta`] stopped in one charstring or subroutine.
 #[cfg(feature = "text_layout")]
 enum WidthScan {
-    /// At the first stack-clearing operator: the leading width delta, if the
-    /// operand count proves one is there. `Decided(None)` also covers
-    /// charstrings the scan cannot follow; both mean `defaultWidthX`.
+    /// At the first stack-clearing operator: the leading width delta, if the operand count
+    /// proves one is there. `Decided(None)` also covers charstrings the scan cannot follow;
+    /// both mean `defaultWidthX`.
     Decided(Option<f64>),
-    /// A subroutine ended (`return`, or ran out of bytes) before any
-    /// stack-clearing operator: the caller keeps scanning after its call.
+    /// A subroutine ended (`return`, or ran out of bytes) before any stack-clearing operator,
+    /// so the caller keeps scanning after its call.
     ///
-    /// Kept apart from `Decided(None)`: a subroutine that runs the first
-    /// `hstemhm` with an even operand count has decided "no width", and
-    /// scanning on in the caller would read the next hint group's count instead
-    /// (NotoSansJP's 語 got the advance -30 -> 0 that way).
+    /// Kept apart from `Decided(None)`: a subroutine that reached the first `hstemhm` with an
+    /// even operand count has decided "no width", and scanning on in the caller would read the
+    /// next hint group's operand count instead.
     Returned,
 }
 
@@ -1329,12 +1394,10 @@ fn cff_charstring_width_delta(
             }
             11 => return Returned, // return: no stack-clearing op seen in this subroutine
             12 => {
-                // Two-byte escape operators. The arithmetic ones have fixed,
-                // deterministic stack effects and may legally appear before the
-                // first stack-clearing operator, so they must be replayed for
-                // the width-operand count to come out right. Stateful/random
-                // ones (put/get/random) and path ops make the width undecidable
-                // from a static scan — bail to defaultWidthX for those.
+                // Two-byte escape operators. The arithmetic ones may legally appear before the
+                // first stack-clearing operator and change the operand count, so they are
+                // replayed. Stateful, random and path operators make the width undecidable
+                // from a static scan, which falls back to defaultWidthX.
                 if i + 2 > charstring.len() {
                     return Decided(None);
                 }
@@ -1499,9 +1562,8 @@ fn cff_apply_escape_op(op: u8, stack: &mut Vec<f64>) -> bool {
     }
 }
 
-/// Assemble a minimal `OTTO` sfnt around a bare `CFF ` table, synthesizing
-/// the `head`/`hhea`/`maxp`/`hmtx` tables a bare CFF doesn't carry. See
-/// [`wrap_bare_cff_as_sfnt`].
+/// Assembles a minimal `OTTO` font around a bare `CFF ` table, synthesizing the `head`,
+/// `hhea`, `maxp`, `hmtx` and `cmap` tables it lacks (see [`wrap_bare_cff_as_sfnt`]).
 #[cfg(feature = "text_layout")]
 fn build_minimal_sfnt(
     cff_bytes: &[u8],
@@ -1560,17 +1622,9 @@ fn build_minimal_sfnt(
         hmtx.extend_from_slice(&0i16.to_be_bytes()); // lsb
     }
 
-    // `allsorts::font::Font::new` (built internally by `AzulParsedFont::from_bytes`)
-    // hard-requires a `cmap` with a subtable one of the recognised platform/encoding
-    // pairs finds (`find_good_cmap_subtable`) — a format 6 trimmed table under
-    // Windows/Unicode-BMP satisfies that. A bare CFF genuinely carries no
-    // char->glyph mapping (that's what makes it bare), so this must answer "no
-    // mapping" for every codepoint, not just placeholder-map everything to
-    // .notdef: an empty format 6 table (`entry_count = 0`) does that — every
-    // lookup falls outside its range and `map_glyph` returns `None`, rather than
-    // the `Some(0)` a zero-filled format 0 table would return (indistinguishable
-    // from a genuine, wrong .notdef mapping to callers like
-    // `ParsedFont::lookup_glyph_index`).
+    // allsorts requires a `cmap` with a recognised Windows/Unicode subtable. A bare CFF has no
+    // character mapping, so this is an empty format 6 table: every lookup returns `None`,
+    // where a zero-filled format 0 table would return a bogus `Some(0)`.
     let mut cmap_subtable = Vec::with_capacity(10);
     cmap_subtable.extend_from_slice(&6u16.to_be_bytes()); // format 6
     cmap_subtable.extend_from_slice(&10u16.to_be_bytes()); // length
@@ -1596,10 +1650,8 @@ fn build_minimal_sfnt(
     ])
 }
 
-/// Assemble an `OTTO` sfnt from `(tag, data)` tables, already in ascending-tag
-/// order (required by the sfnt table directory). Computes each table's
-/// checksum per the standard sfnt algorithm (sum of big-endian `u32` words,
-/// zero-padded to a 4-byte boundary).
+/// Assembles an `OTTO` font from `(tag, data)` tables given in ascending tag order, as the
+/// table directory requires, and computes each table's checksum.
 #[cfg(feature = "text_layout")]
 fn build_sfnt(tables: &[([u8; 4], &[u8])]) -> Vec<u8> {
     fn checksum(data: &[u8]) -> u32 {
@@ -1652,10 +1704,16 @@ fn build_sfnt(tables: &[([u8; 4], &[u8])]) -> Vec<u8> {
 
 #[cfg(feature = "text_layout")]
 fn get_glyph_width(font: &ParsedFont, gid: u16) -> Option<u16> {
-    // `glyph_records_decoded` was replaced by the lazy `get_or_decode_glyph`.
     font.get_or_decode_glyph(gid).map(|g| g.horz_advance)
 }
 
+/// Builds the `/W` array of a CID font where the code is the glyph id.
+///
+/// `glyph_ids` must be sorted ascending by glyph id; the text is not used. Widths are in
+/// 1/1000 em. See [`get_normalized_widths_codes`] for the format and for fonts where the code
+/// differs from the glyph id.
+///
+/// Requires the `text_layout` feature.
 #[cfg(feature = "text_layout")]
 pub fn get_normalized_widths_ttf(font: &ParsedFont, glyph_ids: &[(u16, String)]) -> Vec<lopdf::Object> {
     let mut widths_list = Vec::new();
@@ -1698,12 +1756,16 @@ pub fn get_normalized_widths_ttf(font: &ParsedFont, glyph_ids: &[(u16, String)])
     widths_list
 }
 
-/// Build the `/W` array for entries of `(content-stream code, gid to fetch the width of)`.
+/// Builds the `/W` array of a CID font from `(code, gid)` pairs: the code is what the content
+/// stream shows, the glyph id selects the glyph whose width is written for it.
 ///
-/// The code is the CID under Identity-H: equal to the gid for TrueType and name-keyed CFF
-/// fonts, but mapped through the CFF charset for CID-keyed CFF fonts (see
-/// [`cff_charset_gid_to_cid_map`]). `entries` must be sorted ascending by code — the
-/// run-length groups (`c [w1 w2 ...]`) depend on it.
+/// Widths are the glyph's advance scaled to 1/1000 em and truncated; a glyph whose width
+/// cannot be read gets 0. Runs of consecutive codes are written as `c [w1 w2 ...]`, so
+/// `entries` must be sorted ascending by code. Under `Identity-H` the code is the CID: the
+/// glyph id for TrueType and name-keyed CFF fonts, the charset CID for CID-keyed CFF fonts
+/// (see [`cff_charset_gid_to_cid_map`]).
+///
+/// Requires the `text_layout` feature.
 #[cfg(feature = "text_layout")]
 pub fn get_normalized_widths_codes(
     font: &ParsedFont,
@@ -1749,6 +1811,7 @@ pub fn get_normalized_widths_codes(
     widths_list
 }
 
+/// Prefix of the `data:` URI a font is serialized as; the base64 of its source bytes follows.
 pub const FONT_B64_START: &str = "data:font/ttf;base64,";
 
 #[cfg(all(test, feature = "text_layout"))]
@@ -1831,9 +1894,8 @@ mod test {
         ),
     ];
 
-    // Not a unit test: this REGENERATES `defaultfonts/*.subset.ttf` + the `FONTS`
-    // mapping table (the "subsetting example"). Ignored so CI doesn't rewrite
-    // committed assets / fail; run manually with `--ignored` to regenerate.
+    // Regenerates `defaultfonts/*.subset.ttf` and the `FONTS` table in `defaultfonts/mapping.rs`
+    // from the fonts in `examples/assets/fonts`. Not a unit test: run it manually with --ignored.
     #[test]
     #[ignore = "regenerates bundled subset fonts + FONTS table; run manually with --ignored"]
     fn subset_test() {
@@ -1866,9 +1928,9 @@ mod test {
                 crate::utils::compress(&subset.bytes),
             );
             for (old_gid, (new_gid, char)) in subset.glyph_mapping.iter() {
-                // glyph_mapping values are Strings now (ligatures carry several
-                // chars); the generated FONTS table wants one char per builtin
-                // glyph, which is always the case for the WIN_1252 charmap.
+                // glyph_mapping values are Strings (ligatures carry several characters); the
+                // generated FONTS table holds one character per built-in glyph, which is always
+                // the case for the WIN_1252 charmap.
                 let ch = char.chars().next().unwrap_or('\u{FFFD}');
                 target_map.push(format!(
                     "    ({}, {old_gid}, {new_gid}, '{c}'),",

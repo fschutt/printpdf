@@ -1,32 +1,57 @@
-//! hOCR-style text geometry extraction: every text run of a page as
-//! line / word / glyph boxes with the decoded text attached.
+//! Text extraction with geometry: the text of a page as line, word and glyph boxes.
 //!
-//! This is the "selection layer" of a PDF viewer built on printpdf: render the
-//! page with [`crate::PdfPage::to_svg`], overlay these boxes for hit-testing,
-//! selection rectangles and copy-paste. The output mirrors the hOCR hierarchy
-//! (`ocr_page` → `ocr_line` → `ocrx_word`) but as plain serde JSON instead of
-//! HTML attributes — bboxes are `[x0, y0, x1, y1]` like hOCR's `bbox`.
+//! [`PdfPage::extract_text`] returns only the text of a page. [`PdfPage::extract_text_boxes`]
+//! also says where every line, word and glyph sits, which is what a viewer needs for
+//! hit-testing, selection rectangles and copy and paste: render the page with
+//! [`PdfPage::to_svg`] and draw these boxes over it. The result follows the hOCR hierarchy
+//! (`ocr_page`, `ocr_line`, `ocrx_word`) as serde JSON instead of HTML attributes.
 //!
-//! ## Coordinate space
+//! # Coordinate space
 //!
-//! Boxes are in **points, top-left origin, y growing downward** — the same
-//! space as the SVG produced by `to_svg` — so a viewer can overlay them on the
-//! rendered page without further math. (PDF user space is bottom-left-up; the
-//! flip `y_svg = page_height - y_pdf` is applied here.)
+//! Boxes are `[x0, y0, x1, y1]` (left, top, right, bottom) in points (1/72 inch), with the
+//! origin at the **top left** of the page and y growing **downward**. This is the space of the
+//! SVG from `to_svg`, so boxes can be overlaid on it without further math. PDF user space has
+//! its origin at the bottom left; the flip `y = page_height - y_pdf` is applied here.
 //!
-//! ## Geometry
+//! A glyph box is as wide as the glyph's advance and as tall as the font's ascent plus
+//! descent at the current size. For rotated or skewed text it is the axis-aligned hull of the
+//! transformed glyph.
 //!
-//! Glyph advances come from the embedded font program (the same source the
-//! renderer uses), and the pen math follows ISO 32000-1 §9.4.4:
+//! # How glyphs are placed
+//!
+//! Advances come from the font program (the same source the renderer uses). The pen moves by
+//! the rule of ISO 32000-1, 9.4.4:
 //!
 //! ```text
 //! tx = ((w_glyph/1000)·size + Tc + (code==space ? Tw : 0)) · Tz/100
 //! ```
 //!
-//! Character spacing (`Tc`), word spacing (`Tw`), horizontal scaling (`Tz`),
-//! rise (`Ts`), the text matrix (`Tm`, including rotation/skew — boxes are the
-//! axis-aligned hull of the transformed glyph quad), the graphics CTM (`cm`
-//! with save/restore) and leading (`TL`/`T*`) are all folded in.
+//! Character spacing (`Tc`), word spacing (`Tw`), horizontal scaling (`Tz`), text rise (`Ts`),
+//! the text matrix, the current transformation matrix with save and restore, and the leading
+//! are all taken into account. Words end at a space or at a large gap in a `TJ` array; lines
+//! end at a text section end, a line break or a move of the text cursor.
+//!
+//! # Examples
+//!
+//! ```
+//! use printpdf::*;
+//!
+//! let ops = vec![
+//!     Op::StartTextSection,
+//!     Op::SetTextCursor { pos: Point { x: Pt(72.0), y: Pt(700.0) } },
+//!     Op::SetFont { font: PdfFontHandle::Builtin(BuiltinFont::Helvetica), size: Pt(12.0) },
+//!     Op::ShowText { items: vec![TextItem::Text("Hello world".to_string())] },
+//!     Op::EndTextSection,
+//! ];
+//! let mut doc = PdfDocument::new("boxes");
+//! doc.pages.push(PdfPage::new(Mm(210.0), Mm(297.0), ops));
+//!
+//! let pages = doc.extract_text_boxes();
+//! let line = &pages[0].lines[0];
+//! assert_eq!(line.words[0].text, "Hello");
+//! let [x0, _y0, x1, _y1] = line.words[0].bbox;
+//! assert!(x1 > x0);
+//! ```
 
 use std::collections::BTreeMap;
 
@@ -38,7 +63,8 @@ use crate::{
     BuiltinFont, Color, FontId, ParsedFont, PdfPage, PdfResources, TextRenderingMode,
 };
 
-/// `[x0, y0, x1, y1]` in pt, top-left origin (hOCR `bbox` order).
+/// A box `[x0, y0, x1, y1]` in pt: left, top, right, bottom, with the origin at the top left
+/// of the page (hOCR `bbox` order).
 pub type BBox = [f32; 4];
 
 fn bbox_union(a: BBox, b: BBox) -> BBox {
@@ -69,6 +95,7 @@ pub struct TextLine {
     /// The line's baseline y (top-left-origin pt) — where the glyphs sit;
     /// `bbox` extends above (ascent) and below (descent) of this.
     pub baseline: f32,
+    /// The words of the line, in content-stream order.
     pub words: Vec<TextWord>,
 }
 
@@ -92,8 +119,8 @@ pub struct TextWord {
     /// initial black).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<Color>,
-    /// Shown with text rendering mode 3 (`Tr 3`, neither filled nor stroked):
-    /// the searchable text an OCR tool lays over a scanned page. A viewer
+    /// Shown with a text rendering mode that neither fills nor strokes (`Tr 3`, or the clipping
+    /// mode `Tr 7`): the searchable text an OCR tool lays over a scanned page. A viewer
     /// selects it but does not draw it.
     #[serde(default, skip_serializing_if = "core::ops::Not::not")]
     pub invisible: bool,
@@ -105,6 +132,7 @@ pub struct TextWord {
 /// A single positioned glyph.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GlyphBox {
+    /// Box of the glyph, `[x0, y0, x1, y1]` in pt, top-left origin.
     pub bbox: BBox,
     /// The decoded text of this glyph (may be multiple chars for ligatures).
     pub text: String,
@@ -366,9 +394,12 @@ impl Builder {
 }
 
 impl PdfPage {
-    /// Extract every text run of this page as line / word / glyph boxes with
-    /// decoded text — the selection layer for a `to_svg`-based viewer. See the
-    /// [module docs](crate::text_boxes) for coordinate conventions.
+    /// Extracts every text run of the page as line, word and glyph boxes with decoded text.
+    ///
+    /// `resources` are the resources of the document the page belongs to; external fonts are
+    /// looked up there to measure glyphs. Text in a font that cannot be found is measured with
+    /// a fixed advance of 0.5 em per glyph. Boxes are in pt with the origin at the top left of
+    /// the page (see the [module docs](crate::text_boxes)); the page size is its media box.
     pub fn extract_text_boxes(&self, resources: &PdfResources) -> PageTextBoxes {
         let page_width = self.media_box.width.0;
         let page_height = self.media_box.height.0;
@@ -626,7 +657,7 @@ impl PdfPage {
 }
 
 impl crate::PdfDocument {
-    /// [`PdfPage::extract_text_boxes`] for every page.
+    /// [`PdfPage::extract_text_boxes`] for every page, in page order.
     pub fn extract_text_boxes(&self) -> Vec<PageTextBoxes> {
         self.pages
             .iter()
