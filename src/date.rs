@@ -1,52 +1,124 @@
+//! Dates and times for document metadata.
+//!
+//! A PDF stores the creation and modification date of a document as a text string such as
+//! `D:20170505150224+02'00'`: `D:`, then year, month, day, hour, minute and second as digits,
+//! then the offset from UTC as `+` or `-`, hours, `'` and minutes (ISO 32000-1, 7.9.4).
+//! [`parse_pdf_date`] reads this format.
+//!
+//! This module has its own small date and time types. [`DateTime`] (also named
+//! [`OffsetDateTime`], after the type of the `time` crate) is a calendar date, a time of day and
+//! an offset from UTC. It is used for
+//! [`PdfDocumentInfo::creation_date`](crate::PdfDocumentInfo) and the other dates of the
+//! document. The fields are plain numbers and are not checked when you construct a value.
+//! The `time` crate is used internally for the conversion to and from Unix timestamps and,
+//! on native targets, to read the clock.
+//!
+//! A new document has all its dates set to the Unix epoch (1970-01-01), so set them yourself.
+//! When a document is saved, the date and time fields are written followed by `+00'00'`, and
+//! on WebAssembly targets the written date is always 1970-01-01.
+//!
+//! In JSON, a [`DateTime`] is the text `2017-05-05 15:02:24.000 +02:00:00`, a [`Date`] is
+//! `2017-05-05`, a [`Time`] is `15:02:24.000`, an [`Offset`] is `+02:00:00.000`, a
+//! [`UtcOffset`] is `+02:00:00` and a [`Month`] is its number.
+//!
+//! # Examples
+//!
+//! ```
+//! use printpdf::*;
+//!
+//! let date = parse_pdf_date("D:20170505150224+02'00'").unwrap();
+//! assert_eq!(date.year(), 2017);
+//! assert_eq!(date.month(), Month::May);
+//! assert_eq!(date.offset().whole_hours(), 2);
+//! assert!(parse_pdf_date("D:2017").is_err()); // too short
+//!
+//! let mut doc = PdfDocument::new("Dated");
+//! doc.metadata.info.creation_date = date;
+//! ```
+
 use serde::{Deserialize, Serialize};
 
+/// A calendar date. The fields are not checked when constructed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Date {
+    /// Year, for example `2017`.
     pub year: i32,
+    /// Month, 1 to 12.
     pub month: u8,
+    /// Day of the month, starting at 1.
     pub day: u8,
 }
 
+/// A time of day. The fields are not checked when constructed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Time {
+    /// Hour, 0 to 23.
     pub hour: u8,
+    /// Minute, 0 to 59.
     pub minute: u8,
+    /// Second, 0 to 59.
     pub second: u8,
+    /// Millisecond, 0 to 999.
     pub millisecond: u16,
 }
 
+/// An offset from UTC, east of Greenwich positive. Offsets west of it have negative fields.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Offset {
+    /// Hours, for example `2` for UTC+02:00.
     pub hours: i8,
+    /// Minutes in addition to `hours`.
     pub minutes: i8,
+    /// Seconds in addition to `minutes`.
     pub seconds: i8,
+    /// Milliseconds in addition to `seconds`. Not used for timestamps.
     pub milliseconds: i16,
 }
 
+/// A date and time of day with an offset from UTC.
+///
+/// Serialized to JSON as a string, see the [module documentation](self).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct DateTime {
+    /// Calendar date, in the time zone given by `offset`.
     pub date: Date,
+    /// Time of day, in the time zone given by `offset`.
     pub time: Time,
+    /// Offset of that time zone from UTC.
     pub offset: Offset,
 }
 
+/// A month of the year. Serialized to JSON as its number.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Month {
+    /// Month 1.
     January = 1,
+    /// Month 2.
     February,
+    /// Month 3.
     March,
+    /// Month 4.
     April,
+    /// Month 5.
     May,
+    /// Month 6.
     June,
+    /// Month 7.
     July,
+    /// Month 8.
     August,
+    /// Month 9.
     September,
+    /// Month 10.
     October,
+    /// Month 11.
     November,
+    /// Month 12.
     December,
 }
 
 impl From<u8> for Month {
+    /// Converts a month number (1 to 12). Any other number gives [`Month::January`].
     fn from(month: u8) -> Self {
         match month {
             1 => Month::January,
@@ -73,16 +145,20 @@ impl From<Month> for u8 {
 }
 
 impl std::fmt::Display for Month {
+    /// Writes the month number, not its name.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", *self as u8)
     }
 }
 
 impl DateTime {
+    /// Combines a date, a time of day and the offset from UTC that they are given in. The values
+    /// are not checked.
     pub fn new_in_offset(date: Date, time: Time, offset: Offset) -> Self {
         Self { date, time, offset }
     }
 
+    /// The Unix epoch, 1970-01-01 00:00:00 UTC.
     pub const fn epoch() -> Self {
         Self {
             date: Date {
@@ -105,7 +181,11 @@ impl DateTime {
         }
     }
 
-    // Non-WASM implementation
+    /// The current time from the system clock, in UTC (the offset is zero).
+    ///
+    /// With the `js-sys` feature on `wasm32` (not WASI) it is the browser's local time with the
+    /// local offset. On other WebAssembly targets there is no clock and it returns
+    /// [`DateTime::epoch`].
     #[cfg(not(target_arch = "wasm32"))]
     pub fn now() -> Self {
         use time::OffsetDateTime;
@@ -133,7 +213,11 @@ impl DateTime {
         }
     }
 
-    // Browser WASM implementation (js-sys enabled, not WASI)
+    /// The current time from the system clock, in UTC (the offset is zero).
+    ///
+    /// With the `js-sys` feature on `wasm32` (not WASI) it is the browser's local time with the
+    /// local offset. On other WebAssembly targets there is no clock and it returns
+    /// [`DateTime::epoch`].
     #[cfg(all(
         feature = "js-sys",
         target_arch = "wasm32",
@@ -169,7 +253,11 @@ impl DateTime {
         }
     }
 
-    // WASI or non-js-sys WASM implementation
+    /// The current time from the system clock, in UTC (the offset is zero).
+    ///
+    /// With the `js-sys` feature on `wasm32` (not WASI) it is the browser's local time with the
+    /// local offset. On other WebAssembly targets there is no clock and it returns
+    /// [`DateTime::epoch`].
     #[cfg(any(
         all(target_arch = "wasm32", any(target_env = "p1", target_env = "p2")),
         all(not(feature = "js-sys"), target_arch = "wasm32")
@@ -178,10 +266,14 @@ impl DateTime {
         Self::epoch()
     }
 
+    /// Same as [`DateTime::now`].
     pub fn now_utc() -> Self {
         Self::now()
     }
 
+    /// Formats the value as `2017-05-05 15:02:24.000 +02:00:00`.
+    ///
+    /// The `_format` argument is ignored. [`DateTime`] parses this format with `str::parse`.
     pub fn format(&self, _format: &str) -> String {
         format!(
             "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03} {:+03}:{:02}:{:02}",
@@ -198,12 +290,11 @@ impl DateTime {
         )
     }
 
-    // One implementation for every target: this is pure calendar arithmetic on the
-    // stored fields — no clock involved (unlike `now()`), so the `time` crate handles
-    // it on wasm just as well as natively. The old js-sys variant built a JS `Date`
-    // from the components in the *browser's local timezone* and ignored `self.offset`,
-    // so the same DateTime yielded a different timestamp per client TZ/DST; the wasi
-    // variant just returned 0.
+    /// Seconds since 1970-01-01 00:00:00 UTC, taking the offset into account. Milliseconds are
+    /// dropped.
+    ///
+    /// Returns `0` when the date or time fields are not valid. An offset that is not valid
+    /// counts as UTC.
     pub fn unix_timestamp(&self) -> i64 {
         use time::{Date as TimeDate, Month as TimeMonth, PrimitiveDateTime, Time as TimeTime};
 
@@ -253,9 +344,13 @@ impl DateTime {
         offset_dt.unix_timestamp()
     }
 
-    // Also one implementation for every target, for the same reason as
-    // `unix_timestamp`. The old js-sys variant rejected pre-1970 timestamps and
-    // returned the instant re-expressed in the browser's local timezone.
+    /// The UTC date and time of a Unix timestamp (seconds since 1970-01-01 00:00:00 UTC). The
+    /// offset is zero and the milliseconds are 0. Negative timestamps are dates before 1970.
+    ///
+    /// # Errors
+    ///
+    /// Returns `"Invalid timestamp"` when the timestamp is outside the range of dates that
+    /// the `time` crate supports (years -9999 to 9999 with the features used here).
     pub fn from_unix_timestamp(timestamp: i64) -> Result<Self, &'static str> {
         use time::OffsetDateTime;
 
@@ -282,28 +377,36 @@ impl DateTime {
         })
     }
 
+    /// The year.
     pub fn year(&self) -> i32 {
         self.date.year
     }
+    /// The month. A month number outside 1 to 12 gives [`Month::January`].
     pub fn month(&self) -> Month {
         Month::from(self.date.month)
     }
+    /// The day of the month, starting at 1.
     pub fn day(&self) -> u8 {
         self.date.day
     }
+    /// The hour, 0 to 23.
     pub fn hour(&self) -> u8 {
         self.time.hour
     }
+    /// The minute, 0 to 59.
     pub fn minute(&self) -> u8 {
         self.time.minute
     }
+    /// The second, 0 to 59.
     pub fn second(&self) -> u8 {
         self.time.second
     }
+    /// The millisecond, 0 to 999.
     pub fn millisecond(&self) -> u16 {
         self.time.millisecond
     }
 
+    /// The offset from UTC, without its milliseconds.
     pub fn offset(&self) -> UtcOffset {
         UtcOffset {
             hours: self.offset.hours,
@@ -313,14 +416,18 @@ impl DateTime {
     }
 }
 
-// Rest of the code remains unchanged
-
 impl ToString for DateTime {
     fn to_string(&self) -> String {
         self.format("")
     }
 }
 
+/// Parses the format written by [`DateTime::format`]: `YYYY-MM-DD HH:MM[:SS[.mmm]] +HH[:MM[:SS]]`,
+/// separated by spaces. The offset needs a leading `+` or `-`.
+///
+/// The digits after the dot are read as a number of milliseconds, so write three of them. The
+/// error is a short message when a part is missing or not a number, or when the date or time is
+/// not a valid calendar date and time of day. The offset is not range-checked.
 impl std::str::FromStr for DateTime {
     type Err = String;
 
@@ -442,16 +549,22 @@ impl<'de> Deserialize<'de> for DateTime {
     }
 }
 
+/// Another name for [`DateTime`], used for the dates of a document.
 pub type OffsetDateTime = DateTime;
 
+/// An offset from UTC to the second, as returned by [`DateTime::offset`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct UtcOffset {
+    /// Hours, negative west of Greenwich.
     pub hours: i8,
+    /// Minutes in addition to `hours`.
     pub minutes: i8,
+    /// Seconds in addition to `minutes`.
     pub seconds: i8,
 }
 
 impl UtcOffset {
+    /// Creates an offset from its parts. Never fails and does not check the ranges.
     pub const fn from_hms(hours: i8, minutes: i8, seconds: i8) -> Result<Self, &'static str> {
         Ok(Self {
             hours,
@@ -460,21 +573,23 @@ impl UtcOffset {
         })
     }
 
+    /// The hours part.
     pub const fn whole_hours(self) -> i8 {
         self.hours
     }
+    /// The minutes part.
     pub const fn minutes_past_hour(self) -> i8 {
         self.minutes
     }
+    /// The seconds part.
     pub const fn seconds_past_minute(self) -> i8 {
         self.seconds
     }
+    /// Whether any part is negative.
     pub const fn is_negative(self) -> bool {
         self.hours < 0 || self.minutes < 0 || self.seconds < 0
     }
 }
-
-// Serialization implementations remain unchanged
 
 impl Serialize for Date {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -730,7 +845,20 @@ impl<'de> Deserialize<'de> for UtcOffset {
     }
 }
 
-/// A simple parser for PDF date strings (e.g. "D:20170505150224+02'00'")
+/// Parses a PDF date string such as `D:20170505150224+02'00'` (ISO 32000-1, 7.9.4).
+///
+/// The leading `D:` is optional. The year, month, day, hour, minute and second are required, as
+/// 14 digits. The offset is optional: after the seconds, `+` or `-`, two digits of hours and
+/// optionally `'` and two digits of minutes (and `'` and seconds). `Z` or any other character
+/// there means UTC, and an offset without apostrophes (`+0200`) keeps only its hours.
+/// Anything after the recognized part is ignored. Digits of the offset that cannot be read count
+/// as 0. The milliseconds are 0.
+///
+/// # Errors
+///
+/// Returns a message when the string is shorter than 14 characters, a field is not a number, or
+/// the date or time is not valid (month 13, 30 February, hour 24, ...). Dates that the PDF
+/// format allows to be shortened, such as `D:2017`, are rejected.
 pub fn parse_pdf_date(s: &str) -> Result<OffsetDateTime, String> {
     let d = parse_pdf_date_inner(s)?;
     if let Err(e) = check_date_valid(&d) {
@@ -741,13 +869,9 @@ pub fn parse_pdf_date(s: &str) -> Result<OffsetDateTime, String> {
 }
 
 fn parse_pdf_date_inner(s: &str) -> Result<OffsetDateTime, String> {
-    // Remove a leading "D:" if present.
     let s = if s.starts_with("D:") { &s[2..] } else { s };
-    // Work on bytes: `&str` range indexing panics when a bound lands inside a
-    // multibyte UTF-8 character, and this gets fed /CreationDate strings from
-    // arbitrary PDFs (deserialize.rs runs the raw bytes through from_utf8_lossy,
-    // which turns every invalid byte into a 3-byte U+FFFD). Byte slicing below a
-    // length check cannot panic.
+    // Slice bytes, not the `&str`: strings from arbitrary PDFs can have multibyte
+    // characters where a `&str` range would panic.
     let b = s.as_bytes();
     if b.len() < 14 {
         return Err("Date string too short".to_string());
@@ -770,7 +894,6 @@ fn parse_pdf_date_inner(s: &str) -> Result<OffsetDateTime, String> {
     let minute: u8 = digits(&b[10..12])?;
     let second: u8 = digits(&b[12..14])?;
 
-    // Parse timezone offset if available
     let mut offset_hours = 0i8;
     let mut offset_minutes = 0i8;
     let mut offset_seconds = 0i8;
@@ -785,11 +908,9 @@ fn parse_pdf_date_inner(s: &str) -> Result<OffsetDateTime, String> {
         if b.len() >= 17 {
             offset_hours = tz_sign * digits::<i8>(&b[15..17]).unwrap_or(0);
 
-            // Check for minutes offset (format: +02'00')
             if b.len() >= 20 && b[17] == b'\'' {
                 offset_minutes = tz_sign * digits::<i8>(&b[18..20]).unwrap_or(0);
 
-                // Check for seconds offset if present
                 if b.len() >= 23 && b[20] == b'\'' {
                     offset_seconds = tz_sign * digits::<i8>(&b[21..23]).unwrap_or(0);
                 }
@@ -841,7 +962,6 @@ fn check_date_valid(d: &DateTime) -> Result<(), String> {
     Ok(())
 }
 
-// Add this function at the module level
 fn is_valid_date(year: i32, month: u8, day: u8) -> bool {
     if !(1..=12).contains(&month) {
         return false;
@@ -851,7 +971,6 @@ fn is_valid_date(year: i32, month: u8, day: u8) -> bool {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
         4 | 6 | 9 | 11 => 30,
         2 => {
-            // February - check for leap year
             if (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0) {
                 29
             } else {
