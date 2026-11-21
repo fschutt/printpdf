@@ -123,8 +123,13 @@ fn hex_to_unicode_scalars(hex: &str) -> Result<Vec<u32>, String> {
     }
     let mut units = Vec::with_capacity(hex.len() / 4);
     for i in (0..hex.len()).step_by(4) {
+        // `get`, not `[i..i + 4]`: the token comes from the file and may hold a multi-byte
+        // character, and slicing a `str` inside one panics.
+        let unit = hex
+            .get(i..i + 4)
+            .ok_or_else(|| format!("Failed to parse hex token <{hex}>: not hexadecimal"))?;
         units.push(
-            u16::from_str_radix(&hex[i..i + 4], 16)
+            u16::from_str_radix(unit, 16)
                 .map_err(|e| format!("Failed to parse hex token <{}>: {}", hex, e))?,
         );
     }
@@ -428,8 +433,12 @@ impl CidCMap {
             let len = (digits / 2) as u8;
             let mut bytes = [0u8; 4];
             for (idx, i) in (0..digits).step_by(2).enumerate() {
-                bytes[idx] = u8::from_str_radix(&hex[i..i + 2], 16)
-                    .map_err(|e| format!("bad hex <{hex}>: {e}"))?;
+                // `get`, not `[i..i + 2]`: a multi-byte character in the token would panic.
+                let byte = hex
+                    .get(i..i + 2)
+                    .ok_or_else(|| format!("bad hex <{hex}>: not hexadecimal"))?;
+                bytes[idx] =
+                    u8::from_str_radix(byte, 16).map_err(|e| format!("bad hex <{hex}>: {e}"))?;
             }
             Ok((len, bytes, hex_to_u32(hex)?))
         };
@@ -612,7 +621,9 @@ impl CidCMap {
         }
         for (len, lo, hi, dst) in &self.ranges {
             if *len == byte_len && code >= *lo && code <= *hi {
-                return dst + (code - lo);
+                // A range whose destination runs past u32::MAX is corrupt: the code is
+                // unmapped (notdef), not wrapped around to some other glyph.
+                return dst.checked_add(code - lo).unwrap_or(0);
             }
         }
         0

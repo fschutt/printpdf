@@ -370,8 +370,10 @@ pub fn to_lopdf_doc(
             })
             .collect::<Vec<_>>();
 
-        let first = bookmark_ids.first().map(|s| s.3).unwrap();
-        let last = bookmark_ids.last().map(|s| s.3).unwrap();
+        // A bookmark whose page does not exist was dropped above. When all of them were
+        // (for example after the pages they pointed at were removed) there is no outline.
+        let first = bookmark_ids.first().map(|s| s.3);
+        let last = bookmark_ids.last().map(|s| s.3);
         for (i, (_id, name, pageid, self_id)) in bookmark_ids.iter().enumerate() {
             let prev = if i == 0 {
                 None
@@ -394,16 +396,18 @@ pub fn to_lopdf_doc(
             doc.set_object(*self_id, dict);
         }
 
-        let bookmarks_list = LoDictionary::from_iter(vec![
-            ("Type", "Outlines".into()),
-            ("Count", Integer(pdf.bookmarks.map.len() as i64)),
-            ("First", Reference(first)),
-            ("Last", Reference(last)),
-        ]);
+        if let (Some(first), Some(last)) = (first, last) {
+            let bookmarks_list = LoDictionary::from_iter(vec![
+                ("Type", "Outlines".into()),
+                ("Count", Integer(bookmark_ids.len() as i64)),
+                ("First", Reference(first)),
+                ("Last", Reference(last)),
+            ]);
 
-        doc.set_object(bookmarks_id, bookmarks_list);
-        catalog.set("Outlines", Reference(bookmarks_id));
-        catalog.set("PageMode", LoString("UseOutlines".into(), Literal));
+            doc.set_object(bookmarks_id, bookmarks_list);
+            catalog.set("Outlines", Reference(bookmarks_id));
+            catalog.set("PageMode", LoString("UseOutlines".into(), Literal));
+        }
     }
 
     doc.set_object(

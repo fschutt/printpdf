@@ -212,6 +212,14 @@ end
         let cmap = "begincmap\nbeginbfrange\n<000000> <1FFFFF> <0041>\nendbfrange\nendcmap\n";
         if let Ok(m) = ToUnicodeCMap::parse(cmap) { assert!(m.mappings.len() <= 65_536) }
     }
+
+    #[test]
+    fn to_unicode_multibyte_character_in_hex_token_is_error_not_panic() {
+        // The destination `<000é000>` is 8 bytes, so the 4-digit slices `[0..4]` and `[4..8]`
+        // used to cut the 'é' in half: "byte index 4 is not a char boundary".
+        let cmap = "begincmap\n1 beginbfchar\n<0001> <000\u{e9}000>\nendbfchar\nendcmap\n";
+        let _ = ToUnicodeCMap::parse(cmap);
+    }
 }
 
 /// The Type0 /Encoding side: code→CID CMaps with variable-width codespaces
@@ -304,5 +312,22 @@ endcmap
     fn empty_codespace_defaults_to_two_bytes() {
         let (cmap, _) = CidCMap::parse("endcmap").unwrap();
         assert_eq!(cmap.split_codes(&[0x00, 0x41]), vec![(0x41, 2)]);
+    }
+
+    #[test]
+    fn multibyte_character_in_a_codespace_token_is_error_not_panic() {
+        // `<0é0>` is four bytes, an even digit count, so the 2-digit slices used to cut the 'é'.
+        let src = "1 begincodespacerange\n<0\u{e9}0> <FFFF>\nendcodespacerange\nendcmap";
+        assert!(CidCMap::parse(src).is_err());
+    }
+
+    #[test]
+    fn a_range_that_runs_past_u32_max_maps_to_notdef() {
+        // dst + (code - lo) overflows u32 for every code but the first.
+        let src = "1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n\
+                   1 begincidrange\n<0000> <FFFF> 4294967295\nendcidrange\nendcmap";
+        let (cmap, _) = CidCMap::parse(src).unwrap();
+        assert_eq!(cmap.cid_for_code(0, 2), u32::MAX, "the first code still maps");
+        assert_eq!(cmap.cid_for_code(5, 2), 0, "the sum overflows: notdef, not a wrapped CID");
     }
 }
