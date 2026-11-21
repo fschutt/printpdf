@@ -7,10 +7,34 @@ updates:
     # A release is at least 14 days old before Dependabot proposes it.
     cooldown:
       default-days: 14
+    # Minor and patch updates arrive in one pull request. A major update stays a pull
+    # request of its own, because it changes what the crate requires of its users.
+    groups:
+      cargo-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+  # The ppdf CLI crate has its own manifest.
+  - package-ecosystem: "cargo"
+    directory: "/ppdf"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 14
+    groups:
+      ppdf-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
   # Keeps the SHA pins of the actions in .github/workflows and their `# vX.Y.Z` comments up to date.
+  # One pull request for all actions, instead of one per action.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
     cooldown:
       default-days: 14
+    groups:
+      actions:
+        patterns:
+          - "*"

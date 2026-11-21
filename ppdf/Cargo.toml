@@ -1,0 +1,24 @@
+[package]
+name = "ppdf"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+license = "MIT"
+description = "Command-line PDF tool built on printpdf: PDF to JSON and back, text and box extraction, SVG rendering, HTML to PDF"
+repository = "https://github.com/fschutt/printpdf"
+homepage = "https://github.com/fschutt/printpdf"
+readme = "README.md"
+keywords = ["pdf", "cli", "json"]
+categories = ["command-line-utilities"]
+
+[dependencies]
+# Path for development in this repo; `cargo publish` uses the version.
+printpdf = { version = "0.12.14", path = "..", default-features = false, features = ["html", "images", "png", "jpeg"] }
+clap = { version = "4", features = ["derive"] }
+# preserve_order keeps "$schema" first and the keys of the document in the order
+# printpdf writes them, so `ppdf json` output diffs cleanly.
+serde_json = { version = "1", features = ["preserve_order"] }
+
+# ppdf is its own workspace root. The repo root is not a workspace, and ppdf must not
+# become a member of printpdf's package.
+[workspace]

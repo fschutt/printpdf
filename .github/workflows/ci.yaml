@@ -420,6 +420,22 @@ jobs:
           path: pdf-artifacts/
           retention-days: 30
 
+  # The ppdf command-line tool (ppdf/, its own crate, not part of the printpdf package). Its tests run the
+  # built binary: HTML to PDF, PDF to JSON and back, text, boxes, SVG, fonts and images.
+  ppdf:
+    name: ppdf (build and test)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
+      - run: cargo test --manifest-path ppdf/Cargo.toml --verbose
+
   # Static analysis of the workflows themselves (https://docs.zizmor.sh/, configured by .github/zizmor.yml):
   # every `uses:` is pinned to a full commit SHA, a pin is a commit of the action's own repository (not of a
   # fork) and its version comment names a tag that points at it (the online audits), and the usual checks for
