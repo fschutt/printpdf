@@ -183,17 +183,29 @@
 //!
 //! # Feature flags
 //!
-//! | Feature | Default | Effect |
-//! |---|---|---|
-//! | `html` | yes | [`PdfDocument::from_html`] and the [`html`] module (HTML/CSS layout with `azul-layout`). Implies `text_layout_hyphenation`. |
-//! | `html_multithreaded` | no | `html`, with fonts loaded on several threads. Not for WASM. |
-//! | `text_layout` | via `html` | Text shaping and font parsing with `azul-layout` ([`shape`], `text_shaping`, [`ParsedFont`] with full font metrics). |
-//! | `text_layout_hyphenation` | via `html` | `text_layout` with hyphenation dictionaries. |
-//! | `svg` | no | `Svg::parse` turns an SVG string into an XObject (via `svg2pdf`) and SVG inside HTML. Implies `html`. |
-//! | `images` | no | Image decoding with the `image` crate ([`RawImage::decode_from_bytes`]); JPEG is always included. |
-//! | `png`, `gif`, `jpeg`, `bmp`, `tiff`, `webp`, `pnm`, `ico`, `tga`, `hdr`, `dds` | no | Enable that decoder of the `image` crate. Each implies `images`. |
-//! | `rayon` | no | Multithreaded image decoding. |
-//! | `js-sys` | no | In the browser (`wasm32-unknown-unknown`): timestamps from `Date` and image decoding by the browser. |
+//! Features exist to keep dependencies out of your build. Turn off what you do not use with
+//! `default-features = false` and enable only the features you need. Without any feature,
+//! printpdf writes and reads PDFs with the 14 built-in fonts and pulls in the smallest set of
+//! dependencies.
+//!
+//! - **Default**
+//!   - `html`: [`PdfDocument::from_html`] and the [`html`] module, which lay out HTML and CSS
+//!     with `azul-layout`. It switches on these two, so they are on by default as well:
+//!     - `text_layout_hyphenation`: hyphenation dictionaries for the layout.
+//!       - `text_layout`: text shaping and font parsing with `azul-layout` ([`shape`],
+//!         `text_shaping`, [`ParsedFont`] with full font metrics).
+//! - **Not default**
+//!   - `images`: decode image files with the `image` crate ([`RawImage::decode_from_bytes`]).
+//!     JPEG is always included. Enable the formats you need, each of them switches on `images`:
+//!     - `png`, `gif`, `jpeg`, `bmp`, `tiff`, `webp`, `pnm`, `ico`, `tga`, `hdr`, `dds`
+//!     - `rayon`: decode images on several threads.
+//!   - `svg`: `Svg::parse` turns an SVG string into an XObject (via `svg2pdf`), and SVG works
+//!     inside HTML. Switches on `html`.
+//!   - `html_multithreaded`: `html`, with fonts loaded on several threads. Not for WASM.
+//!   - `text_layout`: the text shaping above, without `html`. Use it if you want
+//!     [`shape`] but not the HTML layout.
+//!   - `js-sys`: in the browser (`wasm32-unknown-unknown`), timestamps from `Date` and image
+//!     decoding by the browser.
 //!
 //! # Where to go next
 //!
