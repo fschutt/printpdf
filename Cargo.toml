@@ -50,7 +50,7 @@ lopdf = { version = "0.47.0", default-features = false }
 # serializes `time` types, so the old serde/serde-human-readable features only cost
 # consumers build time.
 time = { version = "0.3.36", default-features = false, features = ["std"] }
-allsorts = { package = "allsorts-azul", version = "0.17.1", default-features = false, features = [
+allsorts = { package = "allsorts-azul", version = "0.17.4", default-features = false, features = [
   "flate2_rust",
 ] }
 # Floor 0.25.2: src/image.rs uses `image::ImageReader`, a re-export that first appears
