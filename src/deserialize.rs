@@ -1,8 +1,77 @@
-//! deserialize.rs
+//! Reading a PDF file into a [`PdfDocument`].
 //!
-//! This module implements parsing of a PDF (using lopdf) and converting it into a
-//! printpdf::PdfDocument. In particular, it decompresses the content streams and then
-//! converts lopdf operations to printpdf Ops.
+//! # How a PDF file is organised
+//!
+//! A PDF file starts with a header such as `%PDF-1.7`, followed by numbered *objects*: numbers,
+//! names, strings, arrays, dictionaries and *streams* (a dictionary plus a block of bytes, usually
+//! compressed). Objects refer to each other by number. A *cross-reference table* near the end of
+//! the file lists where each object starts, and the *trailer* names the root object, the
+//! *catalog*. The catalog leads to the page tree, and each page leads to a *content stream*: the
+//! list of drawing operators of that page, written operands first (`q` saves the graphics state,
+//! `Tf` selects a font, `re` adds a rectangle, `f` fills it, ...). Fonts, images and other things
+//! a page uses are *resources*, which the content stream names.
+//!
+//! # What parsing produces
+//!
+//! The syntax level (objects, the cross-reference table, stream filters) is done by [`lopdf`].
+//! This module turns the loaded objects into a [`PdfDocument`]:
+//!
+//! - **Document info** (title, author, subject, keywords, dates, ...) becomes
+//!   `metadata.info`. Keywords are split at commas. The XMP metadata stream is not read.
+//! - **Pages** become [`PdfPage`]s with their `MediaBox`, `TrimBox` and `CropBox`. The boxes are
+//!   inherited from parent page-tree nodes, and `TrimBox` and `CropBox` default to the media
+//!   box. A page without a usable media box gets A4 and a warning. `/Rotate` is not read.
+//! - **Content streams** become [`Op`]s. If a page has several streams they are joined first.
+//!   An operator without a matching `Op` becomes [`Op::Unknown`]; saving drops those unless
+//!   [`PdfSaveOptions::secure`](crate::PdfSaveOptions::secure) is `false`.
+//! - **Fonts** that are embedded and can be read become `resources.fonts`, keyed by the resource
+//!   name (`F1`, ...). The 14 standard fonts need no entry. A font that is not embedded is
+//!   replaced by the closest standard font, with a warning, and a composite (Type0) font whose
+//!   program cannot be read keeps only the code layout and ToUnicode CMap needed to decode its
+//!   text; neither is kept in `resources.fonts`. Reading the program of an embedded simple
+//!   (TrueType or Type1) font needs the `text_layout` feature.
+//! - **XObjects** (reusable pieces of content, referenced by `Do`): images are decoded to
+//!   [`XObject::Image`], with an `/SMask` merged in as alpha. Form XObjects, and images that
+//!   cannot be decoded (JPEG and JPEG 2000 need the `images` feature), are kept byte for byte as
+//!   [`XObject::External`], so that saving does not lose them.
+//! - **Graphics state parameter dictionaries** (ExtGState), **shadings** (axial and radial
+//!   gradients only), **layers** (optional content groups), **bookmarks** (the top level of the
+//!   outline, entries with an explicit destination) and **link annotations** (GoTo and URI
+//!   actions) are read into the matching parts of the document. Link annotations are appended to
+//!   the page as [`Op::LinkAnnotation`].
+//!
+//! Resources are collected from the catalog, the page tree and every page, and merged into one
+//! document-wide map. For fonts, XObjects and shadings the first definition of a resource name
+//! wins; for ExtGState the last one does.
+//!
+//! # Warnings and errors
+//!
+//! Parsing is lenient. Whatever cannot be read is skipped, and a [`PdfWarnMsg`] with a
+//! [`PdfParseErrorSeverity`] is pushed to the `warnings` list the caller passes in. The page
+//! and operator the message is about are in [`PdfWarnMsg::page`] and [`PdfWarnMsg::op_id`].
+//! Parsing returns `Err` only when the document cannot be walked at all: lopdf cannot load the
+//! file, the trailer has no `/Root`, the catalog or its `/Pages` entry is missing or has the
+//! wrong type, a page-tree node has no `/Kids`, or a page object cannot be resolved.
+//!
+//! # Examples
+//!
+//! Parse, edit and save again:
+//!
+//! ```
+//! use printpdf::*;
+//!
+//! let mut warnings = Vec::new();
+//! let mut doc = PdfDocument::new("Original");
+//! doc.pages.push(PdfPage::new(Mm(210.0), Mm(297.0), vec![]));
+//! let bytes = doc.save(&PdfSaveOptions::default(), &mut warnings);
+//!
+//! let mut parsed = PdfDocument::parse(&bytes, &PdfParseOptions::default(), &mut warnings).unwrap();
+//! assert_eq!(parsed.pages.len(), 1);
+//! parsed.metadata.info.document_title = "Edited".to_string();
+//! parsed.pages.push(PdfPage::new(Mm(100.0), Mm(100.0), vec![]));
+//! let edited = parsed.save(&PdfSaveOptions::default(), &mut warnings);
+//! assert!(edited.starts_with(b"%PDF-"));
+//! ```
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -27,31 +96,51 @@ use crate::{
     TextRenderingMode, WindingOrder, XObject, XObjectId, XObjectMap,
 };
 
+/// Options for [`PdfDocument::parse`](crate::PdfDocument::parse).
+///
+/// Serialized to JSON with camelCase field names.
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PdfParseOptions {
+    /// Currently has no effect: parsing never reads this field, and problems are reported as
+    /// [`PdfWarnMsg`]s whatever its value.
     #[serde(default)]
     pub fail_on_error: bool,
 }
 
+/// One message about something the parser or serializer could not read, write or understand.
+///
+/// Serialized to JSON with camelCase field names.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PdfWarnMsg {
+    /// Zero-based index of the page the message is about. Messages about the document as a whole
+    /// carry 0, and so does every message raised while saving.
     pub page: usize,
+    /// Index of the content stream operator (when parsing) or [`Op`] (when saving) the message
+    /// is about. 0 when it is not about a single operator.
     pub op_id: usize,
+    /// How serious the problem is.
     pub severity: PdfParseErrorSeverity,
+    /// Human-readable description.
     pub msg: String,
 }
 
+/// How serious a [`PdfWarnMsg`] is. Serialized to JSON in kebab-case (`"error"`, `"info"`,
+/// `"warning"`).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PdfParseErrorSeverity {
+    /// Something was lost or could not be processed.
     Error,
+    /// Progress or background information.
     Info,
+    /// Something unusual was found; the parser used a fallback.
     Warning,
 }
 
 impl PdfWarnMsg {
+    /// A message with [`PdfParseErrorSeverity::Error`].
     pub fn error(page: usize, op_id: usize, e: String) -> Self {
         PdfWarnMsg {
             page,
@@ -61,6 +150,7 @@ impl PdfWarnMsg {
         }
     }
 
+    /// A message with [`PdfParseErrorSeverity::Warning`].
     pub fn warning(page: usize, op_id: usize, msg: String) -> Self {
         PdfWarnMsg {
             page,
@@ -70,6 +160,7 @@ impl PdfWarnMsg {
         }
     }
 
+    /// A message with [`PdfParseErrorSeverity::Info`].
     pub fn info(page: usize, op_id: usize, msg: String) -> Self {
         PdfWarnMsg {
             page,
@@ -94,12 +185,10 @@ fn parse_pdf_from_bytes_start(
     _opts: &PdfParseOptions,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> Result<InitialPdf, String> {
-    // Load the PDF document using lopdf.
     let doc = LopdfDocument::load_mem(bytes).map_err(|e| format!("Failed to load PDF: {}", e))?;
 
     let mut objs_to_search_for_resources = Vec::new();
 
-    // Get the catalog from the trailer.
     let root_obj = doc
         .trailer
         .get(b"Root")
@@ -122,20 +211,17 @@ fn parse_pdf_from_bytes_start(
         .as_dict()
         .map_err(|e| format!("Catalog is not a dictionary: {}", e))?;
 
-    // Check if catalog has a Resources dictionary and include it
     if let Ok(resources) = catalog.get(b"Resources") {
         objs_to_search_for_resources.push((resources.clone(), None));
     }
 
-    // Get the Pages tree from the catalog.
     let pages_obj = catalog
         .get(b"Pages")
         .map_err(|e| format!("Missing Pages key in catalog: {}", e))?;
 
     objs_to_search_for_resources.push((pages_obj.clone(), None));
 
-    // The Pages entry should be an indirect reference, but tolerate an inline
-    // dictionary too (seen in the wild).
+    // /Pages is normally an indirect reference; an inline dictionary is accepted too.
     let pages_dict = match pages_obj {
         Object::Reference(r) => doc
             .get_object(*r)
@@ -153,15 +239,12 @@ fn parse_pdf_from_bytes_start(
         _ => return Err("Pages key is not a reference".to_string()),
     };
 
-    // Check if Pages tree has Resources dictionary and include it
     if let Ok(resources) = pages_dict.get(b"Resources") {
         objs_to_search_for_resources.push((resources.clone(), None));
     }
 
-    // Recursively collect all page object references.
     let page_refs = collect_page_refs(pages_dict, &doc, warnings)?;
 
-    // Get page objects and their resources
     let page_objects = page_refs
         .iter()
         .enumerate()
@@ -193,7 +276,11 @@ fn parse_pdf_from_bytes_start(
     })
 }
 
-/// Parses a PDF file from bytes into a printpdf PdfDocument.
+/// Parses a PDF file into a [`PdfDocument`]. This is what [`PdfDocument::parse`] calls; the
+/// module documentation describes what is read and what is skipped.
+///
+/// Problems that do not stop parsing are pushed to `warnings`. `Err` carries a description of
+/// the failure when the file cannot be read at all.
 pub fn parse_pdf_from_bytes(
     bytes: &[u8],
     opts: &PdfParseOptions,
@@ -209,6 +296,7 @@ pub fn parse_pdf_from_bytes(
     parse_pdf_from_bytes_end(i, opts, fonts, xobjects, warnings)
 }
 
+/// Like [`parse_pdf_from_bytes`], but decodes images with [`RawImage::decode_from_bytes_async`].
 pub async fn parse_pdf_from_bytes_async(
     bytes: &[u8],
     opts: &PdfParseOptions,
@@ -241,16 +329,14 @@ fn parse_pdf_from_bytes_end(
         link_annots,
     } = initial_pdf;
 
-    // Build the per-resource-name text decode map used by the content stream
-    // parser. Keys are the resource names that `Tf` operators reference.
+    // How the text of each font resource name decodes; `Tf` operators select by that name.
     let font_decode: BTreeMap<String, FontTextDecodeKind> = fonts
         .iter()
         .filter_map(|(id, pf)| {
             let name = match id {
                 BuiltinOrExternalFontId::External(fid) => fid.0.clone(),
-                // Builtin entries are keyed by their enum, not by a resource
-                // name from this document; `Tf` falls back to
-                // `BuiltinFont::from_id` for the F1-F14 naming convention.
+                // Builtin entries are keyed by enum, not by resource name; `Tf` falls back to
+                // `BuiltinFont::from_id` for the F1-F14 names.
                 BuiltinOrExternalFontId::Builtin(_) => return None,
             };
             let kind = match pf {
@@ -272,8 +358,7 @@ fn parse_pdf_from_bytes_end(
                     FontTextDecodeKind::Cid {
                         to_unicode: to_unicode.clone(),
                         encoding_cmap: encoding_cmap.clone(),
-                        // No parsable font program — no charset / CIDToGIDMap
-                        // to resolve through.
+                        // No font program, so no charset or CIDToGIDMap to resolve through.
                         cid_to_gid: None,
                     }
                 }
@@ -294,9 +379,7 @@ fn parse_pdf_from_bytes_end(
         pages.push(pdf_page);
     }
 
-    // Re-attach link annotations to their pages: the serializer builds each
-    // page's /Annots from `Op::LinkAnnotation`, so without this every link is
-    // silently dropped on re-save.
+    // The serializer builds /Annots from `Op::LinkAnnotation`, so links go back on their pages as ops.
     for (page_idx, link) in link_annots {
         match pages.get_mut(page_idx) {
             Some(page) => page.ops.push(Op::LinkAnnotation { link }),
@@ -308,14 +391,10 @@ fn parse_pdf_from_bytes_end(
         }
     }
 
-    // Extract bookmarks and layers from the document
     let bookmarks = links_and_bookmarks::extract_bookmarks(&doc);
     let layers = layers::extract_layers(&doc);
-    // Optional-content ops (`BDC /OC /Name`) reference layers by the *resource
-    // name* under the page's `/Properties` dictionary. The layer map must be
-    // keyed by those same names, otherwise every re-saved `BDC` points at a
-    // property that no longer exists and viewers report
-    // "Marked Content 'X' is unknown" for every layer.
+    // `BDC /OC /Name` refers to a layer by its resource name under the page's /Properties, so the
+    // layer map is keyed by those names. A layer without one gets `layer_<index>`.
     let layers: Vec<(LayerInternalId, crate::ops::Layer)> = layers
         .into_iter()
         .enumerate()
@@ -325,10 +404,8 @@ fn parse_pdf_from_bytes_end(
         })
         .collect();
 
-    // Extract ExtGStates from resources
     let extgstates = extract_extgstates(&doc, &objs_to_search_for_resources, warnings);
 
-    // Extract /Shading resources (gradients) — see extract_shadings for scope.
     let shadings = extract_shadings(&doc, &objs_to_search_for_resources, warnings);
 
     let fonts = fonts
@@ -340,7 +417,6 @@ fn parse_pdf_from_bytes_end(
         })
         .collect();
 
-    // Build the final PdfDocument.
     let pdf_doc = PdfDocument {
         metadata: PdfMetadata {
             info: document_info,
@@ -371,34 +447,35 @@ fn parse_pdf_from_bytes_end(
 /// An external font parsed out of the PDF, together with everything the
 /// content-stream text decoder needs to know about it.
 pub struct ParsedExternalFont {
+    /// The parsed font program.
     pub font: ParsedFont,
-    /// The font's ToUnicode CMap (parsed, or synthesized from the font's cmap
-    /// table when the PDF has none). Keyed by content-stream code: CID for
-    /// composite fonts, single byte for simple fonts.
+    /// The ToUnicode CMap (parsed, or built from the font's cmap table when the PDF has none).
+    /// Keyed by the code in the content stream: the CID for composite fonts, one byte for simple
+    /// fonts.
     pub to_unicode: Option<Arc<ToUnicodeCMap>>,
-    /// `true` when the PDF font dictionary was a `/Subtype /Type0` (composite)
-    /// font: text-showing operators carry 2-byte big-endian codes. `false` for
-    /// simple fonts (TrueType/Type1): one byte per code.
+    /// `true` for a composite font (`/Subtype /Type0`), whose text-showing operators carry
+    /// big-endian codes of one or more bytes; `false` for a simple (TrueType or Type1) font with
+    /// one byte per code.
     pub is_cid: bool,
-    /// CID -> glyph id, for composite fonts where the two are NOT the same:
-    /// a `/CIDToGIDMap` stream (CIDFontType2), or the CFF charset of a CID-keyed
-    /// CIDFontType0 program (ISO 32000-1, 9.7.4.2). `None` means CID == GID
-    /// (Identity). Without this, every code was stored as if it were a glyph id,
-    /// so PDFs from spec-following producers (Adobe, dvipdfmx — and printpdf
-    /// itself since the #280 fix) re-rendered with wrong outlines and widths.
+    /// CID to glyph id, for composite fonts where the two differ: a `/CIDToGIDMap` stream
+    /// (CIDFontType2) or the CFF charset of a CID-keyed CIDFontType0 program (ISO 32000-1,
+    /// 9.7.4.2). `None` means CID == glyph id (Identity). Glyph ids are looked up through this
+    /// map so that outlines and widths stay correct.
     pub cid_to_gid: Option<Arc<BTreeMap<u16, u16>>>,
-    /// The Type0 `/Encoding` CMap when it is not Identity-H: an embedded CMap
-    /// stream, or Identity-V. `None` = Identity-H (2-byte codes, code == CID).
+    /// The Type0 `/Encoding` CMap when it is not Identity-H: an embedded CMap stream or
+    /// Identity-V. `None` means Identity-H (2-byte codes, code == CID).
     pub encoding_cmap: Option<Arc<crate::cmap::CidCMap>>,
 }
 
+/// A font resource of the PDF: an embedded font, one of the 14 standard fonts, or a stub.
 pub enum ParsedOrBuiltinFont {
+    /// An embedded font program and its decoding tables.
     P(ParsedExternalFont),
+    /// One of the 14 standard fonts.
     B(BuiltinFont),
-    /// A composite (Type0) font whose font program could not be extracted or
-    /// parsed (e.g. not embedded). It cannot be re-embedded, but its code
-    /// layout (`/Encoding` CMap) and ToUnicode CMap are kept so the text still
-    /// *decodes* correctly for extraction.
+    /// A composite (Type0) font whose font program could not be extracted or parsed (for
+    /// example because it is not embedded). It cannot be embedded again, but its `/Encoding`
+    /// CMap and ToUnicode CMap are kept so that its text still decodes.
     CidStub(
         Option<Arc<ToUnicodeCMap>>,
         Option<Arc<crate::cmap::CidCMap>>,
@@ -424,13 +501,9 @@ impl ParsedOrBuiltinFont {
     }
 }
 
-/// How the bytes of text-showing operators (`Tj`, `TJ`, `'`, `"`) must be
-/// decoded for one font resource. Resolved once per page from the parsed font
-/// resources, then tracked across `Tf` operators in [`PageState`].
-///
-/// Getting this wrong garbles text: the pre-0.12 parser guessed the code width
-/// from the *byte length parity* of each string, so `(Hi) Tj` in Helvetica
-/// (2 bytes, even) was decoded as one 16-bit CID 0x4869 instead of "Hi".
+/// How the bytes of the text-showing operators (`Tj`, `TJ`, `'`, `"`) decode for one font
+/// resource. Resolved once per page from the font resources, then tracked across `Tf` operators
+/// in [`PageState`]. The code width comes from the font, never from the length of the string.
 #[derive(Debug, Clone)]
 pub enum FontTextDecodeKind {
     /// One of the 14 standard fonts: one-byte WinAnsi codes.
@@ -438,23 +511,26 @@ pub enum FontTextDecodeKind {
     /// Simple external font (TrueType/Type1): one-byte codes, decoded through
     /// the ToUnicode CMap when present, WinAnsi otherwise.
     Simple {
+        /// ToUnicode CMap of the font, if it has one.
         to_unicode: Option<Arc<ToUnicodeCMap>>,
     },
-    /// Composite (Type0) font. The chain is: content-stream bytes → codes (via
-    /// the /Encoding CMap's codespace ranges — codes are 1–4 bytes, variable
-    /// width!) → CIDs (cidrange/cidchar) → glyph ids (`cid_to_gid`: the
-    /// `/CIDToGIDMap` stream of a CIDFontType2 or the CID-keyed CFF charset of
-    /// a CIDFontType0). `encoding_cmap: None` is the ubiquitous Identity-H fast
-    /// path: 2-byte big-endian codes, code == CID. `to_unicode` stays keyed by
-    /// the CODE (that is what ToUnicode is defined over).
+    /// Composite (Type0) font. Content stream bytes become codes (through the codespace ranges of
+    /// the `/Encoding` CMap; codes are 1 to 4 bytes wide), codes become CIDs (cidrange and
+    /// cidchar entries), and CIDs become glyph ids (`cid_to_gid`: the `/CIDToGIDMap` stream of a
+    /// CIDFontType2 or the CFF charset of a CID-keyed CIDFontType0). `encoding_cmap: None` is
+    /// Identity-H: 2-byte big-endian codes, code == CID. `to_unicode` is keyed by the code.
     Cid {
+        /// ToUnicode CMap, keyed by code.
         to_unicode: Option<Arc<ToUnicodeCMap>>,
+        /// The `/Encoding` CMap, or `None` for Identity-H.
         encoding_cmap: Option<Arc<crate::cmap::CidCMap>>,
+        /// CID to glyph id map, or `None` when they are identical.
         cid_to_gid: Option<Arc<BTreeMap<u16, u16>>>,
     },
 }
 
-// Returns the dictionary, or resolves the reference
+/// The dictionary behind `xobj_obj`: an inline dictionary, a stream (its dictionary), or a
+/// reference to either. Pushes an error to `warnings` and returns `None` for anything else.
 fn get_dict_or_resolve_ref<'a>(
     id: &str,
     doc: &'a LopdfDocument,
@@ -464,15 +540,11 @@ fn get_dict_or_resolve_ref<'a>(
 ) -> Option<&'a LopdfDictionary> {
     match xobj_obj {
         Object::Dictionary(dict) => Some(dict),
-        // #216: XObjects are stream objects; accept a stream and return its dict so
-        // that XObject stream refs (e.g. Form/Image XObjects) parse instead of being
-        // rejected as an "unexpected type".
+        // XObjects are streams, so a stream's dictionary counts as well.
         Object::Stream(stream) => Some(&stream.dict),
         Object::Reference(r) => match doc.get_dictionary(*r) {
             Ok(s) => Some(s),
-            // The reference may point at a *stream* object (the common case for
-            // XObjects), which `get_dictionary` rejects. Resolve the object and
-            // return the stream's dict before treating it as an error.
+            // `get_dictionary` rejects stream objects; take the stream's dictionary instead.
             Err(_) => match doc.get_object(*r) {
                 Ok(Object::Stream(stream)) => Some(&stream.dict),
                 Ok(Object::Dictionary(dict)) => Some(dict),
@@ -497,7 +569,8 @@ fn get_dict_or_resolve_ref<'a>(
     }
 }
 
-// Returns the dictionary, or resolves the reference
+/// The stream behind `xobj_obj` (inline or by reference). Pushes an error to `warnings` and
+/// returns `None` for anything else.
 fn get_stream_or_resolve_ref<'a>(
     doc: &'a LopdfDocument,
     xobj_obj: &'a LopdfObject,
@@ -536,21 +609,18 @@ fn get_stream_or_resolve_ref<'a>(
     }
 }
 
-/// Intermediate result of scanning the XObject resources: either an encoded
-/// image that still needs to go through the (possibly async) image decoder, or
-/// an XObject that is already fully represented.
+/// Result of scanning the XObject resources: an image that still has to go through the (possibly
+/// async) decoder, or an XObject that is already complete.
 pub(crate) enum PendingXObject {
-    /// An image in a self-describing container format (JPEG via `DCTDecode`,
-    /// JPEG2000 via `JPXDecode`, ...). `fallback` preserves the original
-    /// stream verbatim in case the decoder does not understand the bytes, so
-    /// that re-saving the document never silently drops the image (#216).
+    /// An image in a self-describing container format (JPEG via `DCTDecode`, JPEG 2000 via
+    /// `JPXDecode`, ...). `fallback` keeps the original stream byte for byte in case the decoder
+    /// does not understand the bytes, so that saving never drops the image.
     DecodeImage {
         bytes: Vec<u8>,
         smask: Option<SMaskData>,
         fallback: ExternalXObject,
     },
-    /// Fully parsed (raw bitmaps we can construct directly, preserved Form
-    /// XObjects, unknown subtypes kept verbatim, ...).
+    /// Fully parsed: raw bitmaps, preserved Form XObjects, unknown subtypes kept verbatim.
     Ready(XObject),
 }
 
@@ -651,14 +721,10 @@ fn process_xobjects(
     map
 }
 
-/// Extract `/Shading` resources (axial/radial gradients) into the typed
-/// [`crate::Shading`] model. Shading types other than 2 (axial) and 3 (radial),
-/// and function types other than 2 (exponential) / 3 (stitching), are reported
-/// as warnings and skipped — those are exactly the shapes printpdf itself
-/// writes, so its own gradients round-trip. Before this existed, `/Shading`
-/// resources were dropped entirely and every `sh` op became `Op::Unknown`,
-/// which the default (`secure`) save then deleted — gradients silently
-/// vanished on re-save.
+/// Collects the `/Shading` resources (axial and radial gradients) into the typed
+/// [`crate::Shading`] model. Other shading types, and function types other than 2 (exponential)
+/// and 3 (stitching), are skipped with a warning; the supported shapes are the ones printpdf
+/// writes itself, so its own gradients round-trip.
 fn extract_shadings(
     doc: &LopdfDocument,
     objs_to_search_for_resources: &[(LopdfObject, Option<usize>)],
@@ -912,7 +978,7 @@ fn parse_shading_dict(
     })
 }
 
-// Extract all extended graphics states from the document using the extgstate module
+// Collects the ExtGState resources of all resource dictionaries (the last definition of a name wins).
 fn extract_extgstates(
     doc: &LopdfDocument,
     objs_to_search_for_resources: &[(LopdfObject, Option<usize>)],
@@ -923,14 +989,12 @@ fn extract_extgstates(
         .filter_map(|(obj, page_idx)| {
             let page_num = page_idx.unwrap_or(0);
 
-            // Get dictionary from object
             let dict = match obj {
                 LopdfObject::Dictionary(d) => Some(d),
                 LopdfObject::Reference(r) => doc.get_dictionary(*r).ok(),
                 _ => None,
             }?;
 
-            // Look for Resources
             let resources = if let Ok(res) = dict.get(b"Resources") {
                 get_dict_or_resolve_ref(
                     &format!("extract_extgstates Resources page {page_num}"),
@@ -944,7 +1008,6 @@ fn extract_extgstates(
                 Some(dict)
             }?;
 
-            // Look for ExtGState in Resources
             let extgstate = resources.get(b"ExtGState").ok()?;
             let extgstate_dict = get_dict_or_resolve_ref(
                 &format!("extract_extgstates ExtGState page {page_num}"),
@@ -954,7 +1017,6 @@ fn extract_extgstates(
                 Some(page_num),
             )?;
 
-            // Build map of ExtGStates
             let gs_entries = extgstate_dict
                 .iter()
                 .filter_map(|(key, value)| {
@@ -1322,10 +1384,9 @@ pub(crate) fn raw_bitmap_from_stream(
     }
 }
 
-/// Given a Resources dictionary from a page or the document, parse all
-/// XObjects. Image XObjects are decoded (or queued for decoding); everything
-/// else — Form XObjects, unsupported filters/colorspaces — is preserved
-/// verbatim so that a parse/save round trip never drops page content (#216).
+/// Parses all XObjects of a Resources dictionary. Images are decoded (or queued for decoding);
+/// everything else, such as Form XObjects, or images with an unsupported filter or color space,
+/// is kept verbatim so that a parse and save never drops page content.
 fn parse_xobjects_internal(
     doc: &LopdfDocument,
     resources: &LopdfDictionary,
@@ -1352,7 +1413,6 @@ fn parse_xobjects_internal(
         None => return xobj_map,
     };
 
-    // Iterate over each entry.
     for (key, value) in xobj_dict.iter() {
         let xobject_id = XObjectId(String::from_utf8_lossy(key).to_string());
 
@@ -1414,10 +1474,8 @@ fn parse_xobjects_internal(
                         },
                     );
                 } else if let Some(img) = raw_bitmap_from_stream(doc, stream) {
-                    // Without the `images` feature, `XObject::Image` cannot be
-                    // *serialized* (xobject.rs `image_to_stream` panics), so
-                    // keep the raw bitmap stream verbatim in that case — the
-                    // round trip preserves the image either way.
+                    // Without the `images` feature the bitmap stream is kept verbatim as an
+                    // external XObject instead of a decoded image.
                     let entry = if cfg!(feature = "images") {
                         PendingXObject::Ready(XObject::Image(img))
                     } else {
@@ -1444,10 +1502,7 @@ fn parse_xobjects_internal(
                 }
             }
             _other => {
-                // Form XObjects (and any other subtype) are preserved
-                // verbatim, references inlined. They used to be dropped with
-                // an "unknown xobject subtype" error, which deleted all
-                // vector content that had been embedded via `Do`.
+                // Form XObjects and any other subtype are kept verbatim, references inlined.
                 xobj_map.insert(
                     xobject_id,
                     PendingXObject::Ready(XObject::External(preserve_xobject_stream(doc, stream))),
@@ -1481,7 +1536,6 @@ fn parse_fonts_from_entire_pdf(
                 warnings,
                 Some(page_num),
             )?;
-            // Use the enhanced font parsing function
             Some(parsefont::parse_fonts_enhanced(
                 doc,
                 resources_dict,
@@ -1737,9 +1791,8 @@ fn parse_page(
     font_decode: &BTreeMap<String, FontTextDecodeKind>,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> Result<PdfPage, String> {
-    // Parse MediaBox. Required per spec, but *inheritable* from the parent
-    // Pages node — a common layout that used to hard-fail the whole document
-    // with "Page missing MediaBox". Fall back to A4 with a warning.
+    // MediaBox is required but may be inherited from the parent Pages node. Without one, fall
+    // back to A4 with a warning.
     let media_box = match get_inheritable_page_attr(page, doc, b"MediaBox") {
         Some(obj) => match parse_rect(obj) {
             Ok(r) => r,
@@ -1828,7 +1881,6 @@ fn parse_page(
         }
     };
 
-    // Convert lopdf operations to printpdf Ops.
     let mut page_state = PageState {
         font_decode: font_decode.clone(),
         ..PageState::default()
@@ -1853,8 +1905,8 @@ fn default_media_box() -> Rect {
     Rect::from_xywh(Pt(0.0), Pt(0.0), Pt(595.28), Pt(841.89))
 }
 
-/// Converts a single lopdf Operation to a printpdf Op.
-/// We use a mutable TextState to keep track of the current font and size.
+/// State carried across operators while one page's content stream is converted by
+/// [`parse_op`]: the current font, text position, open path and so on.
 #[derive(Debug, Clone, Default)]
 pub struct PageState {
     /// True if we are inside a `BT ... ET` text block
@@ -1863,6 +1915,7 @@ pub struct PageState {
     /// Current font resource and size (only relevant if `in_text_mode` = true)
     pub current_font: Option<crate::BuiltinOrExternalFontId>,
 
+    /// Size selected by the last `Tf`.
     pub current_font_size: Option<crate::units::Pt>,
 
     /// Current font resource name (e.g., "F5") - tracked only to emit warnings if text appears without Tf
@@ -1878,11 +1931,8 @@ pub struct PageState {
     /// Current transformation matrix stack. Each entry is a 6-float array [a b c d e f].
     pub transform_stack: Vec<[f32; 6]>,
 
-    /// Absolute text line position (the translation of the PDF text line matrix
-    /// Tlm), tracked so the RELATIVE `Td` operator can be emitted as an absolute
-    /// `SetTextCursor`. Without this, `50 700 Td … 0 -14 Td` (second line
-    /// relative) parsed the second move as absolute `(0, -14)`, dropping every
-    /// continuation line to the page's left edge. Reset by `BT`, set by `Tm`.
+    /// Absolute translation of the text line matrix. `Td` is relative, so it is accumulated here
+    /// and emitted as an absolute [`Op::SetTextCursor`]. Reset by `BT`, set by `Tm`.
     pub text_line: [f32; 2],
     /// Text leading (from `TL`/`TD`), so `T*` advances the tracked line by the
     /// right amount.
@@ -1891,30 +1941,36 @@ pub struct PageState {
     /// Name of the current marked content, if any (set by BMC/BDC)
     pub current_marked_content: Vec<String>,
 
+    /// The path under construction (`m`, `l`, `c`, `re`, ...), until a painting operator ends it.
     pub path_builder: PathBuilder,
 
+    /// Font and size of the last `SetFont` op that was emitted.
     pub last_emitted_font_size: Option<(FontId, Pt)>,
 
+    /// Holds a rectangle whose winding order is set by `W` and `W*`.
     pub rectangle_builder: RectangleBuilder,
 }
 
-/// Builder for constructing PDF paths
+/// Holds the rectangle that `W` and `W*` set the winding order of.
 #[derive(Debug, Clone, Default)]
 pub struct RectangleBuilder {
     rectangle: Option<Rect>,
 }
 
 impl RectangleBuilder {
+    /// Replaces the held rectangle with one at `(x, y)` of the given size.
     pub fn new(&mut self, x: Pt, y: Pt, width: Pt, height: Pt) {
         self.rectangle = Some(Rect::from_xywh(x, y, width, height));
     }
 
+    /// Sets the winding order of the held rectangle, if there is one.
     pub fn set_winding_order(&mut self, winding_order: WindingOrder) {
         if let Some(ref mut rectangle) = self.rectangle {
             rectangle.winding_order = Some(winding_order);
         }
     }
 
+    /// [`Op::DrawRectangle`] for the held rectangle, or no ops when there is none.
     pub fn get_ops(&self) -> Vec<Op> {
         if self.rectangle.is_none() {
             vec![]
@@ -1925,32 +1981,41 @@ impl RectangleBuilder {
         }
     }
 
+    /// Drops the held rectangle.
     pub fn clear(&mut self) {
         self.rectangle = None;
     }
 }
 
-/// Represents PDF path operations
+/// One segment of a subpath.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PathOperation {
+    /// Starts a new subpath at the point (`m`).
     MoveTo(Point),
+    /// Straight line to the point (`l`).
     LineTo(Point),
+    /// Cubic Bezier curve to `endpoint` (`c`, `v`, `y`).
     CurveTo {
+        /// First control point.
         control1: Point,
+        /// Second control point.
         control2: Point,
+        /// End point of the curve.
         endpoint: Point,
     },
+    /// Closes the subpath with a straight line to its start (`h`).
     ClosePath,
 }
 
-/// PDF subpath representation
+/// A subpath: a sequence of segments and whether it was closed with `h`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PdfSubPath {
     operations: Vec<PathOperation>,
     is_closed: bool,
 }
 
-/// Complete path with painting information
+/// A path (list of subpaths) with the paint mode and winding order that were chosen by the
+/// operator that ended it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PdfPath {
     subpaths: Vec<PdfSubPath>,
@@ -1958,7 +2023,8 @@ pub struct PdfPath {
     winding_order: WindingOrder,
 }
 
-/// Builder for constructing PDF paths
+/// Collects the path operators (`m`, `l`, `c`, `v`, `y`, `h`, `re`) of a content stream until a
+/// painting operator turns them into a [`PdfPath`].
 #[derive(Debug, Clone, Default)]
 pub struct PathBuilder {
     current_subpath: Vec<PathOperation>,
@@ -1968,6 +2034,7 @@ pub struct PathBuilder {
 }
 
 impl PathBuilder {
+    /// `m`: starts a new subpath at `point`.
     pub fn move_to(&mut self, point: Point) {
         if !self.current_subpath.is_empty() {
             self.subpaths
@@ -1979,6 +2046,7 @@ impl PathBuilder {
         self.start_point = Some(point);
     }
 
+    /// `l`: line to `point`; starts a subpath there if there is no current point.
     pub fn line_to(&mut self, point: Point) {
         if self.current_point.is_none() {
             self.move_to(point);
@@ -1989,6 +2057,7 @@ impl PathBuilder {
         self.current_point = Some(point);
     }
 
+    /// `c`: cubic curve with two control points.
     pub fn curve_to(&mut self, control1: Point, control2: Point, endpoint: Point) {
         if self.current_point.is_none() {
             self.move_to(control1);
@@ -2024,6 +2093,7 @@ impl PathBuilder {
         self.curve_to(control1, endpoint, endpoint);
     }
 
+    /// `h`: closes the current subpath. Does nothing on an empty subpath.
     pub fn close_path(&mut self) {
         if self.current_subpath.is_empty() {
             return;
@@ -2039,6 +2109,7 @@ impl PathBuilder {
         }
     }
 
+    /// Forgets all subpaths and the current point.
     pub fn clear(&mut self) {
         self.current_subpath.clear();
         self.subpaths.clear();
@@ -2061,6 +2132,7 @@ impl PathBuilder {
         self.current_subpath.is_empty() && self.subpaths.is_empty()
     }
 
+    /// The collected subpaths as a [`PdfPath`] with the given paint mode and winding order.
     pub fn build(&self, paint_mode: PaintMode, winding_order: WindingOrder) -> PdfPath {
         let mut all_subpaths = self.subpaths.clone();
         if !self.current_subpath.is_empty() {
@@ -2086,7 +2158,8 @@ impl PathBuilder {
     }
 }
 
-/// Convert a PdfPath to a DrawPolygon or DrawLine operation
+/// Converts a path to an op. A single open subpath that is only stroked becomes
+/// [`Op::DrawLine`]; anything else becomes [`Op::DrawPolygon`] with one ring per subpath.
 pub fn path_to_op(path: &PdfPath) -> Op {
     let mut all_rings = Vec::new();
 
@@ -2392,7 +2465,8 @@ fn test_bezier_path_parsing() {
 /// * Composite (Type0) fonts: two-byte big-endian CIDs → [`crate::text::TextItem::GlyphIds`]
 ///   with each glyph's Unicode string attached from the ToUnicode CMap, so
 ///   text extraction and regenerated ToUnicode CMaps stay correct.
-/// * Unknown font: fall back to the historic length-parity heuristic.
+/// * No font information: the string is decoded with
+///   [`decode_tj_string_as_glyph_ids`](crate::text::decode_tj_string_as_glyph_ids).
 fn decode_show_text_string(
     bytes: &[u8],
     kind: Option<&FontTextDecodeKind>,
@@ -2464,8 +2538,7 @@ fn decode_show_text_string(
             TextItem::GlyphIds(glyphs)
         }
         None => {
-            // No font information: keep the old behavior for these (rare)
-            // streams that show text before any usable `Tf`.
+            // No font information: text shown before any usable `Tf`, which is rare.
             let items = crate::text::decode_tj_string_as_glyph_ids(bytes);
             items
                 .into_iter()
@@ -2518,9 +2591,13 @@ fn decode_show_text_to_string(
     }
 }
 
-/// Convert a single lopdf Operation into zero, one, or many `printpdf::Op`.
-/// We maintain / mutate `PageState` so that repeated path operators (`m`, `l`, `c`, etc.)
-/// accumulate subpaths, and we only emit path-based Ops at stroke or fill time.
+/// Converts one content stream operator into zero or more [`Op`]s.
+///
+/// `state` carries the current font, text position and open path between calls: path operators
+/// (`m`, `l`, `c`, ...) accumulate in it and an op is emitted only when a painting operator
+/// (`S`, `f`, `B`, ...) ends the path. `page` and `op_id` are used for warnings only. A malformed
+/// operator pushes a warning and produces no op; an unknown one becomes [`Op::Unknown`]. The
+/// `Result` is `Err` for no case today. `_xobjects` is unused.
 pub fn parse_op(
     page: usize,
     op_id: usize,
@@ -2532,7 +2609,6 @@ pub fn parse_op(
     use crate::units::Pt;
     let mut out_ops = Vec::new();
     match op.operator.as_str() {
-        // --- Graphics State Save/Restore ---
         "q" => {
             let top = state
                 .transform_stack
@@ -2544,7 +2620,7 @@ pub fn parse_op(
         }
         "Q" => {
             if state.transform_stack.pop().is_none() {
-                // we won't fail the parse, just warn
+                // Unbalanced `Q`: warn, and still emit the op.
                 warnings.push(PdfWarnMsg::error(
                     page,
                     op_id,
@@ -2665,7 +2741,6 @@ pub fn parse_op(
             out_ops.push(Op::SetRenderingIntent { intent });
         }
         "rg" => {
-            // 'rg' sets fill color in RGB.
             if op.operands.len() == 3 {
                 let r = to_f32(&op.operands[0]);
                 let g = to_f32(&op.operands[1]);
@@ -2687,7 +2762,6 @@ pub fn parse_op(
             }
         }
         "RG" => {
-            // 'RG' sets stroke (outline) color in RGB.
             if op.operands.len() == 3 {
                 let r = to_f32(&op.operands[0]);
                 let g = to_f32(&op.operands[1]);
@@ -2709,7 +2783,6 @@ pub fn parse_op(
             }
         }
         "k" => {
-            // 'k' sets fill color in Cmyk.
             if op.operands.len() == 4 {
                 let c = to_f32(&op.operands[0]);
                 let m = to_f32(&op.operands[1]);
@@ -2733,7 +2806,6 @@ pub fn parse_op(
             }
         }
         "K" => {
-            // 'K' sets stroke (outline) color in CMYK.
             if op.operands.len() == 4 {
                 let c = to_f32(&op.operands[0]);
                 let m = to_f32(&op.operands[1]);
@@ -2757,7 +2829,6 @@ pub fn parse_op(
             }
         }
         "g" => {
-            // 'g' sets the fill color in grayscale.
             if op.operands.len() == 1 {
                 let gray = to_f32(&op.operands[0]);
                 out_ops.push(Op::SetFillColor {
@@ -2775,7 +2846,6 @@ pub fn parse_op(
             }
         }
         "G" => {
-            // 'G' sets the stroke (outline) color in grayscale.
             if op.operands.len() == 1 {
                 let gray = to_f32(&op.operands[0]);
                 out_ops.push(Op::SetOutlineColor {
@@ -2793,7 +2863,6 @@ pub fn parse_op(
             }
         }
 
-        // --- Text showing with spacing ---
         "TJ" => {
             if !state.in_text_mode {
                 warnings.push(PdfWarnMsg::error(
@@ -2829,7 +2898,6 @@ pub fn parse_op(
                     warnings,
                 );
 
-                // Emit new ShowText operation (1:1 PDF mapping)
                 out_ops.push(Op::ShowText { items: text_items });
             } else {
                 warnings.push(PdfWarnMsg::error(
@@ -2874,7 +2942,6 @@ pub fn parse_op(
                     warnings,
                 )];
 
-                // Emit new ShowText operation (1:1 PDF mapping)
                 out_ops.push(Op::ShowText { items: text_items });
             } else {
                 warnings.push(PdfWarnMsg::error(
@@ -3046,28 +3113,23 @@ pub fn parse_op(
         }
 
         "BT" => {
-            // --- Text mode begin (BT resets the text + text line matrix to identity)
+            // `BT` resets the text matrix and the text line matrix.
             state.in_text_mode = true;
             state.text_line = [0.0, 0.0];
             out_ops.push(Op::StartTextSection);
         }
         "ET" => {
-            // --- Text mode end
             state.in_text_mode = false;
             out_ops.push(Op::EndTextSection);
         }
 
         "Tf" => {
-            // --- Font + size (Tf) ---
             if op.operands.len() == 2 {
                 if let Some(font_name) = as_name(&op.operands[0]) {
                     state.current_font = Some(BuiltinOrExternalFontId::from_str(&font_name));
                     state.current_font_resource = Some(font_name.clone());
-                    // Resolve how this font's text bytes decode. The document's
-                    // *actual* font resources take priority: a foreign PDF may
-                    // name an embedded font "F1", which the F1-F14 builtin
-                    // naming heuristic would otherwise mis-claim as
-                    // Times-Roman and destroy both decode and re-encode.
+                    // The document's own font resources win over the F1-F14 builtin naming: a
+                    // foreign PDF may call an embedded font "F1".
                     state.current_font_decode = match state.font_decode.get(&font_name) {
                         Some(kind) => Some(kind.clone()),
                         None => BuiltinFont::from_id(&font_name).map(FontTextDecodeKind::Builtin),
@@ -3076,7 +3138,6 @@ pub fn parse_op(
                 let size_val = to_f32(&op.operands[1]);
                 state.current_font_size = Some(crate::units::Pt(size_val));
 
-                // Emit new SetFont operation (1:1 PDF mapping)
                 if let (Some(font_resource), Some(sz)) =
                     (&state.current_font_resource, &state.current_font_size)
                 {
@@ -3122,12 +3183,10 @@ pub fn parse_op(
             }
         }
 
-        // --- Move text cursor (Td) ---
         "Td" => {
             if op.operands.len() == 2 {
-                // `Td` is RELATIVE to the current text line matrix. Accumulate it
-                // into the absolute line position and emit an absolute cursor,
-                // since printpdf's SetTextCursor is absolute.
+                // `Td` is relative to the text line matrix: accumulate it and emit an absolute
+                // cursor, since `SetTextCursor` is absolute.
                 let tx = to_f32(&op.operands[0]);
                 let ty = to_f32(&op.operands[1]);
                 state.text_line[0] += tx;
@@ -3141,8 +3200,8 @@ pub fn parse_op(
             }
         }
 
-        // --- Begin/End marked content or optional content (BMC,BDC/EMC) ---
-        // NOTE: optional content can be nested
+        // Marked content (`BMC`, `BDC`, `EMC`). `BDC /OC /Name` is optional content (a layer).
+        // Marked content can nest.
         "BDC" => {
             // Typically something like: [Name("Span"), Properties as a Dictionary]
             // In case of optional content: [Name("OC"), Name("MyLayer")]
@@ -3171,10 +3230,8 @@ pub fn parse_op(
                     ));
                     return Ok(Vec::new());
                 };
-                // Emit BeginLayer (not BeginOptionalContent): the serializer
-                // only builds the page's /Properties entries — which make the
-                // `BDC /OC /Name` reference resolvable — from `BeginLayer`
-                // ops. Both ops write identical content-stream bytes.
+                // `BeginLayer` rather than `BeginOptionalContent`: the serializer builds the
+                // page's /Properties entries only from `BeginLayer` ops. Both write the same bytes.
                 out_ops.push(Op::BeginLayer {
                     layer_id: crate::LayerInternalId(layer_nm),
                 });
@@ -3238,7 +3295,6 @@ pub fn parse_op(
             }
         }
 
-        // --- Transformation (cm) ---
         "cm" => {
             if op.operands.len() == 6 {
                 let floats: Vec<f32> = op.operands.iter().map(to_f32).collect();
@@ -3262,8 +3318,6 @@ pub fn parse_op(
             }
         }
 
-        // --- Path building: moveTo (m), lineTo (l), closepath (h), curveTo (c), etc. ---
-        // --- Path building: moveTo (m), lineTo (l), closepath (h), curveTo (c), etc. ---
         "m" => {
             // Start a new subpath
             let x = to_f32(op.operands.first().unwrap_or(&lopdf::Object::Null));
@@ -3271,7 +3325,6 @@ pub fn parse_op(
             state.path_builder.move_to(Point { x: Pt(x), y: Pt(y) });
         }
         "l" => {
-            // lineTo
             let x = to_f32(op.operands.first().unwrap_or(&lopdf::Object::Null));
             let y = to_f32(op.operands.get(1).unwrap_or(&lopdf::Object::Null));
             state.path_builder.line_to(Point { x: Pt(x), y: Pt(y) });
@@ -3372,12 +3425,8 @@ pub fn parse_op(
                 let y = Pt(to_f32(&op.operands[1]));
                 let width = Pt(to_f32(&op.operands[2]));
                 let height = Pt(to_f32(&op.operands[3]));
-                // ISO 32000-1 8.5.2.1: `re` appends a closed rectangle to the
-                // CURRENT PATH (m, l, l, l, h) - the painting operator after it
-                // fills, strokes or clips it like any other subpath. It used to
-                // go to a builder only `n` emitted: `re f` / `re S` / `re B`
-                // drew nothing (every table background, box and rule), and
-                // `re W n` - a clip - came out as a FILLED rectangle.
+                // `re` appends a closed rectangle to the current path (ISO 32000-1, 8.5.2.1); the
+                // operator after it (`f`, `S`, `B`, `W n`) fills, strokes or clips it.
                 let corner = |dx: f32, dy: f32| Point {
                     x: Pt(x.0 + dx),
                     y: Pt(y.0 + dy),
@@ -3395,7 +3444,6 @@ pub fn parse_op(
                 ));
             }
         }
-        // --- Path painting
         "S" => {
             // Stroke - doesn't close the path
             let path = state
@@ -3516,11 +3564,7 @@ pub fn parse_op(
                 .set_winding_order(WindingOrder::EvenOdd);
         }
 
-        // --- Painting state operators
         "w" => {
-            // Set line width
-            // "w" sets the line width (stroke thickness in user‐space units)
-            // e.g. "3 w" => 3pt line width
             if let Some(val) = op.operands.first() {
                 let width = to_f32(val);
                 out_ops.push(Op::SetOutlineThickness {
@@ -3530,19 +3574,13 @@ pub fn parse_op(
         }
 
         "M" => {
-            // Set miter limit
-            // PDF operator "M <limit>" sets the miter limit.
-            // You don't currently have a specific Op variant for that,
-            // so you can either create one or store as `Unknown`.
             if let Some(val) = op.operands.first() {
                 let limit = to_f32(val);
-                // If you create an Op::SetMiterLimit, do that here:
                 out_ops.push(Op::SetMiterLimit { limit: Pt(limit) });
             }
         }
 
         "j" => {
-            // Set line join style
             // "0 j" => miter join, "1 j" => round join, "2 j" => bevel
             if let Some(val) = op.operands.first() {
                 let style_num = to_f32(val).round() as i64;
@@ -3557,7 +3595,6 @@ pub fn parse_op(
         }
 
         "J" => {
-            // Set line cap style
             // "0 J" => butt cap, "1 J" => round cap, "2 J" => projecting square
             if let Some(val) = op.operands.first() {
                 let style_num = to_f32(val).round() as i64;
@@ -3572,12 +3609,10 @@ pub fn parse_op(
         }
 
         "d" => {
-            // Set dash pattern
             // "d [2 2] 0" => dash 2 on, 2 off, offset=0
             if op.operands.len() == 2 {
                 // operand 0 is the dash array, operand 1 is the dash offset
                 if let Some(arr_obj) = op.operands.first() {
-                    // parse array of numbers
                     if let Ok(arr) = arr_obj.as_array() {
                         let pattern = arr.iter().map(to_f32).collect();
                         let offset = to_f32(&op.operands[1]);
@@ -3588,11 +3623,8 @@ pub fn parse_op(
             }
         }
 
-        // Fill color: "sc" or "scn"
-        // Typically you see "1 1 1 sc" => white fill in DeviceRGB
         "sc" | "scn" => {
-            // We interpret the number of operands to guess the color space.
-            // e.g. 1 operand => grayscale, 3 => RGB, 4 => CMYK
+            // The operand count picks the color space: 1 gray, 3 RGB, 4 CMYK.
             let floats = op.operands.iter().map(to_f32).collect::<Vec<_>>();
             match floats.len() {
                 1 => {
@@ -3637,8 +3669,7 @@ pub fn parse_op(
             }
         }
 
-        // Stroke color: "SC" or "SCN"
-        // e.g. "1 0 0 SC" => red stroke
+        // Stroke color; the operand count picks the color space as for `sc`.
         "SC" | "SCN" => {
             let floats = op.operands.iter().map(to_f32).collect::<Vec<_>>();
             match floats.len() {
@@ -3680,11 +3711,8 @@ pub fn parse_op(
             }
         }
 
-        // --- XObjects: /Do ---
-        // --- Show text with line advance (' and ") ---
-        // These show text exactly like Tj; leaving them unhandled turned them
-        // into `Op::Unknown`, which the (default, `secure`) serializer drops —
-        // deleting the text from the round-tripped document.
+        // `'` and `"` show text like `Tj`. Without these arms they would become `Op::Unknown`,
+        // which the default (`secure`) save drops.
         "'" => {
             if let Some(lopdf::Object::String(bytes, _)) = op.operands.first() {
                 let text = decode_show_text_to_string(
@@ -3739,9 +3767,7 @@ pub fn parse_op(
             }
         }
 
-        // Paint a named /Shading resource over the current clip. Parsed into the
-        // typed op so the default (`secure`) save no longer deletes it as
-        // `Op::Unknown` — gradients used to vanish on every round trip.
+        // `sh` paints a named /Shading resource over the current clip.
         "sh" => {
             if let Some(name_str) = as_name(op.operands.first().unwrap_or(&lopdf::Object::Null)) {
                 out_ops.push(Op::PaintShading {
@@ -3753,10 +3779,8 @@ pub fn parse_op(
         "Do" => {
             if let Some(name_str) = as_name(op.operands.first().unwrap_or(&lopdf::Object::Null)) {
                 let xobj_id = crate::XObjectId(name_str);
-                // The document's own `cm` operators (already emitted as
-                // `Op::SetTransformationMatrix`) fully position this XObject —
-                // tell the serializer not to add its unit-square → pixel-size
-                // convenience scale on top (it would scale the image twice).
+                // The document's own `cm` operators position the XObject; `no_auto_scale` stops the
+                // serializer from scaling the unit square again.
                 out_ops.push(Op::UseXobject {
                     id: xobj_id,
                     transform: crate::xobject::XObjectTransform {
@@ -3767,7 +3791,7 @@ pub fn parse_op(
             }
         }
 
-        // Catch everything else
+        // Anything else is kept as `Op::Unknown`, with a warning.
         other => {
             warnings.push(PdfWarnMsg::error(
                 page,
@@ -3784,12 +3808,16 @@ pub fn parse_op(
     Ok(out_ops)
 }
 
-/// Returns a default date (Unix epoch)
+/// Unix epoch, used when a date is missing or unreadable.
 fn default_date() -> OffsetDateTime {
     OffsetDateTime::from_unix_timestamp(0).unwrap()
 }
 
-/// Parses a DocumentInfo dictionary into a PdfDocumentInfo.
+/// Reads the document information dictionary (`/Info` of the trailer).
+///
+/// Missing or unreadable entries fall back to empty strings, `false` or the Unix epoch.
+/// `/Keywords` is split at commas, and text strings are decoded from UTF-16BE (with byte order
+/// mark) or UTF-8. The metadata date is set to the modification date, and the version to 1.
 pub fn parse_document_info(dict: &LopdfDictionary) -> PdfDocumentInfo {
     let trapped = dict
         .get(b"Trapped")
@@ -3985,27 +4013,26 @@ mod links_and_bookmarks {
         Pt,
     };
 
-    /// Returns an empty vector if any required key is missing.
+    /// Reads the top level of the outline (`/First` and `/Next` links; children are not
+    /// followed) as bookmarks with a title and a page number. Entries without a title or a
+    /// `/Dest` array are skipped. Returns an empty vector if the catalog has no outline.
     pub fn extract_bookmarks(doc: &Document) -> Vec<PageAnnotation> {
         try_extract_bookmarks(doc).unwrap_or_default()
     }
 
     fn try_extract_bookmarks(doc: &Document) -> Option<Vec<PageAnnotation>> {
-        // Retrieve the catalog from the trailer.
         let catalog_id = match doc.trailer.get(b"Root").ok()? {
             Object::Reference(id) => *id,
             _ => return None,
         };
         let catalog = doc.get_object(catalog_id).ok()?.as_dict().ok()?;
 
-        // Get the Outlines dictionary.
         let outlines_ref = match catalog.get(b"Outlines").ok()? {
             Object::Reference(id) => *id,
             _ => return None,
         };
         let outlines = doc.get_object(outlines_ref).ok()?.as_dict().ok()?;
 
-        // Start with the first bookmark.
         let mut current_ref = match outlines.get(b"First").ok()? {
             Object::Reference(id) => Some(*id),
             _ => None,
@@ -4021,7 +4048,6 @@ mod links_and_bookmarks {
         let mut bookmarks = Vec::new();
         while let Some(bm_ref) = current_ref {
             let bm_dict = doc.get_object(bm_ref).ok()?.as_dict().ok()?;
-            // Get the title.
             let title = match bm_dict.get(b"Title").ok()? {
                 Object::String(s, _) => s.clone(),
                 _ => {
@@ -4029,7 +4055,6 @@ mod links_and_bookmarks {
                     continue;
                 }
             };
-            // Get the destination array.
             let dest_array = match bm_dict.get(b"Dest").ok()? {
                 Object::Array(arr) => arr,
                 _ => {
@@ -4049,7 +4074,6 @@ mod links_and_bookmarks {
                 page: page_num,
             });
 
-            // Move on to the next bookmark.
             current_ref = next_bookmark(bm_dict);
         }
         Some(bookmarks)
@@ -4091,19 +4115,16 @@ mod links_and_bookmarks {
         })
     }
 
-    /// Extracts all link annotations from all pages using functional combinators.
-    /// Extract link annotations, tagged with the 0-based index of the page
-    /// they belong to (so the parser can re-attach them to their pages as
-    /// `Op::LinkAnnotation` — otherwise they are silently dropped on re-save).
+    /// Link annotations of all pages, with the zero-based index of their page, so that the parser
+    /// can put them back on the page as `Op::LinkAnnotation`. Only `/Subtype /Link` annotations
+    /// with a `/Rect` and a GoTo or URI action in `/A` are read.
     pub fn extract_link_annotations(doc: &Document) -> Vec<(usize, LinkAnnotation)> {
-        // Build a page mapping from object id to page number.
         let page_map: BTreeMap<ObjectId, usize> = doc
             .get_pages()
             .iter()
             .map(|(num, id)| (*id, *num as usize))
             .collect();
 
-        // For every page, try to extract its annotations.
         doc.get_pages()
             .iter()
             .flat_map(|(page_num, &page_id)| {
@@ -4123,11 +4144,9 @@ mod links_and_bookmarks {
                                 Object::Dictionary(d) => d,
                                 _ => return None,
                             };
-                            // Only process annotations with Subtype "Link".
                             if annot_dict.get(b"Subtype").ok()?.as_name().ok()? != b"Link" {
                                 return None;
                             }
-                            // Extract the rectangle.
                             let rect_arr = annot_dict.get(b"Rect").ok()?.as_array().ok()?;
                             if rect_arr.len() != 4 {
                                 return None;
@@ -4152,11 +4171,9 @@ mod links_and_bookmarks {
                                 Pt(coords[3] - coords[1]),
                             );
 
-                            // Extract the action.
                             let action_dict = annot_dict.get(b"A").ok()?.as_dict().ok()?;
                             let actions = extract_action(action_dict, &page_map)?;
 
-                            // Extract optional Border.
                             let border = annot_dict
                                 .get(b"Border")
                                 .ok()
@@ -4164,7 +4181,6 @@ mod links_and_bookmarks {
                                 .map(|s| extract_border_array(s.as_slice()))
                                 .unwrap_or_else(BorderArray::default);
 
-                            // Extract optional Color.
                             let color = annot_dict
                                 .get(b"C")
                                 .ok()
@@ -4172,7 +4188,6 @@ mod links_and_bookmarks {
                                 .map(|s| extract_color_array(s.as_slice()))
                                 .unwrap_or_else(ColorArray::default);
 
-                            // Extract highlighting mode.
                             let highlighting = annot_dict
                                 .get(b"H")
                                 .and_then(|obj| obj.as_name())
@@ -4349,19 +4364,16 @@ mod layers {
             }
         }
 
-        // Get the catalog from the trailer.
         let catalog = match doc.trailer.get(b"Root").ok().map(|o| resolve(doc, o)) {
             Some(Object::Dictionary(dict)) => dict,
             _ => return vec![],
         };
 
-        // Get the OCProperties dictionary.
         let ocprops = match catalog.get(b"OCProperties").ok().map(|o| resolve(doc, o)) {
             Some(Object::Dictionary(dict)) => dict,
             _ => return vec![],
         };
 
-        // Get the array of OCGs (optional content groups / layers).
         let ocgs = match ocprops.get(b"OCGs").ok().map(|o| resolve(doc, o)) {
             Some(Object::Array(arr)) => arr,
             _ => return vec![],
@@ -4391,7 +4403,6 @@ mod layers {
 
         let mut layers = Vec::new();
         for obj in ocgs {
-            // Each entry should be a reference to a layer dictionary.
             let layer_ref = match obj {
                 Object::Reference(id) => id,
                 _ => continue,
@@ -4401,7 +4412,6 @@ mod layers {
                 _ => continue,
             };
 
-            // Extract the layer name (accept both string and hex-string forms).
             let name = match layer_dict.get(b"Name").ok() {
                 Some(Object::String(s, _)) => s.clone(),
                 _ => continue,
@@ -4418,7 +4428,6 @@ mod layers {
                 _ => LayerIntent::Design,
             };
 
-            // Extract usage info from the "Usage" key (inline dict or reference).
             let (creator, usage_subtype) =
                 match layer_dict.get(b"Usage").ok().map(|o| resolve(doc, o)) {
                     Some(Object::Dictionary(usage_dict)) => {
@@ -4578,10 +4587,7 @@ mod extgstate {
             }
         }
 
-        // PDF spec: `CA` is the stroking (stroke) alpha, `ca` the nonstroking
-        // (fill) alpha. The write side (graphics.rs) emits them that way; parse
-        // them back to the matching fields (previously swapped — broke the
-        // ExtGState save->parse roundtrip).
+        // `CA` is the stroking alpha, `ca` the nonstroking (fill) alpha.
         if let Ok(obj) = dict.get(b"CA") {
             if let Some(num) = parse_f32(obj) {
                 gs.current_stroke_alpha = num;
@@ -4630,7 +4636,6 @@ mod extgstate {
 
         if let Ok(obj) = dict.get(b"Font") {
             if let Some(name) = parse_name(obj) {
-                // Here we assume FontId is a newtype wrapping a String.
                 gs.font = Some(match BuiltinFont::from_id(&name) {
                     Some(s) => BuiltinOrExternalFontId::Builtin(s),
                     None => BuiltinOrExternalFontId::External(FontId(name)),
@@ -4641,19 +4646,19 @@ mod extgstate {
 
         if let Ok(obj) = dict.get(b"SM") {
             if let Some(name) = parse_name(obj) {
-                // When written, a missing soft mask was output as "None"
+                // Only `/SM /None` is understood.
                 if name == "None" {
                     gs.soft_mask = None;
                 } else {
-                    // (Parsing a non-"None" soft mask is left as an exercise.)
+                    // Other soft masks are dropped.
                     gs.soft_mask = None;
                 }
                 changed.insert(ChangedField::SoftMask);
             }
         }
 
-        // (Other keys such as black generation, under-color removal, transfer functions,
-        // halftone dictionary, etc. could be parsed similarly when implemented.)
+        // Other keys (black generation, under-color removal, transfer functions, halftones) are
+        // not read.
 
         gs.changed_fields = changed;
         gs
@@ -4887,15 +4892,13 @@ mod parsefont {
     ///
     /// Only non-identity entries are stored; lookups fall back to CID == GID.
     ///
-    /// The CFF-charset source is additionally validated against the document's
-    /// ToUnicode CMap and the font's own cmap: printpdf ≤ 0.12 (#280) — and other
-    /// producers with the same bug — wrote glyph ids as Identity-H codes even for
-    /// CID-keyed CFF fonts whose charset says otherwise. PDFium renders such files
-    /// by falling back to code == GID, and re-interpreting them per spec here would
-    /// scramble glyph identities on re-save. When the identity reading explains the
-    /// document's own code→unicode→glyph triangle better than the charset reading,
-    /// the charset map is discarded. (An explicit `/CIDToGIDMap` stream is never
-    /// second-guessed — producers that write one mean it.)
+    /// The CFF-charset source is checked against the document's ToUnicode CMap and the font's own
+    /// cmap: some producers (older printpdf versions among them) wrote glyph ids as Identity-H
+    /// codes even for CID-keyed CFF fonts whose charset says otherwise. PDFium renders such
+    /// files with code == GID, and reading them per spec would scramble glyph identities on
+    /// re-save. When the identity reading explains the document's own code, unicode and glyph
+    /// triple better than the charset reading, the charset map is discarded. An explicit
+    /// `/CIDToGIDMap` stream is never second-guessed.
     fn extract_cid_to_gid_map(
         doc: &Document,
         font_dict: &Dictionary,
@@ -4995,7 +4998,7 @@ mod parsefont {
         Some(map)
     }
 
-    /// Main function to parse fonts from PDF resources
+    /// Parses the `/Font` resources of one resource dictionary, keyed by resource name.
     pub(crate) fn parse_fonts_enhanced(
         doc: &Document,
         resources: &Dictionary,
@@ -5005,17 +5008,14 @@ mod parsefont {
         let mut fonts_map = BTreeMap::new();
         let page_num = page.unwrap_or_default();
 
-        // Get the fonts dictionary from resources
         let fonts_dict = match get_fonts_dict_from_resources(doc, resources, warnings, page_num) {
             Some(dict) => dict,
             None => return fonts_map,
         };
 
-        // Process each font in the dictionary
         for (key, value) in fonts_dict.iter() {
             let font_id = FontId(String::from_utf8_lossy(key).to_string());
 
-            // Resolve font dictionary reference
             let font_dict = match get_dict_or_resolve_ref(
                 &format!("parse_fonts font_dict page {page_num}"),
                 doc,
@@ -5027,7 +5027,6 @@ mod parsefont {
                 None => continue,
             };
 
-            // Check font type
             let font_type = match get_font_subtype(font_dict, &font_id, warnings, page_num) {
                 Some(t) => t,
                 None => continue,
@@ -5036,7 +5035,6 @@ mod parsefont {
             // Extract ToUnicode CMap directly from the font dictionary (common to all font types)
             let to_unicode_cmap = extract_to_unicode_cmap(doc, font_dict, warnings, page_num);
 
-            // Handle different font types
             if &font_type == b"Type0" {
                 // Resolve the Type0 /Encoding: how content-stream bytes become codes
                 // (codespace ranges — 1–4 bytes, variable width) and codes become
@@ -5048,10 +5046,7 @@ mod parsefont {
                 let encoding_cmap =
                     extract_encoding_cmap(doc, font_dict, &font_id, warnings, page_num)
                         .map(Arc::new);
-                // Not gated on `text_layout`: an external font is a Type0 (CID) font, and
-                // this branch being empty without the feature is why `PdfDocument::parse`
-                // silently returned zero font resources for any PDF with an embedded font
-                // (#258).
+                // An external font is a Type0 (CID) font; this branch does not need `text_layout`.
                 match process_type0_font(doc, font_dict, &font_id, warnings, page_num) {
                     Some(parsed_font) => {
                         let cid_to_gid = extract_cid_to_gid_map(
@@ -5124,16 +5119,15 @@ mod parsefont {
         fonts_map
     }
 
-    // Extract ToUnicode CMap from a font dictionary
+    /// Parses the `/ToUnicode` CMap stream of a font dictionary. Warns and returns `None` when
+    /// it cannot be parsed.
     pub(crate) fn extract_to_unicode_cmap(
         doc: &Document,
         font_dict: &Dictionary,
         warnings: &mut Vec<PdfWarnMsg>,
         page_num: usize,
     ) -> Option<ToUnicodeCMap> {
-        // Check if font dictionary has a ToUnicode entry
         if let Ok(to_unicode_ref) = font_dict.get(b"ToUnicode") {
-            // Get the ToUnicode stream
             let to_unicode_stream = match to_unicode_ref {
                 Object::Stream(s) => Some(s),
                 Object::Reference(r) => match doc.get_object(*r) {
@@ -5144,15 +5138,12 @@ mod parsefont {
             };
 
             if let Some(stream) = to_unicode_stream {
-                // Decompress the stream content
                 let content = match stream.decompressed_content() {
                     Ok(data) => data,
                     Err(_) => stream.content.clone(),
                 };
 
-                // Convert to string
                 if let Ok(cmap_str) = String::from_utf8(content) {
-                    // Parse using ToUnicodeCMap::parse
                     match ToUnicodeCMap::parse(&cmap_str) {
                         Ok(cmap) => {
                             return Some(cmap);
@@ -5179,13 +5170,11 @@ mod parsefont {
         warnings: &mut Vec<PdfWarnMsg>,
         page_num: usize,
     ) -> Option<&'a Dictionary> {
-        // Get Font dictionary from Resources
         let font_map = match resources.get(b"Font") {
             Ok(s) => s,
             Err(_) => return None,
         };
 
-        // Resolve Font dictionary reference
         get_dict_or_resolve_ref(
             &format!("parse_fonts Font page {page_num}"),
             doc,
@@ -5223,15 +5212,12 @@ mod parsefont {
         warnings: &mut Vec<PdfWarnMsg>,
         page_num: usize,
     ) -> Option<ParsedFont> {
-        // Get the descendant font dictionary
         let descendant_font_dict =
             get_descendant_font_dict(doc, font_dict, font_id, warnings, page_num)?;
 
-        // Get the font descriptor
         let font_descriptor =
             get_font_descriptor(doc, descendant_font_dict, font_id, warnings, page_num)?;
 
-        // Process font data (no need to handle CMap here anymore)
         process_font_data(doc, font_dict, font_descriptor, font_id, warnings, page_num)
     }
 
@@ -5243,10 +5229,8 @@ mod parsefont {
         warnings: &mut Vec<PdfWarnMsg>,
         page_num: usize,
     ) -> Option<&'a Dictionary> {
-        // Get DescendantFonts array
         match font_dict.get(b"DescendantFonts") {
             Ok(Object::Array(arr)) if !arr.is_empty() => {
-                // Get first descendant font
                 match arr[0].as_dict().ok().or_else(|| {
                     if let Ok(id) = arr[0].as_reference() {
                         doc.get_dictionary(id).ok()
@@ -5318,10 +5302,8 @@ mod parsefont {
         warnings: &mut Vec<PdfWarnMsg>,
         page_num: usize,
     ) -> Option<ParsedFont> {
-        // Try each font file type
         for font_file_key in &[b"FontFile", b"FontFile2" as &[u8], b"FontFile3"] {
             if let Ok(font_file_ref) = font_descriptor.get(font_file_key) {
-                // Get and decompress font data
                 let font_data = get_font_data(doc, font_file_ref, warnings)?;
 
                 warnings.push(PdfWarnMsg::info(
@@ -5334,12 +5316,9 @@ mod parsefont {
                     ),
                 ));
 
-                // Parse the font
                 let mut font_warnings = Vec::new();
                 if let Some(parsed_font) = ParsedFont::from_bytes(&font_data, 0, &mut font_warnings)
                 {
-                    // No cfg split needed any more: `from_bytes` now takes the same warning
-                    // type with and without `text_layout` (#260).
                     for fw in font_warnings {
                         warnings.push(PdfWarnMsg::warning(page_num, 0, format!("{fw:?}")));
                     }
@@ -5362,7 +5341,6 @@ mod parsefont {
         font_file_ref: &Object,
         _warnings: &mut Vec<PdfWarnMsg>,
     ) -> Option<Vec<u8>> {
-        // Get font stream
         let font_stream = match font_file_ref {
             Object::Stream(s) => s,
             Object::Reference(r) => match doc.get_object(*r) {
@@ -5372,7 +5350,6 @@ mod parsefont {
             _ => return None,
         };
 
-        // Decompress font data
         match font_stream.decompressed_content() {
             Ok(data) => Some(data),
             Err(_) => Some(font_stream.content.clone()),
@@ -5388,10 +5365,8 @@ mod parsefont {
         warnings: &mut Vec<PdfWarnMsg>,
         page_num: usize,
     ) -> Option<ParsedFont> {
-        // Get the font descriptor
         let font_descriptor = get_font_descriptor(doc, font_dict, font_id, warnings, page_num)?;
 
-        // Process font data (no need to handle CMap here anymore)
         process_font_data(doc, font_dict, font_descriptor, font_id, warnings, page_num)
     }
 
@@ -5403,13 +5378,11 @@ mod parsefont {
         warnings: &mut Vec<PdfWarnMsg>,
         page_num: usize,
     ) -> Option<ParsedOrBuiltinFont> {
-        // Get BaseFont name
         let basefont = match font_dict.get(b"BaseFont") {
             Ok(Object::Name(basefont_bytes)) => String::from_utf8_lossy(basefont_bytes).to_string(),
             _ => return None,
         };
 
-        // Look up built-in font
         match BuiltinFont::from_id(&basefont) {
             Some(builtin) => Some(ParsedOrBuiltinFont::B(builtin)),
             None => {
@@ -5459,11 +5432,8 @@ mod parsefont {
         }
     }
 
-    /// Pick the closest standard-14 font for a simple font that is not
-    /// embedded in the document (`Arial`, `TimesNewRomanPSMT`, ...). Rendering
-    /// with a substitute face keeps the text readable and re-encodable; the
-    /// alternative — dropping the font — turns every string that uses it into
-    /// dangling glyph ids on re-save.
+    /// Picks the closest standard-14 font for a simple font that is not embedded (`Arial`,
+    /// `TimesNewRomanPSMT`, ...), so that its text stays readable and can be written again.
     fn builtin_substitute(basefont: &str) -> BuiltinFont {
         use crate::BuiltinFont::*;
         // Strip the "ABCDEF+" subset prefix if present.
@@ -5508,20 +5478,19 @@ mod parsefont {
     }
 }
 
-// Decode text from UTF-16BE with BOM
+/// Decodes a PDF text string: UTF-16BE when it starts with the byte order mark `FE FF`,
+/// otherwise UTF-8 (lossy).
 fn decode_text_from_utf16be(bytes: &[u8]) -> String {
     if bytes.len() < 2 {
         // not UTF-16BE encoded, use UTF-8
         return String::from_utf8_lossy(bytes).into_owned();
     }
 
-    // check for Byte Order Mask
     if bytes[0] != 0xFE || bytes[1] != 0xFF {
         // not UTF-16BE encoded, use UTF-8
         return String::from_utf8_lossy(bytes).into_owned();
     }
 
-    // Decode from UTF-16BE
     let (chunks, remainder) = bytes[2..].as_chunks::<2>();
     let string = char::decode_utf16(chunks.iter().copied().map(u16::from_be_bytes))
         .map(|r| r.unwrap_or(char::REPLACEMENT_CHARACTER))
@@ -5532,5 +5501,3 @@ fn decode_text_from_utf16be(bytes: &[u8]) -> String {
         string + "\u{FFFD}"
     }
 }
-
-// -- ⚝  by Dave -- in NeoVim ⚝  --

@@ -1,3 +1,44 @@
+//! Writing a [`PdfDocument`] as PDF bytes.
+//!
+//! A PDF file is a header, a list of numbered objects (dictionaries, arrays, streams, ...), a
+//! cross-reference table that says where each object starts, and a trailer that names the root
+//! object, the *catalog*. The pages hang off the catalog, and each page has a *content stream*:
+//! the drawing operators of the page. [`crate::deserialize`] describes the layout in more detail.
+//!
+//! Saving builds a [`lopdf`] document from the [`PdfDocument`] and lets lopdf write it (version
+//! 1.3, classic cross-reference table):
+//!
+//! - One resource dictionary with the fonts, XObjects, ExtGState dictionaries and shadings of the
+//!   document is shared by all pages.
+//! - Each [`PdfPage`] becomes a page object with its boxes, a content stream translated from its
+//!   [`Op`]s, and an `/Annots` array built from its [`Op::LinkAnnotation`]s.
+//! - Embedded fonts are written as composite (Type0) fonts with Identity-H encoding, a `/W`
+//!   width array and a ToUnicode CMap, so that the text can be searched and copied. Only fonts
+//!   that a page uses are written, and by default only the glyphs that are used (see
+//!   [`PdfSaveOptions::subset_fonts`]). The 14 standard fonts are written as plain Type1 fonts
+//!   with WinAnsi encoding.
+//! - Layers become optional content groups, bookmarks become the outline, and the conformance
+//!   level of the metadata decides whether an output intent with an ICC profile and an XMP
+//!   metadata stream are added.
+//! - The trailer gets the document information and a random file identifier.
+//!
+//! [`PdfSaveOptions`] controls compression, font subsetting and image optimization.
+//! [`PdfDocument::save`] is the usual entry point.
+//!
+//! # Examples
+//!
+//! ```
+//! use printpdf::*;
+//!
+//! let mut doc = PdfDocument::new("Saved");
+//! doc.pages.push(PdfPage::new(Mm(210.0), Mm(297.0), vec![]));
+//!
+//! let mut warnings = Vec::new();
+//! let opts = PdfSaveOptions { subset_fonts: false, ..Default::default() };
+//! let bytes = doc.save(&opts, &mut warnings);
+//! assert!(bytes.starts_with(b"%PDF-"));
+//! ```
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     io::Write,
@@ -21,27 +62,35 @@ use crate::{
     XObjectId,
 };
 
-// NOTE: field names are snake_case ON THE WIRE (`subset_fonts`, `image_optimization`)
-// and JS clients depend on that. A `#[serde(rename = "camelCase")]` attribute sat here
-// for a long time — that renames the STRUCT to the literal string "camelCase" (a no-op
-// for JSON objects); the camelCasing intent was never in effect and must not be
-// "fixed" to `rename_all` now, since that would break every existing client.
+/// Options for [`PdfDocument::save`](crate::PdfDocument::save) and the other ways of writing a
+/// document.
+///
+/// Serialized to JSON with snake_case field names (`subset_fonts`, `image_optimization`).
+// Clients depend on the snake_case names: do not add `rename_all = "camelCase"`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
 pub struct PdfSaveOptions {
-    /// If set to true (default), compresses streams, prunes unreferenced PDF objects
-    /// and drops the /ActualText of text whose glyphs read as it anyway. Set to false
-    /// for debugging
+    /// Makes the file smaller (default `true`): streams that have no filter are compressed with
+    /// Flate, runs of absolutely positioned glyphs are merged into one text operator, and the
+    /// `/ActualText` of text whose glyphs already read as it is dropped. Compression only
+    /// happens when the file is written; [`PdfDocument::to_lopdf_document`] returns streams
+    /// uncompressed. Set to `false` for a file that is easier to inspect.
     #[serde(default = "default_optimize")]
     pub optimize: bool,
-    /// Whether to include the entire font or to subset it.
-    /// Default is set to true because some CJK fonts can be massive.
+    /// Embeds only the glyphs of each font that the document uses (default `true`), which keeps
+    /// the file small, as some CJK fonts are very large. With `false`, or for a font that cannot
+    /// be subset (a warning is pushed), the whole font is embedded. Subsetting needs the
+    /// `text_layout` feature.
     #[serde(default = "default_subset_fonts")]
     pub subset_fonts: bool,
-    /// Whether to ignore unknown operations. If set to true
-    /// (default), will skip any unknown PDF operations when serializing the file.
+    /// Leaves out [`Op::Unknown`] operators when writing (default `true`). A parsed PDF's
+    /// operators that have no [`Op`] of their own are kept as `Op::Unknown`; with `false` they
+    /// are written back as they were.
     #[serde(default = "default_secure")]
     pub secure: bool,
-    /// Image optimization options
+    /// How images are re-encoded when written. `Some` by default, with the defaults of
+    /// [`ImageOptimizationOptions`]; `None` writes images as they are. Needs the `images`
+    /// feature; without it images are written as plain Flate-compressed pixels and this field is
+    /// ignored.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_optimization: Option<ImageOptimizationOptions>,
 }
@@ -67,9 +116,8 @@ impl Default for PdfSaveOptions {
     }
 }
 
-// Initializes the image resources and the document
-//
-// Note: this function may become async later on!
+/// Creates the lopdf document and its shared `/XObject` resource dictionary, which holds every
+/// image and form XObject of `pdf` (images are encoded with `opts.image_optimization`).
 pub fn init_doc_and_resources(
     pdf: &PdfDocument,
     opts: &PdfSaveOptions,
@@ -88,6 +136,10 @@ pub fn init_doc_and_resources(
     (doc, global_xobject_dict)
 }
 
+/// Writes `pdf` as a PDF file to `writer`, which is what [`PdfDocument::save_writer`] does.
+///
+/// With `opts.optimize`, streams are compressed and redundant `/ActualText` is dropped before
+/// writing. Problems are pushed to `warnings`; errors of `writer` are ignored.
 pub fn serialize_pdf<W: Write>(
     pdf: &PdfDocument,
     opts: &PdfSaveOptions,
@@ -104,6 +156,8 @@ pub fn serialize_pdf<W: Write>(
     let _ = doc.save_to(&mut writer);
 }
 
+/// Builds the lopdf document for `pdf` without compressing or writing it, which is what
+/// [`PdfDocument::to_lopdf_document`] does.
 pub fn to_lopdf_doc(
     pdf: &PdfDocument,
     opts: &PdfSaveOptions,
@@ -118,7 +172,7 @@ pub fn to_lopdf_doc(
         ("Pages", Reference(pages_id)),
     ]);
 
-    // (Optional): Add OutputIntents to catalog
+    // Conformance levels that need an ICC profile get an output intent.
     if pdf.metadata.info.conformance.must_have_icc_profile() {
         /// Default ICC profile, necessary if `PdfMetadata::must_have_icc_profile()` return true
         const ICC_PROFILE_ECI_V2: &[u8] = include_bytes!("./res/CoatedFOGRA39.icc");
@@ -150,7 +204,7 @@ pub fn to_lopdf_doc(
         catalog.set("OutputIntents", Array(vec![Dictionary(output_intents)]));
     }
 
-    // (Optional): Add XMP Metadata to catalog
+    // Conformance levels that need XMP metadata get an XMP stream.
     if pdf.metadata.info.conformance.must_have_xmp_metadata() {
         let xmp_obj = Stream(LoStream::new(
             LoDictionary::from_iter(vec![("Type", "Metadata".into()), ("Subtype", "XML".into())]),
@@ -160,8 +214,8 @@ pub fn to_lopdf_doc(
         catalog.set("Metadata", Reference(metadata_id));
     }
 
-    // (Optional): Add "OCProperties" (layers) to catalog
-    // Build a mapping from each layer's internal id to a single OCG object ID.
+    // Layers become optional content groups listed in the catalog's /OCProperties; `layer_ids`
+    // maps each layer id to its group's object id.
     let layer_ids = if !pdf.resources.layers.map.is_empty() {
         let map = pdf
             .resources
@@ -211,7 +265,7 @@ pub fn to_lopdf_doc(
         None
     };
 
-    // Build fonts dictionary with deferred subsetting
+    // Embedded fonts (subset if enabled) first, then the standard fonts that the pages use.
     let mut global_font_dict = LoDictionary::new();
     let (font_infos, subset_fonts) = prepare_fonts_for_serialization(&pdf.resources, &pdf.pages, opts.subset_fonts, warnings);
     for (font_id, subset_info) in subset_fonts.iter() {
@@ -221,10 +275,9 @@ pub fn to_lopdf_doc(
     }
 
     for internal_font in get_used_internal_fonts(&pdf.pages) {
-        // Never clobber an embedded font that happens to be named F1..F14 (very
-        // common in parsed foreign PDFs) with a builtin standard-14 dict — the
-        // page ops referencing that name would suddenly point at the wrong font.
-        // resolve_current_font applies the same embedded-first rule per op.
+        // An embedded font that has the same resource name (F1..F14 is common in parsed PDFs)
+        // wins over the standard font, or the page ops would point at the wrong font.
+        // `resolve_current_font` applies the same rule per op.
         if global_font_dict.has(internal_font.get_pdf_id().as_bytes()) {
             warnings.push(PdfWarnMsg::warning(
                 0,
@@ -262,7 +315,6 @@ pub fn to_lopdf_doc(
         .map(|_| doc.new_object_id())
         .collect::<Vec<_>>();
 
-    // Render pages
     let page_ids = pdf
         .pages
         .iter()
@@ -270,8 +322,7 @@ pub fn to_lopdf_doc(
         .map(|(page, page_id)| {
             let mut page_resources = LoDictionary::new();
 
-            // Instead of re-creating new OCG dictionaries here,
-            // re-use the objects from the global layer_ids mapping.
+            // Reuse the OCG objects from the global layer map.
             if let Some(ref layer_ids) = layer_ids {
                 let page_layers = page
                     .ops
@@ -298,7 +349,6 @@ pub fn to_lopdf_doc(
                 }
             }
 
-            // Gather annotations
             let mut links = Vec::new();
             for op in &page.ops {
                 if let Op::LinkAnnotation { link } = op {
@@ -349,7 +399,7 @@ pub fn to_lopdf_doc(
         })
         .collect::<Vec<_>>();
 
-    // Now that the page objs are rendered, resolve which bookmarks reference which page objs
+    // Bookmarks point at page objects, so they are written after the pages.
     if !pdf.bookmarks.map.is_empty() {
         let bookmarks_id = doc.new_object_id();
         let mut bookmarks_sorted = pdf.bookmarks.map.iter().collect::<Vec<_>>();
@@ -439,6 +489,8 @@ pub fn to_lopdf_doc(
 
     doc
 }
+
+/// Writes `pdf` as a PDF file into a `Vec<u8>`, which is what [`PdfDocument::save`] does.
 pub fn serialize_pdf_into_bytes(
     pdf: &PdfDocument,
     opts: &PdfSaveOptions,
@@ -451,14 +503,12 @@ pub fn serialize_pdf_into_bytes(
     bytes
 }
 fn get_used_internal_fonts(pages: &[PdfPage]) -> BTreeSet<BuiltinFont> {
-    // With new API, builtin fonts are referenced in SetFont operation
-    // Parse SetFont operations to extract builtin font usage
+    // Standard fonts are selected by `SetFont` ops; collect the ones in use.
     let mut fonts = BTreeSet::new();
     
     for page in pages {
         for op in &page.ops {
             if let Op::SetFont { font, .. } = op {
-                // Extract builtin fonts
                 if let crate::ops::PdfFontHandle::Builtin(builtin_font) = font {
                     fonts.insert(*builtin_font);
                 }
@@ -514,7 +564,6 @@ pub(crate) fn translate_operations(
 ) -> Vec<u8> {
     let mut content = Vec::new();
 
-    // Track current font for ShowText operations
     let mut current_font_resource: Option<String> = None;
     let mut current_font_size: f32 = 0.0;
     // Text state that changes the viewer's pen arithmetic — the glyph-run
@@ -522,28 +571,19 @@ pub(crate) fn translate_operations(
     let mut current_char_spacing: f32 = 0.0;
     let mut current_horiz_scaling: f32 = 100.0;
 
-    // ---- glyph-run merger -------------------------------------------------
-    // The HTML/layout pipelines position every glyph absolutely, as repeating
-    //   `SetTextMatrix(1 0 0 1 x y)` + `ShowText[GlyphIds]`
-    // pairs. Serialized literally (one one-glyph show op per glyph), PDFium's
-    // text page does not honor the per-op matrices: it crams every character
-    // of the line into the FIRST glyph's bounding box, so Chrome's selection
-    // highlight is a sliver at the line start while rendering stays correct.
-    // Coalesce each same-baseline sequence into one `Tm` + one `TJ` whose kern
-    // numbers reproduce the identical pen positions: the viewer advances by
-    // the `/W` width after each glyph, and `/W` is filled from
-    // `get_scaled_glyph_width`, so computing kerns against that same integer
-    // makes the merged stream render-identical by construction. Anything that
-    // breaks the pattern (baseline change, font change, Tc/Tz state, any other
-    // op) flushes the run and falls back to literal serialization.
+    // Glyph-run merger. Layout code positions every glyph absolutely, as repeating
+    // `SetTextMatrix(1 0 0 1 x y)` + `ShowText[GlyphIds]` pairs. Written literally, PDFium's text
+    // page puts every character of a line into the first glyph's box, so a selection shows as a
+    // sliver at the line start. Each same-baseline sequence is merged into one `Tm` + one `TJ`
+    // whose kerns reproduce the same pen positions: the viewer advances by the `/W` width after
+    // each glyph, and the kerns are computed against that same integer
+    // (`get_scaled_glyph_width`). Anything that breaks the pattern (new baseline, font change,
+    // Tc/Tz state, any other op) flushes the run and falls back to literal output.
     let mut pending_tm: Option<[f32; 6]> = None;
     let mut glyph_run: Option<PendingGlyphRun> = None;
 
-    // Text-showing operators are only valid between BT and ET. Emitting them
-    // outside is not a rendering variation — Acrobat and most viewers drop the
-    // text entirely, and the classic symptom is a "blank PDF" with no error
-    // (#254). The ops are still written (some tolerant viewers show them), but
-    // the mistake is loud now.
+    // Text-showing operators are only valid between BT and ET. Written outside, most viewers
+    // drop the text without an error (a blank PDF). The ops are still written, but warned about.
     let mut in_text_section = false;
     let mut warned_outside_text_section = false;
     let warn_outside = |op_idx: usize,
@@ -738,7 +778,6 @@ pub(crate) fn translate_operations(
                 in_text_section = false;
                 content.push(LoOp::new("ET", vec![]));
             }
-            // New 1:1 PDF operations
             Op::SetFont { font, size } => {
                 let font_resource_name = font.get_resource_name();
                 current_font_resource = Some(font_resource_name.clone());
@@ -915,10 +954,8 @@ pub(crate) fn translate_operations(
             Op::EndCompatibilitySection => {
                 content.push(LoOp::new("EX", vec![]));
             }
-            // `'` and `"` show text just like Tj does, so they need the *same* encoding as
-            // the currently selected font — glyph ids for an external font, WinAnsi for a
-            // built-in one. They used to emit `text.as_bytes()` (raw UTF-8) unconditionally,
-            // which is wrong for both (issue #273).
+            // `'` and `"` show text like `Tj`, so they need the same encoding as the selected
+            // font: glyph ids for an external font, WinAnsi for a built-in one.
             Op::MoveToNextLineShowText { text } => {
                 if !in_text_section {
                     warn_outside(
@@ -965,7 +1002,7 @@ pub(crate) fn translate_operations(
                 content.push(LoOp::new("TD", vec![Real(*tx), Real(*ty)]));
             }
             Op::Unknown { key, value } => {
-                // Skip unknown operators for security reasons.
+                // `Op::Unknown` is written only when `secure` is off.
                 if !secure {
                     content.push(LoOp::new(
                         key.as_str(),
@@ -986,11 +1023,6 @@ pub(crate) fn translate_operations(
     .unwrap_or_default()
 }
 
-// Helper function to encode text items to PDF operations
-// 
-// IMPORTANT: This function uses ORIGINAL glyph IDs directly.
-// Font subsetting (if enabled) happens at font serialization time,
-// and the glyph ID remapping is done there, not here.
 /// Resolve the font selected by the most recent `Tf` into either a built-in face or an
 /// embedded one. Every text-showing operator (`Tj`, `TJ`, `'`, `"`) needs this, because
 /// the two classes encode their strings completely differently.
@@ -998,12 +1030,10 @@ fn resolve_current_font<'a>(
     current_font_resource: &Option<String>,
     font_infos: &'a BTreeMap<FontId, RuntimeFontInfo>,
 ) -> (Option<BuiltinFont>, Option<&'a RuntimeFontInfo>) {
-    // The document's own fonts take priority. A parsed foreign PDF very often
-    // names its embedded fonts /F1../F14; treating those as the builtin
-    // standard-14 faces WinAnsi-encoded text that belongs to a Type0 font —
-    // instant mojibake on re-save. The builtin-name heuristic applies only
-    // when no embedded font claims the resource name (mirrors the parse-side
-    // rule in deserialize.rs).
+    // The document's own fonts win: a parsed PDF often names embedded fonts F1..F14, and
+    // treating those as standard fonts would WinAnsi-encode text that belongs to a Type0 font.
+    // Standard-font naming applies only when no embedded font has the name (the parser uses the
+    // same rule).
     let info = current_font_resource
         .as_ref()
         .and_then(|r| font_infos.get(&FontId(r.clone())));
@@ -1028,18 +1058,17 @@ fn remap_gid(font_info: Option<&RuntimeFontInfo>, gid: u16) -> u16 {
     }
 }
 
+/// Writes `items` as one `Tj` (a single plain string) or `TJ` (anything else) operator.
 fn encode_text_items_to_pdf(
     items: &[TextItem],
     font_info: Option<&RuntimeFontInfo>,
     builtin_font: Option<&BuiltinFont>,
     content: &mut Vec<LoOp>,
 ) {
-    // Skip if no items
     if items.is_empty() {
         return;
     }
 
-    // Process text items into PDF objects for TJ/Tj operator
     let mut tj_array = Vec::new();
 
     for item in items {
@@ -1051,8 +1080,7 @@ fn encode_text_items_to_pdf(
                 tj_array.push(Real(*offset));
             }
             TextItem::GlyphIds(glyphs) => {
-                // Use original glyph IDs directly
-                // Subsetting remapping happens at font serialization time
+                // Glyph ids go through `gid_remap` when the font is subset.
                 for codepoint in glyphs {
                     let gid = remap_gid(font_info, codepoint.gid);
                     let bytes = gid.to_be_bytes().to_vec();
@@ -1065,7 +1093,6 @@ fn encode_text_items_to_pdf(
         }
     }
 
-    // Choose appropriate operator based on complexity
     if tj_array.len() == 1 && !items.iter().any(|i| matches!(i, TextItem::Offset(_) | TextItem::GlyphIds(_))) {
         // Single text item with no kerning - use simpler Tj
         content.push(LoOp::new("Tj", vec![tj_array.swap_remove(0)]));
@@ -1075,7 +1102,6 @@ fn encode_text_items_to_pdf(
     }
 }
 
-// Helper function to determine if bytes need hexadecimal encoding
 fn needs_hex_encoding(bytes: &[u8]) -> bool {
     bytes.iter().any(|&b| {
         // Bytes that require hex encoding:
@@ -1086,20 +1112,14 @@ fn needs_hex_encoding(bytes: &[u8]) -> bool {
     })
 }
 
-/// Encode `text` as `WinAnsiEncoding` bytes (PDF 32000-1 Annex D.2 — effectively CP1252).
+/// Encodes `text` as `WinAnsiEncoding` bytes (ISO 32000-1, Annex D.2; effectively CP1252).
 ///
-/// The 14 built-in fonts are written with `/Encoding /WinAnsiEncoding`, which is a
-/// *single-byte* encoding. Their content streams must therefore carry WinAnsi bytes.
-/// Emitting the raw UTF-8 instead means `ü` (U+00FC, UTF-8 `C3 BC`) reaches the reader as
-/// the two WinAnsi characters `Ã¼`, so every non-ASCII character comes out as mojibake
-/// and the text is not copy-able (issue #273).
+/// The 14 built-in fonts are written with `/Encoding /WinAnsiEncoding`, a single-byte encoding, so
+/// their text must be WinAnsi bytes. UTF-8 would show `ü` (`C3 BC`) as the two characters `Ã¼`
+/// and the text could not be copied. The table lives here so that the result does not depend on
+/// what lopdf's own text encoding supports.
 ///
-/// We do this ourselves rather than via `lopdf::Document::encode_text`, because lopdf
-/// 0.39 does not recognise the `WinAnsiEncoding` name and silently falls through to
-/// `text.as_bytes()` — which is exactly the bug. Owning the table also keeps the encoding
-/// correct across lopdf upgrades.
-///
-/// Characters WinAnsi cannot represent are replaced with `?`.
+/// Characters WinAnsi cannot represent become `?`.
 fn encode_win_ansi(text: &str) -> Vec<u8> {
     text.chars()
         .map(|c| win_ansi_byte(c).unwrap_or(b'?'))
@@ -1210,10 +1230,10 @@ pub(crate) struct RuntimeSubsetInfo {
     pub descent: i64,
     /// Original glyph id -> the Identity-H code the content stream must emit.
     ///
-    /// That code is the renumbered subset glyph id when the font was subset, and —
-    /// for CID-keyed CFF fonts — the CID the embedded font's charset assigns to the
-    /// glyph (viewers resolve codes through that charset, #280). Empty when codes
-    /// stay the original glyph ids (full TTF / name-keyed CFF embed).
+    /// That code is the renumbered subset glyph id when the font was subset and, for CID-keyed
+    /// CFF fonts, the CID that the embedded font's charset assigns to the glyph (viewers resolve
+    /// codes through that charset). Empty when codes stay the original glyph ids (full TTF or
+    /// name-keyed CFF embed).
     pub gid_remap: BTreeMap<u16, u16>,
     /// Whether the embedded font program was actually subset (renumbered). Controls
     /// the `XXXXXX+` subset tag on /BaseFont and /FontName — a full embed must not
@@ -1221,7 +1241,8 @@ pub(crate) struct RuntimeSubsetInfo {
     pub was_subset: bool,
 }
 
-/// Analyze all PDF operations to collect used glyph IDs for each font - now trivial with Codepoint!
+/// Collects the glyphs that each font uses on the pages (glyph id to its text), for subsetting
+/// and for the ToUnicode CMaps.
 fn collect_used_glyphs_from_pages(
     pages: &[PdfPage],
     fonts: &BTreeMap<FontId, crate::font::PdfFont>,
@@ -1263,10 +1284,9 @@ fn collect_used_glyphs_from_pages(
                                         // Direct glyph IDs - get the unicode codepoint from CID
                                         for codepoint in glyphs {
                                             let character = if let Some(ref cid) = codepoint.cid {
-                                                // The FULL extraction text for this glyph — several
-                                                // chars for ligatures ("fi"). Truncating to the first
-                                                // char here used to break copy-paste of every ligated
-                                                // word in regenerated ToUnicode CMaps.
+                                                // The full text of the glyph (several chars for a
+                                                // ligature such as "fi") keeps copy-paste working in
+                                                // the regenerated ToUnicode CMap.
                                                 cid.clone()
                                             } else {
                                                 // Try reverse lookup from the font's cache
@@ -1274,16 +1294,13 @@ fn collect_used_glyphs_from_pages(
                                                     .map(|c| c.to_string())
                                                     .unwrap_or_else(|| "\u{FFFD}".to_string())
                                             };
-                                            // #261: always record the glyph, even when the
-                                            // reverse char lookup failed (cid is None and the
-                                            // font has no primary char for this gid). Otherwise
-                                            // the glyph is silently dropped from the used-glyph
-                                            // map and the font is never embedded, producing a PDF
-                                            // that references missing glyphs. The fallback char
-                                            // ('\u{FFFD}') only affects the ToUnicode mapping.
-                                            // An empty text (a glyph that is part of a cluster
-                                            // whose text another glyph carries: a mark, a dot)
-                                            // never replaces the text a glyph was shown with.
+                                            // Always record the glyph, even when the reverse char
+                                            // lookup failed: otherwise the glyph is dropped from the
+                                            // map and the font is never embedded. The fallback char
+                                            // ('\u{FFFD}') only affects the ToUnicode mapping. An
+                                            // empty text (a glyph in a cluster whose text another
+                                            // glyph carries) never replaces the text a glyph was
+                                            // shown with.
                                             if !character.is_empty() || !font_glyphs.contains_key(&codepoint.gid) {
                                                 font_glyphs.insert(codepoint.gid, character);
                                             }
@@ -1297,10 +1314,8 @@ fn collect_used_glyphs_from_pages(
                         }
                     }
                 }
-                // `'` and `"` show text just as `Tj` does. They were missing here, so a
-                // page that drew text *only* through them registered zero used glyphs for
-                // its font — and `prepare_fonts_for_serialization` skips fonts with no used
-                // glyphs, so the font was never embedded and the text silently vanished.
+                // `'` and `"` show text like `Tj`; a font used only through them must still be
+                // embedded.
                 Op::MoveToNextLineShowText { text }
                 | Op::SetSpacingMoveAndShowText { text, .. } => {
                     if let Some(ref font_id) = current_font_id {
@@ -1551,9 +1566,8 @@ fn rectangle_to_stream_ops(rectangle: &crate::Rect) -> Vec<LoOp> {
         ],
     ));
 
-    // Honor the rectangle's paint mode (mirrors `polygon_to_stream_ops`), instead
-    // of always emitting `n` (which paints nothing / makes the rectangle invisible).
-    // #259
+    // Honor the rectangle's paint mode (as `polygon_to_stream_ops` does); `n` alone would paint
+    // nothing.
     let winding = rectangle.winding_order.unwrap_or(WindingOrder::NonZero);
     match rectangle.mode {
         Some(PaintMode::Clip) => {
@@ -1571,8 +1585,7 @@ fn rectangle_to_stream_ops(rectangle: &crate::Rect) -> Vec<LoOp> {
             operations.push(LoOp::new(winding.get_fill_stroke_op(), vec![]));
         }
         None => {
-            // No explicit paint mode: preserve the legacy behavior of applying any
-            // winding_order as a clip and ending the path without painting.
+            // No paint mode: apply any winding_order as a clip and end the path without painting.
             match rectangle.winding_order {
                 Some(WindingOrder::NonZero) => operations.push(LoOp::new("W", vec![])),
                 Some(WindingOrder::EvenOdd) => operations.push(LoOp::new("W*", vec![])),
@@ -1663,24 +1676,17 @@ fn create_subset_runtime_info(
             let mut font_warnings = Vec::new();
             if let Some(subset_font) = ParsedFont::from_bytes(&subset.bytes, 0, &mut font_warnings) {
 
-                // The original->new gid renumbering comes from `subset.glyph_mapping`,
-                // which mirrors the exact glyph order handed to allsorts (see
-                // `crate::font::subset_font` for why that order is authoritative for
-                // both glyf and CFF outlines).
-                //
-                // It must NOT be recovered from the subset font's cmap: shaper-produced
-                // glyphs have no usable char->gid cmap entry — ligature glyphs (the
-                // "fi" in "Configure") would resolve to the plain 'f' outline, and
-                // glyphs whose codepoint maps to a *different* default glyph (Noto CJK
-                // digits used for list markers / page numbers) would resolve to
-                // nothing at all, get remapped to gid 0 by `remap_gid`, and render as
-                // .notdef boxes (#220 F2b/F5).
-                // The Identity-H code for each glyph: the subset gid itself for glyf and
-                // name-keyed CFF outlines, but the subset charset's CID for CID-keyed
-                // CFF — the allsorts subsetter preserves the ORIGINAL font's CIDs there,
-                // and spec-following viewers (Acrobat, Preview) resolve our codes
-                // through that charset (#280). Content stream, /W and /ToUnicode must
-                // all be keyed by these codes.
+                // The original-to-new gid renumbering comes from `subset.glyph_mapping`, which
+                // mirrors the glyph order handed to allsorts (see `crate::font::subset_font`). It
+                // must not be recovered from the subset font's cmap: shaper-produced glyphs have
+                // no usable char-to-gid entry (a ligature "fi" would resolve to the plain 'f'
+                // outline), and glyphs whose codepoint maps to a different default glyph would
+                // become .notdef.
+                // The Identity-H code for each glyph: the subset gid itself for glyf and name-keyed
+                // CFF outlines, but the subset charset's CID for CID-keyed CFF, because the allsorts
+                // subsetter keeps the original font's CIDs and spec-following viewers (Acrobat,
+                // Preview) resolve codes through that charset. Content stream, /W and /ToUnicode
+                // are all keyed by these codes.
                 let subset_gid_to_code =
                     crate::font::cff_charset_gid_to_cid_map(&subset.bytes, 0);
 
@@ -1802,10 +1808,9 @@ fn create_full_font_runtime_info(
         font_bytes
     };
 
-    // For a CID-keyed CFF the Identity-H codes must be the charset's CIDs, not glyph
-    // ids — spec-following viewers resolve every code through the embedded charset,
-    // which is not identity in real fonts (NotoSansJP diverges from gid 365 on; #280).
-    // `None` for glyf and name-keyed CFF fonts, where code == gid stays correct.
+    // For a CID-keyed CFF the Identity-H codes must be the charset's CIDs, not glyph ids:
+    // spec-following viewers resolve every code through the embedded charset, which is not
+    // identity in real fonts. `None` for glyf and name-keyed CFF fonts, where code == gid.
     //
     // Index 0: `font_bytes` is a single face at this point (see above).
     let gid_to_code = crate::font::cff_charset_gid_to_cid_map(&font_bytes, 0);
@@ -1955,11 +1960,9 @@ fn add_subset_font_to_pdf(
         font_name.clone()
     };
 
-    // The descendant subtype and the /FontFile key must describe what the embedded bytes
-    // ACTUALLY are, so decide from the sfnt magic of the program we are about to write —
-    // not from `ParsedFont::font_type`, which reports `TrueType` even for `OTTO` faces
-    // and so mislabelled every CFF font as `CIDFontType2` + `/FontFile2` (both of which
-    // mean "TrueType `glyf` outlines").
+    // The descendant subtype and the /FontFile key must describe what the embedded bytes are, so
+    // decide from the sfnt magic of the program being written, not from `ParsedFont::font_type`,
+    // which reports `TrueType` even for `OTTO` (CFF) faces.
     //
     // `font_tuple` is None when there is no font program to embed at all. A FontDescriptor
     // with *no* /FontFile entry is a legal non-embedded font that readers substitute for;
@@ -2016,9 +2019,9 @@ fn add_subset_font_to_pdf(
         ("CIDFontType2", font_tuple)
     };
 
-    // #271: PDF font descriptor metrics (Ascent/Descent/FontBBox/CapHeight) must be
-    // expressed in glyph-space units of 1/1000 em, but the font tables store them in
-    // the font's own units-per-em (often 2048). Scale everything by 1000/units_per_em.
+    // Font descriptor metrics (Ascent/Descent/FontBBox/CapHeight) are in glyph-space units of
+    // 1/1000 em, but the font tables use the font's own units-per-em (often 2048): scale by
+    // 1000/units_per_em.
     let upm = subset_info.original_font.pdf_font_metrics.units_per_em;
     let font_scale = if upm == 0 { 1.0 } else { 1000.0 / upm as f32 };
     let scale_i64 = |v: i64| (v as f32 * font_scale).round() as i64;
@@ -2044,10 +2047,9 @@ fn add_subset_font_to_pdf(
     #[cfg(not(feature = "text_layout"))]
     let cap_height = ascent_scaled;
 
-    // #271 (residual): ItalicAngle, Flags and StemV used to be hardcoded to 0 / 32 / 80,
-    // i.e. "upright, non-symbolic, medium weight" for every font ever embedded. Readers
-    // use these when they have to synthesise or substitute a face, so a bold italic that
-    // claims to be upright and regular gets substituted badly.
+    // ItalicAngle, Flags and StemV come from the font's tables: readers use them to synthesise
+    // or substitute a face, and a bold italic that claims to be upright and regular is
+    // substituted badly.
     let m = &subset_info.original_font.pdf_font_metrics;
 
     // ItalicAngle is the slant in degrees, counter-clockwise from vertical — so an italic
@@ -2069,7 +2071,7 @@ fn add_subset_font_to_pdf(
 
     // StemV is the vertical stem thickness. No font table carries it, so estimate it from
     // OS/2 usWeightClass the way PDF producers conventionally do: ~88 at weight 400,
-    // ~166 at 700. Fall back to the old constant when OS/2 is absent (usWeightClass 0).
+    // ~166 at 700. Fall back to a constant when OS/2 is absent (usWeightClass 0).
     let stem_v = if m.us_weight_class == 0 {
         80
     } else {
@@ -2285,7 +2287,7 @@ fn color_array_to_f32(c: &ColorArray) -> Vec<f32> {
     }
 }
 
-// Encode text to UTF-16BE with BOM
+/// Encodes `text` as a PDF text string: UTF-16BE with a byte order mark, as a hex string.
 fn encode_text_to_utf16be(text: &str) -> lopdf::Object {
     if text.is_empty() {
         return lopdf::Object::string_literal("");
@@ -2325,8 +2327,8 @@ mod tests {
         ops.iter().map(|o| o.operator.clone()).collect()
     }
 
-    // #259: rectangle_to_stream_ops must honor `rectangle.mode` (emit S/f/B/B*),
-    // not always `n` (which makes the rectangle invisible).
+    // `rectangle_to_stream_ops` must honor `rectangle.mode` (emit S/f/B/B*), not always `n`,
+    // which would make the rectangle invisible.
     #[test]
     fn rectangle_honors_paint_mode() {
         // Fill
@@ -2349,18 +2351,13 @@ mod tests {
         let ops = rectangle_to_stream_ops(&rect_with(Some(PaintMode::Clip), None));
         assert_eq!(operators(&ops), vec!["re", "W", "n"]);
 
-        // No mode: legacy behavior (no paint, optional clip via winding_order).
+        // No mode: no paint, optional clip via winding_order.
         let ops = rectangle_to_stream_ops(&rect_with(None, None));
         assert_eq!(operators(&ops), vec!["re", "n"]);
     }
 }
 
-/// WinAnsi encoding of built-in-font text (issue #273).
-///
-/// Test cases adapted from @JohnHarrison's PR #274, which reported and diagnosed the bug.
-/// The fix here differs — printpdf owns the encoding table rather than relying on lopdf's
-/// `SimpleEncoding` name lookup, so it stays correct across lopdf upgrades — but these
-/// assertions are the same contract.
+/// WinAnsi encoding of built-in-font text: the bytes must be WinAnsi, not UTF-8.
 #[cfg(test)]
 mod win_ansi_tests {
     use super::encode_win_ansi as encode;
@@ -2400,9 +2397,7 @@ mod win_ansi_tests {
 
     #[test]
     fn does_not_emit_utf8_for_non_ascii() {
-        // The regression guard. `Encoding::SimpleEncoding(b"WinAnsiEncoding")` is a name
-        // lopdf 0.39 does not recognise, so it fell through to `text.as_bytes()` and `é`
-        // came out as the two bytes `C3 A9` — mojibake in every reader.
+        // `é` must not come out as the two UTF-8 bytes `C3 A9`.
         assert_ne!(encode("é"), vec![0xC3, 0xA9]);
         assert_ne!(encode("–"), vec![0xE2, 0x80, 0x93]);
     }
