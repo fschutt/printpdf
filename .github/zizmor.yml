@@ -1,0 +1,8 @@
+# Configuration of zizmor, the static analysis for GitHub Actions (https://docs.zizmor.sh/configuration/).
+# The `zizmor` job in workflows/ci.yaml reads it; so does a local run of `zizmor .github`.
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        # Every action is pinned to a full commit SHA, the actions/* ones too: a tag can be moved.
+        "*": hash-pin

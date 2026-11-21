@@ -56,7 +56,9 @@ jobs:
       version: ${{ steps.pick.outputs.version }}
       published: ${{ steps.pick.outputs.published }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Pick the version to verify and confirm it is on crates.io
         id: pick
         env:
@@ -155,8 +157,9 @@ jobs:
           - { name: "html_multithreaded", os: ubuntu-latest, args: "--no-default-features --features html_multithreaded" }
           - { name: "default features, wasm32-unknown-unknown", os: ubuntu-latest, args: "", target: wasm32-unknown-unknown }
     steps:
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
+          toolchain: stable
           targets: ${{ matrix.target || '' }}
       - name: cargo add printpdf@=${{ needs.resolve.outputs.version }} in a fresh project
         shell: bash
