@@ -20,8 +20,6 @@ fn debug_html_bounds() {
     let options = GeneratePdfOptions {
         page_height: Some(210.0),
         page_width: Some(297.0),
-        font_embedding: Some(true),
-        image_optimization: Some(printpdf::ImageOptimizationOptions::default()),
         ..Default::default()
     };
 

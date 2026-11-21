@@ -293,10 +293,6 @@ pub use render::*;
 /// The type is serialized to JSON with the field names as written; `None` fields are omitted.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct GeneratePdfOptions {
-    /// Not read by [`PdfDocument::from_html`]. Fonts are always embedded;
-    /// [`PdfSaveOptions::subset_fonts`] controls whether they are subset when saving.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub font_embedding: Option<bool>,
     /// Page width in mm. Default 210.0 (A4).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page_width: Option<f32>,
@@ -315,10 +311,6 @@ pub struct GeneratePdfOptions {
     /// Left margin in mm. Default 0.0.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub margin_left: Option<f32>,
-    /// Not read by [`PdfDocument::from_html`]. Set [`PdfSaveOptions::image_optimization`] when
-    /// saving instead.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub image_optimization: Option<ImageOptimizationOptions>,
     /// Page numbers ("Page X of Y") in the footer.
     ///
     /// Currently has no visible effect: the space is reserved but nothing is drawn.
@@ -345,14 +337,12 @@ impl Default for GeneratePdfOptions {
     /// A4 portrait (210 x 297 mm) with no margins.
     fn default() -> Self {
         Self {
-            font_embedding: Some(true),
             page_width: Some(210.0),
             page_height: Some(297.0),
             margin_top: None,
             margin_right: None,
             margin_bottom: None,
             margin_left: None,
-            image_optimization: None,
             show_page_numbers: None,
             header_text: None,
             footer_text: None,

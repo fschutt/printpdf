@@ -225,8 +225,6 @@ fn test_html_to_document() {
     let options = GeneratePdfOptions {
         page_height: Some(210.0),
         page_width: Some(297.0),
-        font_embedding: Some(true),
-        image_optimization: Some(printpdf::ImageOptimizationOptions::default()),
         ..Default::default()
     };
     
@@ -359,15 +357,12 @@ fn test_html_uses_positioned_glyphs_not_text_operators() {
     let options = GeneratePdfOptions {
         page_height: Some(210.0),
         page_width: Some(297.0),
-        font_embedding: Some(true),
-        image_optimization: Some(printpdf::ImageOptimizationOptions::default()),
         ..Default::default()
     };
     
     println!("PDF Generation Options:");
     println!("  page_width: {:?} mm", options.page_width);
     println!("  page_height: {:?} mm", options.page_height);
-    println!("  font_embedding: {:?}", options.font_embedding);
     println!();
 
     let mut warnings = Vec::new();
@@ -540,8 +535,6 @@ li { display: list-item; margin: 5px 0; }
         &GeneratePdfOptions {
             page_width: Some(210.0),
             page_height: Some(297.0),
-            font_embedding: Some(true),
-            image_optimization: Some(printpdf::ImageOptimizationOptions::default()),
         ..Default::default()
         },
         &mut Vec::new(),
@@ -642,8 +635,6 @@ li { display: list-item; margin: 5px 0; }
         &GeneratePdfOptions {
             page_width: Some(210.0),
             page_height: Some(297.0),
-            font_embedding: Some(true),
-            image_optimization: Some(printpdf::ImageOptimizationOptions::default()),
         ..Default::default()
         },
         &mut Vec::new(),
@@ -713,8 +704,6 @@ li { display: list-item; margin: 3px 0; }
         &GeneratePdfOptions {
             page_width: Some(210.0),
             page_height: Some(297.0),
-            font_embedding: Some(true),
-            image_optimization: Some(printpdf::ImageOptimizationOptions::default()),
         ..Default::default()
         },
         &mut Vec::new(),
@@ -765,8 +754,6 @@ li { display: list-item; margin: 5px 0; }
         &GeneratePdfOptions {
             page_width: Some(210.0),
             page_height: Some(297.0),
-            font_embedding: Some(true),
-            image_optimization: Some(printpdf::ImageOptimizationOptions::default()),
         ..Default::default()
         },
         &mut Vec::new(),
@@ -838,8 +825,6 @@ li { display: list-item; margin: 3px 0; }
         &GeneratePdfOptions {
             page_width: Some(210.0),
             page_height: Some(297.0),
-            font_embedding: Some(true),
-            image_optimization: Some(printpdf::ImageOptimizationOptions::default()),
         ..Default::default()
         },
         &mut Vec::new(),

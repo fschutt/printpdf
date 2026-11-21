@@ -36,14 +36,12 @@ problems are collected in `warnings`.
 
 ## Options
 
-`GeneratePdfOptions`, all fields optional:
+`GeneratePdfOptions`, all fields optional. Fonts are always embedded (and subset when saving, see `PdfSaveOptions::subset_fonts`); image recompression is `PdfSaveOptions::image_optimization`.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `page_width`, `page_height` | 210, 297 | Page size in mm (A4). |
 | `margin_top`, `margin_right`, `margin_bottom`, `margin_left` | 0 | Page margins in mm. |
-| `font_embedding` | true | Embed the fonts in the PDF. |
-| `image_optimization` | none | Image recompression when saving. |
 | `show_page_numbers`, `header_text`, `footer_text`, `skip_first_page` | off | Page numbers, header and footer text. See the note below. |
 
 Page size and margins come from these options. The CSS `@page` rule is not

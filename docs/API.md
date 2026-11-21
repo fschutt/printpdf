@@ -69,11 +69,9 @@ interface HtmlToDocumentInput {
 }
 
 interface GeneratePdfOptions {      // snake_case
-  font_embedding?: boolean;         // default true
   page_width?: number;              // mm, default 210
   page_height?: number;             // mm, default 297
   margin_top?: number;              // mm, default 0 (same for margin_right, margin_bottom, margin_left)
-  image_optimization?: ImageOptimizationOptions;
 }
 
 interface ImageOptimizationOptions { // camelCase
