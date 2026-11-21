@@ -51,7 +51,10 @@ use std::rc::Rc;
 use lopdf::content::{Content, Operation};
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
 
-use crate::{cmap::ToUnicodeCMap, PdfWarnMsg};
+use crate::{
+    cmap::{ToUnicodeCMap, MAX_CMAP_STREAM_BYTES},
+    PdfWarnMsg,
+};
 #[cfg(feature = "images")]
 use crate::{
     deserialize::raw_bitmap_from_stream, image::image_to_stream, ImageOptimizationOptions,
@@ -139,7 +142,11 @@ pub(crate) fn drop_redundant_actual_text(doc: &mut Document) -> DroppedSpans {
 
     for page in pages {
         let streams = doc.get_page_contents(page);
-        if streams.is_empty() || streams.iter().any(|id| uses[id] > 1) {
+        let Some((&first, rest)) = streams.split_first() else {
+            continue;
+        };
+        // A stream that is not counted once is shared, or changed since the count.
+        if streams.iter().any(|id| uses.get(id) != Some(&1)) {
             continue;
         }
         let bytes = doc.get_page_content(page);
@@ -169,18 +176,18 @@ pub(crate) fn drop_redundant_actual_text(doc: &mut Document) -> DroppedSpans {
         result.dropped += drop.len() / 2;
         // all of the page's content goes into its first stream
         doc.objects.insert(
-            streams[0],
+            first,
             Object::Stream(Stream::new(Dictionary::new(), new)),
         );
-        if streams.len() > 1 {
-            for id in &streams[1..] {
+        if !rest.is_empty() {
+            for id in rest {
                 doc.objects.remove(id);
             }
             if let Ok(page) = doc.get_dictionary_mut(page) {
-                page.set("Contents", streams[0]);
+                page.set("Contents", first);
             }
         }
-        result.rewritten.push(streams[0]);
+        result.rewritten.push(first);
     }
     result
 }
@@ -203,9 +210,14 @@ impl FontText {
         };
         let (_, cmap) = doc.dereference(font.get(b"ToUnicode").ok()?).ok()?;
         let cmap = cmap.as_stream().ok()?;
-        let bytes = cmap
-            .decompressed_content()
-            .unwrap_or_else(|_| cmap.content.clone());
+        let bytes = match cmap.decompressed_content_with_limit(MAX_CMAP_STREAM_BYTES) {
+            Ok(bytes) => bytes,
+            // A stream that inflates past the limit is not read.
+            Err(lopdf::Error::Decompress(lopdf::DecompressError::MemoryLimitExceeded { .. })) => {
+                return None;
+            }
+            Err(_) => cmap.content.clone(),
+        };
         let to_unicode = ToUnicodeCMap::parse(&String::from_utf8_lossy(&bytes)).ok()?;
         Some(FontText {
             code_bytes,
@@ -334,8 +346,9 @@ fn redundant_spans(
             "Tz" => state.scaling = number(),
             "Ts" => state.rise = number(),
             "BDC" | "BMC" => {
-                // with marked content inside, a span is left as it is
-                for span in &mut open {
+                // With marked content inside, a span is left as it is. The span that is open
+                // is marked when its child opens; its own parents were marked when it opened.
+                if let Some(span) = open.last_mut() {
                     span.text = None;
                 }
                 open.push(Span {
@@ -405,8 +418,11 @@ fn text_string(bytes: &[u8]) -> Option<String> {
             return None;
         }
         let units: Vec<u16> = utf16
-            .chunks(2)
-            .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
+            .chunks_exact(2)
+            .filter_map(|pair| match *pair {
+                [hi, lo] => Some(u16::from_be_bytes([hi, lo])),
+                _ => None,
+            })
             .collect();
         return String::from_utf16(&units).ok();
     }
@@ -434,13 +450,15 @@ fn read(
         ("Tj", string @ Object::String(..)) => std::slice::from_ref(string),
         _ => return None,
     };
+    // `code_bytes` is 1 or 2; the `max` keeps the length of a code from ever being 0.
+    let code_bytes = font.code_bytes.max(1);
     for item in items {
         match item {
             Object::String(codes, _) => {
-                if codes.len() % font.code_bytes != 0 {
+                if codes.len() % code_bytes != 0 {
                     return None;
                 }
-                for code in codes.chunks(font.code_bytes) {
+                for code in codes.chunks(code_bytes) {
                     let code = code.iter().fold(0u32, |c, &b| c << 8 | u32::from(b));
                     let glyph = font.to_unicode.lookup_string(code)?;
                     *after_space = glyph.chars().all(char::is_whitespace);

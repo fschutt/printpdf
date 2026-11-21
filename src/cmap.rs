@@ -30,6 +30,20 @@ use crate::text::CMap;
 /// such as `<00000000> <FFFFFFFF> <0041>` would otherwise expand to 2^32 entries.
 const MAX_BFRANGE_ENTRIES: u64 = 65_536;
 
+/// The most a whole ToUnicode CMap may define, counting each entry as one plus the number of
+/// scalars in its target. A font has at most 65536 codes, but a stream may hold any number of
+/// wide `bfrange` lines, each within [`MAX_BFRANGE_ENTRIES`], and a range copies its target for
+/// every code. Without this total the stream would expand to billions of entries.
+const MAX_TOUNICODE_ENTRIES: usize = 1 << 20;
+
+/// The most codespace ranges a CID CMap may declare. Real CMaps have a handful; every code of a
+/// string is compared with every range.
+const MAX_CODESPACE_RANGES: usize = 1024;
+
+/// The most bytes of a CMap stream that are read, after decompression. Even a CMap that
+/// reaches [`MAX_TOUNICODE_ENTRIES`] is smaller.
+pub(crate) const MAX_CMAP_STREAM_BYTES: usize = 16 << 20;
+
 /// A ToUnicode CMap: character codes (CIDs) mapped to the Unicode text they stand for.
 ///
 /// A mapping targets one or more Unicode scalar values, several for a ligature such as "fi".
@@ -57,13 +71,13 @@ enum CMapToken {
 /// parser silently loses those mappings. Comments (`%` to end of line) are skipped.
 fn tokenize_cmap(input: &str) -> Vec<CMapToken> {
     let mut tokens = Vec::new();
-    let mut chars = input.char_indices().peekable();
+    let mut chars = input.chars().peekable();
 
-    while let Some(&(i, c)) = chars.peek() {
+    while let Some(&c) = chars.peek() {
         match c {
             '%' => {
                 // comment until end of line
-                while let Some(&(_, c2)) = chars.peek() {
+                while let Some(&c2) = chars.peek() {
                     if c2 == '\n' {
                         break;
                     }
@@ -72,20 +86,18 @@ fn tokenize_cmap(input: &str) -> Vec<CMapToken> {
             }
             '<' => {
                 chars.next();
-                let start = i + 1;
-                let mut end = start;
-                while let Some(&(j, c2)) = chars.peek() {
+                // Every character up to `>` belongs to the token; `hex_to_u32` and the other
+                // readers reject what is not a hex digit.
+                let mut hex = String::new();
+                for c2 in chars.by_ref() {
                     if c2 == '>' {
-                        chars.next();
                         break;
                     }
-                    // `<<` starts a dictionary, not a hex string — treat like a word
-                    end = j + c2.len_utf8();
-                    chars.next();
+                    if !c2.is_whitespace() {
+                        hex.push(c2);
+                    }
                 }
-                tokens.push(CMapToken::Hex(
-                    input[start..end].split_whitespace().collect::<String>(),
-                ));
+                tokens.push(CMapToken::Hex(hex));
             }
             '[' => {
                 chars.next();
@@ -99,21 +111,38 @@ fn tokenize_cmap(input: &str) -> Vec<CMapToken> {
                 chars.next();
             }
             _ => {
-                let start = i;
-                let mut end = i;
-                while let Some(&(j, c2)) = chars.peek() {
+                // `c` is none of the delimiters above, so this takes at least one character.
+                let mut word = String::new();
+                while let Some(&c2) = chars.peek() {
                     if c2.is_whitespace() || c2 == '<' || c2 == '[' || c2 == ']' || c2 == '%' {
                         break;
                     }
-                    end = j + c2.len_utf8();
+                    word.push(c2);
                     chars.next();
                 }
-                tokens.push(CMapToken::Word(input[start..end].to_string()));
+                tokens.push(CMapToken::Word(word));
             }
         }
     }
 
     tokens
+}
+
+/// Takes `entries` entries with `scalars` scalars each from `budget`.
+///
+/// An error when `budget` is too small, which stops the CMap from growing past
+/// [`MAX_TOUNICODE_ENTRIES`].
+fn spend(budget: &mut usize, entries: usize, scalars: usize) -> Result<(), String> {
+    let cost = scalars.checked_add(1).and_then(|each| each.checked_mul(entries));
+    match cost.and_then(|cost| budget.checked_sub(cost)) {
+        Some(left) => {
+            *budget = left;
+            Ok(())
+        }
+        None => Err(format!(
+            "ToUnicode CMap is too large (limit {MAX_TOUNICODE_ENTRIES} entries and target characters)"
+        )),
+    }
 }
 
 /// Parse a hex string token used as a *code* (CID): a single big-endian number.
@@ -166,24 +195,27 @@ impl ToUnicodeCMap {
     ///
     /// # Errors
     ///
-    /// Returns an error for a hex token that is not a number, a reversed `bfrange`, or one that
-    /// spans more than 65536 codes.
+    /// Returns an error for a hex token that is not a number, a reversed `bfrange`, one that
+    /// spans more than 65536 codes, or a CMap that defines more than about a million entries
+    /// in all.
     pub fn parse(input: &str) -> Result<ToUnicodeCMap, String> {
         let mut mappings = BTreeMap::new();
         let tokens = tokenize_cmap(input);
+        let mut budget = MAX_TOUNICODE_ENTRIES;
         let mut i = 0;
 
-        while i < tokens.len() {
-            match &tokens[i] {
+        while let Some(token) = tokens.get(i) {
+            match token {
                 CMapToken::Word(w) if w == "beginbfchar" => {
                     i += 1;
                     // Each mapping is: <code> <target>
-                    while i < tokens.len() {
-                        match (&tokens[i], tokens.get(i + 1)) {
+                    while let Some(token) = tokens.get(i) {
+                        match (token, tokens.get(i + 1)) {
                             (CMapToken::Word(w), _) if w == "endbfchar" => break,
                             (CMapToken::Hex(code), Some(CMapToken::Hex(target))) => {
                                 let cid = hex_to_u32(code)?;
                                 let uni = hex_to_unicode_scalars(target)?;
+                                spend(&mut budget, 1, uni.len())?;
                                 mappings.insert(cid, uni);
                                 i += 2;
                             }
@@ -196,11 +228,11 @@ impl ToUnicodeCMap {
                 }
                 CMapToken::Word(w) if w == "beginbfrange" => {
                     i += 1;
-                    while i < tokens.len() {
+                    while let Some(token) = tokens.get(i) {
                         // Two forms:
                         //   form1: <start> <end> <startUnicode>
                         //   form2: <start> <end> [ <unicode1> <unicode2> ... ]
-                        match &tokens[i] {
+                        match token {
                             CMapToken::Word(w) if w == "endbfrange" => break,
                             CMapToken::Hex(start_tok) => {
                                 let Some(CMapToken::Hex(end_tok)) = tokens.get(i + 1) else {
@@ -214,17 +246,16 @@ impl ToUnicodeCMap {
                                 // of entries. The caller turns the error into a warning, so a
                                 // hostile CMap costs the font its ToUnicode map and nothing
                                 // else.
-                                if end < start {
+                                let Some(span) = end.checked_sub(start) else {
                                     return Err(format!(
                                         "bfrange: end {:04X} < start {:04X}",
                                         end, start
                                     ));
-                                }
-                                let span = end - start;
-                                if span as u64 + 1 > MAX_BFRANGE_ENTRIES {
+                                };
+                                if u64::from(span) + 1 > MAX_BFRANGE_ENTRIES {
                                     return Err(format!(
                                         "bfrange spans {} CIDs (max {})",
-                                        span as u64 + 1,
+                                        u64::from(span) + 1,
                                         MAX_BFRANGE_ENTRIES
                                     ));
                                 }
@@ -232,9 +263,9 @@ impl ToUnicodeCMap {
                                     Some(CMapToken::ArrayOpen) => {
                                         // form2: one target per CID.
                                         i += 3;
-                                        let mut offset = 0u32;
-                                        while i < tokens.len() {
-                                            match &tokens[i] {
+                                        let mut codes = start..=end;
+                                        while let Some(token) = tokens.get(i) {
+                                            match token {
                                                 CMapToken::ArrayClose => {
                                                     i += 1;
                                                     break;
@@ -243,11 +274,11 @@ impl ToUnicodeCMap {
                                                     // Ignore surplus entries beyond the
                                                     // declared range instead of erroring:
                                                     // partial data beats no data.
-                                                    if offset <= span {
+                                                    if let Some(code) = codes.next() {
                                                         let uni = hex_to_unicode_scalars(target)?;
-                                                        mappings.insert(start + offset, uni);
+                                                        spend(&mut budget, 1, uni.len())?;
+                                                        mappings.insert(code, uni);
                                                     }
-                                                    offset += 1;
                                                     i += 1;
                                                 }
                                                 _ => {
@@ -263,18 +294,20 @@ impl ToUnicodeCMap {
                                         // 9.10.3).
                                         let unis = hex_to_unicode_scalars(target)?;
                                         let last = unis.last().copied().unwrap_or(0);
-                                        if last.checked_add(span).is_none() {
+                                        let Some(last_end) = last.checked_add(span) else {
                                             return Err(
                                                 "bfrange: target unicode values overflow u32"
                                                     .to_string(),
                                             );
-                                        }
-                                        for off in 0..=span {
+                                        };
+                                        // `span` is at most 65535 here, so this is a `usize`.
+                                        spend(&mut budget, span as usize + 1, unis.len())?;
+                                        for (code, value) in (start..=end).zip(last..=last_end) {
                                             let mut target = unis.clone();
                                             if let Some(l) = target.last_mut() {
-                                                *l = last + off;
+                                                *l = value;
                                             }
-                                            mappings.insert(start + off, target);
+                                            mappings.insert(code, target);
                                         }
                                         i += 3;
                                     }
@@ -445,8 +478,8 @@ impl CidCMap {
     ///
     /// # Errors
     ///
-    /// Returns an error for a malformed hex token, a code that is not 1 to 4 bytes, or a
-    /// `cidrange` spanning more than 65536 codes.
+    /// Returns an error for a malformed hex token, a code that is not 1 to 4 bytes, a
+    /// `cidrange` spanning more than 65536 codes, or more than 1024 codespace ranges.
     pub fn parse(input: &str) -> Result<(CidCMap, Option<String>), String> {
         let tokens = tokenize_cmap(input);
         let mut cmap = CidCMap {
@@ -465,29 +498,37 @@ impl CidCMap {
             }
             let len = (digits / 2) as u8;
             let mut bytes = [0u8; 4];
-            for (idx, i) in (0..digits).step_by(2).enumerate() {
+            for (byte_slot, i) in bytes.iter_mut().zip((0..digits).step_by(2)) {
                 // `get`, not `[i..i + 2]`: a multi-byte character in the token would panic.
                 let byte = hex
                     .get(i..i + 2)
                     .ok_or_else(|| format!("bad hex <{hex}>: not hexadecimal"))?;
-                bytes[idx] =
+                *byte_slot =
                     u8::from_str_radix(byte, 16).map_err(|e| format!("bad hex <{hex}>: {e}"))?;
             }
             Ok((len, bytes, hex_to_u32(hex)?))
         };
 
         let mut i = 0;
-        while i < tokens.len() {
-            match &tokens[i] {
+        // The last `/Name` among `tokens[..scanned]`, which `usecmap` takes its base from.
+        let mut last_name: Option<&str> = None;
+        let mut scanned = 0;
+        while let Some(token) = tokens.get(i) {
+            match token {
                 CMapToken::Word(w) if w == "begincodespacerange" => {
                     i += 1;
-                    while i < tokens.len() {
-                        match (&tokens[i], tokens.get(i + 1)) {
+                    while let Some(token) = tokens.get(i) {
+                        match (token, tokens.get(i + 1)) {
                             (CMapToken::Word(w), _) if w == "endcodespacerange" => break,
                             (CMapToken::Hex(lo), Some(CMapToken::Hex(hi))) => {
                                 let (llen, lb, _) = hex_bytes(lo)?;
                                 let (hlen, hb, _) = hex_bytes(hi)?;
                                 if llen == hlen {
+                                    if cmap.codespace.len() >= MAX_CODESPACE_RANGES {
+                                        return Err(format!(
+                                            "more than {MAX_CODESPACE_RANGES} codespace ranges"
+                                        ));
+                                    }
                                     cmap.codespace.push((llen, lb, hb));
                                 }
                                 i += 2;
@@ -503,8 +544,8 @@ impl CidCMap {
                         "endnotdefrange"
                     };
                     i += 1;
-                    while i < tokens.len() {
-                        match (&tokens[i], tokens.get(i + 1), tokens.get(i + 2)) {
+                    while let Some(token) = tokens.get(i) {
+                        match (token, tokens.get(i + 1), tokens.get(i + 2)) {
                             (CMapToken::Word(w), _, _) if w == end_kw => break,
                             (
                                 CMapToken::Hex(lo),
@@ -534,8 +575,8 @@ impl CidCMap {
                 }
                 CMapToken::Word(w) if w == "begincidchar" => {
                     i += 1;
-                    while i < tokens.len() {
-                        match (&tokens[i], tokens.get(i + 1)) {
+                    while let Some(token) = tokens.get(i) {
+                        match (token, tokens.get(i + 1)) {
                             (CMapToken::Word(w), _) if w == "endcidchar" => break,
                             (CMapToken::Hex(code), Some(CMapToken::Word(cid))) => {
                                 let (len, _, code_v) = hex_bytes(code)?;
@@ -549,12 +590,18 @@ impl CidCMap {
                     }
                 }
                 CMapToken::Word(w) if w == "usecmap" => {
-                    // The base CMap name is the last /Name token before `usecmap`.
-                    let base = tokens[..i].iter().rev().find_map(|t| match t {
-                        CMapToken::Word(w) if w.starts_with('/') => Some(w[1..].to_string()),
-                        _ => None,
-                    });
-                    match base.as_deref() {
+                    // The base CMap name is the last /Name token before `usecmap`. Each token
+                    // is looked at once, so a stream of `usecmap` keywords costs no more than
+                    // its length.
+                    for token in tokens.get(scanned..i).unwrap_or_default() {
+                        if let CMapToken::Word(name) = token {
+                            if let Some(name) = name.strip_prefix('/') {
+                                last_name = Some(name);
+                            }
+                        }
+                    }
+                    scanned = i;
+                    match last_name {
                         Some("Identity-H") => cmap.identity = cmap.tables_are_empty(),
                         Some("Identity-V") => {
                             cmap.identity = cmap.tables_are_empty();
@@ -594,49 +641,45 @@ impl CidCMap {
     /// matches is consumed (the code maps to notdef later), or else one byte.
     pub fn split_codes(&self, bytes: &[u8]) -> Vec<(u32, u8)> {
         let mut out = Vec::with_capacity(bytes.len() / 2);
-        let mut pos = 0;
-        while pos < bytes.len() {
-            let rest = &bytes[pos..];
-            let mut matched: Option<u8> = None;
-            // Prefer the shortest matching range (ranges are tried by length).
-            let mut lens: Vec<u8> = self.codespace.iter().map(|(l, ..)| *l).collect();
-            lens.sort_unstable();
-            lens.dedup();
-            'outer: for len in lens {
-                let len_usize = len as usize;
-                if rest.len() < len_usize {
-                    continue;
-                }
-                for (l, lo, hi) in &self.codespace {
-                    if *l != len {
-                        continue;
-                    }
-                    if (0..len_usize)
-                        .all(|k| rest[k] >= lo[k] && rest[k] <= hi[k])
-                    {
-                        matched = Some(len);
-                        break 'outer;
-                    }
-                }
-            }
+        // The distinct code lengths, shortest first: the shortest matching range wins.
+        let mut lens: Vec<u8> = self.codespace.iter().map(|(l, ..)| *l).collect();
+        lens.sort_unstable();
+        lens.dedup();
+        let mut rest = bytes;
+        while let Some(&first) = rest.first() {
+            let matched = lens.iter().copied().find(|&len| {
+                let Some(code) = rest.get(..usize::from(len)) else {
+                    return false;
+                };
+                self.codespace.iter().any(|(l, lo, hi)| {
+                    *l == len
+                        && code
+                            .iter()
+                            .zip(lo)
+                            .zip(hi)
+                            .all(|((b, lo_b), hi_b)| lo_b <= b && b <= hi_b)
+                })
+            });
             let len = matched.unwrap_or_else(|| {
                 // No full match: shortest range whose FIRST byte matches, else 1.
                 self.codespace
                     .iter()
-                    .filter(|(l, lo, hi)| {
-                        *l >= 1 && rest[0] >= lo[0] && rest[0] <= hi[0]
-                    })
+                    .filter(|(l, lo, hi)| *l >= 1 && lo[0] <= first && first <= hi[0])
                     .map(|(l, ..)| *l)
                     .min()
                     .unwrap_or(1)
             });
-            let len_usize = (len as usize).min(rest.len());
+            // At least one byte, so that the loop ends.
+            let len_usize = usize::from(len).min(rest.len()).max(1);
+            let Some((code_bytes, tail)) = rest.split_at_checked(len_usize) else {
+                break;
+            };
             let mut code = 0u32;
-            for &b in &rest[..len_usize] {
-                code = (code << 8) | b as u32;
+            for &b in code_bytes {
+                code = (code << 8) | u32::from(b);
             }
-            out.push((code, len_usize as u8));
-            pos += len_usize;
+            out.push((code, u8::try_from(len_usize).unwrap_or(len)));
+            rest = tail;
         }
         out
     }
@@ -654,7 +697,7 @@ impl CidCMap {
             if *len == byte_len && code >= *lo && code <= *hi {
                 // A range whose destination runs past u32::MAX is corrupt: the code is
                 // unmapped (notdef), not wrapped around to some other glyph.
-                return dst.checked_add(code - lo).unwrap_or(0);
+                return dst.checked_add(code.saturating_sub(*lo)).unwrap_or(0);
             }
         }
         0
@@ -666,9 +709,9 @@ impl CidCMap {
 impl CMap for ToUnicodeCMap {
     fn map_bytes(&self, bytes: &[u8]) -> String {
         let mut result = String::new();
-        let mut i = 0;
-        while i + 1 < bytes.len() {
-            let cid = u16::from_be_bytes([bytes[i], bytes[i + 1]]) as u32;
+        for pair in bytes.chunks_exact(2) {
+            let &[hi, lo] = pair else { continue };
+            let cid = u32::from(u16::from_be_bytes([hi, lo]));
             if let Some(unis) = self.mappings.get(&cid) {
                 for &u in unis {
                     if let Some(ch) = std::char::from_u32(u) {
@@ -676,7 +719,6 @@ impl CMap for ToUnicodeCMap {
                     }
                 }
             }
-            i += 2;
         }
         result
     }
@@ -687,7 +729,8 @@ impl CMap for ToUnicodeCMap {
 /// # Errors
 ///
 /// Returns an error when the entry is missing or is neither a stream nor a reference to one,
-/// when the stream cannot be decompressed or is not UTF-8, or when the CMap does not parse.
+/// when the stream cannot be decompressed or is larger than 16 MiB decompressed, when it is
+/// not UTF-8, or when the CMap does not parse.
 pub fn get_to_unicode_cmap_from_font(
     font_dict: &Dictionary,
     doc: &Document,
@@ -707,7 +750,7 @@ pub fn get_to_unicode_cmap_from_font(
     };
 
     let content = stream
-        .decompressed_content()
+        .decompressed_content_with_limit(MAX_CMAP_STREAM_BYTES)
         .map_err(|e| format!("Decompress error: {}", e))?;
 
     let cmap_str =
