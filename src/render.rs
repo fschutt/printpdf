@@ -2,9 +2,11 @@
 //!
 //! A page is a list of [`Op`](crate::Op)s that change a graphics state (colors, line width, the
 //! current font, the transformation matrix) and draw with it. The renderer walks that list,
-//! keeps a stack of graphics states for `q` and `Q`, and writes one SVG element per drawing op:
+//! keeps a stack of graphics states for `q` and `Q` (256 levels; deeper `q` operators are ignored
+//! with a warning), and writes one SVG element per drawing op:
 //! text, lines, polygons and rectangles, images and link annotations. The SVG is `width` by
-//! `height` points (the media box) with the origin moved to the top left, as SVG expects.
+//! `height` points (the media box) with the origin moved to the top left, as SVG expects. It stops
+//! at 256 MiB, with a warning.
 //!
 //! Supported: text with embedded and standard fonts, glyph ids painted with the font's own
 //! outlines, stroke and fill colors (RGB, CMYK, grayscale), dash patterns, joins and caps, the
@@ -88,6 +90,14 @@ impl PdfToSvgOptions {
     }
 }
 
+// The deepest `q` nesting that is kept. ISO 32000-1 (Annex C) puts the limit of a conforming file
+// at 28. A page that nests deeper is cut off, as every `q` copies the whole state.
+const MAX_GRAPHICS_STATE_DEPTH: usize = 256;
+
+// The most SVG, in bytes, a page is rendered to. Every `Do` writes the whole image again as a data
+// URL, so a page that draws one image many times would grow without a bound.
+const MAX_SVG_BYTES: usize = 256 * 1024 * 1024;
+
 // The graphics state of the page while it is rendered, pushed and popped by `q` and `Q`.
 #[derive(Debug, Clone, Default)]
 struct GraphicsState {
@@ -108,12 +118,13 @@ struct GraphicsState {
     text_leading: Option<Pt>,
     rendering_intent: Option<RenderingIntent>,
     text_rendering_mode: Option<TextRenderingMode>,
-    marked_content_stack: Vec<String>,
     overprint_mode: Option<OverprintMode>,
     overprint_stroke: bool,
     overprint_fill: bool,
     in_compatibility_section: bool,
     word_spacing: Option<Pt>,
+    // The sizes set at this level only; `get_font_size` looks through the levels below, so a `q`
+    // does not copy a table that grows with the page.
     font_sizes: BTreeMap<BuiltinOrExternalFontId, Pt>,
 
     // Extra options
@@ -137,20 +148,36 @@ struct GraphicsState {
 
 struct GraphicsStateVec {
     _internal: Vec<GraphicsState>,
+    // `q` operators beyond `MAX_GRAPHICS_STATE_DEPTH`, which pushed nothing; their `Q` pops nothing.
+    skipped_saves: usize,
 }
 
 impl GraphicsStateVec {
     pub fn new() -> Self {
         Self {
             _internal: vec![GraphicsState::default()],
+            skipped_saves: 0,
         }
     }
+    // `None` when the stack is full and nothing was pushed.
     pub fn save_gs(&mut self) -> Option<()> {
-        let last_gs = self._internal.last().cloned()?;
-        self._internal.push(last_gs);
+        if self._internal.len() >= MAX_GRAPHICS_STATE_DEPTH {
+            self.skipped_saves = self.skipped_saves.saturating_add(1);
+            return None;
+        }
+        let last = self._internal.last_mut()?;
+        let font_sizes = std::mem::take(&mut last.font_sizes);
+        let next = last.clone();
+        last.font_sizes = font_sizes;
+        self._internal.push(next);
         Some(())
     }
+    // `None` when the `Q` matches a `q` that `save_gs` skipped and nothing was popped.
     pub fn restore_gs(&mut self) -> Option<()> {
+        if self.skipped_saves > 0 {
+            self.skipped_saves = self.skipped_saves.saturating_sub(1);
+            return None;
+        }
         self._internal.pop();
         if self._internal.is_empty() {
             self._internal.push(GraphicsState::default());
@@ -334,14 +361,6 @@ impl GraphicsStateVec {
         self._internal.last_mut()?.text_rendering_mode = Some(c);
         Some(())
     }
-    pub fn begin_marked_content(&mut self, tag: String) -> Option<()> {
-        self._internal.last_mut()?.marked_content_stack.push(tag);
-        Some(())
-    }
-    pub fn end_marked_content(&mut self) -> Option<()> {
-        self._internal.last_mut()?.marked_content_stack.pop();
-        Some(())
-    }
     pub fn begin_compatibility_section(&mut self) -> Option<()> {
         self._internal.last_mut()?.in_compatibility_section = true;
         Some(())
@@ -356,8 +375,10 @@ impl GraphicsStateVec {
     }
 
     pub fn get_font_size(&self, font: &BuiltinOrExternalFontId) -> Pt {
-        self.get_current()
-            .and_then(|gs| gs.font_sizes.get(font))
+        self._internal
+            .iter()
+            .rev()
+            .find_map(|gs| gs.font_sizes.get(font))
             .copied()
             .unwrap_or(Pt(12.0)) // Default font size
     }
@@ -502,7 +523,11 @@ async fn encoded_image_data_map_async(
 ) -> BTreeMap<XObjectId, (Vec<u8>, OutputImageFormat)> {
     let resources_needed = page.get_xobject_ids();
     let mut map = BTreeMap::new();
+    let mut tried = std::collections::BTreeSet::new();
     for f in resources_needed {
+        if !tried.insert(f.clone()) {
+            continue; // the page draws this image again
+        }
         let encoded = match resources.xobjects.map.get(&f) {
             Some(XObject::Image(i)) => i.encode_to_bytes_async(&opts.image_formats).await,
             _ => continue,
@@ -524,7 +549,11 @@ fn encoded_image_data_map(
 ) -> BTreeMap<XObjectId, (Vec<u8>, OutputImageFormat)> {
     let resources_needed = page.get_xobject_ids();
     let mut map = BTreeMap::new();
+    let mut tried = std::collections::BTreeSet::new();
     for f in resources_needed {
+        if !tried.insert(f.clone()) {
+            continue; // the page draws this image again
+        }
         let encoded = match resources.xobjects.map.get(&f) {
             Some(XObject::Image(i)) => i.encode_to_bytes(&opts.image_formats),
             _ => continue,
@@ -585,10 +614,21 @@ fn render_to_svg_internal(
 
     let mut gst = GraphicsStateVec::new();
     let mut in_text_section = false;
+    let mut warned_about_depth = false;
     let mut current_svg_group = Vec::new(); // open `<g>` elements, innermost last
     let mut glyph_outlines = GlyphOutlineDefs::default();
 
     for op in &page.ops {
+        if svg.len() > MAX_SVG_BYTES {
+            warnings.push(PdfWarnMsg::warning(
+                0,
+                0,
+                format!(
+                    "the SVG is larger than {MAX_SVG_BYTES} bytes, the rest of the page is left out"
+                ),
+            ));
+            break;
+        }
         match op {
             Op::SetColorSpaceFill { .. } => {
                 // Colorspace changes are ignored.
@@ -676,7 +716,6 @@ fn render_to_svg_internal(
             }
 
             Op::BeginMarkedContent { tag } => {
-                gst.begin_marked_content(tag.clone());
                 svg.push_str(&format!(
                     "<g class=\"marked-content\" data-tag=\"{}\">",
                     tag
@@ -684,7 +723,6 @@ fn render_to_svg_internal(
                 current_svg_group.push(String::from("marked"));
             }
             Op::BeginMarkedContentWithProperties { tag, properties: _ } => {
-                gst.begin_marked_content(tag.clone());
                 svg.push_str(&format!(
                     "<g class=\"marked-content\" data-tag=\"{}\">",
                     tag
@@ -698,7 +736,6 @@ fn render_to_svg_internal(
                 ));
             }
             Op::EndMarkedContent | Op::EndMarkedContentWithProperties => {
-                gst.end_marked_content();
                 if let Some(group_type) = current_svg_group.last() {
                     if group_type == "marked" {
                         current_svg_group.pop();
@@ -738,16 +775,28 @@ fn render_to_svg_internal(
                 }
             }
             Op::SaveGraphicsState => {
-                gst.save_gs();
-                svg.push_str("<g>"); // Group to isolate graphics state changes
-                current_svg_group.push(String::from("gs"));
+                if gst.save_gs().is_some() {
+                    svg.push_str("<g>"); // Group to isolate graphics state changes
+                    current_svg_group.push(String::from("gs"));
+                } else if !warned_about_depth {
+                    warned_about_depth = true;
+                    warnings.push(PdfWarnMsg::warning(
+                        0,
+                        0,
+                        format!(
+                            "graphics state nesting is deeper than {MAX_GRAPHICS_STATE_DEPTH}, \
+                             the `q` operators beyond it and their `Q` are ignored"
+                        ),
+                    ));
+                }
             }
             Op::RestoreGraphicsState => {
-                gst.restore_gs();
-                if let Some(group_type) = current_svg_group.last() {
-                    if group_type == "gs" {
-                        current_svg_group.pop();
-                        svg.push_str("</g>");
+                if gst.restore_gs().is_some() {
+                    if let Some(group_type) = current_svg_group.last() {
+                        if group_type == "gs" {
+                            current_svg_group.pop();
+                            svg.push_str("</g>");
+                        }
                     }
                 }
             }
@@ -970,8 +1019,7 @@ fn svg_path_data(points: &[LinePoint], page_height: f32) -> String {
     };
     let mut d = format!("M{}", at(first));
     let mut i = 1;
-    while i < points.len() {
-        let point = &points[i];
+    while let Some(point) = points.get(i) {
         match (point.bezier, points.get(i + 1), points.get(i + 2)) {
             (true, Some(c2), Some(end)) if c2.bezier => {
                 d.push_str(&format!(" C{} {} {}", at(point), at(c2), at(end)));
