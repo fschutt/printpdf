@@ -97,6 +97,30 @@ mod parsed_font {
             Some(Self::attach_source_bytes(inner, bytes))
         }
 
+        /// Parse a font face from bytes the caller already holds shared, without copying them:
+        /// the face keeps this allocation as its source bytes (what embedding and subsetting
+        /// read) and decodes its glyph outlines from it lazily (azul's `from_bytes_shared`), where
+        /// [`ParsedFont::from_bytes`] copies the bytes once for the face and once more for its
+        /// loca/glyf tables. The same face as `from_bytes` of the same bytes. A bare CID-keyed
+        /// CFF table is wrapped in a synthetic sfnt as `from_bytes` does (the wrapper is new
+        /// bytes: a copy, as there).
+        pub fn from_shared_bytes(
+            bytes: Arc<[u8]>,
+            font_index: usize,
+            warnings: &mut Vec<PdfFontParseWarning>,
+        ) -> Option<Self> {
+            if let Some(wrapped) = crate::font::wrap_bare_cff_as_sfnt(&bytes) {
+                let inner = AzulParsedFont::from_bytes(&wrapped, 0, warnings)?;
+                return Some(Self::attach_source_bytes(inner, &wrapped));
+            }
+            let shared = Arc::new(rust_fontconfig::FontBytes::Owned(bytes));
+            let inner = AzulParsedFont::from_bytes_shared(shared.clone(), font_index, warnings)?;
+            if inner.source_bytes_for_subset().is_some() {
+                return Some(Self(inner));
+            }
+            Some(Self(inner.with_source_bytes(shared)))
+        }
+
         /// Adopt a face that azul already parsed (e.g. one handed back by the HTML
         /// layout font cache).
         ///
