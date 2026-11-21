@@ -28,6 +28,8 @@
 //!
 //! The page size and margins come from [`XmlRenderOptions`] (A4 and no margins by default); the
 //! CSS `@page` rule is not read for them. Layout happens inside the area that the margins leave.
+//! The page and that area must each measure between 1 pt and 1 000 000 pt in both directions;
+//! otherwise rendering fails with an error.
 //!
 //! # Fonts and images
 //!
@@ -408,6 +410,36 @@ pub fn build_font_cache_for_options(
     pool.fc_cache
 }
 
+// The smallest and the largest page, and content area (the page minus the margins), that
+// layout is asked to cut pages for, in points. Layout slices the content into pages of the content
+// height: a size that is not a positive number has no meaning, a tiny one asks for a page per
+// sliver of content, and a huge one overflows its arithmetic.
+const MIN_PAGE_SIZE_PT: f32 = 1.0;
+const MAX_PAGE_SIZE_PT: f32 = 1_000_000.0;
+
+// The error for a page or content area (all in points) outside the limits, `None` if all are fine.
+fn page_size_error(
+    page_width_pt: f32,
+    page_height_pt: f32,
+    content_width_pt: f32,
+    content_height_pt: f32,
+) -> Option<PdfWarnMsg> {
+    let limits = MIN_PAGE_SIZE_PT..=MAX_PAGE_SIZE_PT;
+    let sizes = [page_width_pt, page_height_pt, content_width_pt, content_height_pt];
+    if sizes.iter().all(|size| limits.contains(size)) {
+        return None;
+    }
+    Some(PdfWarnMsg::error(
+        0,
+        0,
+        format!(
+            "Invalid page size: the page ({page_width_pt} x {page_height_pt} pt) and its content \
+             area inside the margins ({content_width_pt} x {content_height_pt} pt) must each be \
+             between {MIN_PAGE_SIZE_PT} and {MAX_PAGE_SIZE_PT} pt"
+        ),
+    ))
+}
+
 fn default_page_width() -> Mm {
     Mm(210.0) // A4 width
 }
@@ -464,8 +496,9 @@ fn build_page_config(options: &XmlRenderOptions) -> FakePageConfig {
 ///
 /// # Errors
 ///
-/// Returns the warnings when the HTML cannot be parsed or laid out. A document without visible
-/// content gives one empty page.
+/// Returns the warnings when the HTML cannot be parsed or laid out, or when the page or the area
+/// inside its margins is smaller than 1 pt or larger than 1 000 000 pt (or not a number) in one
+/// direction. A document without visible content gives one empty page.
 pub fn xml_to_pdf_pages(
     xml: &str,
     options: &XmlRenderOptions,
@@ -513,6 +546,12 @@ pub(crate) fn xml_to_pdf_pages_with_images(
     // Content area is the page minus margins
     let content_width_pt = page_width_pt - margin_left_pt - margin_right_pt;
     let content_height_pt = page_height_pt - margin_top_pt - margin_bottom_pt;
+    if let Some(error) =
+        page_size_error(page_width_pt, page_height_pt, content_width_pt, content_height_pt)
+    {
+        warnings.push(error);
+        return Err(warnings);
+    }
 
     // Layout runs in CSS px (96 per inch), not PDF points (72 per inch): the CSS resolver turns
     // every unit into px, so a viewport in pt would make CSS lengths 96/72 too large. The bridge
@@ -840,6 +879,12 @@ pub(crate) fn xml_to_pdf_pages_debug_with_images(
     // Content area is the page minus margins
     let content_width_pt = page_width_pt - margin_left_pt - margin_right_pt;
     let content_height_pt = page_height_pt - margin_top_pt - margin_bottom_pt;
+    if let Some(error) =
+        page_size_error(page_width_pt, page_height_pt, content_width_pt, content_height_pt)
+    {
+        warnings.push(error);
+        return Err(warnings);
+    }
 
     // Layout runs in CSS px, see `xml_to_pdf_pages_with_images`.
     const PT_TO_CSS_PX: f32 = 96.0 / 72.0;
@@ -1226,67 +1271,59 @@ fn inline_css_in_xml(xml: &str) -> String {
 // Reads the title and the `pdf.*` meta tags with plain string search.
 fn extract_html_config(xml: &str) -> HtmlExtractedConfig {
     let mut config = HtmlExtractedConfig::default();
-    
+
     // Extract title
-    if let Some(title_start) = xml.find("<title>") {
-        if let Some(title_end) = xml[title_start..].find("</title>") {
-            let title_content = &xml[title_start + 7..title_start + title_end];
+    if let Some((_, after_open)) = xml.split_once("<title>") {
+        if let Some((title_content, _)) = after_open.split_once("</title>") {
             config.title = Some(title_content.trim().to_string());
         }
     }
-    
+
     // Extract meta tags
-    let mut search_pos = 0;
-    while let Some(meta_start) = xml[search_pos..].find("<meta ") {
-        let meta_pos = search_pos + meta_start;
-        if let Some(meta_end) = xml[meta_pos..].find('>') {
-            let meta_tag = &xml[meta_pos..meta_pos + meta_end];
-            
-            // Extract name and content attributes
-            let name = extract_attribute(meta_tag, "name");
-            let content = extract_attribute(meta_tag, "content");
-            
-            if let (Some(name), Some(content)) = (name, content) {
-                if let Some(option_name) = name.strip_prefix("pdf.options.") {
-                    // Skip "pdf.options."
-                    match option_name {
-                        "pageWidth" => {
-                            if let Ok(width) = content.parse::<f32>() {
-                                config.page_width = Some(width);
-                            }
-                        }
-                        "pageHeight" => {
-                            if let Ok(height) = content.parse::<f32>() {
-                                config.page_height = Some(height);
-                            }
-                        }
-                        _ => {}
-                    }
-                } else if let Some(metadata_key) = name.strip_prefix("pdf.metadata.") {
-                    // Skip "pdf.metadata."
-                    config.metadata.insert(metadata_key.to_string(), content);
-                }
-            }
-            
-            search_pos = meta_pos + meta_end + 1;
-        } else {
+    let mut rest = xml;
+    while let Some((_, after_open)) = rest.split_once("<meta ") {
+        let Some((meta_tag, after_tag)) = after_open.split_once('>') else {
             break;
+        };
+
+        // Extract name and content attributes
+        let name = extract_attribute(meta_tag, "name");
+        let content = extract_attribute(meta_tag, "content");
+
+        if let (Some(name), Some(content)) = (name, content) {
+            if let Some(option_name) = name.strip_prefix("pdf.options.") {
+                // Skip "pdf.options."
+                match option_name {
+                    "pageWidth" => {
+                        if let Ok(width) = content.parse::<f32>() {
+                            config.page_width = Some(width);
+                        }
+                    }
+                    "pageHeight" => {
+                        if let Ok(height) = content.parse::<f32>() {
+                            config.page_height = Some(height);
+                        }
+                    }
+                    _ => {}
+                }
+            } else if let Some(metadata_key) = name.strip_prefix("pdf.metadata.") {
+                // Skip "pdf.metadata."
+                config.metadata.insert(metadata_key.to_string(), content);
+            }
         }
+
+        rest = after_tag;
     }
-    
+
     config
 }
 
 // Returns the value of `attr_name="..."` in `tag`.
 fn extract_attribute(tag: &str, attr_name: &str) -> Option<String> {
     let pattern = format!("{}=\"", attr_name);
-    if let Some(start) = tag.find(&pattern) {
-        let value_start = start + pattern.len();
-        if let Some(end) = tag[value_start..].find('"') {
-            return Some(tag[value_start..value_start + end].to_string());
-        }
-    }
-    None
+    let (_, after_name) = tag.split_once(pattern.as_str())?;
+    let (value, _) = after_name.split_once('"')?;
+    Some(value.to_string())
 }
 
 /// Applies a [`HtmlExtractedConfig`] to a document and to the render options.
@@ -1367,28 +1404,29 @@ fn clean_html_elements(xml: &str) -> String {
         let close_tag = format!("</{}>", elem);
         
         while let Some(start) = result.find(&open_tag) {
-            if let Some(end_pos) = result[start..].find(&close_tag) {
-                let end = start + end_pos + close_tag.len();
-                result.replace_range(start..end, "");
-            } else {
+            let Some(end_pos) = result.get(start..).and_then(|rest| rest.find(&close_tag)) else {
                 break;
-            }
+            };
+            let end = start + end_pos + close_tag.len();
+            result.replace_range(start..end, "");
         }
         
         // Remove tags with attributes
         let open_tag_with_attr = format!("<{} ", elem);
         while let Some(start) = result.find(&open_tag_with_attr) {
-            if let Some(tag_end) = result[start..].find('>') {
-                let tag_close_pos = start + tag_end + 1;
-                if let Some(close_pos) = result[tag_close_pos..].find(&close_tag) {
-                    let end = tag_close_pos + close_pos + close_tag.len();
-                    result.replace_range(start..end, "");
-                } else {
-                    // Self-closing tag with attributes
-                    result.replace_range(start..tag_close_pos, "");
-                }
-            } else {
+            let Some(tag_end) = result.get(start..).and_then(|rest| rest.find('>')) else {
                 break;
+            };
+            let tag_close_pos = start + tag_end + 1;
+            let close_pos = result
+                .get(tag_close_pos..)
+                .and_then(|rest| rest.find(&close_tag));
+            if let Some(close_pos) = close_pos {
+                let end = tag_close_pos + close_pos + close_tag.len();
+                result.replace_range(start..end, "");
+            } else {
+                // Self-closing tag with attributes
+                result.replace_range(start..tag_close_pos, "");
             }
         }
     }

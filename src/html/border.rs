@@ -856,6 +856,9 @@ fn create_line_with_corners(
     }
 }
 
+// The most segments of the half arc of one corner.
+const MAX_ARC_SEGMENTS: usize = 256;
+
 // Appends half of a corner arc (the half on this side of the 45 degree split) as straight
 // segments, about one per point of the larger radius. `x, y` is where the straight part of the
 // side begins or ends. At the start corner the arc runs from the split to the side; at the end
@@ -880,9 +883,11 @@ fn add_corner_curve(
         return;
     }
     
-    // Number of points = 1 per pixel of the larger radius, minimum 3
+    // Number of points = 1 per point of the larger radius, at least 3 and at most
+    // `MAX_ARC_SEGMENTS`: a radius from CSS has no upper bound, and 256 segments make a 45 degree
+    // arc smooth at any size.
     let max_radius = rx.max(ry);
-    let num_points = (max_radius as usize).max(3);
+    let num_points = (max_radius as usize).clamp(3, MAX_ARC_SEGMENTS);
     
     // x, y is the tangent point where the straight border meets the arc.
     // We need to calculate the center of the arc and the angle range.

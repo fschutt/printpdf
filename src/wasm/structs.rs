@@ -364,16 +364,14 @@ pub fn register_fonts(input: RegisterFontsInput) -> Result<RegisterFontsOutput, 
     if input.replace {
         reg.clear();
     }
-    let mut registered = 0;
     for (name, b) in &input.fonts {
         let bytes = b
             .decode_bytes()
             .map_err(|e| format!("font {name:?}: {e}"))?;
         reg.insert(name.clone(), bytes);
-        registered += 1;
     }
     Ok(RegisterFontsOutput {
-        registered,
+        registered: input.fonts.len(),
         total: reg.len(),
     })
 }

@@ -253,7 +253,7 @@ fn begin_translucent_text(
     bridge_res: Option<&mut BridgeResources>,
     color: &ColorU,
 ) -> bool {
-    if color.a >= 255 {
+    if color.a == 255 {
         return false;
     }
     ops.push(Op::SaveGraphicsState);
@@ -269,7 +269,7 @@ fn begin_translucent_text(
 // For a translucent color, creates an ExtGState with that fill and stroke alpha and loads it.
 // Call it inside a `q`/`Q` scope so the alpha stays local. Does nothing for opaque colors.
 fn apply_fill_alpha(ops: &mut Vec<Op>, bridge_res: &mut BridgeResources, color: &ColorU) {
-    if color.a >= 255 {
+    if color.a == 255 {
         return;
     }
     let alpha = color.a as f32 / 255.0;
