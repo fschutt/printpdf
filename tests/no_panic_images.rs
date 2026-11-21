@@ -29,7 +29,8 @@ fn bounded_for<T: Send + 'static>(limit: Duration, f: impl FnOnce() -> T + Send 
 }
 
 fn bounded<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
-    bounded_for(Duration::from_secs(5), f)
+    // A debug build on a CI runner is about ten times slower than a release build.
+    bounded_for(Duration::from_secs(if cfg!(debug_assertions) { 60 } else { 5 }), f)
 }
 
 const ALL_FORMATS: [RawImageFormat; 12] = [

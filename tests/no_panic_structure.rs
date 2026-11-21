@@ -25,7 +25,8 @@ use printpdf::{
     XObject,
 };
 
-const TIMEOUT: Duration = Duration::from_secs(5);
+// A debug build on a CI runner is about ten times slower than a release build.
+const TIMEOUT: Duration = Duration::from_secs(if cfg!(debug_assertions) { 60 } else { 5 });
 
 /// The stack of a WebAssembly module is 1 MiB. Parsing has to fit in it.
 const STACK_SIZE: usize = 1 << 20;

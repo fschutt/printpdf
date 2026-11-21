@@ -42,7 +42,7 @@ fn in_child_process(name: &str, secs: u64, max_mb: u64) -> bool {
     }
     let exe = std::env::current_exe().expect("the test executable");
     let mut child = Command::new(exe)
-        .args(["--exact", name, "--test-threads=1", "--nocapture"])
+        .args(["--exact", name, "--test-threads=1", "--nocapture", "--include-ignored"])
         .env(CHILD_ENV, "1")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -1359,7 +1359,8 @@ fn api_html_documents_and_options_that_are_odd_give_a_result_or_an_error() {
         "&".to_string(),
         "&#xFFFFFFFF;&#0;&#xD800;&bogus;".to_string(),
         "<html".to_string(),
-        "<p style=\"width:-5px;height:1e39px;font-size:0;line-height:0;border-radius:-3px\">x</p>".to_string(),
+        "<p style=\"width:-5px;height:1e9px;font-size:0;line-height:0;border-radius:-3px\">x</p>".to_string(),
+        "<p style=\"width:1e39px;padding:1e39px;margin-top:1e39px;border:1e39px solid red\">x</p>".to_string(),
         "<img src=\"\u{e9}\"><img src=\"data:image/png;base64,!!!\"><img>".to_string(),
         "<meta name=\"pdf.options.pageWidth\" content=\"NaN\"><p>x</p>".to_string(),
         "<meta name=\"pdf.options.pageHeight\" content=\"0\"><p>x</p>".to_string(),
@@ -1386,6 +1387,23 @@ fn api_html_documents_and_options_that_are_odd_give_a_result_or_an_error() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
     let r: Value = serde_json::from_str(&Pdf_HtmlToDocumentSync(json!({ "html": "<p>hi</p>" }).to_string())).expect("JSON");
     assert_eq!(r["status"], 0, "{r}");
+}
+
+// A box of absurd height makes the paged layout of azul-layout cut millions of empty pages: about
+// 1 GB and several seconds for a 10 KB result. `cargo test -- --ignored` shows the numbers.
+#[cfg(feature = "html")]
+#[test]
+#[ignore = "azul-layout cuts millions of empty pages for a box of absurd height"]
+fn api_html_with_an_enormous_height_gives_a_result_or_an_error() {
+    if in_child_process("api_html_with_an_enormous_height_gives_a_result_or_an_error", 120, 3000) {
+        return;
+    }
+    for css in ["height:1e39px", "font-size:1e30px", "position:absolute;top:1e39px"] {
+        let input = json!({ "html": format!("<p style=\"{css}\">x</p>") }).to_string();
+        if let Err(why) = call_checked("Pdf_HtmlToDocumentSync", Pdf_HtmlToDocumentSync, &input) {
+            panic!("{why} for {css}");
+        }
+    }
 }
 
 // Without `text_layout` a font does not keep its source bytes, so the JSON has no data URI to corrupt.

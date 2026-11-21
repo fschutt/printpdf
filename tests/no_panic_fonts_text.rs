@@ -43,7 +43,8 @@ fn bounded_for<T: Send + 'static>(
 }
 
 fn bounded<T: Send + 'static>(what: &str, f: impl FnOnce() -> T + Send + 'static) -> T {
-    bounded_for(5, what, f)
+    // A debug build on a CI runner is about ten times slower than a release build.
+    bounded_for(if cfg!(debug_assertions) { 60 } else { 5 }, what, f)
 }
 
 /// xorshift64, a fixed sequence for the mutation loops.

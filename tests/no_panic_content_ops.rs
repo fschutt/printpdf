@@ -12,7 +12,8 @@ use lopdf::{dictionary, Dictionary, Object, Stream, StringFormat};
 use printpdf::cmap::CidCMap;
 use printpdf::*;
 
-const LIMIT: Duration = Duration::from_secs(5);
+// A debug build on a CI runner is about ten times slower than a release build.
+const LIMIT: Duration = Duration::from_secs(if cfg!(debug_assertions) { 60 } else { 5 });
 
 /// Runs `f` on its own thread. `Err` says that it panicked (with the message) or took longer than
 /// [`LIMIT`], so a hang cannot hold up the build lock.
