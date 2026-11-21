@@ -1,6 +1,47 @@
-//! Shrinking a finished PDF without changing what it shows or what its text reads as: its
-//! pictures encoded again ([`optimize_images`]), and the `/ActualText` its glyphs read as anyway
-//! dropped ([`optimize_text`]).
+//! Shrinks a finished PDF (the bytes of a file, not a [`PdfDocument`](crate::PdfDocument)):
+//! its bitmaps are encoded again ([`optimize_images`]) and redundant `/ActualText` entries are
+//! dropped ([`optimize_text`]). Pages, fonts and the text a reader extracts stay as they are.
+//!
+//! Use them on PDFs from other programs, or on your own output when size matters. A document
+//! made with this crate is already optimized when saved with
+//! [`PdfSaveOptions::image_optimization`](crate::PdfSaveOptions::image_optimization).
+//!
+//! | Function | Needs | Lossy |
+//! | --- | --- | --- |
+//! | [`optimize_images`] | `images` feature | depends on the options: JPEG, scaling and greyscale are, Flate is not |
+//! | [`optimize_text`] | nothing | no |
+//!
+//! # Examples
+//!
+//! ```
+//! # #[cfg(feature = "images")] {
+//! use printpdf::*;
+//!
+//! // A PDF with an uncompressed 64 x 64 grey image.
+//! let image = RawImage {
+//!     pixels: RawImageData::U8(vec![128; 64 * 64]),
+//!     width: 64,
+//!     height: 64,
+//!     data_format: RawImageFormat::R8,
+//!     tag: Vec::new(),
+//! };
+//! let mut doc = PdfDocument::new("Big image");
+//! let id = doc.add_image(&image);
+//! let op = Op::UseXobject { id, transform: XObjectTransform::default() };
+//! let page = PdfPage::new(Mm(210.0), Mm(297.0), vec![op]);
+//! let opts = PdfSaveOptions { image_optimization: None, ..Default::default() };
+//! let pdf = doc.with_pages(vec![page]).save(&opts, &mut Vec::new());
+//!
+//! // Encode it again, losslessly.
+//! let lossless = ImageOptimizationOptions {
+//!     format: Some(ImageCompression::Flate),
+//!     max_image_size: None,
+//!     ..Default::default()
+//! };
+//! let smaller = optimize_images(&pdf, &lossless, &mut Vec::new()).unwrap();
+//! assert!(smaller.len() < pdf.len());
+//! # }
+//! ```
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
@@ -19,9 +60,18 @@ use crate::{
 /// letter-spaced text ("P R E F A C E") keeps its `/ActualText`.
 const MAX_KERN: f32 = 100.0;
 
-/// Drops the `/ActualText` of every `/Span` in a finished PDF whose glyphs read as that text
-/// anyway (see [`drop_redundant_actual_text`]); everything else is written back as it was. One
-/// info message tells how many were dropped and how many kept.
+/// Drops the `/ActualText` entries that repeat what the glyphs already say, and returns the new
+/// PDF.
+///
+/// `/ActualText` is a marked-content property that tells readers which text a run of glyphs
+/// stands for, for copy and search (ISO 32000-1, 14.9.4). When the glyphs map to exactly that
+/// text through the font's `/ToUnicode` and are set as plain text, the entry adds nothing and
+/// only costs bytes. Nothing else changes, so the result is lossless. `warnings` gets one info
+/// message with the number of entries dropped and kept.
+///
+/// # Errors
+///
+/// Returns a message when `pdf` cannot be parsed or the result cannot be written.
 pub fn optimize_text(pdf: &[u8], warnings: &mut Vec<PdfWarnMsg>) -> Result<Vec<u8>, String> {
     let mut doc = Document::load_mem(pdf).map_err(|e| format!("Failed to load PDF: {e}"))?;
     let spans = drop_redundant_actual_text(&mut doc);
@@ -44,7 +94,7 @@ pub fn optimize_text(pdf: &[u8], warnings: &mut Vec<PdfWarnMsg>) -> Result<Vec<u
     Ok(bytes)
 }
 
-/// What [`drop_redundant_actual_text`] did
+/// What `drop_redundant_actual_text` did
 pub(crate) struct DroppedSpans {
     /// `/ActualText` spans dropped
     pub dropped: usize,
@@ -115,7 +165,7 @@ pub(crate) fn drop_redundant_actual_text(doc: &mut Document) -> DroppedSpans {
             continue;
         };
         result.dropped += drop.len() / 2;
-        // the page's content, all in its first stream
+        // all of the page's content goes into its first stream
         doc.objects.insert(
             streams[0],
             Object::Stream(Stream::new(Dictionary::new(), new)),
@@ -408,17 +458,28 @@ fn read(
     Some(())
 }
 
-/// Encodes the pictures of a finished PDF again, as [`PdfDocument::save`](crate::PdfDocument::save)
-/// would with `options`, and puts each one that comes out smaller in place of the old one, under
-/// the same object number, so the pages that show it stay as they are. Fonts, pages and content
-/// streams are written back unchanged.
+/// Encodes the bitmaps of a finished PDF again, as
+/// [`PdfDocument::save`](crate::PdfDocument::save) does with `options`, and returns the new
+/// PDF. A bitmap is only replaced when the new encoding is smaller, and keeps its object number,
+/// so the pages that show it stay as they are. Fonts, pages and content streams are not touched.
 ///
-/// Only pictures whose pixels printpdf reads and writes the same way are encoded again: 8-bit
-/// DeviceGray or DeviceRGB, Flate-compressed or not, with no soft mask, mask, /Decode array or
-/// predictor. JPEGs, masks and everything else are kept as they are.
+/// Whether this is lossy depends on `options`: JPEG (the default for color images with the
+/// `jpeg` feature), `max_image_size` scaling and greyscale conversion lose information,
+/// Flate with `max_image_size: None` does not. `warnings` gets one info message per replaced
+/// bitmap.
 ///
-/// For scans of black-and-white prints (engravings, woodcuts), `dither_greyscale` makes their
-/// grey pixels black or white, and the pictures are then written with one bit per pixel.
+/// Only bitmaps that this crate reads and writes the same way are considered: 8-bit
+/// `DeviceGray` or `DeviceRGB`, Flate-compressed or not, without a soft mask, mask, `/Decode`
+/// array or predictor. JPEGs, masked images and everything else are kept as they are.
+///
+/// For scans of black-and-white prints, `dither_greyscale` turns grey pixels into black or
+/// white and the bitmaps are then written with 1 bit per pixel.
+///
+/// Requires the `images` feature.
+///
+/// # Errors
+///
+/// Returns a message when `pdf` cannot be parsed or the result cannot be written.
 #[cfg(feature = "images")]
 pub fn optimize_images(
     pdf: &[u8],
@@ -427,7 +488,7 @@ pub fn optimize_images(
 ) -> Result<Vec<u8>, String> {
     let mut doc = Document::load_mem(pdf).map_err(|e| format!("Failed to load PDF: {e}"))?;
 
-    // masks are pictures too, but they belong to the picture they mask
+    // Masks are image streams too, but they belong to the image they mask.
     let masks: BTreeSet<ObjectId> = doc
         .objects
         .values()
@@ -458,7 +519,7 @@ pub fn optimize_images(
         if new.content.len() >= old_len {
             continue;
         }
-        // whatever else the picture carries (/Intent, /Metadata, /OC, ...) stays with it
+        // Keep the other entries of the old image (/Intent, /Metadata, /OC, ...).
         for (key, value) in old_dict.iter() {
             if !new.dict.has(key) && !matches!(key.as_slice(), b"Filter" | b"DecodeParms") {
                 new.dict.set(key.clone(), value.clone());

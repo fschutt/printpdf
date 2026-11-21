@@ -1,38 +1,84 @@
-// Image-related types that are always available, regardless of the 'images' feature
+//! Bitmap types: [`RawImage`] and the options that control how images are written to a PDF.
+//!
+//! The types here are available without any feature. Decoding image files and encoding them
+//! again needs the `images` feature, plus one feature per file format (`png`, `jpeg`, `gif`,
+//! `bmp`, `tiff`, `webp`, ...). Each format feature enables `images`.
+//!
+//! # How a PDF stores an image
+//!
+//! A bitmap is an *image XObject* (see [`xobject`](crate::xobject)): a stream of samples and a
+//! dictionary that says how to read them (ISO 32000-1, 8.9.5):
+//!
+//! - `/Width` and `/Height` in pixels,
+//! - `/ColorSpace`, here `DeviceGray` or `DeviceRGB`, and `/BitsPerComponent` (1, 8 or 16),
+//! - `/Filter`, how the stream bytes are compressed: `FlateDecode` (lossless, zlib) or
+//!   `DCTDecode` (JPEG, lossy).
+//!
+//! The pixels have no alpha channel. Transparency is a second, greyscale image attached as a
+//! *soft mask* (`/SMask`, ISO 32000-1, 11.6.5.3).
+//!
+//! # How this crate models it
+//!
+//! A [`RawImage`] holds decoded pixels: a [`RawImageData`] buffer, the size and a
+//! [`RawImageFormat`] that names the channel layout. Make one with
+//! [`RawImage::decode_from_bytes`] or fill the struct yourself. Register it with
+//! [`PdfDocument::add_image`](crate::PdfDocument::add_image), place it with
+//! [`Op::UseXobject`](crate::Op::UseXobject).
+//!
+//! The pixels are encoded when the document is saved: the alpha channel becomes a soft mask and
+//! [`PdfSaveOptions::image_optimization`](crate::PdfSaveOptions::image_optimization)
+//! ([`ImageOptimizationOptions`]) chooses the filter and whether the image is shrunk. Without
+//! the `images` feature, pixels are written as 8-bit samples with `FlateDecode`.
+//! [`optimize_images`](crate::optimize_images) applies the same encoding to a finished PDF.
+
 use serde_derive::{Deserialize, Serialize};
 
-/// Options for optimizing images in PDF
+/// How images are encoded when a document is saved: compression, quality and shrinking.
+///
+/// [`PdfSaveOptions::default`](crate::PdfSaveOptions) uses the defaults of this type, which are
+/// lossy: color images are written as JPEG at quality 0.85 (`jpeg` feature) and an image whose
+/// uncompressed size exceeds 2 MB is scaled down. For lossless output set `format` to
+/// [`ImageCompression::Flate`] and `max_image_size` to `None`. Without options
+/// (`image_optimization: None`) the pixels are written unfiltered.
+///
+/// A field that is missing in JSON takes its default, and a `None` field is left out of the JSON.
 #[derive(Debug, Clone, Serialize, PartialOrd, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImageOptimizationOptions {
-    /// Quality level for lossy compression (0.0-1.0)
+    /// JPEG quality from 0.0 (smallest) to 1.0 (best), default 0.85. Only used for JPEG.
     #[serde(default = "default_quality", skip_serializing_if = "Option::is_none")]
     pub quality: Option<f32>,
-    /// Maximum image size (e.g. "300kb")
+    /// Largest uncompressed size of one image, as text: a number and a unit of `b`, `kb`, `mb`
+    /// or `gb` (1024 based), such as `"300kb"`. Default `"2MB"`. A larger image is scaled down,
+    /// keeping its aspect ratio, with nearest-neighbour sampling. Text that does not parse
+    /// disables the limit.
     #[serde(
         default = "default_max_img_size",
         skip_serializing_if = "Option::is_none"
     )]
     pub max_image_size: Option<String>,
-    /// Whether to apply dithering to greyscale images
+    /// Turns greyscale images into pure black and white with Floyd-Steinberg dithering, so they
+    /// are written with 1 bit per pixel. For scans of line art. Default `None` (off).
     #[serde(
         default = "default_dither_greyscale",
         skip_serializing_if = "Option::is_none"
     )]
     pub dither_greyscale: Option<bool>,
-    /// Automatically convert the image to greyscale (only done if auto_optimize = true)
+    /// Converts color images to greyscale. Only has an effect when `auto_optimize` is true.
+    /// Default `Some(false)`.
     #[serde(
         default = "default_convert_to_greyscale",
         skip_serializing_if = "Option::is_none"
     )]
     pub convert_to_greyscale: Option<bool>,
-    /// Auto-optimize images (remove alpha if not needed, detect greyscale)
+    /// Drops the alpha channel of fully opaque images and converts color images whose channels
+    /// differ by at most 3 of 255 (about 1%) everywhere to greyscale. Default `Some(true)`.
     #[serde(
         default = "default_auto_optimize",
         skip_serializing_if = "Option::is_none"
     )]
     pub auto_optimize: Option<bool>,
-    /// Preferred compression format
+    /// Compression to use, default [`ImageCompression::Auto`].
     #[serde(default = "default_format", skip_serializing_if = "Option::is_none")]
     pub format: Option<ImageCompression>,
 }
@@ -74,50 +120,55 @@ impl Default for ImageOptimizationOptions {
     }
 }
 
+/// The compression of an image stream. The soft mask (alpha channel) of an image is always
+/// written with Flate.
 #[derive(Debug, Copy, Clone, Serialize, PartialOrd, PartialEq, Default, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ImageCompression {
-    /// Automatic selection based on image content
+    /// Lossy JPEG for color images (needs the `jpeg` feature, else Flate), lossless Flate for
+    /// greyscale images.
     #[default]
     Auto,
-    /// JPEG compression (DCT filter)
+    /// Lossy JPEG (`DCTDecode`). Needs the `jpeg` feature, else Flate is used.
     Jpeg,
-    /// JPEG2000 compression (JPX filter - TODO: uses DCT filter)
+    /// Written as JPEG (`DCTDecode`), as there is no JPEG 2000 encoder.
     Jpeg2000,
-    /// Flate compression (lossless)
+    /// Lossless zlib compression (`FlateDecode`).
     Flate,
-    /// LZW compression (lossless)
+    /// Written as Flate (`FlateDecode`), as there is no LZW encoder.
     Lzw,
-    /// Run Length encoding
+    /// Written as Flate (`FlateDecode`), as there is no run-length encoder.
     RunLength,
-    /// None (raw)
+    /// No filter: the samples are stored as they are.
     None,
 }
 
+/// An image file format that [`RawImage::encode_to_bytes`] can write.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum OutputImageFormat {
-    /// PNG (lossless)
+    /// PNG, lossless.
     Png,
-    /// JPEG (lossy)
+    /// JPEG, lossy.
     Jpeg,
-    /// WebP (lossy or lossless)
+    /// WebP.
     Webp,
-    /// AVIF (lossy or lossless)
+    /// AVIF.
     Avif,
-    /// GIF (lossless, limited colors)
+    /// GIF, at most 256 colors.
     Gif,
-    /// BMP (lossless, uncompressed)
+    /// BMP, uncompressed.
     Bmp,
-    /// TIFF (lossless or lossy)
+    /// TIFF.
     Tiff,
-    /// TGA (lossless)
+    /// TGA.
     Tga,
-    /// PNM (lossless)
+    /// PNM (portable anymap).
     Pnm,
 }
 
 impl OutputImageFormat {
+    /// The MIME type of the format, such as `"image/png"`.
     pub fn mime_type(&self) -> &'static str {
         match self {
             Self::Png => "image/png",
@@ -133,41 +184,59 @@ impl OutputImageFormat {
     }
 }
 
+/// The channel layout and sample type of a [`RawImage`]. Samples of a pixel are stored next to
+/// each other, pixels row by row from the top left corner, with no padding between rows.
+///
+/// The sample type must match [`RawImageData`]: 8-bit formats use `U8`, 16-bit formats `U16`,
+/// float formats `F32` (0.0 to 1.0).
 #[derive(Debug, Serialize, Deserialize, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 #[serde(rename_all = "lowercase")]
 pub enum RawImageFormat {
+    /// One grey channel, 8 bits.
     R8,
+    /// Grey and alpha (not red and green), 8 bits each.
     RG8,
+    /// Red, green, blue, 8 bits each.
     RGB8,
+    /// Red, green, blue, alpha, 8 bits each.
     RGBA8,
+    /// One grey channel, 16 bits.
     R16,
+    /// Grey and alpha, 16 bits each.
     RG16,
+    /// Red, green, blue, 16 bits each.
     RGB16,
+    /// Red, green, blue, alpha, 16 bits each.
     RGBA16,
+    /// Blue, green, red, 8 bits each.
     BGR8,
+    /// Blue, green, red, alpha, 8 bits each.
     BGRA8,
+    /// Red, green, blue as 32-bit floats.
     RGBF32,
+    /// Red, green, blue, alpha as 32-bit floats.
     RGBAF32,
 }
 
+/// The samples of a [`RawImage`], in the order [`RawImageFormat`] describes.
+///
+/// Serialized as `{"u8b64": "<base64>"}`, `{"u16b64": ...}` or `{"f32b64": ...}`, with 16-bit and
+/// float samples packed little-endian. The array forms `{"u8": [1, 2, 3]}`, `{"u16": [...]}` and
+/// `{"f32": [...]}` are accepted when reading.
 #[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(try_from = "RawImageDataWire", into = "RawImageDataWire")]
 pub enum RawImageData {
+    /// 8-bit samples.
     U8(Vec<u8>),
+    /// 16-bit samples.
     U16(Vec<u16>),
+    /// 32-bit float samples.
     F32(Vec<f32>),
 }
 
-/// Wire format for [`RawImageData`].
-///
-/// Pixels serialize as base64 (`{"u8b64": "..."}`), NOT as JSON number arrays:
-/// a 1024×1024 RGBA image is 4.2 million array elements ≈ 16 MB of JSON, and
-/// the wasm demo shuttles that through serde + `JSON.parse` on every render —
-/// the sign-pdf tab spent 90+ seconds on a single signature decode. Base64 is
-/// ~4× smaller and an order of magnitude faster on both sides. The legacy
-/// array variants (`u8`/`u16`/`f32`, the pre-0.12 format) stay accepted on
-/// input forever; `u16`/`f32` pack little-endian.
+/// Wire format for [`RawImageData`]. Base64 is smaller and much faster to parse than a JSON
+/// array of numbers.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum RawImageDataWire {
@@ -247,7 +316,7 @@ mod pixel_wire_tests {
         let json = serde_json::to_string(&d).unwrap();
         assert!(json.contains("u8b64"), "new format must be base64: {json}");
         assert_eq!(serde_json::from_str::<RawImageData>(&json).unwrap(), d);
-        // pre-0.12 wire format stays readable
+        // the array form is accepted when reading
         let legacy: RawImageData = serde_json::from_str(r#"{"u8":[1,2,3,255]}"#).unwrap();
         assert_eq!(legacy, d);
 
@@ -257,33 +326,73 @@ mod pixel_wire_tests {
     }
 }
 
-/// Raw image data container (always available, even without 'images' feature)
+/// A decoded bitmap: pixels, size and channel layout. Available without the `images` feature.
+///
+/// `pixels` must hold `width * height * channels` samples, or encoding the image fails or
+/// produces garbage.
+///
+/// # Examples
+///
+/// Build an image, register it with the document and paint it on a page. Reading an image file
+/// instead needs the `images` feature and the feature of its format: see
+/// [`RawImage::decode_from_bytes`].
+///
+/// ```
+/// use printpdf::*;
+///
+/// // 2 x 2 pixels, RGB: red, green / blue, yellow.
+/// let image = RawImage {
+///     pixels: RawImageData::U8(vec![255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 0]),
+///     width: 2,
+///     height: 2,
+///     data_format: RawImageFormat::RGB8,
+///     tag: Vec::new(),
+/// };
+/// let mut doc = PdfDocument::new("Image");
+/// let id = doc.add_image(&image);
+/// let ops = vec![Op::UseXobject {
+///     id,
+///     transform: XObjectTransform {
+///         dpi: Some(1.44), // 2 px at 1.44 dpi are 100 pt
+///         translate_x: Some(Pt(50.0)),
+///         translate_y: Some(Pt(600.0)),
+///         ..Default::default()
+///     },
+/// }];
+/// let page = PdfPage::new(Mm(210.0), Mm(297.0), ops);
+/// let bytes = doc.with_pages(vec![page]).save(&PdfSaveOptions::default(), &mut Vec::new());
+/// assert!(bytes.starts_with(b"%PDF"));
+/// ```
 #[derive(Debug, Clone, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct RawImage {
+    /// The samples, row by row from the top left corner.
     pub pixels: RawImageData,
+    /// Width in pixels.
     pub width: usize,
+    /// Height in pixels.
     pub height: usize,
+    /// The channel layout of `pixels`.
     pub data_format: RawImageFormat,
+    /// Free bytes for the caller to label the image. Not written to the PDF.
     pub tag: Vec<u8>,
 }
 
 impl RawImage {
-    /// Stub decode when 'images' feature is not enabled
+    /// Without the `images` feature: always returns an error.
     #[cfg(not(feature = "images"))]
     pub fn decode_from_bytes(_bytes: &[u8], _warnings: &mut Vec<crate::PdfWarnMsg>) -> Result<Self, String> {
         Err("RawImage::decode_from_bytes requires the 'images' feature".to_string())
     }
 
-    /// Stub decode_async when 'images' feature is not enabled
+    /// Without the `images` feature: always returns an error.
     #[cfg(not(feature = "images"))]
     pub async fn decode_from_bytes_async(_bytes: &[u8], _warnings: &mut Vec<crate::PdfWarnMsg>) -> Result<Self, String> {
         Err("RawImage::decode_from_bytes_async requires the 'images' feature".to_string())
     }
 
-    /// Encode to bytes - returns placeholder when 'images' feature is not enabled
+    /// Without the `images` feature: returns a 1 x 1 transparent PNG whatever the image is.
     #[cfg(not(feature = "images"))]
     pub fn encode_to_bytes(&self, formats: &[OutputImageFormat]) -> Result<(Vec<u8>, OutputImageFormat), String> {
-        // Return 1x1 transparent PNG as placeholder
         let png_data = vec![
             0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
             0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, // IHDR chunk
@@ -299,22 +408,16 @@ impl RawImage {
         Ok((png_data, format))
     }
 
-    /// Encode to bytes async - returns placeholder when 'images' feature is not enabled
+    /// Without the `images` feature: same as [`RawImage::encode_to_bytes`].
     #[cfg(not(feature = "images"))]
     pub async fn encode_to_bytes_async(&self, formats: &[OutputImageFormat]) -> Result<(Vec<u8>, OutputImageFormat), String> {
         self.encode_to_bytes(formats)
     }
 }
 
-/// Encode a `RawImage` into a PDF image XObject stream using no image codec at
-/// all — raw pixels + FlateDecode (flate2 is an unconditional dependency).
-///
-/// This exists so documents containing images can still be SAVED when the
-/// `images` feature is off: `add_xobject_to_document` used to `panic!` in that
-/// configuration, which made every parsed-then-resaved document with a bitmap a
-/// crash. Alpha channels are split into a grayscale `/SMask` per the PDF spec;
-/// 16-bit and float data is downconverted to 8-bit (a fidelity loss, but a
-/// valid file — the `images` feature path keeps full depth).
+/// Encodes a `RawImage` as an image XObject stream without an image codec: 8-bit samples with
+/// `FlateDecode`, so documents with images can be saved when the `images` feature is off.
+/// Alpha becomes a greyscale `/SMask`. 16-bit and float samples are reduced to 8 bits.
 #[cfg(not(feature = "images"))]
 pub(crate) fn raw_image_to_basic_stream(
     im: &RawImage,
