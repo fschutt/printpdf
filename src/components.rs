@@ -1,31 +1,14 @@
-//! printpdf's custom XML/HTML components for the data-driven azul component system.
+//! Component definitions that printpdf adds to azul's HTML component map.
 //!
-//! As of azul-core 0.0.8 the old `XmlComponentTrait` was replaced by a data-driven
-//! [`ComponentDef`] model (id = `collection:name`, a typed `data_model`, a bare
-//! `render_fn` function pointer, and a language-neutral `codegen` that says how
-//! generated code builds an instance; it replaced the per-language `compile_fn`).
-//! The `builtin` library shipped with azul-core already renders ~90 standard HTML
-//! tags (html/body/div/h1-h6/p/span/table/tr/td/a/ul/li/…), so printpdf no longer
-//! needs to register those itself.
+//! When printpdf turns HTML into a PDF, azul parses the markup into a DOM and looks up each tag
+//! in a [`ComponentMap`]. azul's builtin library already covers the standard HTML tags
+//! (`html`, `body`, `div`, `h1` to `h6`, `p`, `span`, `table`, `a`, `ul`, `li` and so on), so this
+//! module only defines two extra components, `<img>` and `<component>`, in a `"printpdf"`
+//! library. [`printpdf_default_components`] returns the builtin map with that library appended.
 //!
-//! This module therefore only defines printpdf's **custom** components — the ones that
-//! are *not* part of azul's builtin library:
-//!
-//! * [`img_component_def`] — `<img>` (PDF image embedding). `img` is not a builtin tag.
-//! * [`dynamic_xml_component_def`] — `<component name="…" args="…">` user-defined
-//!   reusable components (printpdf issue #268).
-//!
-//! [`printpdf_default_components`] returns azul's builtin [`ComponentMap`] with a small
-//! `"printpdf"` library (holding the two components above) appended.
-//!
-//! ## Runtime note
-//!
-//! The published azul-core `str_to_dom` rendering path (`render_dom_from_body_node_fast`
-//! → `xml_node_to_fast_dom`) maps tags straight to `NodeType` via `tag_to_node_type` and
-//! does **not** invoke any `ComponentDef::render_fn`. The `render_fn` / `codegen`
-//! machinery is only consumed by the code-generation / preview path (`azul_core::codegen`).
-//! These custom defs are therefore primarily descriptive for that path; see the crate
-//! notes / issue #268 for the image-embedding follow-up.
+//! The definitions are descriptive: azul's `str_to_dom` maps tags to node types directly and does
+//! not call [`ComponentDef::render_fn`], so the render functions here only produce an empty
+//! `<div>`. Images are drawn later, when the [`crate::html::bridge`] walks the display list.
 
 use azul_core::{
     dom::{Dom, NodeType},
@@ -39,10 +22,7 @@ use azul_core::{
 };
 use azul_css::{css::Css, AzString};
 
-/// Build a [`ComponentDataField`] with a rich type and optional default value.
-///
-/// Mirrors azul-core's private `data_field` helper. `required` is derived from
-/// whether a default was supplied.
+// A field is required when it has no default value.
 fn data_field(
     name: &str,
     ft: ComponentFieldType,
@@ -62,19 +42,8 @@ fn data_field(
     }
 }
 
-// ============================================================================
-// <img> — PDF image embedding
-// ============================================================================
-
-/// Render function for the `<img>` component.
-///
-/// The new `render_fn` signature only receives the typed `ComponentDataModel`
-/// (carrying string attributes such as `src` / `alt`); it has no access to the
-/// decoded image bytes (those live in `XmlRenderOptions::images` on the printpdf
-/// side, which is not threaded into azul's renderer). It therefore renders a
-/// placeholder `<div>` carrying the same shape the old `ImgComponent` produced.
-/// Actual image embedding is handled by printpdf when it walks the resulting
-/// display list (see issue #268).
+// `render_fn` only sees the typed data model, not the image bytes (those are in
+// `XmlRenderOptions::images`), so it renders an empty `<div>`. The bridge draws the image.
 fn img_render_fn(
     _def: &ComponentDef,
     _data: &ComponentDataModel,
@@ -85,10 +54,9 @@ fn img_render_fn(
     r.into()
 }
 
-/// `printpdf:img` — the `<img>` element (PDF image embedding).
+/// The `printpdf:img` component, the `<img>` element.
 ///
-/// Mirrors azul-core's private `builtin_component_def`: a small typed data model
-/// (`src`, `alt`) plus the printpdf-specific render function.
+/// Its data model has a required `src` (the key into the image map) and an optional `alt`.
 pub fn img_component_def() -> ComponentDef {
     ComponentDef {
         id: ComponentId::new("printpdf", "img"),
@@ -116,27 +84,13 @@ pub fn img_component_def() -> ComponentDef {
             .into(),
         },
         render_fn: img_render_fn,
-        // Generated code calls the component's own render function (azul's
-        // language-neutral `ComponentCodegen`, which replaced the per-language
-        // `compile_fn`).
         codegen: ComponentCodegen::RenderFunction,
         render_fn_source: None.into(),
     }
 }
 
-// ============================================================================
-// <component> — user-defined dynamic XML components (#268)
-// ============================================================================
-
-/// Render function for the `<component>` element.
-///
-/// In the old API a `DynamicXmlComponent` captured the component's root XML
-/// template (`self.root`) and instantiated it with substituted arguments on
-/// render. The new `render_fn` is a bare `fn` pointer that cannot close over a
-/// captured XML subtree, and the `ComponentDataModel` only carries scalar/typed
-/// field values — not an arbitrary XML template. A faithful template-instantiating
-/// port is therefore not expressible in this signature; we render an empty `<div>`
-/// placeholder. See issue #268 for the follow-up.
+// `render_fn` is a bare function pointer and the data model holds only typed field values, so
+// it cannot carry an XML template to instantiate. It renders an empty `<div>`.
 fn dynamic_xml_render_fn(
     _def: &ComponentDef,
     _data: &ComponentDataModel,
@@ -147,11 +101,10 @@ fn dynamic_xml_render_fn(
     r.into()
 }
 
-/// `printpdf:component` — user-defined reusable component (`<component name="…" />`).
+/// The `printpdf:component` component, a user-defined reusable element
+/// (`<component name="..." />`).
 ///
-/// Port of the old `DynamicXmlComponent` (#268) to the data-driven model. The
-/// `name` field identifies the component instance; the `args` field carries its
-/// raw argument string (parsed downstream).
+/// Its data model has a required `name` and an optional `args` string with the raw argument list.
 pub fn dynamic_xml_component_def() -> ComponentDef {
     ComponentDef {
         id: ComponentId::new("printpdf", "component"),
@@ -179,16 +132,12 @@ pub fn dynamic_xml_component_def() -> ComponentDef {
             .into(),
         },
         render_fn: dynamic_xml_render_fn,
-        // Generated code calls the component's own render function (azul's
-        // language-neutral `ComponentCodegen`, which replaced the per-language
-        // `compile_fn`).
         codegen: ComponentCodegen::RenderFunction,
         render_fn_source: None.into(),
     }
 }
 
-/// The printpdf custom component library: the components that are *not* part of
-/// azul's builtin library (`img`, `component`).
+/// The `"printpdf"` component library, holding `img` and `component`.
 pub fn printpdf_component_library() -> ComponentLibrary {
     ComponentLibrary {
         name: AzString::from("printpdf"),
@@ -202,13 +151,10 @@ pub fn printpdf_component_library() -> ComponentLibrary {
     }
 }
 
-/// Returns a [`ComponentMap`] with azul's builtin HTML element components plus
-/// printpdf's custom components (`img`, `component`) registered.
+/// Returns azul's builtin [`ComponentMap`] with [`printpdf_component_library`] appended.
 ///
-/// Used by `src/html/mod.rs` `str_to_dom(...)`.
+/// The HTML renderer passes this map to azul when it parses a document.
 pub fn printpdf_default_components() -> ComponentMap {
-    // Start from azul's builtin library (renders ~90 standard HTML tags) and
-    // append the printpdf custom library.
     let mut map = ComponentMap::with_builtin();
     let mut libs = std::mem::replace(&mut map.libraries, Vec::new().into()).into_library_owned_vec();
     libs.push(printpdf_component_library());

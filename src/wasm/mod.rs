@@ -1,4 +1,13 @@
-/// WASM / JS API, only enabled on WASM
+//! A JSON API for calling printpdf from JavaScript, and the plain Rust types behind it.
+//!
+//! JS code cannot share Rust structs, so every function takes one JSON string and returns one
+//! JSON string. [`api`] holds those functions (the `Pdf_*` family, exported with `wasm-bindgen`
+//! on wasm targets); [`structs`] holds the input and output types and the Rust function each
+//! one calls, which work on every target without any JSON.
+//!
+//! The functions cover the common round trips: HTML to a document, PDF bytes to a document, a
+//! document to PDF bytes, a page to SVG, the resources of a page, registering fonts once, and
+//! decoding an image. Documents travel as the JSON form of [`crate::PdfDocument`].
+
 pub mod api;
-/// WASM API Datastructures, can be used even on non-WASM targets
 pub mod structs;

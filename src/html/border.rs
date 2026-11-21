@@ -1,10 +1,16 @@
-//! Border and border-radius rendering utilities for PDF generation.
+//! Draws CSS borders and rounded corners as PDF paths.
 //!
-//! This module provides comprehensive border rendering including:
-//! - All four sides (top, right, bottom, left) rendered individually
-//! - Border-radius support with proper corner curves
-//! - Border styles (solid, dashed, dotted, etc.)
-//! - Reusable path generation for clipping rectangles
+//! A PDF has no border primitive; a border is a stroked path. [`render_border`] turns the
+//! border of one box into [`Op`]s: when all four sides are identical and solid it strokes a
+//! single (rounded) rectangle, otherwise it strokes each side as its own line, with the corner
+//! arcs split at 45 degrees between the two sides that meet there. `solid`, `dashed`, `dotted`
+//! and `double` are drawn; `groove`, `ridge`, `inset` and `outset` are drawn as `solid`, and
+//! `none` and `hidden` draw nothing.
+//!
+//! The `extract_*` functions read the values from azul's display list. All lengths here are in
+//! PDF points (the bridge converts them from CSS px), and box positions use a top-left origin
+//! that [`BorderConfig::page_height`] flips to the bottom-left origin of a PDF page.
+//! [`create_rounded_rect_path_with_margins`] also serves as a clip path for rounded boxes.
 
 use azul_core::geom::{LogicalRect, LogicalPosition, LogicalSize};
 use azul_css::props::basic::{pixel::DEFAULT_FONT_SIZE, ColorU};
@@ -12,13 +18,13 @@ use azul_layout::solver3::display_list::{StyleBorderColors, StyleBorderStyles, S
 use azul_css::props::style::border_radius::StyleBorderRadius;
 use crate::{Color, Mm, Op, Pt, Rgb, LineCapStyle, LineDashPattern};
 
-/// Create a `graphics::Point` from PDF-pt coordinates.
+// A point from PDF-pt coordinates.
 #[inline]
 fn pt_point(x: f32, y: f32) -> crate::graphics::Point {
     crate::graphics::Point::new(Mm::from(Pt(x)), Mm::from(Pt(y)))
 }
 
-/// Convert azul ColorU to printpdf Color
+/// Converts an azul color to an RGB [`Color`]; the alpha channel is dropped.
 pub fn convert_color(color: &ColorU) -> Color {
     Color::Rgb(Rgb {
         r: color.r as f32 / 255.0,
@@ -28,88 +34,128 @@ pub fn convert_color(color: &ColorU) -> Color {
     })
 }
 
-/// Represents a corner of a rectangle
+/// A corner of a box.
 #[derive(Debug, Clone, Copy)]
 pub enum Corner {
+    /// Top left corner.
     TopLeft,
+    /// Top right corner.
     TopRight,
+    /// Bottom right corner.
     BottomRight,
+    /// Bottom left corner.
     BottomLeft,
 }
 
-/// Represents a side of a border
+/// A side of a box.
 #[derive(Debug, Clone, Copy)]
 pub enum BorderSide {
+    /// Top side.
     Top,
+    /// Right side.
     Right,
+    /// Bottom side.
     Bottom,
+    /// Left side.
     Left,
 }
 
-/// Border rendering configuration
+/// Everything [`render_border`] needs to draw the border of one box.
 #[derive(Debug, Clone)]
 pub struct BorderConfig {
+    /// Border box in points, with the origin at the top left of the content area.
     pub bounds: LogicalRect,
+    /// Width of each side.
     pub widths: BorderWidths,
+    /// Color of each side.
     pub colors: BorderColors,
+    /// Style of each side.
     pub styles: BorderStyles,
+    /// Corner radii.
     pub radii: BorderRadii,
+    /// Height of the page in points, used to flip y to the bottom-left origin of a PDF page.
     pub page_height: f32,
-    /// Left margin offset in points
+    /// Page margin to the left of the content area, in points.
     pub margin_left: f32,
-    /// Top margin offset in points  
+    /// Page margin above the content area, in points.
     pub margin_top: f32,
 }
 
-/// Processed border widths (in pixels)
+/// Border widths in points; 0 draws no border on that side.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BorderWidths {
+    /// Width of the top border.
     pub top: f32,
+    /// Width of the right border.
     pub right: f32,
+    /// Width of the bottom border.
     pub bottom: f32,
+    /// Width of the left border.
     pub left: f32,
 }
 
-/// Processed border colors
+/// Border colors; the default is opaque black on all sides.
 #[derive(Debug, Clone, Copy)]
 pub struct BorderColors {
+    /// Color of the top border.
     pub top: ColorU,
+    /// Color of the right border.
     pub right: ColorU,
+    /// Color of the bottom border.
     pub bottom: ColorU,
+    /// Color of the left border.
     pub left: ColorU,
 }
 
-/// Processed border styles
+/// Border styles; the default is `solid` on all sides.
 #[derive(Debug, Clone, Copy)]
 pub struct BorderStyles {
+    /// Style of the top border.
     pub top: BorderStyleType,
+    /// Style of the right border.
     pub right: BorderStyleType,
+    /// Style of the bottom border.
     pub bottom: BorderStyleType,
+    /// Style of the left border.
     pub left: BorderStyleType,
 }
 
-/// Border radii for all four corners (in pixels)
+/// Corner radii in points, each as (horizontal, vertical).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BorderRadii {
-    pub top_left: (f32, f32),     // (horizontal, vertical)
+    /// Top left corner.
+    pub top_left: (f32, f32),
+    /// Top right corner.
     pub top_right: (f32, f32),
+    /// Bottom right corner.
     pub bottom_right: (f32, f32),
+    /// Bottom left corner.
     pub bottom_left: (f32, f32),
 }
 
-/// Border style types
+/// The CSS `border-style` values. Only `Solid`, `Dashed`, `Dotted` and `Double` have their own
+/// drawing; the four 3D styles are drawn as `Solid`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[derive(Default)]
 pub enum BorderStyleType {
+    /// No border (also used for `hidden`).
     None,
+    /// A continuous line.
     #[default]
     Solid,
+    /// A line of dashes.
     Dashed,
+    /// A line of round dots.
     Dotted,
+    /// Two parallel lines.
     Double,
+    /// An engraved look; drawn as `Solid`.
     Groove,
+    /// An embossed look; drawn as `Solid`.
     Ridge,
+    /// A sunken box; drawn as `Solid`.
     Inset,
+    /// A raised box; drawn as `Solid`.
     Outset,
 }
 
@@ -136,13 +182,12 @@ impl Default for BorderStyles {
     }
 }
 
-/// CSS px → PDF pt conversion factor. The HTML border renderer operates entirely
-/// in PDF pt (its `bounds` are converted via `bounds_px_to_pt` before reaching it),
-/// so widths and radii — which CSS resolves to px — must be scaled the same way,
-/// otherwise borders/corners render ~1.333× too thick/large.
+// CSS px to PDF pt. Widths and radii come from CSS in px and must be scaled like the bounds,
+// which the bridge converts to pt before they reach this module.
 const CSS_PX_TO_PT: f32 = 72.0 / 96.0;
 
-/// Extract border widths from CSS property values, scaled from CSS px to PDF pt.
+/// Reads the four border widths from azul's values, converted to points. A side without a width
+/// gets 0.
 pub fn extract_border_widths(widths: &StyleBorderWidths) -> BorderWidths {
     BorderWidths {
         top: widths
@@ -168,7 +213,7 @@ pub fn extract_border_widths(widths: &StyleBorderWidths) -> BorderWidths {
     }
 }
 
-/// Extract border colors from CSS property values
+/// Reads the four border colors from azul's values. A side without a color gets opaque black.
 pub fn extract_border_colors(colors: &StyleBorderColors) -> BorderColors {
     BorderColors {
         top: colors
@@ -194,7 +239,8 @@ pub fn extract_border_colors(colors: &StyleBorderColors) -> BorderColors {
     }
 }
 
-/// Extract border styles from CSS property values
+/// Reads the four border styles from azul's values. A side without a style gets `Solid`;
+/// `hidden` becomes `None`.
 pub fn extract_border_styles(styles: &StyleBorderStyles) -> BorderStyles {
     use azul_css::props::style::BorderStyle;
     
@@ -274,7 +320,8 @@ pub fn extract_border_styles(styles: &StyleBorderStyles) -> BorderStyles {
     }
 }
 
-/// Extract border radii from CSS property values
+/// Reads the corner radii from azul's values, converted to points. The horizontal and vertical
+/// radius of a corner are the same.
 pub fn extract_border_radii(border_radius: &StyleBorderRadius) -> BorderRadii {
     let tl = border_radius.top_left.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * CSS_PX_TO_PT;
     let tr = border_radius.top_right.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * CSS_PX_TO_PT;
@@ -282,14 +329,19 @@ pub fn extract_border_radii(border_radius: &StyleBorderRadius) -> BorderRadii {
     let bl = border_radius.bottom_left.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * CSS_PX_TO_PT;
     
     BorderRadii {
-        top_left: (tl, tl),      // Use same value for horizontal and vertical
+        top_left: (tl, tl),
         top_right: (tr, tr),
         bottom_right: (br, br),
         bottom_left: (bl, bl),
     }
 }
 
-/// Create rounded rectangle path with margin support
+/// Builds the outline of a rounded rectangle as a closed path in PDF coordinates.
+///
+/// `x`, `y`, `width` and `height` are in points with the origin at the top left of the content
+/// area. `page_height` flips y to the bottom-left origin of a PDF page, and `margin_left` and
+/// `margin_top` move the box into the page margins. A radius larger than half the width or
+/// height is reduced to it. The result can be stroked as a border or used as a clip path.
 pub fn create_rounded_rect_path_with_margins(
     x: f32,
     y: f32,
@@ -303,7 +355,6 @@ pub fn create_rounded_rect_path_with_margins(
     create_rounded_rect_path_with_margins_internal(x, y, width, height, radii, page_height, margin_left, margin_top)
 }
 
-/// Internal implementation of rounded rectangle path generation with margin support
 fn create_rounded_rect_path_with_margins_internal(
     x: f32,
     y: f32,
@@ -316,12 +367,9 @@ fn create_rounded_rect_path_with_margins_internal(
 ) -> Vec<crate::graphics::LinePoint> {
     const KAPPA: f32 = 0.552_284_8;
     
-    // Apply margins: add margin_left to X, subtract margin_top from Y before PDF transformation
     let x = x + margin_left;
-    
-    // Convert to PDF coordinates (bottom-left origin) with margin_top
-    // Layout Y is from top, PDF Y is from bottom
-    // PDF_Y = page_height - layout_y - height - margin_top
+
+    // Layout y counts from the top, PDF y from the bottom.
     let y_pdf = page_height - y - height - margin_top;
     
     // Extract corner radii
@@ -466,7 +514,6 @@ fn create_rounded_rect_path_with_margins_internal(
     points
 }
 
-/// Check if any radius is non-zero
 fn has_border_radius(radii: &BorderRadii) -> bool {
     radii.top_left.0 > 0.0 || radii.top_left.1 > 0.0
         || radii.top_right.0 > 0.0 || radii.top_right.1 > 0.0
@@ -474,11 +521,10 @@ fn has_border_radius(radii: &BorderRadii) -> bool {
         || radii.bottom_left.0 > 0.0 || radii.bottom_left.1 > 0.0
 }
 
-/// Render all four borders with full support for border-radius and styles
-/// 
-/// NOTE: This function expects bounds in CSS coordinates (top-left origin).
-/// The Y-coordinate conversion to PDF space (bottom-left origin) happens internally.
-/// Margins are applied to shift the border within the page.
+/// Appends the [`Op`]s that draw the border of one box to `ops`.
+///
+/// Each side is skipped when its width is 0, its style is `None` or its color is transparent.
+/// The bounds in `config` have a top-left origin; the flip to PDF coordinates happens here.
 pub fn render_border(ops: &mut Vec<Op>, config: &BorderConfig) {
     let widths = &config.widths;
     let colors = &config.colors;
@@ -488,14 +534,13 @@ pub fn render_border(ops: &mut Vec<Op>, config: &BorderConfig) {
     let margin_left = config.margin_left;
     let margin_top = config.margin_top;
 
-    // Check if all sides are identical (common case optimization)
+    // Four identical solid sides are one stroked rectangle.
     let all_same = widths.top == widths.right && widths.top == widths.bottom && widths.top == widths.left
         && colors.top == colors.right && colors.top == colors.bottom && colors.top == colors.left
         && styles.top == styles.right && styles.top == styles.bottom && styles.top == styles.left
         && styles.top == BorderStyleType::Solid;
 
     if all_same && widths.top > 0.0 && colors.top.a > 0 {
-        // Optimized path: render as a single stroked rectangle (with or without border-radius)
         render_unified_border(ops, bounds, widths.top, colors.top, radii, config.page_height, margin_left, margin_top);
         return;
     }
@@ -515,7 +560,6 @@ pub fn render_border(ops: &mut Vec<Op>, config: &BorderConfig) {
     }
 }
 
-/// Render a border as a single stroked rectangle (optimization for uniform borders)
 fn render_unified_border(
     ops: &mut Vec<Op>,
     bounds: &LogicalRect,
@@ -528,21 +572,18 @@ fn render_unified_border(
 ) {
     ops.push(Op::SaveGraphicsState);
     
-    // Set color and width
     ops.push(Op::SetOutlineColor { col: convert_color(&color) });
     ops.push(Op::SetOutlineThickness { pt: Pt(width) });
     
-    // Check if we have border radius
     if has_border_radius(radii) {
-        // Adjust bounds for stroke centering: the stroke is centered on the path,
-        // so we need to inset by half the width to keep the border inside
+        // The stroke is centered on the path, so inset by half the width to keep it inside.
         let half_width = width / 2.0;
         let adj_x = bounds.origin.x + half_width;
         let adj_y = bounds.origin.y + half_width;
         let adj_width = bounds.size.width - width;
         let adj_height = bounds.size.height - width;
         
-        // Also adjust radii to account for the inset
+        // The radii shrink with the inset.
         let adj_radii = BorderRadii {
             top_left: (
                 (radii.top_left.0 - half_width).max(0.0),
@@ -581,11 +622,8 @@ fn render_unified_border(
         
         ops.push(Op::DrawPolygon { polygon });
     } else {
-        // Simple rectangle without border radius
-        // Convert to PDF coordinate space (bottom-left origin) with margins
         let y = page_height - bounds.origin.y - bounds.size.height - margin_top;
         
-        // Adjust for stroke centering and apply left margin
         let half_width = width / 2.0;
         let x = bounds.origin.x + half_width + margin_left;
         let y_adj = y + half_width;
@@ -623,7 +661,6 @@ fn render_unified_border(
     ops.push(Op::RestoreGraphicsState);
 }
 
-/// Render a single border side
 fn render_border_side(
     ops: &mut Vec<Op>,
     side: BorderSide,
@@ -647,11 +684,8 @@ fn render_border_side(
 
     ops.push(Op::SetOutlineColor { col: convert_color(&color) });
     ops.push(Op::SetOutlineThickness { pt: Pt(width) });
-    // Round caps only smooth a corner when the perpendicular neighbour borders are
-    // actually present. For an isolated side (e.g. only `border-left`) or two
-    // non-touching sides (top+bottom / left+right), round caps leave visually odd
-    // rounded ends, so use flat (butt) caps there instead. (Dotted borders override
-    // this with their own round caps to draw circular dots.)
+    // Round caps only smooth a corner when both neighbouring borders exist; an isolated side or
+    // two opposite sides get flat caps. Dotted borders set their own round caps.
     let both_neighbours_present = match side {
         BorderSide::Top | BorderSide::Bottom => widths.left > 0.0 && widths.right > 0.0,
         BorderSide::Left | BorderSide::Right => widths.top > 0.0 && widths.bottom > 0.0,
@@ -663,7 +697,6 @@ fn render_border_side(
     };
     ops.push(Op::SetLineCapStyle { cap });
 
-    // Handle different border styles
     match style {
         BorderStyleType::Solid => {
             render_solid_border_side(ops, side, bounds, widths, radii, page_height, margin_left, margin_top);
@@ -678,7 +711,7 @@ fn render_border_side(
             render_double_border_side(ops, side, bounds, widths, radii, page_height, width, margin_left, margin_top);
         }
         _ => {
-            // For groove, ridge, inset, outset - fall back to solid for now
+            // Groove, ridge, inset and outset are drawn as solid.
             render_solid_border_side(ops, side, bounds, widths, radii, page_height, margin_left, margin_top);
         }
     }
@@ -686,10 +719,6 @@ fn render_border_side(
     ops.push(Op::RestoreGraphicsState);
 }
 
-/// Render a solid border side with border-radius support
-/// 
-/// NOTE: bounds are in CSS coordinates (top-left origin).
-/// Y-coordinate conversion to PDF space happens here.
 fn render_solid_border_side(
     ops: &mut Vec<Op>,
     side: BorderSide,
@@ -787,7 +816,7 @@ fn render_solid_border_side(
     ops.push(Op::DrawLine { line });
 }
 
-/// Create a line with optional curved corners at the 45° split points
+// A line along one side, with the corner arcs that end at the 45 degree split of each corner.
 fn create_line_with_corners(
     start_x: f32, start_y: f32,
     end_x: f32, end_y: f32,
@@ -803,7 +832,6 @@ fn create_line_with_corners(
 ) -> crate::graphics::Line {
     let mut points = Vec::new();
 
-    // Add start corner curve (second half of the arc, from 45° to edge)
     if has_start_radius {
         add_corner_curve(&mut points, start_x, start_y, start_radius, start_corner, start_perpendicular_width, parallel_width, true);
     } else {
@@ -813,7 +841,6 @@ fn create_line_with_corners(
         });
     }
 
-    // Add end corner curve (first half of the arc, from edge to 45°)
     if has_end_radius {
         add_corner_curve(&mut points, end_x, end_y, end_radius, end_corner, end_perpendicular_width, parallel_width, false);
     } else {
@@ -829,18 +856,10 @@ fn create_line_with_corners(
     }
 }
 
-/// Add a corner arc to the line points using regular points (sin/cos).
-/// 
-/// Each border side renders HALF of the corner arc (split at 45°).
-/// - `is_start = true`: This is the START corner of the side, so we render 
-///   from the 45° midpoint TO the side's straight edge
-/// - `is_start = false`: This is the END corner of the side, so we render
-///   from the side's straight edge TO the 45° midpoint
-///
-/// The `x, y` coordinates are the point where the straight part of this border
-/// side begins/ends (i.e., at the tangent point of the radius).
-///
-/// Uses 1 point per pixel of the larger radius for smooth curves.
+// Appends half of a corner arc (the half on this side of the 45 degree split) as straight
+// segments, about one per point of the larger radius. `x, y` is where the straight part of the
+// side begins or ends. At the start corner the arc runs from the split to the side; at the end
+// corner it runs from the side to the split.
 fn add_corner_curve(
     points: &mut Vec<crate::graphics::LinePoint>,
     x: f32, y: f32,
@@ -877,11 +896,11 @@ fn add_corner_curve(
     let (center_x, center_y, start_angle, end_angle) = match corner {
         Corner::TopLeft => {
             // TopLeft corner: arc from left side (180°) to top side (90°)
-            // 
+            //
             // Tangent points:
             //   - Top tangent (90°): (cx, cy + ry)
             //   - Left tangent (180°): (cx - rx, cy)
-            // 
+            //
             // is_start=true (TOP border): x,y is the top tangent point
             //   So: x = cx, y = cy + ry → cx = x, cy = y - ry
             //   We draw from 135° to 90°
@@ -896,15 +915,15 @@ fn add_corner_curve(
         }
         Corner::TopRight => {
             // TopRight corner: arc from top side (90°) to right side (0°)
-            // 
+            //
             // Tangent points:
             //   - Top tangent (90°): (cx, cy + ry)
             //   - Right tangent (0°): (cx + rx, cy)
-            // 
+            //
             // is_start=true (RIGHT border): x,y is the right tangent point
             //   So: x = cx + rx, y = cy → cx = x - rx, cy = y
             //   We draw from 45° to 0°
-            // is_start=false (TOP border): x,y is the top tangent point  
+            // is_start=false (TOP border): x,y is the top tangent point
             //   So: x = cx, y = cy + ry → cx = x, cy = y - ry
             //   We draw from 90° to 45°
             if is_start {
@@ -915,11 +934,11 @@ fn add_corner_curve(
         }
         Corner::BottomRight => {
             // BottomRight corner: arc from right side (0°/360°) to bottom side (270°)
-            // 
+            //
             // Tangent points:
             //   - Right tangent (0°/360°): (cx + rx, cy)
             //   - Bottom tangent (270°): (cx, cy - ry)
-            // 
+            //
             // is_start=true (BOTTOM border): x,y is the bottom tangent point
             //   So: x = cx, y = cy - ry → cx = x, cy = y + ry
             //   We draw from 315° to 270°
@@ -934,11 +953,11 @@ fn add_corner_curve(
         }
         Corner::BottomLeft => {
             // BottomLeft corner: arc from bottom side (270°) to left side (180°)
-            // 
+            //
             // Tangent points:
             //   - Bottom tangent (270°): (cx, cy - ry)
             //   - Left tangent (180°): (cx - rx, cy)
-            // 
+            //
             // is_start=true (LEFT border): x,y is the left tangent point
             //   So: x = cx - rx, y = cy → cx = x + rx, cy = y
             //   We draw from 225° to 180°
@@ -968,7 +987,6 @@ fn add_corner_curve(
     }
 }
 
-/// Render a dashed border side
 fn render_dashed_border_side(
     ops: &mut Vec<Op>,
     side: BorderSide,
@@ -993,7 +1011,6 @@ fn render_dashed_border_side(
     });
 }
 
-/// Render a dotted border side
 fn render_dotted_border_side(
     ops: &mut Vec<Op>,
     side: BorderSide,
@@ -1022,7 +1039,6 @@ fn render_dotted_border_side(
     });
 }
 
-/// Render a double border side
 fn render_double_border_side(
     ops: &mut Vec<Op>,
     side: BorderSide,

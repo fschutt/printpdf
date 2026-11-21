@@ -1,10 +1,60 @@
-//! HTML to PDF converter using azul's layout engine
+//! Renders HTML to PDF pages.
 //!
-//! This module provides HTML/XML to PDF conversion using:
-//! - azul_layout::xml for XML/HTML parsing
-//! - azul_layout::LayoutWindow for layout calculation  
-//! - azul_layout::pdf for DisplayList → PDF ops conversion
-//! - Internal bridge module for translating azul PDF ops to printpdf Ops
+//! A PDF page is a list of drawing operations (see [`crate::Op`]); it has no notion of
+//! paragraphs, line breaking or boxes. To get from markup to those operations this module runs
+//! three steps:
+//!
+//! 1. The HTML is parsed into a DOM with its CSS (azul-core).
+//! 2. [azul-layout](https://crates.io/crates/azul-layout) lays the DOM out and cuts it into
+//!    pages. The result is one display list per page: positioned text, boxes, borders, images
+//!    and gradients.
+//! 3. The [`bridge`] turns each display list into [`Op`](crate::Op)s of a [`PdfPage`]. It also
+//!    collects the fonts the text uses and the images the page draws, so they can be embedded.
+//!
+//! Most programs call `PdfDocument::from_html` and never use this module directly. Use
+//! [`xml_to_pdf_pages`] or [`add_xml_to_document`] to render with an [`XmlRenderOptions`], for
+//! example to append HTML pages to a document you already have.
+//!
+//! # Input
+//!
+//! The CSS support is the one of azul-layout: block, inline and flex layout, positioning,
+//! multi-column text, backgrounds, gradients, borders, shadows and transforms. Properties the
+//! engine does not know are ignored. Pages are cut automatically; `break-before`,
+//! `break-after`, `break-inside: avoid`, `widows` and `orphans` are honoured, table rows are not
+//! split, and `<thead>` repeats on each page. Elements that cannot be drawn (`script`, `iframe`,
+//! `canvas`, `video` and similar) are removed before parsing.
+//!
+//! # Page size and margins
+//!
+//! The page size and margins come from [`XmlRenderOptions`] (A4 and no margins by default); the
+//! CSS `@page` rule is not read for them. Layout happens inside the area that the margins leave.
+//!
+//! # Fonts and images
+//!
+//! - [`XmlRenderOptions::fonts`] maps a name to font file bytes. `font-family: name` selects
+//!   it, as does the family name stored in the font file. Installed system fonts are found
+//!   through [rust-fontconfig](https://crates.io/crates/rust-fontconfig). The 14 standard PDF
+//!   fonts are always available: `Helvetica`, `Arial`, `Times New Roman`, `Courier New` and so on
+//!   resolve to them, and they back `serif`, `sans-serif` and `monospace` when no installed font
+//!   does.
+//! - [`XmlRenderOptions::images`] maps an image id to the bytes of an image file.
+//!   `<img src="id">` draws it. Only the images a page draws are decoded. Give the `<img>` a
+//!   width and a height, because layout does not read the size of the picture.
+//!
+//! Scanning system fonts is slow. To render many documents, build a [`SharedFontPool`] once with
+//! [`build_font_pool`] and pass it as [`XmlRenderOptions::font_pool`] (or to
+//! `PdfDocument::from_html_with_cache`); the parsed fonts are then reused across documents.
+//!
+//! # Example
+//!
+//! ```
+//! use printpdf::html::{xml_to_pdf_pages, XmlRenderOptions};
+//!
+//! let html = "<html><body><h1>Hello</h1><p>Some text.</p></body></html>";
+//! let options = XmlRenderOptions::default();
+//! let (pages, _fonts, _images, _resources) = xml_to_pdf_pages(html, &options).unwrap();
+//! assert!(!pages.is_empty());
+//! ```
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -33,51 +83,48 @@ use azul_layout::text3::cache::MemoryFontTier;
 
 use crate::{font::ParsedFont, BuiltinFont, Mm, PdfDocument, PdfPage, PdfWarnMsg};
 
-/// Re-export so callers of [`build_font_pool_with_memory_fonts`] can construct
-/// `FcPattern` / `FcFont` values without depending on (and version-matching)
-/// rust-fontconfig themselves.
+/// Re-export of `rust-fontconfig`, so callers of [`build_font_pool_with_memory_fonts`] can build
+/// `FcPattern` and `FcFont` values without depending on a matching version themselves.
 pub use rust_fontconfig;
 
-/// Shared font state that can be reused across multiple `xml_to_pdf_pages` calls.
+/// Font state shared by several renders, so that font files are read and parsed only once.
 ///
-/// Holds both the fontconfig cache (system font paths / metadata) and
-/// the already-parsed font data so that font files are only read and
-/// parsed once, even when rendering many documents.
-///
-/// Build with [`build_font_pool`], then pass via [`XmlRenderOptions::font_pool`].
+/// Build it with [`build_font_pool`] and pass it as [`XmlRenderOptions::font_pool`]. Cloning is
+/// cheap, the contents are behind [`Arc`]s.
 #[derive(Clone, Debug)]
 pub struct SharedFontPool {
-    /// Font-path / metadata cache (shared, read-only after build).
+    /// Index of the system and embedded fonts (paths and metadata, not the font data).
     pub fc_cache: Arc<rust_fontconfig::FcFontCache>,
-    /// Pool of already-parsed font binaries keyed by FontId.
-    /// Populated lazily during the first layout pass and reused
-    /// by every subsequent pass that shares this pool.
+    /// Parsed fonts by id, filled lazily by the first layout that needs a font and reused by
+    /// every later one.
     pub parsed_fonts: Arc<Mutex<HashMap<rust_fontconfig::FontId, azul_css::props::basic::FontRef>>>,
 }
 
 pub mod bridge;
 pub mod border;
 
-/// Page margins configuration in millimeters
+/// Page margins in millimeters.
+///
+/// Serialized as JSON with camelCase keys; a missing side is 0.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PageMargins {
-    /// Top margin in millimeters
+    /// Top margin.
     #[serde(default)]
     pub top: Mm,
-    /// Right margin in millimeters
+    /// Right margin.
     #[serde(default)]
     pub right: Mm,
-    /// Bottom margin in millimeters
+    /// Bottom margin.
     #[serde(default)]
     pub bottom: Mm,
-    /// Left margin in millimeters
+    /// Left margin.
     #[serde(default)]
     pub left: Mm,
 }
 
 impl PageMargins {
-    /// Create new margins with all sides set to the same value
+    /// Margins with the same value on all four sides.
     pub fn uniform(margin: Mm) -> Self {
         Self {
             top: margin,
@@ -87,7 +134,7 @@ impl PageMargins {
         }
     }
     
-    /// Create new margins with symmetric horizontal and vertical values
+    /// Margins with `vertical` on top and bottom and `horizontal` on left and right.
     pub fn symmetric(vertical: Mm, horizontal: Mm) -> Self {
         Self {
             top: vertical,
@@ -97,61 +144,62 @@ impl PageMargins {
         }
     }
     
-    /// Create new margins with explicit values for all sides
+    /// Margins with one value per side, in CSS order (top, right, bottom, left).
     pub fn new(top: Mm, right: Mm, bottom: Mm, left: Mm) -> Self {
         Self { top, right, bottom, left }
     }
     
-    /// Returns the total horizontal margin (left + right)
+    /// Sum of the left and right margin.
     pub fn horizontal(&self) -> Mm {
         Mm(self.left.0 + self.right.0)
     }
     
-    /// Returns the total vertical margin (top + bottom)
+    /// Sum of the top and bottom margin.
     pub fn vertical(&self) -> Mm {
         Mm(self.top.0 + self.bottom.0)
     }
 }
 
-/// Options for rendering XML/HTML to PDF
+/// Options for [`xml_to_pdf_pages`] and [`add_xml_to_document`].
+///
+/// Serialized as JSON with camelCase keys, every field optional; `font_pool` is not serialized.
+/// `PdfDocument::from_html` builds one of these from its `GeneratePdfOptions`.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct XmlRenderOptions {
-    /// Embedded images (key = image ID, value = image bytes)
+    /// Image files by id (the bytes of a PNG, JPEG and so on). `<img src="id">` draws the entry
+    /// with that key.
     #[serde(default)]
     pub images: BTreeMap<String, Vec<u8>>,
-    /// Embedded fonts (key = font name, value = font bytes)
+    /// Font files by name. `font-family: name` selects the entry; the family names stored in
+    /// the font file work too.
     #[serde(default)]
     pub fonts: BTreeMap<String, Vec<u8>>,
-    /// Page width in millimeters
+    /// Page width in millimeters (210, A4, by default).
     #[serde(default = "default_page_width")]
     pub page_width: Mm,
-    /// Page height in millimeters
+    /// Page height in millimeters (297, A4, by default).
     #[serde(default = "default_page_height")]
     pub page_height: Mm,
-    /// Page margins - affects the content area available for layout
+    /// Page margins. Layout uses the page minus the margins as its content area.
     #[serde(default)]
     pub margins: PageMargins,
-    /// Show page numbers in footer ("Page X of Y" format)
+    /// Ask layout for page numbers in the footer. Currently nothing is drawn: layout needs a
+    /// font registered in its renderer resources for this text, and printpdf registers none.
     #[serde(default)]
     pub show_page_numbers: bool,
-    /// Custom header text (appears on all pages except first if skip_first_page is true)
+    /// Header text for every page. Currently nothing is drawn, see `show_page_numbers`.
     #[serde(default)]
     pub header_text: Option<String>,
-    /// Custom footer text (in addition to or instead of page numbers)
+    /// Footer text for every page. Currently nothing is drawn, see `show_page_numbers`.
     #[serde(default)]
     pub footer_text: Option<String>,
-    /// Skip header/footer on the first page
+    /// Leave the header and footer off the first page.
     #[serde(default)]
     pub skip_first_page: bool,
-    /// Shared font pool to reuse across multiple `xml_to_pdf_pages` calls.
-    ///
-    /// Holds both the fontconfig metadata cache *and* the already-parsed
-    /// font binaries so that font files are read from disk only once.
-    ///
-    /// Build with [`build_font_pool`], then set this field.
-    /// On the first render the pool will load fonts lazily; subsequent
-    /// renders reuse the cached parse results (~0 ms for font loading).
+    /// Font pool shared with other renders, built with [`build_font_pool`]. When it is `None`,
+    /// every render scans the system fonts again; when it is set, the render reuses the pool's
+    /// font index and parsed fonts.
     #[serde(skip)]
     pub font_pool: Option<SharedFontPool>,
 }
@@ -173,16 +221,11 @@ impl Default for XmlRenderOptions {
     }
 }
 
-/// Build a [`SharedFontPool`] suitable for reuse across many render calls.
+/// Builds a [`SharedFontPool`] to reuse across many renders.
 ///
-/// Scans system fonts (or returns an empty cache on WASM), registers any
-/// embedded fonts from `fonts`, and returns a pool whose `parsed_fonts`
-/// map starts empty — it will be populated lazily on the first layout.
-///
-/// # Arguments
-/// * `fonts` — Embedded fonts to register (same map you'd put in `XmlRenderOptions::fonts`)
-/// * `families` — If `Some`, only scan system fonts matching these family names
-///   (e.g. `&["monospace"]`). Pass `None` to scan all system fonts.
+/// Scans the system fonts (on wasm there is nothing to scan) and registers the font files in
+/// `fonts`, the same map as [`XmlRenderOptions::fonts`]. With `families` set to `Some`, only
+/// system fonts of those family names are scanned; `None` scans all of them.
 pub fn build_font_pool(
     fonts: &BTreeMap<String, Vec<u8>>,
     families: Option<&[&str]>,
@@ -205,16 +248,11 @@ pub fn build_font_pool(
     }
 }
 
-/// Like [`build_font_pool`], but additionally registers caller-supplied
-/// rust-fontconfig memory fonts *exactly as given* — pattern metadata (family,
-/// weight, style, unicode ranges, …) included — instead of re-deriving patterns
-/// from the font bytes like the `fonts` map does. Use this when you already
-/// curate an in-memory font set, e.g. on wasm where there are no system fonts
-/// to scan.
+/// Like [`build_font_pool`], and also registers in-memory fonts with the pattern metadata (family,
+/// weight, style, unicode ranges) you give, instead of deriving it from the font bytes.
 ///
-/// The `rust_fontconfig` types are re-exported as [`crate::html::rust_fontconfig`],
-/// so building the patterns does not require depending on (and version-matching)
-/// the crate yourself.
+/// Use it when you manage a set of in-memory fonts yourself, for example on wasm where there are
+/// no system fonts. The `rust_fontconfig` types are re-exported as [`rust_fontconfig`].
 pub fn build_font_pool_with_memory_fonts(
     memory_fonts: Vec<(rust_fontconfig::FcPattern, rust_fontconfig::FcFont)>,
     fonts: &BTreeMap<String, Vec<u8>>,
@@ -226,34 +264,18 @@ pub fn build_font_pool_with_memory_fonts(
     pool
 }
 
-/// Named-family registration. Fonts placed into the FcFontCache (via
-/// `options.fonts` / `build_font_pool*`) are invisible to azul's font-family
-/// resolution, which consults only `FontManager::memory_families` — populated
-/// exclusively by `register_named_font`, which nothing called until now. The
-/// symptom: every custom `font-family` in the input HTML was UNRESOLVED and text
-/// silently fell back (on wasm: to azul's builtin mock fonts), making
-/// user-supplied fonts dead weight. Register each font under its map key AND
-/// under the family names stored in the font file itself, so HTML can reference
-/// either. `register_named_font` is idempotent and reuses the cache entries
-/// `with_memory_fonts` already created for these bytes.
+// Registers each input font under its map key and under the family names stored in the font
+// file, so `font-family` can use either. Fonts that are only in the font cache are not seen by
+// azul's family resolution, which looks at `FontManager::memory_families`.
 fn register_input_fonts<T: azul_layout::font_traits::ParsedFontTrait>(
     font_manager: &mut FontManager<T>,
     fonts: &BTreeMap<String, Vec<u8>>,
 ) {
-    // Multi-word family names arrive at the resolver still wrapped in CSS quotes
-    // (`"Roboto Medium"`, literal quote characters — the html pipeline fails to
-    // strip them somewhere after azul-css parsing, see issue #220). The resolver
-    // looks up the *quoted* string, so until that is fixed upstream, register
-    // every name under its quoted spellings too — lookups then succeed from
-    // either direction.
     for (name, bytes) in fonts.iter() {
         let parsed = rust_fontconfig::FcParseFontBytes(bytes, name);
 
-        // The map-key spelling must carry real coverage too: rust-fontconfig (and
-        // azul's memory-family resolution) deliberately skip empty-`unicode_ranges`
-        // fonts during per-character fallback (the 4.4.3 populate_memory_font_ranges
-        // fix), so a font referenced only by its map-key name would lose character
-        // resolution while the same font under its internal family name worked.
+        // The map-key spelling needs the real coverage too: fonts with empty unicode ranges are
+        // skipped during per-character fallback.
         let key_coverage: &[rust_fontconfig::UnicodeRange] = parsed
             .as_deref()
             .and_then(|p| p.first())
@@ -279,14 +301,8 @@ fn register_input_fonts<T: azul_layout::font_traits::ParsedFontTrait>(
     }
 }
 
-/// Register `family` under every spelling the resolver might look it up by.
-///
-/// Multi-word family names arrive at the resolver still wrapped in CSS quotes
-/// (`"Roboto Medium"`, literal quote characters — the html pipeline fails to
-/// strip them somewhere after azul-css parsing, see issue #220). The resolver
-/// looks up the *quoted* string, so until that is fixed upstream, register
-/// every name under its quoted spellings too — lookups then succeed from
-/// either direction.
+// Registers `family` plain and in double and single quotes: multi-word family names reach the
+// resolver with the CSS quotes still around them (`"Roboto Medium"`).
 fn register_all_spellings<T: azul_layout::font_traits::ParsedFontTrait>(
     fm: &mut FontManager<T>,
     family: &str,
@@ -300,12 +316,8 @@ fn register_all_spellings<T: azul_layout::font_traits::ParsedFontTrait>(
     }
 }
 
-/// The CSS spellings that should reach each of the 14 standard PDF fonts.
-///
-/// Concrete names only — these ARE the families the base-14 stand for, so they
-/// are registered as [`MemoryFontTier::Primary`] and win over whatever is
-/// installed, exactly as CSS says. The generic families are handled separately
-/// (see [`register_builtin_fonts`]) because they must not.
+// The CSS family names of each standard PDF font. These are registered as `Primary`, so they
+// win over installed fonts; the generic families are handled in `builtin_generic_family`.
 fn builtin_font_css_names(font: BuiltinFont) -> &'static [&'static str] {
     use BuiltinFont::{
         Courier, CourierBold, CourierBoldOblique, CourierOblique, Helvetica, HelveticaBold,
@@ -325,13 +337,9 @@ fn builtin_font_css_names(font: BuiltinFont) -> &'static [&'static str] {
     }
 }
 
-/// The generic family each builtin backstops, and the one face that answers it.
-///
-/// Registered as [`MemoryFontTier::Fallback`], so on a desktop the system's own
-/// serif/sans/mono faces still win and these only sit behind them — while on a
-/// target with no fonts on disk (wasm) they are what is left, which is the
-/// whole reason the tier exists. Only the regular weight of each family is
-/// offered; the bold and italic faces are reachable through the concrete names.
+// The generic family a standard font backs. Registered as `Fallback`: installed serif, sans and
+// mono fonts win, and these are what is left where no fonts are installed (wasm). Only the
+// regular face is offered; bold and italic are reachable by their concrete names.
 fn builtin_generic_family(font: BuiltinFont) -> Option<&'static str> {
     match font {
         BuiltinFont::TimesRoman => Some("serif"),
@@ -341,30 +349,20 @@ fn builtin_generic_family(font: BuiltinFont) -> Option<&'static str> {
     }
 }
 
-/// Register the 14 standard PDF fonts printpdf already embeds, so that
-/// `font-family: Helvetica` (and Times, Courier, Symbol, ZapfDingbats) resolves
-/// to the face that will actually be written into the PDF instead of silently
-/// falling back to a substitute.
-///
-/// Must run AFTER [`register_input_fonts`]. `register_named_font_in_tier`
-/// de-duplicates on family plus (weight, italic, oblique) and reuses the face it
-/// finds, so registering the builtins second means a caller-supplied Helvetica
-/// wins and the builtin is not added — register them first and the caller's font
-/// would be the one discarded.
-///
-/// Weight and style come from the font bytes, not from the name: the base-14
-/// subsets carry no OS/2 table, so rust-fontconfig reads them from
-/// `head.macStyle` (which needs rust-fontconfig >= 4.4.9 — before that a font
-/// without OS/2 failed to parse at all and none of this was reachable).
+// Registers the 14 standard PDF fonts so `font-family: Helvetica` (and Times, Courier, Symbol,
+// ZapfDingbats) resolves to the face that is written into the PDF.
+//
+// Must run after `register_input_fonts`: registration keeps the first face of a family, weight
+// and style, so a caller-supplied Helvetica wins over the built-in one. Weight and style are read
+// from `head.macStyle` because the subsets have no OS/2 table.
 fn register_builtin_fonts<T: azul_layout::font_traits::ParsedFontTrait>(
     font_manager: &mut FontManager<T>,
 ) {
     for font in BuiltinFont::all_ids() {
         let bytes = font.get_subset_font().bytes;
 
-        // Real coverage matters: azul skips empty-`unicode_ranges` faces during
-        // per-character fallback, and these subsets only cover Win-1252 — so a
-        // codepoint outside it has to be able to fall through to another font.
+        // Real coverage matters: the subsets only cover Win-1252, and a codepoint outside it
+        // has to fall through to another font.
         let coverage: Vec<rust_fontconfig::UnicodeRange> =
             rust_fontconfig::FcParseFontBytes(&bytes, font.get_id())
                 .and_then(|faces| faces.into_iter().next())
@@ -399,10 +397,9 @@ fn register_builtin_fonts<T: azul_layout::font_traits::ParsedFontTrait>(
     }
 }
 
-/// Build a font cache suitable for use with [`XmlRenderOptions::font_pool`].
+/// Builds only the font index of [`build_font_pool`], without the parsed-font pool.
 ///
-/// **Deprecated**: prefer [`build_font_pool`] which also shares parsed fonts.
-/// This function only builds the fontconfig metadata cache.
+/// Prefer [`build_font_pool`], which also shares the parsed fonts.
 pub fn build_font_cache_for_options(
     fonts: &BTreeMap<String, Vec<u8>>,
     families: Option<&[&str]>,
@@ -419,12 +416,8 @@ fn default_page_height() -> Mm {
     Mm(297.0) // A4 height
 }
 
-/// Build the [`FakePageConfig`] shared by [`xml_to_pdf_pages`] and
-/// [`xml_to_pdf_pages_debug`] from the render options, with break-awareness
-/// fully enabled: `break-inside: avoid`, `widows`/`orphans`, atomic line
-/// boxes, atomic table rows and repeated `<thead>`s all act on page breaks.
-/// Documents that never hit a break constraint paginate exactly as before;
-/// ones that do get breaks pushed up (bounded by `max_push_distance`).
+// Page configuration shared by both render functions. All break rules are on: `break-inside:
+// avoid`, widows and orphans, whole lines, whole table rows and repeated `<thead>`.
 fn build_page_config(options: &XmlRenderOptions) -> FakePageConfig {
     let mut page_config = FakePageConfig::new();
 
@@ -456,17 +449,23 @@ fn build_page_config(options: &XmlRenderOptions) -> FakePageConfig {
     page_config
 }
 
-/// Convert XML/HTML content to PDF pages, returning pages, the font map, and the
-/// decoded `<img>` resources.
+/// Renders HTML to pages.
 ///
-/// The returned [`bridge::ResolvedImages`] must be registered on the destination
-/// [`PdfDocument`] (via [`bridge::ResolvedImages`] entries → `resources.xobjects`)
-/// so that the `UseXobject` ops emitted for `<img>` elements resolve. The
-/// document-assembly helpers ([`add_xml_to_document`], `PdfDocument::from_html`)
-/// do this automatically.
+/// Returns the pages, the fonts the text uses (by font hash), the decoded `<img>` images and the
+/// extra resources the pages refer to (transparency states, gradients, shadows).
 ///
-/// Only the entries of `options.images` that the pages draw (`<img src>`) are
-/// decoded and returned; the rest of the map is not touched.
+/// The pages do not stand alone: their ops name fonts, XObjects and graphics states that must be
+/// in the resources of the document they are added to. [`add_xml_to_document`] and
+/// `PdfDocument::from_html` do that. If you add the pages yourself, register each font as
+/// `F<font hash>`, each image under the id in [`bridge::ResolvedImages`], and call
+/// [`bridge::BridgeResources::register_into`].
+///
+/// Only the entries of [`XmlRenderOptions::images`] that a page draws are decoded.
+///
+/// # Errors
+///
+/// Returns the warnings when the HTML cannot be parsed or laid out. A document without visible
+/// content gives one empty page.
 pub fn xml_to_pdf_pages(
     xml: &str,
     options: &XmlRenderOptions,
@@ -515,12 +514,9 @@ pub(crate) fn xml_to_pdf_pages_with_images(
     let content_width_pt = page_width_pt - margin_left_pt - margin_right_pt;
     let content_height_pt = page_height_pt - margin_top_pt - margin_bottom_pt;
 
-    // CRITICAL: Convert content dimensions from PDF points to CSS pixels.
-    // The CSS resolver converts unit values to CSS px (e.g. 12pt → 16px via PT_TO_PX=96/72).
-    // The layout engine is unit-agnostic, so if we feed it pt-valued dimensions,
-    // CSS pt values get inflated by 96/72 relative to the coordinate system.
-    // Solution: express the viewport in CSS px so all CSS units resolve correctly.
-    // After layout, the bridge converts coordinates back from CSS px to PDF pt.
+    // Layout runs in CSS px (96 per inch), not PDF points (72 per inch): the CSS resolver turns
+    // every unit into px, so a viewport in pt would make CSS lengths 96/72 too large. The bridge
+    // converts the coordinates back to pt.
     const PT_TO_CSS_PX: f32 = 96.0 / 72.0;
     let content_width_px = content_width_pt * PT_TO_CSS_PX;
     let content_height_px = content_height_pt * PT_TO_CSS_PX;
@@ -598,15 +594,12 @@ pub(crate) fn xml_to_pdf_pages_with_images(
     };
 
     // Build page config from options
-    // NOTE: Full CSS @page rule parsing is not yet implemented.
-    // This uses FakePageConfig for programmatic control over headers/footers.
+    // The CSS `@page` rule is not parsed; `FakePageConfig` carries the header and footer options.
     let page_config = build_page_config(options);
 
-    // The pictures the pages draw are decoded once each, keyed by `src`, and only
-    // those: the map may hold every picture of a book, and decoding all of them
-    // for every page cost a page-by-page book render 1 s a page. They are decoded
-    // when the first page that draws them arrives. Each gets a deterministic
-    // XObject id so the bridge's `UseXobject` ops and the document-side XObject
+    // The pictures the pages draw are decoded once each, keyed by `src`, when the first page that
+    // draws them arrives. The map may hold many pictures a page never shows. Each gets a
+    // deterministic XObject id, so the bridge's `UseXobject` ops and the document-side
     // registration agree.
     let mut resolved_images = bridge::ResolvedImages::new();
     // Resources synthesized by the bridge (alpha/opacity ExtGStates, gradient
@@ -616,7 +609,6 @@ pub(crate) fn xml_to_pdf_pages_with_images(
 
     // Convert each DisplayList to a PDF page
     let mut pages = Vec::new();
-    // font_data_map now maps u64 (font hash) directly to ParsedFont
     let mut font_data_map: BTreeMap<FontHash, azul_layout::font::parsed::ParsedFont> = BTreeMap::new();
 
     // Full page size for PDF coordinate transformation
@@ -628,10 +620,9 @@ pub(crate) fn xml_to_pdf_pages_with_images(
     let page_fonts = font_manager.clone_shared();
     let mut conversion_error: Option<String> = None;
 
-    // Each page is written when the layout has cut it, and its display list is
-    // dropped before the next one is cut (azul#483). Collecting every page's
-    // list first kept a second copy of the whole document's display list alive
-    // for no reason: a page is converted on its own.
+    // Each page is converted as soon as the layout has cut it, and its display list is dropped
+    // before the next page is cut, so the display lists of the whole document are never alive
+    // at once.
     let mut write_page = |display_list: azul_layout::solver3::display_list::DisplayList|
      -> azul_layout::solver3::Result<()> {
         let display_list = &display_list;
@@ -778,18 +769,18 @@ pub(crate) fn xml_to_pdf_pages_with_images(
     Ok((pages, font_data_map, resolved_images, bridge_res))
 }
 
-/// Debug information from PDF generation
+/// Text dumps of the layout, for finding out why a document does not render as expected.
 #[derive(Debug, Clone)]
 pub struct PdfDebugInfo {
-    /// The display lists for each page (before conversion to PDF ops)
+    /// A dump of the layout tree, then of the display list of the first page (before conversion
+    /// to PDF ops).
     pub display_list_debug: Vec<String>,
-    /// The PDF operations for each page (after conversion)
+    /// The PDF operations of the first page (after conversion).
     pub pdf_ops_debug: Vec<String>,
 }
 
-/// Convert XML/HTML content to PDF pages with debug information.
-/// This is the same as `xml_to_pdf_pages` but also returns debug info about
-/// the display list and PDF operations for the first page.
+/// Like [`xml_to_pdf_pages`], but returns a [`PdfDebugInfo`] instead of the images, and prints
+/// progress to stderr.
 pub fn xml_to_pdf_pages_debug(
     xml: &str,
     options: &XmlRenderOptions,
@@ -850,8 +841,7 @@ pub(crate) fn xml_to_pdf_pages_debug_with_images(
     let content_width_pt = page_width_pt - margin_left_pt - margin_right_pt;
     let content_height_pt = page_height_pt - margin_top_pt - margin_bottom_pt;
 
-    // CRITICAL: Convert content dimensions from PDF points to CSS pixels.
-    // See xml_to_pdf_pages() for detailed explanation.
+    // Layout runs in CSS px, see `xml_to_pdf_pages_with_images`.
     const PT_TO_CSS_PX: f32 = 96.0 / 72.0;
     let content_width_px = content_width_pt * PT_TO_CSS_PX;
     let content_height_px = content_height_pt * PT_TO_CSS_PX;
@@ -1144,7 +1134,12 @@ pub(crate) fn xml_to_pdf_pages_debug_with_images(
     Ok((pages, font_data_map, debug_info, bridge_res, resolved_images))
 }
 
-/// Add XML/HTML content to an existing PDF document
+/// Renders HTML and appends the pages to `document`, registering the fonts, images and other
+/// resources they need.
+///
+/// # Errors
+///
+/// Returns the warnings of [`xml_to_pdf_pages`]; the document is not changed then.
 pub fn add_xml_to_document(
     document: &mut PdfDocument,
     xml: &str,
@@ -1175,16 +1170,17 @@ pub fn add_xml_to_document(
     }
 }
 
-/// Raw HTML input (not yet processed)
+/// HTML text that has not been preprocessed yet.
 #[derive(Debug, Clone)]
 pub struct RawHtml(String);
 
 impl RawHtml {
+    /// Wraps the HTML text.
     pub fn new(html: impl Into<String>) -> Self {
         Self(html.into())
     }
     
-    /// Process raw HTML into preprocessed HTML with CSS inlined
+    /// Removes the elements that cannot be drawn (`script`, `iframe`, `video` and so on).
     pub fn preprocess(self) -> PreprocessedHtml {
         let cleaned = clean_html_elements(&self.0);
         let inlined = inline_css_in_xml(&cleaned);
@@ -1192,51 +1188,42 @@ impl RawHtml {
     }
 }
 
-/// HTML with CSS rules inlined as style="" attributes (ready for XML parsing)
+/// HTML after [`RawHtml::preprocess`], ready to be parsed.
 #[derive(Debug, Clone)]
 pub struct PreprocessedHtml(String);
 
 impl PreprocessedHtml {
+    /// The HTML text.
     pub fn as_str(&self) -> &str {
         &self.0
     }
 }
 
-/// Configuration extracted from HTML meta tags and title
+/// Settings found in the `<title>` and `<meta>` tags of a document.
+///
+/// Meta tags named `pdf.options.pageWidth` and `pdf.options.pageHeight` (millimeters) set the page
+/// size; tags named `pdf.metadata.<key>` set document metadata, see [`apply_html_config`].
 #[derive(Default)]
 pub struct HtmlExtractedConfig {
-    /// Title extracted from the <title> element
+    /// Text of the `<title>` element.
     pub title: Option<String>,
-    /// PDF page width from meta tags (in mm)
+    /// Page width in millimeters from the `pdf.options.pageWidth` meta tag.
     pub page_width: Option<f32>,
-    /// PDF page height from meta tags (in mm)
+    /// Page height in millimeters from the `pdf.options.pageHeight` meta tag.
     pub page_height: Option<f32>,
-    /// PDF metadata from meta tags
+    /// Values of the `pdf.metadata.<key>` meta tags, by key.
     pub metadata: BTreeMap<String, String>,
-    /// Custom XML component definitions discovered in the document.
+    /// Component definitions found in the document. Not filled in by the code in this module.
     pub components: Vec<ComponentDef>,
 }
 
-/// Inline CSS rules into style attributes
-/// Note: This is a simplified version that works on XML strings
-/// For more complex selector matching, consider using a proper HTML/CSS parser
-///
-/// IMPORTANT: This function does NOT remove <style> tags anymore!
-/// The <style> tags are left intact so that str_to_dom() can process them
-/// as global CSS. This function only provides OPTIONAL inline style augmentation
-/// for simple selectors, but the main CSS processing happens in azul's CSS engine.
+// Returns the markup unchanged: `<style>` blocks must stay in the document because azul's
+// `str_to_dom` applies them as global CSS, with full selector and cascade support.
 fn inline_css_in_xml(xml: &str) -> String {
-    // DO NOT extract or remove style blocks - leave them for str_to_dom()
-    // The azul CSS engine is much more sophisticated than this simple inliner
-    // and can handle complex selectors, cascading, specificity, etc.
-    //
-    // This function used to remove <style> tags, which broke global CSS application!
-    // Now we just return the XML as-is, letting azul's str_to_dom() handle all CSS.
-    
     xml.to_string()
 }
 
-/// Extract HTML configuration from XML content (basic parsing)
+// Reads the title and the `pdf.*` meta tags with plain string search.
 fn extract_html_config(xml: &str) -> HtmlExtractedConfig {
     let mut config = HtmlExtractedConfig::default();
     
@@ -1290,7 +1277,7 @@ fn extract_html_config(xml: &str) -> HtmlExtractedConfig {
     config
 }
 
-/// Extract attribute value from an HTML/XML tag
+// Returns the value of `attr_name="..."` in `tag`.
 fn extract_attribute(tag: &str, attr_name: &str) -> Option<String> {
     let pattern = format!("{}=\"", attr_name);
     if let Some(start) = tag.find(&pattern) {
@@ -1302,7 +1289,12 @@ fn extract_attribute(tag: &str, attr_name: &str) -> Option<String> {
     None
 }
 
-/// Apply HTML configuration to PDF document
+/// Applies a [`HtmlExtractedConfig`] to a document and to the render options.
+///
+/// The title becomes the document title unless one is set. The page size overrides the one in
+/// `options`. Each metadata entry sets the field of the document info with the same key:
+/// `trapped`, `version`, `conformance` (JSON), `documentTitle`, `author`, `creator`, `producer`,
+/// `subject`, `keywords` (comma-separated) and `identifier`. Other keys are ignored.
 pub fn apply_html_config(
     doc: &mut PdfDocument,
     config: &HtmlExtractedConfig,
@@ -1353,7 +1345,7 @@ pub fn apply_html_config(
     }
 }
 
-/// Remove non-renderable HTML elements from XML string
+// Removes the elements that cannot be drawn, with their content.
 fn clean_html_elements(xml: &str) -> String {
     let mut result = xml.to_string();
     
@@ -1404,8 +1396,9 @@ fn clean_html_elements(xml: &str) -> String {
     result
 }
 
-/// Process HTML content for rendering: inline CSS, extract config, clean elements
-/// This function is now deprecated - use RawHtml::new().preprocess() instead
+/// Preprocesses HTML and extracts its [`HtmlExtractedConfig`].
+///
+/// Deprecated: use [`RawHtml::preprocess`] and the render functions.
 #[deprecated(since = "0.8.0", note = "Use RawHtml::new().preprocess() for type-safe preprocessing")]
 pub fn process_html_for_rendering(html: &str) -> (String, HtmlExtractedConfig) {
     let config = extract_html_config(html);
@@ -1461,10 +1454,8 @@ mod tests {
         );
     }
 
-    /// Every entry of `options.images` used to be decoded on every render, used
-    /// or not: a 1053-page book rendered page by page with its 57 pictures in the
-    /// map took 1.26 s a page instead of 0.24 s. Only the `<img src>` the pages
-    /// draw may be decoded.
+    /// Only the `<img src>` a page draws is decoded; the other entries of `options.images` are
+    /// left alone.
     #[test]
     fn an_image_the_page_does_not_reference_is_not_decoded() {
         let xml = r#"
@@ -1536,7 +1527,6 @@ mod tests {
         let options = XmlRenderOptions::default();
         let result = xml_to_pdf_pages(xml, &options);
 
-        // Should now succeed with the full implementation
         assert!(result.is_ok() || result.is_err());
     }
 
@@ -1590,11 +1580,10 @@ mod tests {
             <div>Test</div>
         "#;
         
-        // inline_css_in_xml no longer removes <style> tags - they are left for azul's CSS engine
         let inlined = inline_css_in_xml(xml);
         // <style> tags are preserved for str_to_dom() to process
         assert!(inlined.contains("<style>"));
-        // The function just returns the XML as-is now
+        // The markup is returned as it is.
         assert!(inlined.contains("<div>Test</div>"));
     }
 }
@@ -1655,8 +1644,7 @@ mod builtin_font_tests {
             .map_or(&[][..], |v| v.as_slice())
     }
 
-    /// Every name a document is likely to ask for has to reach the base-14, or
-    /// `font-family: Helvetica` goes back to resolving to nothing (#220).
+    /// Every name a document is likely to ask for reaches the standard PDF fonts.
     #[test]
     fn the_base_14_are_reachable_by_their_css_names() {
         let fm = registered();
@@ -1672,11 +1660,9 @@ mod builtin_font_tests {
         }
     }
 
-    /// The four Helvetica faces must stay distinct. They share one family name,
-    /// so they are told apart by (weight, italic, oblique) read from the font
-    /// bytes - which is why `Helvetica-Bold`/`-BoldOblique` needed their
-    /// `head.macStyle` bold bit set. With it clear they collapsed into the
-    /// regular face and `font-weight: bold` rendered regular.
+    /// The four Helvetica faces stay distinct. They share one family name and are told apart by
+    /// (weight, italic, oblique) read from the font bytes, so the `head.macStyle` bold bit of
+    /// `Helvetica-Bold` and `-BoldOblique` must be set.
     #[test]
     fn helvetica_keeps_four_distinct_faces() {
         let fm = registered();
@@ -1701,9 +1687,8 @@ mod builtin_font_tests {
         );
     }
 
-    /// Concrete names ARE the base-14, so they outrank the disk. The generic
-    /// families must not: a Win-1252 subset displacing the system's Unicode
-    /// faces for every `sans-serif` run would be a bad trade on any desktop.
+    /// Concrete names outrank installed fonts. The generic families do not: a Win-1252 subset
+    /// must not displace the system's Unicode faces for `sans-serif`.
     #[test]
     fn concrete_names_are_primary_and_generics_are_fallback_only() {
         let fm = registered();
@@ -1725,19 +1710,8 @@ mod builtin_font_tests {
         }
     }
 
-    /// These subsets cover a little over 200 codepoints each, so they have to
-    /// declare that honestly: azul skips empty-`unicode_ranges` faces during
-    /// per-character fallback, so an unclaimed codepoint is one that can never
-    /// fall through elsewhere.
-    ///
-    /// All fourteen, not just Helvetica. Under rust-fontconfig 4 the cmap block
-    /// probe returned NOTHING for Symbol and ZapfDingbats — both were silently
-    /// unreachable through fallback while a Helvetica-only assertion passed —
-    /// and it rounded everyone else up to whole blocks, so Helvetica claimed all
-    /// of U+0000..=U+00FF (256) against 213 real glyphs and Times-Italic claimed
-    /// the entire Cyrillic block on the strength of a few glyphs. rust-fontconfig
-    /// 5 reads the cmap segments exactly; every face now reports precisely the
-    /// codepoints that map to a non-.notdef glyph.
+    /// Each of the 14 faces declares the codepoints it covers: faces with empty unicode ranges
+    /// are skipped in per-character fallback.
     #[test]
     fn every_builtin_face_carries_real_coverage() {
         let fm = registered();
@@ -1754,12 +1728,9 @@ mod builtin_font_tests {
         }
     }
 
-    /// Coverage is exact, never rounded up to the enclosing block. A face that
-    /// over-claims is worse than one that under-claims: the resolver stops at
-    /// the first font whose ranges contain the codepoint, so a bogus claim
-    /// wins the character and renders .notdef instead of falling through to a
-    /// font that actually has the glyph. Helvetica's cmap holds 215 mapped
-    /// codepoints; block-rounding reported 256.
+    /// Coverage is exact, not rounded up to the enclosing block: the resolver stops at the first
+    /// font whose ranges contain the codepoint, so a face that over-claims draws `.notdef`
+    /// instead of falling through to a font with the glyph.
     #[test]
     fn builtin_coverage_is_exact_not_block_rounded() {
         let fm = registered();
@@ -1773,8 +1744,7 @@ mod builtin_font_tests {
             .iter()
             .map(|r| r.end - r.start + 1)
             .sum();
-        // 213 + U+0020 and U+00A0, mapped to the empty space glyph that
-        // scripts/add_space_glyphs.py added (#288)
+        // 213 codepoints, plus U+0020 and U+00A0, which map to the empty space glyph.
         assert_eq!(
             covered, 215,
             "expected the 215 codepoints Helvetica.subset.ttf actually maps, got {covered} \
