@@ -1289,11 +1289,13 @@ fn cff_charstring_width(
     };
 
     let mut stack: Vec<f64> = Vec::new();
+    let mut steps = CFF_WIDTH_SCAN_STEPS;
     let width = match cff_charstring_width_delta(
         charstring,
         local_subrs,
         &cff.global_subr_index,
         &mut stack,
+        &mut steps,
         0,
     ) {
         WidthScan::Decided(Some(delta)) => nominal_width as f64 + delta,
@@ -1330,18 +1332,34 @@ enum WidthScan {
     Returned,
 }
 
+/// The most operators and operands the width scan of one glyph reads, over the charstring and
+/// every subroutine it calls. Subroutines may call other subroutines several times each, so
+/// the scan is a tree of calls that the length of the font does not bound.
+#[cfg(feature = "text_layout")]
+const CFF_WIDTH_SCAN_STEPS: u32 = 10_000;
+
+/// `Decided` with the first operand as the width when `present`, else without a width. The
+/// operand counts that say a width is there all leave at least one operand on the stack.
+#[cfg(feature = "text_layout")]
+fn leading_width(stack: &[f64], present: bool) -> WidthScan {
+    WidthScan::Decided(if present { stack.first().copied() } else { None })
+}
+
 /// Scan a Type2 charstring (following `callsubr`/`callgsubr`, depth-limited
 /// like allsorts' own interpreter) up to its first stack-clearing operator,
 /// returning the leading width delta if the operand count proves one is
 /// present. `stack` is threaded through subroutine calls so operands a
 /// subroutine leaves behind are visible to its caller, matching how a real
-/// Type2 interpreter treats `callsubr`/`callgsubr` as inlining.
+/// Type2 interpreter treats `callsubr`/`callgsubr` as inlining. `steps` is what
+/// is left of [`CFF_WIDTH_SCAN_STEPS`]; the scan is `Decided(None)` when it runs
+/// out.
 #[cfg(feature = "text_layout")]
 fn cff_charstring_width_delta(
     charstring: &[u8],
     local_subrs: Option<&allsorts::cff::MaybeOwnedIndex<'_>>,
     global_subrs: &allsorts::cff::MaybeOwnedIndex<'_>,
     stack: &mut Vec<f64>,
+    steps: &mut u32,
     depth: u8,
 ) -> WidthScan {
     use WidthScan::{Decided, Returned};
@@ -1349,18 +1367,21 @@ fn cff_charstring_width_delta(
     if depth > 10 {
         return Decided(None);
     }
-    let mut i = 0usize;
-    while i < charstring.len() {
-        let b0 = charstring[i];
+    let mut bytes = charstring.iter().copied();
+    while let Some(b0) = bytes.next() {
+        let Some(left) = steps.checked_sub(1) else {
+            return Decided(None);
+        };
+        *steps = left;
         match b0 {
             1 | 3 | 18 | 19 | 20 | 23 => {
                 // hstem/vstem/hstemhm/hintmask/cntrmask/vstemhm: width present iff
                 // the operand count is odd.
-                return Decided((stack.len() % 2 == 1).then(|| stack[0]));
+                return leading_width(stack, stack.len() % 2 == 1);
             }
-            21 => return Decided((stack.len() > 2).then(|| stack[0])), // rmoveto: 2 args
-            22 | 4 => return Decided((stack.len() > 1).then(|| stack[0])), // h/vmoveto: 1 arg
-            14 => return Decided((stack.len() == 1 || stack.len() == 5).then(|| stack[0])), // endchar
+            21 => return leading_width(stack, stack.len() > 2), // rmoveto: 2 args
+            22 | 4 => return leading_width(stack, stack.len() > 1), // h/vmoveto: 1 arg
+            14 => return leading_width(stack, stack.len() == 1 || stack.len() == 5), // endchar
             10 | 29 => {
                 // callsubr / callgsubr
                 let Some(idx) = stack.pop() else {
@@ -1374,7 +1395,10 @@ fn cff_charstring_width_delta(
                 } else {
                     (global_subrs, cff_subr_bias(global_subrs.len()))
                 };
-                let subr_idx = idx as i32 + bias;
+                // `idx` is any number the charstring computes.
+                let Some(subr_idx) = (idx as i32).checked_add(bias) else {
+                    return Decided(None);
+                };
                 let Some(sub_bytes) = usize::try_from(subr_idx)
                     .ok()
                     .and_then(|si| subrs.read_object(si))
@@ -1386,9 +1410,10 @@ fn cff_charstring_width_delta(
                     local_subrs,
                     global_subrs,
                     stack,
-                    depth + 1,
+                    steps,
+                    depth.saturating_add(1),
                 ) {
-                    Returned => i += 1,
+                    Returned => {}
                     decided => return decided,
                 }
             }
@@ -1398,52 +1423,40 @@ fn cff_charstring_width_delta(
                 // first stack-clearing operator and change the operand count, so they are
                 // replayed. Stateful, random and path operators make the width undecidable
                 // from a static scan, which falls back to defaultWidthX.
-                if i + 2 > charstring.len() {
+                let Some(op) = bytes.next() else {
+                    return Decided(None);
+                };
+                if !cff_apply_escape_op(op, stack) {
                     return Decided(None);
                 }
-                if !cff_apply_escape_op(charstring[i + 1], stack) {
-                    return Decided(None);
-                }
-                i += 2;
             }
             28 => {
-                if i + 3 > charstring.len() {
+                let (Some(hi), Some(lo)) = (bytes.next(), bytes.next()) else {
                     return Decided(None);
-                }
-                let v = i16::from_be_bytes([charstring[i + 1], charstring[i + 2]]);
-                stack.push(f64::from(v));
-                i += 3;
+                };
+                stack.push(f64::from(i16::from_be_bytes([hi, lo])));
             }
-            32..=246 => {
-                stack.push(f64::from(b0) - 139.0);
-                i += 1;
-            }
+            32..=246 => stack.push(f64::from(b0) - 139.0),
             247..=250 => {
-                if i + 2 > charstring.len() {
+                let Some(b1) = bytes.next() else {
                     return Decided(None);
-                }
-                stack.push((f64::from(b0) - 247.0) * 256.0 + f64::from(charstring[i + 1]) + 108.0);
-                i += 2;
+                };
+                stack.push((f64::from(b0) - 247.0) * 256.0 + f64::from(b1) + 108.0);
             }
             251..=254 => {
-                if i + 2 > charstring.len() {
+                let Some(b1) = bytes.next() else {
                     return Decided(None);
-                }
-                stack.push(-(f64::from(b0) - 251.0) * 256.0 - f64::from(charstring[i + 1]) - 108.0);
-                i += 2;
+                };
+                stack.push(-(f64::from(b0) - 251.0) * 256.0 - f64::from(b1) - 108.0);
             }
             255 => {
-                if i + 5 > charstring.len() {
+                let (Some(b1), Some(b2), Some(b3), Some(b4)) =
+                    (bytes.next(), bytes.next(), bytes.next(), bytes.next())
+                else {
                     return Decided(None);
-                }
-                let bits = i32::from_be_bytes([
-                    charstring[i + 1],
-                    charstring[i + 2],
-                    charstring[i + 3],
-                    charstring[i + 4],
-                ]);
+                };
+                let bits = i32::from_be_bytes([b1, b2, b3, b4]);
                 stack.push(f64::from(bits) / 65536.0);
-                i += 5;
             }
             _ => return Decided(None),
         }
@@ -1516,11 +1529,10 @@ fn cff_apply_escape_op(op: u8, stack: &mut Vec<f64>) -> bool {
         },
         28 => {
             // exch
-            let len = stack.len();
-            if len < 2 {
+            let [.., below, top] = stack.as_mut_slice() else {
                 return false;
-            }
-            stack.swap(len - 1, len - 2);
+            };
+            std::mem::swap(below, top);
             true
         }
         29 => {
@@ -1529,7 +1541,10 @@ fn cff_apply_escape_op(op: u8, stack: &mut Vec<f64>) -> bool {
             let idx = if n < 0.0 {
                 stack.len().checked_sub(1)
             } else {
-                stack.len().checked_sub(1 + n as usize)
+                // `n` is any number the charstring computes, so `1 + n` can overflow.
+                1usize
+                    .checked_add(n as usize)
+                    .and_then(|from_top| stack.len().checked_sub(from_top))
             };
             match idx.and_then(|i| stack.get(i)).copied() {
                 Some(v) => {
@@ -1549,9 +1564,16 @@ fn cff_apply_escape_op(op: u8, stack: &mut Vec<f64>) -> bool {
             }
             let n = n as usize;
             if n > 0 {
-                let start = stack.len() - n;
+                let Some(top) = stack
+                    .len()
+                    .checked_sub(n)
+                    .and_then(|start| stack.get_mut(start..))
+                else {
+                    return false;
+                };
+                // `shift` is below `n`, the length of `top`.
                 let shift = (j as i64).rem_euclid(n as i64) as usize;
-                stack[start..].rotate_right(shift);
+                top.rotate_right(shift);
             }
             true
         }
@@ -1592,11 +1614,14 @@ fn build_minimal_sfnt(
     head.extend_from_slice(&0i16.to_be_bytes()); // glyphDataFormat
 
     let advance_width_max = widths.iter().copied().max().unwrap_or(0);
+    // Computed in an `i32`: `units_per_em` is up to 16384, and its multiples overflow an `i16`.
+    // The results are 80% and 20% of it, which fit.
+    let em = i32::from(units_per_em);
     let mut hhea = Vec::with_capacity(36);
     hhea.extend_from_slice(&1u16.to_be_bytes()); // majorVersion
     hhea.extend_from_slice(&0u16.to_be_bytes()); // minorVersion
-    hhea.extend_from_slice(&(units_per_em as i16 * 8 / 10).to_be_bytes()); // ascender
-    hhea.extend_from_slice(&(-(units_per_em as i16) * 2 / 10).to_be_bytes()); // descender
+    hhea.extend_from_slice(&((em * 8 / 10) as i16).to_be_bytes()); // ascender
+    hhea.extend_from_slice(&((-em * 2 / 10) as i16).to_be_bytes()); // descender
     hhea.extend_from_slice(&0i16.to_be_bytes()); // lineGap
     hhea.extend_from_slice(&advance_width_max.to_be_bytes());
     hhea.extend_from_slice(&0i16.to_be_bytes()); // minLeftSideBearing
@@ -1657,8 +1682,11 @@ fn build_sfnt(tables: &[([u8; 4], &[u8])]) -> Vec<u8> {
     fn checksum(data: &[u8]) -> u32 {
         let mut sum: u32 = 0;
         for chunk in data.chunks(4) {
+            // The last chunk may be shorter than four bytes; it is padded with zeros.
             let mut word = [0u8; 4];
-            word[..chunk.len()].copy_from_slice(chunk);
+            for (slot, byte) in word.iter_mut().zip(chunk) {
+                *slot = *byte;
+            }
             sum = sum.wrapping_add(u32::from_be_bytes(word));
         }
         sum
@@ -1707,6 +1735,16 @@ fn get_glyph_width(font: &ParsedFont, gid: u16) -> Option<u16> {
     font.get_or_decode_glyph(gid).map(|g| g.horz_advance)
 }
 
+/// The factor from font units to the 1/1000 em of `/W`: 1000 divided by the units per em, or 1
+/// for a font that has none.
+#[cfg(feature = "text_layout")]
+fn width_scale(font: &ParsedFont) -> f32 {
+    match font.pdf_font_metrics.units_per_em {
+        0 => 1.0,
+        units_per_em => 1000.0 / f32::from(units_per_em),
+    }
+}
+
 /// Builds the `/W` array of a CID font where the code is the glyph id.
 ///
 /// `glyph_ids` must be sorted ascending by glyph id; the text is not used. Widths are in
@@ -1717,11 +1755,11 @@ fn get_glyph_width(font: &ParsedFont, gid: u16) -> Option<u16> {
 #[cfg(feature = "text_layout")]
 pub fn get_normalized_widths_ttf(font: &ParsedFont, glyph_ids: &[(u16, String)]) -> Vec<lopdf::Object> {
     let mut widths_list = Vec::new();
-    let mut current_low_gid = 0;
-    let mut current_high_gid = 0;
+    let mut current_low_gid = 0u16;
+    let mut current_high_gid = 0u16;
     let mut current_width_vec = Vec::new();
 
-    let percentage_font_scaling = 1000.0 / (font.pdf_font_metrics.units_per_em as f32);
+    let percentage_font_scaling = width_scale(font);
 
     for (gid, _) in glyph_ids {
         let glyph_width = get_glyph_width(font, *gid)
@@ -1732,7 +1770,7 @@ pub fn get_normalized_widths_ttf(font: &ParsedFont, glyph_ids: &[(u16, String)])
             current_low_gid = *gid;
             current_high_gid = *gid;
             current_width_vec.push(glyph_width);
-        } else if *gid == current_high_gid + 1 {
+        } else if current_high_gid.checked_add(1) == Some(*gid) {
             current_high_gid = *gid;
             current_width_vec.push(glyph_width);
         } else {
@@ -1771,7 +1809,7 @@ pub fn get_normalized_widths_codes(
     font: &ParsedFont,
     entries: &[(u16, u16)],
 ) -> Vec<lopdf::Object> {
-    let percentage_font_scaling = 1000.0 / (font.pdf_font_metrics.units_per_em as f32);
+    let percentage_font_scaling = width_scale(font);
 
     let mut widths_list = Vec::new();
     let mut current_low_code = 0u16;
@@ -1787,7 +1825,7 @@ pub fn get_normalized_widths_codes(
             current_low_code = code;
             current_high_code = code;
             current_width_vec.push(glyph_width);
-        } else if code == current_high_code + 1 {
+        } else if current_high_code.checked_add(1) == Some(code) {
             current_high_code = code;
             current_width_vec.push(glyph_width);
         } else {
