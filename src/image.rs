@@ -1,3 +1,12 @@
+//! Decoding image files into [`RawImage`]s, encoding them again, and turning them into PDF image
+//! streams. Requires the `images` feature; the file formats need their own features (`png`,
+//! `jpeg`, `gif`, ...). The types and the explanation of how PDF stores images are in
+//! [`image_types`](crate::image_types).
+//!
+//! [`RawImage::decode_from_bytes`] reads a file, [`RawImage::encode_to_bytes`] writes one. The
+//! other methods change the pixels (alpha, greyscale, dithering, size) and are what
+//! [`ImageOptimizationOptions`] applies when a document is saved.
+
 use core::fmt;
 use std::io::Cursor;
 
@@ -5,7 +14,6 @@ use image::{DynamicImage, GenericImageView};
 
 use crate::{ColorBits, ColorSpace, PdfWarnMsg};
 
-// Re-export types from image_types
 pub use crate::image_types::{
     ImageCompression, ImageOptimizationOptions, OutputImageFormat, RawImage, RawImageData,
     RawImageFormat,
@@ -30,6 +38,8 @@ impl fmt::Debug for RawImageU8 {
 }
 
 impl RawImageFormat {
+    /// The same format without the alpha channel: RGBA becomes RGB, grey and alpha (`RG`)
+    /// becomes grey (`R`). Other formats are returned as they are.
     pub fn reduce_to_rgb(&self) -> Self {
         use RawImageFormat::*;
         match self {
@@ -42,11 +52,14 @@ impl RawImageFormat {
         }
     }
 
+    /// Whether the format has an alpha channel (RGBA, BGRA, and grey with alpha).
     pub fn has_alpha(&self) -> bool {
         use RawImageFormat::*;
         matches!(self, RGBA8 | RGBA16 | RGBAF32 | RG8 | RG16)
     }
 
+    /// Bits per sample and color space of the format. BGR counts as RGB, and the float formats
+    /// are reported as 16 bits.
     pub fn get_color_bits_and_space(&self) -> (ColorBits, ColorSpace) {
         use self::RawImageFormat::*;
         match self {
@@ -67,6 +80,7 @@ impl RawImageFormat {
 }
 
 impl RawImageData {
+    /// An empty buffer of the sample type that `format` uses.
     pub fn empty(format: RawImageFormat) -> Self {
         use self::RawImageFormat::*;
         match format {
@@ -78,6 +92,7 @@ impl RawImageData {
         }
     }
 
+    /// Whether the buffer holds no samples.
     pub fn is_empty(&self) -> bool {
         match self {
             RawImageData::U8(vec) => vec.is_empty(),
@@ -87,7 +102,14 @@ impl RawImageData {
     }
 }
 
-/// Parses a size string like "300kb" into bytes
+/// Parses a size such as `"300kb"` or `"1.5MB"` into bytes.
+///
+/// Units are `b`, `kb` (or `k`), `mb` (or `m`) and `gb` (or `g`), case-insensitive, 1024 based.
+/// A number without a unit is an error.
+///
+/// # Errors
+///
+/// Returns a message when the number does not parse or the unit is unknown.
 pub fn parse_size_string(size_str: &str) -> Result<usize, String> {
     let size_str = size_str.trim().to_lowercase();
     let numeric_part: String = size_str
@@ -112,7 +134,7 @@ pub fn parse_size_string(size_str: &str) -> Result<usize, String> {
 }
 
 impl RawImage {
-    /// Creates an empty `RawImage`
+    /// Creates an image of the given size in pixels with an empty pixel buffer.
     pub fn empty(width: usize, height: usize, format: crate::RawImageFormat) -> Self {
         Self {
             width,
@@ -123,15 +145,15 @@ impl RawImage {
         }
     }
 
-    /// Same as decode_from_bytes, but uses async for browser-native image decoding
+    /// Like [`RawImage::decode_from_bytes`]. In a browser (`wasm32` with the `js-sys` feature) it
+    /// tries the browser's own decoder first, which reads more formats, and falls back to
+    /// [`RawImage::decode_from_bytes`].
     pub async fn decode_from_bytes_async(
         bytes: &[u8],
         warnings: &mut Vec<PdfWarnMsg>,
     ) -> Result<Self, String> {
-        // Try browser-native decoding first for better format support.
-        // p1/p2 excluded (like src/date.rs): wasi is target_family = "wasm" too, and
-        // compiling the browser path there puts `window`/canvas imports into a binary
-        // no wasi runtime can instantiate. The portable fallback below covers it.
+        // WASI (p1/p2) is excluded: the browser path would import `window` and canvas functions
+        // that no WASI runtime provides.
         #[cfg(all(
             feature = "js-sys",
             target_arch = "wasm32",
@@ -161,6 +183,11 @@ impl RawImage {
         Self::decode_from_bytes(bytes, warnings)
     }
 
+    /// Converts an 8-bit grey, grey-alpha, RGB or RGBA image of the `image` crate.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message for 16-bit and float images.
     pub fn from_dynamic_image(image: DynamicImage) -> Result<Self, String> {
         let (w, h) = image.dimensions();
         let data_format = match image.color() {
@@ -188,7 +215,38 @@ impl RawImage {
         })
     }
 
-    /// NOTE: depends on the enabled image formats!
+    /// Decodes an image file (the format is detected from the bytes) into pixels.
+    ///
+    /// The result is 8-bit, 16-bit or float, with or without alpha, as the file has it.
+    /// `warnings` receives info messages (page 0, operation 0) about the detected format and
+    /// size, and a warning when the decoder fails.
+    ///
+    /// Requires the feature of the file format (`png`, `jpeg`, `gif`, `bmp`, `tiff`, `webp`, ...).
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the format is not recognized or its feature is not enabled, when
+    /// decoding fails, or for a color type that has no [`RawImageFormat`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "png")] {
+    /// use printpdf::*;
+    ///
+    /// let image = RawImage {
+    ///     pixels: RawImageData::U8(vec![255, 0, 0, 0, 255, 0]),
+    ///     width: 2,
+    ///     height: 1,
+    ///     data_format: RawImageFormat::RGB8,
+    ///     tag: Vec::new(),
+    /// };
+    /// // Normally these bytes come from a file: std::fs::read("picture.png")
+    /// let (png, _) = image.encode_to_bytes(&[OutputImageFormat::Png]).unwrap();
+    /// let decoded = RawImage::decode_from_bytes(&png, &mut Vec::new()).unwrap();
+    /// assert_eq!((decoded.width, decoded.height), (2, 1));
+    /// # }
+    /// ```
     pub fn decode_from_bytes(bytes: &[u8], warnings: &mut Vec<PdfWarnMsg>) -> Result<Self, String> {
         use image::DynamicImage::*;
 
@@ -211,7 +269,6 @@ impl RawImage {
             format!("Image data size: {} bytes", b_len),
         ));
 
-        // Check feature support for various formats
         #[cfg(not(feature = "gif"))]
         {
             let err = format!(
@@ -260,9 +317,6 @@ impl RawImage {
             }
         }
 
-        // Check additional image formats as in the original code...
-
-        // Decode the image
         let im = match image::ImageReader::new(Cursor::new(bytes))
             .with_guessed_format()
             .map_err(|e| e.to_string())?
@@ -287,7 +341,6 @@ impl RawImage {
             format!("Image dimensions: {}x{} pixels", w, h),
         ));
 
-        // Map the color type with informative messages
         let ct = match im.color() {
             image::ColorType::L8 => {
                 warnings.push(PdfWarnMsg::info(
@@ -376,7 +429,6 @@ impl RawImage {
             }
         };
 
-        // Extract pixel data
         let pixels = match im {
             ImageLuma8(image_buffer) => {
                 warnings.push(PdfWarnMsg::info(
@@ -512,6 +564,9 @@ impl RawImage {
             tag: Vec::new(),
         })
     }
+
+    /// Like [`RawImage::encode_to_bytes`]. In a browser (`wasm32` with the `js-sys` feature) it
+    /// tries the browser's encoder first.
     pub async fn encode_to_bytes_async(
         &self,
         target_fmt: &[OutputImageFormat],
@@ -529,17 +584,21 @@ impl RawImage {
 
         self.encode_to_bytes(target_fmt)
     }
-    /// NOTE: depends on the enabled image formats!
+
+    /// Encodes the image as a file in the first of `target_fmt` that works, and returns the
+    /// bytes and the format used.
     ///
-    /// Function will try to encode the image to the given formats and return an Error on
-    /// exhaustion. Tries to encode the image into one of the given target formats, returning
-    /// the encoded bytes if successful. For simplicity this implementation supports only 8‑bit
-    /// image data.
+    /// Only 8-bit `R8`, `RG8`, `RGB8` and `RGBA8` images can be encoded. A format only works
+    /// when its feature is enabled (`png`, `jpeg`, ...).
+    ///
+    /// # Errors
+    ///
+    /// Returns a message for any other pixel format and when no format in `target_fmt` can be
+    /// written.
     pub fn encode_to_bytes(
         &self,
         target_fmt: &[OutputImageFormat],
     ) -> Result<(Vec<u8>, OutputImageFormat), String> {
-        // For this example we only support the U8 variant.
         let dyn_image = match (&self.pixels, self.data_format) {
             (RawImageData::U8(ref vec), RawImageFormat::R8) => {
                 image::GrayImage::from_raw(self.width as u32, self.height as u32, vec.clone())
@@ -565,7 +624,6 @@ impl RawImage {
             "Failed to construct dynamic image (unsupported pixel format?)".to_string()
         })?;
 
-        // Try each target format in order.
         for fmt in target_fmt {
             use image::ImageFormat;
             let image_fmt = match fmt {
@@ -591,9 +649,18 @@ impl RawImage {
         Err("Could not encode image in any of the requested target formats".to_string())
     }
 
-    /// Optimizes the image based on the provided options
+    /// Applies the pixel changes of [`ImageOptimizationOptions`], in this order, each only if
+    /// the options ask for it: drop an alpha channel that is fully opaque (`auto_optimize`),
+    /// convert color to greyscale if it is nearly grey (`auto_optimize`) or if
+    /// `convert_to_greyscale` is set, scale down to `max_image_size`, then dither
+    /// (`dither_greyscale`). All but the first change the picture. `quality` and `format` are
+    /// used later, when the image is encoded.
+    ///
+    /// # Errors
+    ///
+    /// Returns the message of the step that failed, for instance when the image is too large
+    /// but its format cannot be scaled (see [`RawImage::resize_to_fit_size`]).
     pub fn optimize(&mut self, options: &ImageOptimizationOptions) -> Result<(), String> {
-        // Remove alpha channel if all pixels are opaque and auto-optimize is enabled
         if options.auto_optimize.unwrap_or_default()
             && self.data_format.has_alpha()
             && self.is_fully_opaque()
@@ -601,7 +668,6 @@ impl RawImage {
             self.remove_alpha_channel()?;
         }
 
-        // Check if color image is actually greyscale
         if options.auto_optimize.unwrap_or_default()
             && self.is_color_format()
             && self.is_actually_greyscale()
@@ -609,7 +675,6 @@ impl RawImage {
             self.convert_to_greyscale()?;
         }
 
-        // NEW: Convert to greyscale if both auto_optimize and convert_to_greyscale are true
         if options.auto_optimize.unwrap_or_default()
             && options.convert_to_greyscale.unwrap_or_default()
             && self.is_color_format()
@@ -617,7 +682,6 @@ impl RawImage {
             self.convert_to_greyscale()?;
         }
 
-        // Resize image if it exceeds max size
         if let Some(max_size) = options
             .max_image_size
             .as_deref()
@@ -629,8 +693,8 @@ impl RawImage {
             }
         }
 
-        // Apply dithering to greyscale images if requested. Last: scaling down keeps every n-th
-        // pixel, which of a dither pattern is not the picture's tone any more.
+        // Last: scaling a dithered image down keeps every n-th pixel, which no longer has the
+        // tone of the picture.
         if options.dither_greyscale.unwrap_or_default() && self.is_greyscale_format() {
             self.apply_dithering()?;
         }
@@ -638,7 +702,8 @@ impl RawImage {
         Ok(())
     }
 
-    /// Checks if all pixels in the alpha channel are fully opaque
+    /// Whether every pixel is fully opaque. False for formats without alpha, and for the
+    /// grey-and-alpha formats.
     pub fn is_fully_opaque(&self) -> bool {
         match &self.pixels {
             RawImageData::U8(data) => match self.data_format {
@@ -685,7 +750,11 @@ impl RawImage {
         }
     }
 
-    /// Removes the alpha channel from images that have one
+    /// Drops the alpha channel of an `RGBA8`, `BGRA8`, `RGBA16` or `RGBAF32` image.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message for every other format, including grey with alpha.
     pub fn remove_alpha_channel(&mut self) -> Result<(), String> {
         self.pixels = match (&self.pixels, self.data_format) {
             (RawImageData::U8(data), RawImageFormat::RGBA8) => {
@@ -742,7 +811,7 @@ impl RawImage {
         Ok(())
     }
 
-    /// Returns true if the image is in an RGB color format
+    /// Whether the format has red, green and blue channels (in either order).
     pub fn is_color_format(&self) -> bool {
         match self.data_format {
             RawImageFormat::RGB8
@@ -757,7 +826,7 @@ impl RawImage {
         }
     }
 
-    /// Returns true if the image is in a greyscale format
+    /// Whether the format is grey, with or without alpha.
     pub fn is_greyscale_format(&self) -> bool {
         match self.data_format {
             RawImageFormat::R8
@@ -768,7 +837,9 @@ impl RawImage {
         }
     }
 
-    /// Checks if an RGB image actually has only greyscale content
+    /// Whether the color channels of an 8-bit or 16-bit RGB image are nearly equal everywhere
+    /// (at most 3 of 255, or 768 of 65535, apart), so it could be stored as greyscale. False
+    /// for the float formats.
     pub fn is_actually_greyscale(&self) -> bool {
         match (&self.pixels, self.data_format) {
             (RawImageData::U8(data), RawImageFormat::RGB8)
@@ -779,8 +850,7 @@ impl RawImage {
                         let ch2 = data[i + 1];
                         let ch3 = data[i + 2];
 
-                        // Allow small differences in color channels (accounting for compression
-                        // artifacts)
+                        // a small difference is tolerated, as JPEG artifacts cause it
                         if (ch1 as i16 - ch2 as i16).abs() > 3
                             || (ch1 as i16 - ch3 as i16).abs() > 3
                             || (ch2 as i16 - ch3 as i16).abs() > 3
@@ -821,7 +891,6 @@ impl RawImage {
                         let ch2 = data[i + 1];
                         let ch3 = data[i + 2];
 
-                        // Allow slightly larger differences for 16-bit
                         if (ch1 as i32 - ch2 as i32).abs() > 768
                             || (ch1 as i32 - ch3 as i32).abs() > 768
                             || (ch2 as i32 - ch3 as i32).abs() > 768
@@ -836,14 +905,18 @@ impl RawImage {
         }
     }
 
-    /// Converts a color image to greyscale
+    /// Converts a color image to greyscale with the luma weights 0.299, 0.587 and 0.114. Alpha
+    /// is kept: `RGBA8` and `BGRA8` become `RG8`, `RGBA16` becomes `RG16`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message for greyscale and float images.
     pub fn convert_to_greyscale(&mut self) -> Result<(), String> {
         self.pixels = match (&self.pixels, self.data_format) {
             (RawImageData::U8(data), RawImageFormat::RGB8) => {
                 let mut grey = Vec::with_capacity(data.len() / 3);
                 for i in (0..data.len()).step_by(3) {
                     if i + 2 < data.len() {
-                        // Standard RGB to greyscale conversion weights
                         let g = (0.299 * data[i] as f32
                             + 0.587 * data[i + 1] as f32
                             + 0.114 * data[i + 2] as f32) as u8;
@@ -857,7 +930,6 @@ impl RawImage {
                 let mut grey = Vec::with_capacity(data.len() / 3);
                 for i in (0..data.len()).step_by(3) {
                     if i + 2 < data.len() {
-                        // BGR to greyscale: note the different weight order
                         let g = (0.114 * data[i] as f32
                             + 0.587 * data[i + 1] as f32
                             + 0.299 * data[i + 2] as f32) as u8;
@@ -874,23 +946,22 @@ impl RawImage {
                         let g = (0.299 * data[i] as f32
                             + 0.587 * data[i + 1] as f32
                             + 0.114 * data[i + 2] as f32) as u8;
-                        grey_alpha.push(g); // Grayscale value
-                        grey_alpha.push(data[i + 3]); // Alpha value
+                        grey_alpha.push(g);
+                        grey_alpha.push(data[i + 3]);
                     }
                 }
-                self.data_format = RawImageFormat::RG8; // Use RG8 instead of R8
+                self.data_format = RawImageFormat::RG8;
                 RawImageData::U8(grey_alpha)
             }
             (RawImageData::U8(data), RawImageFormat::BGRA8) => {
                 let mut grey_alpha = Vec::with_capacity(data.len() / 2);
                 for i in (0..data.len()).step_by(4) {
                     if i + 3 < data.len() {
-                        // BGR to greyscale: note the different weight order
                         let g = (0.114 * data[i] as f32
                             + 0.587 * data[i + 1] as f32
                             + 0.299 * data[i + 2] as f32) as u8;
-                        grey_alpha.push(g); // Grayscale value
-                        grey_alpha.push(data[i + 3]); // Alpha value
+                        grey_alpha.push(g);
+                        grey_alpha.push(data[i + 3]);
                     }
                 }
                 self.data_format = RawImageFormat::RG8;
@@ -916,8 +987,8 @@ impl RawImage {
                         let g = (0.299 * data[i] as f32
                             + 0.587 * data[i + 1] as f32
                             + 0.114 * data[i + 2] as f32) as u16;
-                        grey_alpha.push(g); // Grayscale value
-                        grey_alpha.push(data[i + 3]); // Alpha value
+                        grey_alpha.push(g);
+                        grey_alpha.push(data[i + 3]);
                     }
                 }
                 self.data_format = RawImageFormat::RG16;
@@ -929,7 +1000,13 @@ impl RawImage {
         Ok(())
     }
 
-    /// Applies Floyd-Steinberg dithering to a greyscale image
+    /// Turns a greyscale image into pure black and white (threshold 127) and spreads the error
+    /// to the neighbouring pixels (Floyd-Steinberg), so the tones survive as a dot pattern.
+    /// Alpha is left alone. 16-bit images are dithered at 8 bits and widened again.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message for `RG16` and for every non-greyscale format.
     pub fn apply_dithering(&mut self) -> Result<(), String> {
         if !self.is_greyscale_format() {
             return Err("Dithering can only be applied to greyscale images".to_string());
@@ -937,12 +1014,10 @@ impl RawImage {
 
         match (&mut self.pixels, self.data_format) {
             (RawImageData::U8(data), RawImageFormat::R8) => {
-                // Create a mutable 2D grid for applying dithering
                 let width = self.width;
                 let height = self.height;
                 let mut grid = Vec::with_capacity(height);
 
-                // Convert linear data to 2D grid
                 for y in 0..height {
                     let mut row = Vec::with_capacity(width);
                     for x in 0..width {
@@ -956,7 +1031,6 @@ impl RawImage {
                     grid.push(row);
                 }
 
-                // Apply Floyd-Steinberg dithering
                 for y in 0..height {
                     for x in 0..width {
                         let old_pixel = grid[y][x];
@@ -965,7 +1039,6 @@ impl RawImage {
 
                         grid[y][x] = new_pixel;
 
-                        // Distribute the error to neighboring pixels
                         if x + 1 < width {
                             grid[y][x + 1] = (grid[y][x + 1] + quant_error * 7 / 16).clamp(0, 255);
                         }
@@ -986,7 +1059,6 @@ impl RawImage {
                     }
                 }
 
-                // Convert back to linear data
                 let mut result = Vec::with_capacity(data.len());
                 for y in 0..height {
                     for x in 0..width {
@@ -994,13 +1066,10 @@ impl RawImage {
                     }
                 }
 
-                // Update the original data
                 *data = result;
                 Ok(())
             }
             (RawImageData::U8(data), RawImageFormat::RG8) => {
-                // For RG8 (grayscale+alpha), only dither the grayscale channel
-                // Extract grayscale channel
                 let mut grey = Vec::with_capacity(data.len() / 2);
                 let mut alpha = Vec::with_capacity(data.len() / 2);
 
@@ -1011,7 +1080,6 @@ impl RawImage {
                     }
                 }
 
-                // Create a temporary R8 image for dithering
                 let mut temp_img = RawImage {
                     pixels: RawImageData::U8(grey),
                     width: self.width,
@@ -1020,10 +1088,8 @@ impl RawImage {
                     tag: Vec::new(),
                 };
 
-                // Apply dithering to the temporary image
                 temp_img.apply_dithering()?;
 
-                // Recombine the channels
                 if let RawImageData::U8(dithered_grey) = &temp_img.pixels {
                     let mut combined = Vec::with_capacity(data.len());
                     for i in 0..dithered_grey.len() {
@@ -1038,15 +1104,12 @@ impl RawImage {
                 Ok(())
             }
             (RawImageData::U16(data), RawImageFormat::R16) => {
-                // Dithering for 16-bit grayscale, convert to 8-bit for dithering and back to 16-bit
                 let mut grey_u8 = Vec::with_capacity(data.len());
 
-                // Convert 16-bit to 8-bit
                 for &value in data.iter() {
                     grey_u8.push((value >> 8) as u8);
                 }
 
-                // Create a temporary R8 image for dithering
                 let mut temp_img = RawImage {
                     pixels: RawImageData::U8(grey_u8),
                     width: self.width,
@@ -1055,14 +1118,11 @@ impl RawImage {
                     tag: Vec::new(),
                 };
 
-                // Apply dithering to the temporary image
                 temp_img.apply_dithering()?;
 
-                // Convert back to 16-bit
                 if let RawImageData::U8(dithered_grey) = &temp_img.pixels {
                     let mut result = Vec::with_capacity(data.len());
                     for &value in dithered_grey.iter() {
-                        // Expand 8-bit to 16-bit
                         result.push((value as u16) << 8 | (value as u16));
                     }
                     *data = result;
@@ -1074,7 +1134,8 @@ impl RawImage {
         }
     }
 
-    /// Estimates the size of the image in bytes (uncompressed)
+    /// The size of the pixel data in bytes, uncompressed: `width * height` times the bytes per
+    /// pixel of the format.
     pub fn estimate_size_bytes(&self) -> usize {
         let bits_per_pixel = match self.data_format {
             RawImageFormat::R8 => 8,
@@ -1089,26 +1150,28 @@ impl RawImage {
             RawImageFormat::RGBAF32 => 128, // 4 * 32 bits
         };
 
-        // Calculate size in bytes (rounded up to nearest byte)
         (self.width * self.height * bits_per_pixel).div_ceil(8)
     }
 
-    /// Resizes the image to fit within a maximum size in bytes
+    /// Scales the image down, keeping its aspect ratio, until its uncompressed size
+    /// ([`RawImage::estimate_size_bytes`]) is at most `max_size_bytes`. Nearest-neighbour
+    /// sampling, so the picture loses detail. Does nothing if it is small enough already.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when scaling is needed but the format is not an 8-bit one (`R8`, `RG8`,
+    /// `RGB8`, `RGBA8`, `BGR8`, `BGRA8`).
     pub fn resize_to_fit_size(&mut self, max_size_bytes: usize) -> Result<(), String> {
         let current_size = self.estimate_size_bytes();
         if current_size <= max_size_bytes {
-            // Already small enough
             return Ok(());
         }
 
-        // Calculate the scaling factor needed to fit within max_size
         let scale_factor = (max_size_bytes as f64 / current_size as f64).sqrt();
 
-        // Calculate new dimensions
         let new_width = (self.width as f64 * scale_factor).round() as usize;
         let new_height = (self.height as f64 * scale_factor).round() as usize;
 
-        // Ensure new dimensions are at least 1 pixel
         let new_width = new_width.max(1);
         let new_height = new_height.max(1);
 
@@ -1117,7 +1180,6 @@ impl RawImage {
                 let mut new_data = Vec::with_capacity(new_width * new_height * 3);
                 for y in 0..new_height {
                     for x in 0..new_width {
-                        // Map new coordinates to old coordinates (nearest neighbor)
                         let old_x = (x as f64 * self.width as f64 / new_width as f64) as usize;
                         let old_y = (y as f64 * self.height as f64 / new_height as f64) as usize;
                         let old_idx = (old_y * self.width + old_x) * 3;
@@ -1261,6 +1323,9 @@ impl RawImage {
     }
 }
 
+/// Encodes an image as an image XObject stream: optimizes it with `options`, splits the alpha
+/// channel into a `/SMask`, and applies the filter that `options` choose. Without `options`
+/// the samples are written unfiltered.
 pub(crate) fn image_to_stream(
     im: RawImage,
     doc: &mut lopdf::Document,
@@ -1268,7 +1333,6 @@ pub(crate) fn image_to_stream(
 ) -> lopdf::Stream {
     use lopdf::Object::*;
 
-    // Optimize the image if options are provided
     let mut im = im;
     if let Some(opts) = options {
         let _ = im.optimize(opts);
@@ -1276,9 +1340,8 @@ pub(crate) fn image_to_stream(
 
     let (rgb8, alpha) = split_rawimage_into_rgb_plus_alpha(im);
     let (bpc, cs) = rgb8.data_format.get_color_bits_and_space();
-    // A greyscale picture that is only black and white (line art, a scanned engraving, or one
-    // `dither_greyscale` made so) is written with one bit per pixel: the same picture, with an
-    // eighth of the data to compress.
+    // A greyscale picture that is only black and white (line art, or one that `dither_greyscale`
+    // made so) is written with one bit per pixel: the same picture in an eighth of the data.
     let bits = pack_bilevel(&rgb8);
     let bpc = if bits.is_some() { ColorBits::Bit1 } else { bpc };
     let pixels: &[u8] = bits.as_deref().unwrap_or(&rgb8.pixels);
@@ -1294,7 +1357,6 @@ pub(crate) fn image_to_stream(
         ("Interpolate", interpolate.into()),
     ]);
 
-    // Apply compression filter based on options
     let mut compressed_pixels = pixels.to_vec();
     if let Some(opts) = options {
         if let Some(filter) = get_compression_filter(opts, &rgb8) {
@@ -1307,7 +1369,6 @@ pub(crate) fn image_to_stream(
             match filter {
                 #[cfg(feature = "jpeg")]
                 "DCTDecode" => {
-                    // JPEG compression
                     let quality = opts.quality.unwrap_or(0.85);
                     if let Some(jpeg_data) = jpeg_encode(&rgb8, quality) {
                         compressed_pixels = jpeg_data;
@@ -1320,36 +1381,25 @@ pub(crate) fn image_to_stream(
                         dict.set("Filter", Name(filter.into()));
                     }
                 }
+                // Flate stands in for LZW and run-length: `lzw_encode` and `rle_encode` exist
+                // but are not enabled.
                 "LZWDecode" => {
                     if let Some(flate_data) = flate_encode(pixels) {
                         compressed_pixels = flate_data;
                         dict.set("Filter", Name("FlateDecode".into()));
                     }
-                    /*
-                    if let Some(lzw_data) = lzw_encode(pixels) {
-                        compressed_pixels = lzw_data;
-                        dict.set("Filter", Name(filter.into()));
-                    }
-                     */
                 }
                 "RunLengthDecode" => {
                     if let Some(flate_data) = flate_encode(pixels) {
                         compressed_pixels = flate_data;
                         dict.set("Filter", Name("FlateDecode".into()));
                     }
-                    /*
-                    if let Some(rle_data) = rle_encode(pixels) {
-                        compressed_pixels = rle_data;
-                        dict.set("Filter", Name(filter.into()));
-                    }
-                    */
                 }
                 _ => {}
             }
         }
     }
 
-    // Handle alpha channel (SMask)
     if let Some(alpha) = alpha {
         let mut smask_dict = lopdf::Dictionary::from_iter(vec![
             ("Type", Name("XObject".into())),
@@ -1361,21 +1411,18 @@ pub(crate) fn image_to_stream(
             ("ColorSpace", Name(ColorSpace::Greyscale.as_string().into())),
         ]);
 
-        // Alpha channel should typically use lossless compression
+        // The alpha channel is always lossless.
         let mut alpha_pixels = alpha.pixels.clone();
         let mut alpha_filter_applied = false;
 
         if let Some(opts) = options {
-            // Get main image format or override with alpha-specific preference
             let format = opts.format.unwrap_or_default();
 
-            // For lossy formats like JPEG, use Flate for alpha instead
-            // For lossless formats, use the same compression as the main image
             let alpha_format = match format {
                 ImageCompression::Auto | ImageCompression::Jpeg | ImageCompression::Jpeg2000 => {
-                    ImageCompression::Flate // Use Flate for alpha by default with lossy formats
+                    ImageCompression::Flate
                 }
-                _ => format, // Use same lossless format as main image
+                _ => format,
             };
 
             match get_compression_filter_by_format(alpha_format) {
@@ -1387,26 +1434,12 @@ pub(crate) fn image_to_stream(
                     }
                 }
                 "LZWDecode" => {
-                    /*
-                    if let Some(lzw_data) = lzw_encode(&alpha_pixels) {
-                        alpha_pixels = lzw_data;
-                        smask_dict.set("Filter", Name("LZWDecode".into()));
-                        alpha_filter_applied = true;
-                    }
-                    */
                     if let Some(flate_data) = flate_encode(pixels) {
                         compressed_pixels = flate_data;
                         dict.set("Filter", Name("FlateDecode".into()));
                     }
                 }
                 "RunLengthDecode" => {
-                    /*
-                    if let Some(rle_data) = rle_encode(&alpha_pixels) {
-                        alpha_pixels = rle_data;
-                        smask_dict.set("Filter", Name("RunLengthDecode".into()));
-                        alpha_filter_applied = true;
-                    }
-                    */
                     if let Some(flate_data) = flate_encode(pixels) {
                         compressed_pixels = flate_data;
                         dict.set("Filter", Name("FlateDecode".into()));
@@ -1416,7 +1449,6 @@ pub(crate) fn image_to_stream(
             }
         }
 
-        // If no filter was applied yet, default to Flate
         if !alpha_filter_applied {
             if let Some(flate_data) = flate_encode(&alpha_pixels) {
                 alpha_pixels = flate_data;
@@ -1424,21 +1456,20 @@ pub(crate) fn image_to_stream(
             }
         }
 
-        // Create stream with compression disabled (we already compressed the data)
+        // The data is already encoded, so the writer must not compress it again.
         let mut stream = lopdf::Stream::new(smask_dict, alpha_pixels);
         stream = stream.with_compression(false);
 
         dict.set("SMask", Reference(doc.add_object(stream)));
     }
 
-    // Create stream with compression disabled (we already compressed the data)
     let mut s = lopdf::Stream::new(dict, compressed_pixels);
     s = s.with_compression(false);
 
     s
 }
 
-// Function to select the appropriate compression filter
+// The PDF filter to encode the main image with, None for no filter.
 fn get_compression_filter(
     opts: &ImageOptimizationOptions,
     image: &RawImageU8,
@@ -1446,18 +1477,16 @@ fn get_compression_filter(
     let is_grayscale = matches!(image.data_format, RawImageFormat::R8 | RawImageFormat::RG8);
     let dithering_enabled = opts.dither_greyscale.unwrap_or_default();
 
-    // Avoid DCT for grayscale images with dithering enabled
+    // JPEG would blur a dither pattern.
     if is_grayscale && dithering_enabled {
-        return Some("LZWDecode"); // Use lossless compression for dithered grayscale
+        return Some("LZWDecode");
     }
 
     match opts.format.unwrap_or_default() {
         ImageCompression::Auto => {
             if matches!(image.data_format, RawImageFormat::R8 | RawImageFormat::RG8) {
-                // For grayscale, LZW is often good
                 Some("LZWDecode")
             } else {
-                // For color images, DCT (JPEG) is usually the best choice
                 #[cfg(feature = "jpeg")]
                 {
                     Some("DCTDecode")
@@ -1485,7 +1514,6 @@ fn get_compression_filter(
     }
 }
 
-// Get filter string directly from format
 fn get_compression_filter_by_format(format: ImageCompression) -> &'static str {
     match format {
         ImageCompression::Auto => "FlateDecode",
@@ -1506,12 +1534,10 @@ fn get_compression_filter_by_format(format: ImageCompression) -> &'static str {
     }
 }
 
-// JPEG encoding using the image crate
 #[cfg(feature = "jpeg")]
 fn jpeg_encode(image: &RawImageU8, quality: f32) -> Option<Vec<u8>> {
     let quality = (quality * 100.0) as u8;
 
-    // Create a DynamicImage from the raw pixels
     let img = match image.data_format {
         RawImageFormat::RGB8 => image::RgbImage::from_raw(
             image.width as u32,
@@ -1526,7 +1552,6 @@ fn jpeg_encode(image: &RawImageU8, quality: f32) -> Option<Vec<u8>> {
         )
         .map(image::DynamicImage::ImageLuma8),
         RawImageFormat::BGR8 => {
-            // Convert BGR to RGB
             let mut rgb_data = Vec::with_capacity(image.pixels.len());
             for chunk in image.pixels.chunks(3) {
                 if chunk.len() == 3 {
@@ -1545,7 +1570,6 @@ fn jpeg_encode(image: &RawImageU8, quality: f32) -> Option<Vec<u8>> {
     let mut jpeg_data = Vec::new();
     let mut cursor = std::io::Cursor::new(&mut jpeg_data);
 
-    // Use image crate's JPEG encoder
     let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, quality);
     if img.write_with_encoder(encoder).is_ok() {
         Some(jpeg_data)
@@ -1585,7 +1609,6 @@ fn pack_bilevel(image: &RawImageU8) -> Option<Vec<u8>> {
     Some(bits)
 }
 
-// FLATE (deflate) encoding
 fn flate_encode(data: &[u8]) -> Option<Vec<u8>> {
     use std::io::Write;
 
@@ -1596,16 +1619,14 @@ fn flate_encode(data: &[u8]) -> Option<Vec<u8>> {
     encoder.finish().ok()
 }
 
-// LZW encoding
 #[allow(dead_code)]
 fn lzw_encode(data: &[u8]) -> Option<Vec<u8>> {
     use weezl::{encode::Encoder, BitOrder};
-    // Create encoder with MSB bit order (standard for PDF) and 8-bit code size
+    // PDF uses MSB-first codes
     let mut encoder = Encoder::new(BitOrder::Msb, 8);
     encoder.encode(data).ok()
 }
 
-// Simple Run Length Encoding implementation
 #[allow(dead_code)]
 fn rle_encode(data: &[u8]) -> Option<Vec<u8>> {
     let mut result = Vec::with_capacity(data.len());
@@ -1615,7 +1636,6 @@ fn rle_encode(data: &[u8]) -> Option<Vec<u8>> {
         let mut run_length = 1;
         let current_byte = data[i];
 
-        // Find run length (max 128)
         while i + run_length < data.len()
             && data[i + run_length] == current_byte
             && run_length < 128
@@ -1624,12 +1644,10 @@ fn rle_encode(data: &[u8]) -> Option<Vec<u8>> {
         }
 
         if run_length > 1 {
-            // Encode run: [length-1, byte]
             result.push((run_length - 1) as u8);
             result.push(current_byte);
             i += run_length;
         } else {
-            // Find literals (max 128)
             let literal_start = i;
             let mut literal_count = 1;
 
@@ -1643,7 +1661,6 @@ fn rle_encode(data: &[u8]) -> Option<Vec<u8>> {
                 i += 1;
             }
 
-            // Encode literals: [257-length, byte1, byte2, ...]
             result.push((257 - literal_count) as u8);
             for j in 0..literal_count {
                 result.push(data[literal_start + j]);
@@ -1651,19 +1668,17 @@ fn rle_encode(data: &[u8]) -> Option<Vec<u8>> {
         }
     }
 
-    // End of data marker
     result.push(128);
 
     Some(result)
 }
 
-// If the image has an alpha channel, splits the alpha channel as a separate image
-// to the used in the `/Smask` dictionary
+// Splits the alpha channel off as its own image, for the `/SMask`. 16-bit samples become
+// big-endian bytes, as PDF reads them.
 fn split_rawimage_into_rgb_plus_alpha(im: RawImage) -> (RawImageU8, Option<RawImageU8>) {
     let has_alpha = im.data_format.has_alpha();
     let (orig, alpha) = if has_alpha {
         match im.data_format {
-            // Existing handling for RGBA8/BGRA8 remains:
             RawImageFormat::RGBA8 => {
                 if let RawImageData::U8(vec) = im.pixels {
                     let (rgb, alpha) = rgba_to_rgb(vec);
@@ -1737,7 +1752,6 @@ fn split_rawimage_into_rgb_plus_alpha(im: RawImage) -> (RawImageU8, Option<RawIm
     (orig, alpha_mask)
 }
 
-// Helper function to extract alpha channel from BGRA
 fn bgra_to_bgr(rgba: Vec<u8>) -> (Vec<u8>, Vec<u8>) {
     let mut rgb = Vec::with_capacity(rgba.len() / 4 * 3);
     let mut alpha = Vec::with_capacity(rgba.len() / 4);
@@ -1754,7 +1768,6 @@ fn bgra_to_bgr(rgba: Vec<u8>) -> (Vec<u8>, Vec<u8>) {
     (rgb, alpha)
 }
 
-/// Takes a Vec<u8> of RGBA data and returns two Vec<u8> of RGB and alpha data
 fn rgba_to_rgb(data: Vec<u8>) -> (Vec<u8>, Vec<u8>) {
     let mut rgb = Vec::with_capacity(data.len() / 4 * 3);
     let mut alpha = Vec::with_capacity(data.len() / 4);
@@ -1822,14 +1835,12 @@ mod browser_image {
     use super::{OutputImageFormat, RawImage, RawImageData, RawImageFormat};
     use crate::PdfWarnMsg;
 
-    // Decode image bytes using browser's capabilities
     pub async fn decode_image_with_browser(
         bytes: &[u8],
         _warnings: &mut Vec<PdfWarnMsg>,
     ) -> Result<RawImage, String> {
         let window = window().ok_or("No window available")?;
 
-        // Create a Blob from the bytes
         let array = Array::new();
         let uint8_array = Uint8Array::from(bytes);
         array.push(&uint8_array.buffer());
@@ -1838,7 +1849,6 @@ mod browser_image {
         let blob = Blob::new_with_u8_array_sequence_and_options(&array, &options)
             .map_err(|e| format!("Failed to create Blob: {:?}", e))?;
 
-        // Create ImageBitmap from Blob
         let promise = window
             .create_image_bitmap_with_blob(&blob)
             .map_err(|e| format!("Failed to create ImageBitmap: {:?}", e))?;
@@ -1849,7 +1859,6 @@ mod browser_image {
             .dyn_into()
             .map_err(|_| "Failed to cast to ImageBitmap")?;
 
-        // Create a canvas to extract pixel data
         let document = window.document().ok_or("No document available")?;
         let canvas = document
             .create_element("canvas")
@@ -1881,7 +1890,6 @@ mod browser_image {
         let data = image_data.data();
         let data_vec = data.to_vec();
 
-        // Convert to RawImage (RGBA8 format)
         Ok(RawImage {
             pixels: RawImageData::U8(data_vec),
             width,
@@ -1891,12 +1899,10 @@ mod browser_image {
         })
     }
 
-    // Encode image to specific format using browser's Canvas API
     pub async fn encode_image_with_browser(
         image: &RawImage,
         format: OutputImageFormat,
     ) -> Result<Vec<u8>, String> {
-        // Convert format to mime type
         let mime_type = match format {
             OutputImageFormat::Jpeg => "image/jpeg",
             OutputImageFormat::Png => "image/png",
@@ -1904,13 +1910,11 @@ mod browser_image {
             _ => return Err(format!("Format {:?} not supported by browser", format)),
         };
 
-        // Get pixel data
         let pixels = match &image.pixels {
             RawImageData::U8(data) => data,
             _ => return Err("Only U8 data is supported for browser encoding".to_string()),
         };
 
-        // Set up canvas
         let window = window().ok_or("No window available")?;
         let document = window.document().ok_or("No document available")?;
         let canvas = document
@@ -1929,7 +1933,6 @@ mod browser_image {
             .dyn_into::<CanvasRenderingContext2d>()
             .map_err(|_| "Failed to cast to CanvasRenderingContext2d")?;
 
-        // Create ImageData and put it on canvas
         let uint8_clamped_array = js_sys::Uint8ClampedArray::from(pixels.as_slice());
         let image_data = web_sys::ImageData::new_with_js_u8_clamped_array_and_sh(
             &uint8_clamped_array,
@@ -1942,12 +1945,10 @@ mod browser_image {
             .put_image_data(&image_data, 0.0, 0.0)
             .map_err(|_| "Failed to put image data")?;
 
-        // Get data URL
         let data_url = canvas
             .to_data_url_with_type(mime_type)
             .map_err(|_| format!("Failed to encode to {}", mime_type))?;
 
-        // Extract binary data from data URL
         let bytes = crate::Base64OrRaw::B64(data_url).decode_bytes()?;
 
         Ok(bytes)
