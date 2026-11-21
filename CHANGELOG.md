@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## `0.12.14`
+
+**A face over shared font bytes.** `ParsedFont::from_shared_bytes(bytes:
+Arc<[u8]>, font_index, warnings)` builds the same face as `from_bytes`
+without copying the font file: the face's source bytes are the caller's
+allocation, and glyph outlines are decoded when asked for instead of up
+front. For callers that keep their fonts as shared bytes (one allocation
+for the application, the face and the embedded font). Nothing changes for
+`from_bytes`.
+
 ## `0.12.13`
 
 **azul 0.0.20.** The azul-css / azul-core / azul-layout pins move to 0.0.20.
