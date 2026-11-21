@@ -409,20 +409,10 @@ impl Base64OrRaw {
 }
 
 fn get_base64_substr(input: &str) -> &str {
-    if input.starts_with("data:") {
-        if let Some(comma_index) = input.find(',') {
-            let metadata = &input[..comma_index];
-            if metadata.contains("base64") {
-                &input[comma_index + 1..]
-            } else {
-                // a data URL that is not marked base64: decode the whole string
-                input
-            }
-        } else {
-            input
-        }
-    } else {
-        input
+    match input.strip_prefix("data:").and_then(|rest| rest.split_once(',')) {
+        Some((metadata, payload)) if metadata.contains("base64") => payload,
+        // not a data URL, or a data URL that is not marked base64: decode the whole string
+        _ => input,
     }
 }
 
@@ -991,7 +981,7 @@ impl PdfDocument {
 
         for annot in self.bookmarks.map.values_mut() {
             if annot.page >= insert_at {
-                annot.page += pages_to_insert;
+                annot.page = annot.page.saturating_add(pages_to_insert);
             }
         }
 
@@ -1027,7 +1017,7 @@ impl PdfDocument {
     // Bookmark page numbers start at 1, so adding `page_offset` moves them behind that many pages.
     fn merge_bookmarks(&mut self, other: PageAnnotMap, page_offset: usize) {
         for (id, mut annot) in other.map {
-            annot.page += page_offset;
+            annot.page = annot.page.saturating_add(page_offset);
             self.bookmarks.map.insert(id, annot);
         }
     }
@@ -1264,9 +1254,9 @@ impl Default for PdfDocumentInfo {
         Self {
             trapped: false,
             version: 1,
-            creation_date: OffsetDateTime::from_unix_timestamp(0).unwrap(),
-            modification_date: OffsetDateTime::from_unix_timestamp(0).unwrap(),
-            metadata_date: OffsetDateTime::from_unix_timestamp(0).unwrap(),
+            creation_date: OffsetDateTime::epoch(),
+            modification_date: OffsetDateTime::epoch(),
+            metadata_date: OffsetDateTime::epoch(),
             conformance: PdfConformance::default(),
             document_title: String::new(),
             author: String::new(),

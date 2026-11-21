@@ -196,14 +196,11 @@ pub fn decode_pdf_string(obj: &Object, to_unicode: Option<&impl CMap>) -> String
             }
             StringFormat::Hexadecimal => {
                 // For hex strings the bytes are the raw binary data.
-                if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
-                    // Contains a BOM – assume UTF-16BE.
-                    let utf16_iter = bytes[2..].chunks(2).filter_map(|pair| {
-                        if pair.len() == 2 {
-                            Some(u16::from_be_bytes([pair[0], pair[1]]))
-                        } else {
-                            None
-                        }
+                if let Some(utf16_bytes) = bytes.strip_prefix(&[0xFE, 0xFF]) {
+                    // Contains a BOM – assume UTF-16BE. A trailing odd byte is dropped.
+                    let utf16_iter = utf16_bytes.chunks_exact(2).filter_map(|pair| match *pair {
+                        [hi, lo] => Some(u16::from_be_bytes([hi, lo])),
+                        _ => None,
                     });
                     String::from_utf16(&utf16_iter.collect::<Vec<_>>()).unwrap_or_default()
                 } else {
@@ -263,9 +260,9 @@ pub fn decode_tj_operands_as_glyph_ids(operands: &[Object]) -> Vec<TextItem> {
                 // For simple fonts, each byte is a glyph ID
                 if bytes.len() >= 2 && bytes.len() % 2 == 0 {
                     // Assume CID font (2 bytes per glyph)
-                    for chunk in bytes.chunks(2) {
-                        if chunk.len() == 2 {
-                            let gid = u16::from_be_bytes([chunk[0], chunk[1]]);
+                    for chunk in bytes.chunks_exact(2) {
+                        if let [hi, lo] = *chunk {
+                            let gid = u16::from_be_bytes([hi, lo]);
                             current_glyphs.push(Codepoint::new(gid, 0.0));
                         }
                     }
@@ -312,9 +309,9 @@ pub fn decode_tj_string_as_glyph_ids(bytes: &[u8]) -> Vec<TextItem> {
     // Extract glyph IDs from the byte string
     if bytes.len() >= 2 && bytes.len().is_multiple_of(2) {
         // Assume CID font (2 bytes per glyph)
-        for chunk in bytes.chunks(2) {
-            if chunk.len() == 2 {
-                let gid = u16::from_be_bytes([chunk[0], chunk[1]]);
+        for chunk in bytes.chunks_exact(2) {
+            if let [hi, lo] = *chunk {
+                let gid = u16::from_be_bytes([hi, lo]);
                 glyphs.push(Codepoint::new(gid, 0.0));
             }
         }
@@ -398,17 +395,16 @@ pub fn encode_text_items(items: &[TextItem]) -> Vec<Object> {
             TextItem::Text(s) => {
                 let pdf_str = encode_pdf_string_minimal(s);
                 // Check if the encoding is hex or literal based on its delimiters.
-                if pdf_str.starts_with('<') {
+                if let Some(inner) = pdf_str.strip_prefix('<').and_then(|t| t.strip_suffix('>')) {
                     // For hex, remove the delimiters and convert back to bytes.
-                    let inner = &pdf_str[1..pdf_str.len() - 1];
-                    let mut bytes = Vec::new();
-                    for i in (0..inner.len()).step_by(2) {
-                        if i + 2 <= inner.len() {
-                            if let Ok(byte) = u8::from_str_radix(&inner[i..i + 2], 16) {
-                                bytes.push(byte);
-                            }
-                        }
-                    }
+                    let bytes: Vec<u8> = inner
+                        .as_bytes()
+                        .chunks_exact(2)
+                        .filter_map(|pair| {
+                            let digits = std::str::from_utf8(pair).ok()?;
+                            u8::from_str_radix(digits, 16).ok()
+                        })
+                        .collect();
                     objs.push(Object::String(bytes, StringFormat::Hexadecimal));
                 } else {
                     // For literal strings, we assume a UTF-8 encoding.
@@ -541,10 +537,14 @@ pub fn show_placed_glyphs(
     let mut run: Vec<Codepoint> = Vec::new();
     for g in glyphs {
         let font = if g.font < fonts.len() { g.font } else { 0 };
+        // `fonts` is not empty and `font` is in range, so there is always a face.
+        let Some((font_id, face)) = fonts.get(font) else {
+            continue;
+        };
         if current != Some(font) {
             flush(&mut ops, &mut items, &mut run);
             ops.push(Op::SetFont {
-                font: crate::ops::PdfFontHandle::External(fonts[font].0.clone()),
+                font: crate::ops::PdfFontHandle::External(font_id.clone()),
                 size,
             });
             current = Some(font);
@@ -567,7 +567,7 @@ pub fn show_placed_glyphs(
             offset: 0.0,
             cid: Some(g.text.clone()),
         });
-        pen = g.x + glyph_pdf_width(fonts[font].1, g.gid) as f32 / 1000.0 * size.0;
+        pen = g.x + glyph_pdf_width(face, g.gid) as f32 / 1000.0 * size.0;
     }
     flush(&mut ops, &mut items, &mut run);
     if rise != 0.0 {

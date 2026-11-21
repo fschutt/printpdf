@@ -130,43 +130,42 @@ impl Shading {
     // fill `[0, first_offset]` and `[last_offset, 1]` when the stops do not cover the whole
     // range, so `red 30%, blue` is solid red up to 30% as in CSS.
     fn build_function(&self) -> lopdf::Object {
-        let n = self.stops.len();
-        if n == 0 {
-            return lopdf::Object::Dictionary(exponential_fn([0.0; 3], [0.0; 3]));
-        }
-        if n == 1 {
-            let c = self.stops[0].color;
-            return lopdf::Object::Dictionary(exponential_fn(c, c));
-        }
+        let (first, last) = match self.stops.as_slice() {
+            [] => return lopdf::Object::Dictionary(exponential_fn([0.0; 3], [0.0; 3])),
+            [only] => {
+                let c = only.color;
+                return lopdf::Object::Dictionary(exponential_fn(c, c));
+            }
+            [first, .., last] => (first, last),
+        };
 
         let mut segs: Vec<(f32, f32, [f32; 3], [f32; 3])> = Vec::new();
-        let first = &self.stops[0];
-        let last = &self.stops[n - 1];
         let o_first = first.offset.clamp(0.0, 1.0);
         let o_last = last.offset.clamp(0.0, 1.0);
 
         if o_first > 0.0 {
             segs.push((0.0, o_first, first.color, first.color));
         }
-        for w in self.stops.windows(2) {
-            let ta = w[0].offset.clamp(0.0, 1.0);
-            let tb = w[1].offset.clamp(0.0, 1.0);
+        for pair in self.stops.windows(2) {
+            let [a, b] = pair else { continue };
+            let ta = a.offset.clamp(0.0, 1.0);
+            let tb = b.offset.clamp(0.0, 1.0);
             if tb > ta {
-                segs.push((ta, tb, w[0].color, w[1].color));
+                segs.push((ta, tb, a.color, b.color));
             }
         }
         if o_last < 1.0 {
             segs.push((o_last, 1.0, last.color, last.color));
         }
 
-        if segs.is_empty() {
-            // All stops at the same offset: constant color.
-            let c = first.color;
-            return lopdf::Object::Dictionary(exponential_fn(c, c));
-        }
-        if segs.len() == 1 {
-            let s = &segs[0];
-            return lopdf::Object::Dictionary(exponential_fn(s.2, s.3));
+        match segs.as_slice() {
+            [] => {
+                // All stops at the same offset: constant color.
+                let c = first.color;
+                return lopdf::Object::Dictionary(exponential_fn(c, c));
+            }
+            [s] => return lopdf::Object::Dictionary(exponential_fn(s.2, s.3)),
+            _ => {}
         }
 
         use lopdf::Object::*;
@@ -175,8 +174,9 @@ impl Shading {
             .map(|s| Dictionary(exponential_fn(s.2, s.3)))
             .collect();
         // The end of every segment except the last is a breakpoint.
-        let bounds: Vec<lopdf::Object> = segs[..segs.len() - 1]
+        let bounds: Vec<lopdf::Object> = segs
             .iter()
+            .take(segs.len().saturating_sub(1))
             .map(|s| Real(s.1))
             .collect();
         // Each segment maps its sub-domain onto the [0, 1] domain of its function.

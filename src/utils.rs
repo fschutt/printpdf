@@ -42,9 +42,11 @@ pub(crate) fn random_character_string_32() -> String {
 
     'outer: while char_pos < MAX_CHARS {
         let rand = format!("{}", crate::utils::random_number());
-        for ch in rand.chars() {
+        // The decimal digits of a number, so `to_digit` always has an answer; each pass of the
+        // outer loop adds at least one character.
+        for digit in rand.chars().filter_map(|ch| ch.to_digit(10)) {
             if char_pos < MAX_CHARS {
-                final_string.push(u8_to_char(ch.to_digit(10).unwrap() as u8));
+                final_string.push(u8_to_char(digit as u8));
                 char_pos += 1;
             } else {
                 break 'outer;
@@ -102,7 +104,7 @@ pub(crate) fn to_pdf_xmp_date(date: &OffsetDateTime) -> String {
 /// `0 => A`, `1 => B`, and so on
 #[inline(always)]
 fn u8_to_char(input: u8) -> char {
-    (b'A' + input) as char
+    b'A'.saturating_add(input) as char
 }
 
 /// Compresses `bytes` with gzip at the best level.

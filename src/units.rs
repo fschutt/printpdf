@@ -44,15 +44,15 @@ macro_rules! impl_partialeq {
 
 macro_rules! impl_ord {
     ($t:ty) => {
+        impl PartialOrd for $t {
+            fn partial_cmp(&self, other: &$t) -> Option<Ordering> {
+                Some(self.cmp(other))
+            }
+        }
+
         impl Ord for $t {
             fn cmp(&self, other: &$t) -> Ordering {
-                if self.0 < other.0 {
-                    Ordering::Less
-                } else if self.0 > other.0 {
-                    Ordering::Greater
-                } else {
-                    Ordering::Equal
-                }
+                self.0.total_cmp(&other.0)
             }
         }
     };
@@ -60,8 +60,10 @@ macro_rules! impl_ord {
 
 /// A length in millimeters. 1 mm is about 2.8346 [`Pt`].
 ///
-/// Equality compares to three decimals. Serialized as the plain number.
-#[derive(Debug, Default, Copy, Clone, PartialOrd, Serialize, Deserialize)]
+/// Equality compares to three decimals. Ordering is exact and follows [`f32::total_cmp`]: -0.0
+/// sorts before 0.0, and NaN after every number (before every number if its sign bit is set).
+/// Serialized as the plain number.
+#[derive(Debug, Default, Copy, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Mm(pub f32);
 
@@ -86,8 +88,10 @@ impl_ord!(Mm);
 
 /// A length in points, the unit of PDF: 1 pt is 1/72 inch, about 0.3528 [`Mm`].
 ///
-/// Equality compares to three decimals. Serialized as the plain number.
-#[derive(Debug, Default, Copy, Clone, PartialOrd, Serialize, Deserialize)]
+/// Equality compares to three decimals. Ordering is exact and follows [`f32::total_cmp`]: -0.0
+/// sorts before 0.0, and NaN after every number (before every number if its sign bit is set).
+/// Serialized as the plain number.
+#[derive(Debug, Default, Copy, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Pt(pub f32);
 
@@ -119,7 +123,7 @@ impl_partialeq!(Pt);
 impl_ord!(Pt);
 
 /// A length in pixels. It only has a physical size together with a resolution (DPI), see
-/// [`Px::into_pt`].
+/// [`Px::into_pt`]. `+` and `-` saturate at `usize::MAX` and 0.
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Px(pub usize);
@@ -227,21 +231,43 @@ macro_rules! impl_div_assign_f32 {
     };
 }
 
+impl Add for Px {
+    type Output = Self;
+    fn add(self, other: Self) -> Self {
+        Px(self.0.saturating_add(other.0))
+    }
+}
+
+impl AddAssign for Px {
+    fn add_assign(&mut self, other: Self) {
+        self.0 = self.0.saturating_add(other.0);
+    }
+}
+
+impl Sub for Px {
+    type Output = Self;
+    fn sub(self, other: Self) -> Self {
+        Px(self.0.saturating_sub(other.0))
+    }
+}
+
+impl SubAssign for Px {
+    fn sub_assign(&mut self, other: Self) {
+        self.0 = self.0.saturating_sub(other.0);
+    }
+}
+
 impl_add_self!(Mm);
 impl_add_self!(Pt);
-impl_add_self!(Px);
 
 impl_add_assign_self!(Mm);
 impl_add_assign_self!(Pt);
-impl_add_assign_self!(Px);
 
 impl_sub_assign_self!(Mm);
 impl_sub_assign_self!(Pt);
-impl_sub_assign_self!(Px);
 
 impl_sub_self!(Mm);
 impl_sub_self!(Pt);
-impl_sub_self!(Px);
 
 impl_mul_f32!(Mm);
 impl_mul_f32!(Pt);

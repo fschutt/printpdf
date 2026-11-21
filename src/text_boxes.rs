@@ -411,7 +411,7 @@ impl PdfPage {
         let mut paint = Paint::default();
         let mut in_text = false;
         let mut font: FontRef = FontRef::None;
-        let mut builtin_cache: BTreeMap<BuiltinFont, ParsedFont> = BTreeMap::new();
+        let mut builtin_cache: BTreeMap<BuiltinFont, Option<ParsedFont>> = BTreeMap::new();
 
         for op in &self.ops {
             match op {
@@ -461,12 +461,15 @@ impl PdfPage {
                             None => FontRef::None,
                         },
                         PdfFontHandle::Builtin(b) => {
-                            let parsed = builtin_cache.entry(*b).or_insert_with(|| {
-                                let subset = b.get_subset_font();
-                                ParsedFont::from_bytes(&subset.bytes, 0, &mut Vec::new())
-                                    .expect("builtin font programs always parse")
-                            });
-                            FontRef::Builtin(*b, parsed.clone())
+                            // The face only measures glyphs: one that does not parse is
+                            // measured with the fixed advance, like a font that is missing.
+                            let parsed = builtin_cache
+                                .entry(*b)
+                                .or_insert_with(|| b.get_parsed_font());
+                            match parsed {
+                                Some(parsed) => FontRef::Builtin(*b, parsed.clone()),
+                                None => FontRef::None,
+                            }
                         }
                     };
                 }
