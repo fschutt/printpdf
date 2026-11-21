@@ -1,3 +1,23 @@
+//! Typed lengths: [`Pt`] (points), [`Mm`] (millimeters) and [`Px`] (pixels).
+//!
+//! PDF measures everything in points: 1 pt = 1/72 inch = 0.3528 mm. The wrappers keep
+//! millimeters and points from being mixed up; convert with `From` / `Into`:
+//!
+//! ```
+//! use printpdf::{Mm, Pt, Px};
+//!
+//! let a4_width: Pt = Mm(210.0).into();
+//! assert_eq!(a4_width, Pt(595.276));
+//! let back: Mm = a4_width.into();
+//! assert_eq!(back, Mm(210.0));
+//!
+//! // A pixel only has a size once a resolution is given.
+//! assert_eq!(Px(300).into_pt(300.0), Pt(72.0));
+//! ```
+//!
+//! All three support `+`, `-` and their assigning forms; `Pt` and `Mm` also support `*` and `/`
+//! by an `f32`, and dividing two values of the same unit gives an `f32` ratio.
+
 use std::{cmp::Ordering, num::FpCategory};
 
 use serde_derive::{Deserialize, Serialize};
@@ -5,14 +25,14 @@ use serde_derive::{Deserialize, Serialize};
 macro_rules! impl_partialeq {
     ($t:ty) => {
         impl PartialEq for $t {
-            // custom compare function because of floating point inaccuracy
+            // Equal when the values agree to three decimals, to absorb floating point
+            // inaccuracy. Non-finite values are never equal.
             fn eq(&self, other: &$t) -> bool {
                 if (self.0.classify() == FpCategory::Zero
                     || self.0.classify() == FpCategory::Normal)
                     && (other.0.classify() == FpCategory::Zero
                         || other.0.classify() == FpCategory::Normal)
                 {
-                    // four floating point numbers have to match
                     (self.0 * 1000.0).round() == (other.0 * 1000.0).round()
                 } else {
                     false
@@ -25,7 +45,6 @@ macro_rules! impl_partialeq {
 macro_rules! impl_ord {
     ($t:ty) => {
         impl Ord for $t {
-            // custom compare function to offer ordering
             fn cmp(&self, other: &$t) -> Ordering {
                 if self.0 < other.0 {
                     Ordering::Less
@@ -39,12 +58,15 @@ macro_rules! impl_ord {
     };
 }
 
-/// Scale in millimeter
+/// A length in millimeters. 1 mm is about 2.8346 [`Pt`].
+///
+/// Equality compares to three decimals. Serialized as the plain number.
 #[derive(Debug, Default, Copy, Clone, PartialOrd, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Mm(pub f32);
 
 impl Mm {
+    /// Converts to points; the same as `Pt::from(self)`.
     pub fn into_pt(&self) -> Pt {
         let pt: Pt = (*self).into();
         pt
@@ -62,27 +84,19 @@ impl Eq for Mm {}
 impl_partialeq!(Mm);
 impl_ord!(Mm);
 
-/// Scale in point
+/// A length in points, the unit of PDF: 1 pt is 1/72 inch, about 0.3528 [`Mm`].
+///
+/// Equality compares to three decimals. Serialized as the plain number.
 #[derive(Debug, Default, Copy, Clone, PartialOrd, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Pt(pub f32);
 
 impl Pt {
-    /// Convert this `Pt` value into `Px` at the given `dpi`.
+    /// Converts to pixels at `dpi` dots per inch, rounded to the nearest whole pixel.
     pub fn into_px(self, dpi: f32) -> Px {
-        // First convert from points back to millimeters, then from millimeters to pixels.
-        //
-        // 1 mm = 2.834646 points
-        // So, mm = pt / 2.834646
-        // And from Px::into_pt we know:
-        //     px -> mm = px * (25.4 / dpi)
-        // So reversing it:
-        //     mm -> px = mm * (dpi / 25.4)
-        //
         let mm = self.0 / 2.834646_f32;
         let px_f = mm * (dpi / 25.4_f32);
 
-        // Round to the nearest whole number of pixels before casting to `usize`.
         Px(px_f.round() as usize)
     }
 }
@@ -104,12 +118,14 @@ impl Eq for Pt {}
 impl_partialeq!(Pt);
 impl_ord!(Pt);
 
-/// Scale in pixels
+/// A length in pixels. It only has a physical size together with a resolution (DPI), see
+/// [`Px::into_pt`].
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Px(pub usize);
 
 impl Px {
+    /// Converts to points for an image printed at `dpi` dots per inch (`px * 72 / dpi`).
     pub fn into_pt(self, dpi: f32) -> Pt {
         Mm(self.0 as f32 * (25.4 / dpi)).into()
     }
