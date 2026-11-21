@@ -1,3 +1,95 @@
+//! Paths, painting and the graphics state.
+//!
+//! A PDF page is drawn by a *content stream*, a list of operators. To draw a shape the stream
+//! first builds a *path* and then paints it. A path is a list of *subpaths*. A subpath starts
+//! with a move to a point (`m`), continues with straight lines (`l`) or cubic Bezier curves (`c`,
+//! two control points and an end point), and can be closed (`h`) with a straight line back to its
+//! start. Painting then strokes the outline (`S`), fills the inside (`f`), both (`B`), or turns
+//! the path into a clip (`W`), so that later drawing only shows inside it.
+//!
+//! All coordinates are in points (1/72 inch), measured from the bottom left corner of the page,
+//! with y pointing up.
+//!
+//! # Shapes
+//!
+//! - [`Line`] is an open or closed path that is stroked.
+//! - [`Polygon`] is made of [`PolygonRing`]s (subpaths) and a [`PaintMode`]. Several rings make
+//!   shapes with holes, together with a [`WindingOrder`], the rule that decides which points are
+//!   inside. With `NonZero`, a hole needs a ring that runs in the opposite direction of the
+//!   outer ring. With `EvenOdd`, any ring inside another one makes a hole, whatever its direction.
+//! - [`Rect`] is an axis aligned rectangle and converts to both of the above.
+//! - [`Point`] and [`LinePoint`] are the vertices. A `LinePoint` with `bezier: true` is a curve
+//!   control point.
+//!
+//! Draw them with [`Op::DrawLine`](crate::Op::DrawLine), [`Op::DrawPolygon`](crate::Op::DrawPolygon)
+//! and [`Op::DrawRectangle`](crate::Op::DrawRectangle).
+//!
+//! # Stroke style
+//!
+//! The width, cap ([`LineCapStyle`], the shape of line ends), join ([`LineJoinStyle`], the shape
+//! of corners), miter limit (how long a pointed corner may get before it is cut off) and dash
+//! pattern ([`LineDashPattern`]) are part of the *graphics state*. Set them with the `Op::Set...`
+//! operations or through an [`ExtendedGraphicsState`].
+//!
+//! # Extended graphics state and transparency
+//!
+//! [`ExtendedGraphicsState`] (`ExtGState` in PDF) is a named set of graphics parameters. It also
+//! carries what has no operator of its own: opacity of fills and strokes, the [`BlendMode`] that
+//! decides how new paint mixes with what is below it, a [`SoftMask`], overprint settings for
+//! print, and flatness and smoothness tolerances. Register one with
+//! [`PdfDocument::add_graphics_state`](crate::PdfDocument::add_graphics_state) and apply it with
+//! [`Op::LoadGraphicsState`](crate::Op::LoadGraphicsState).
+//!
+//! # Examples
+//!
+//! A square with a square hole in it. The even-odd rule makes the inner ring a hole.
+//!
+//! ```
+//! use printpdf::*;
+//!
+//! let ring = |x: f32, size: f32| PolygonRing {
+//!     points: [(x, x), (x + size, x), (x + size, x + size), (x, x + size)]
+//!         .iter()
+//!         .map(|&(x, y)| LinePoint { p: Point::new(Mm(x), Mm(y)), bezier: false })
+//!         .collect(),
+//! };
+//! let polygon = Polygon {
+//!     rings: vec![ring(10.0, 40.0), ring(20.0, 20.0)],
+//!     mode: PaintMode::Fill,
+//!     winding_order: WindingOrder::EvenOdd,
+//! };
+//! let ops = vec![
+//!     Op::SetFillColor { col: Color::Rgb(Rgb::new(0.0, 0.4, 0.8, None)) },
+//!     Op::DrawPolygon { polygon },
+//! ];
+//! # let _ = ops;
+//! ```
+//!
+//! Half transparent paint that darkens what is below it:
+//!
+//! ```
+//! use printpdf::*;
+//!
+//! let mut doc = PdfDocument::new("alpha");
+//! let gs = doc.add_graphics_state(
+//!     ExtendedGraphicsState::default()
+//!         .with_current_fill_alpha(0.5)
+//!         .with_blend_mode(BlendMode::multiply()),
+//! );
+//! let ops = vec![
+//!     Op::SaveGraphicsState,
+//!     Op::LoadGraphicsState { gs },
+//!     Op::DrawRectangle {
+//!         rectangle: Rect {
+//!             mode: Some(PaintMode::Fill),
+//!             ..Rect::from_xywh(Pt(50.0), Pt(50.0), Pt(100.0), Pt(100.0))
+//!         },
+//!     },
+//!     Op::RestoreGraphicsState,
+//! ];
+//! # let _ = ops;
+//! ```
+
 use core::fmt;
 use std::collections::HashSet;
 
@@ -9,32 +101,42 @@ use crate::{
     BuiltinFont, FontId,
 };
 
-/// Fill path using nonzero winding number rule
+/// `f`: fills the path, nonzero rule.
 pub const OP_PATH_PAINT_FILL_NZ: &str = "f";
-/// Fill path using even-odd rule
+/// `f*`: fills the path, even-odd rule.
 pub const OP_PATH_PAINT_FILL_EO: &str = "f*";
-/// Fill and stroke path using nonzero winding number rule
+/// `B`: fills and strokes the path, nonzero rule.
 pub const OP_PATH_PAINT_FILL_STROKE_NZ: &str = "B";
-/// Close, fill and stroke path using nonzero winding number rule
+/// `b`: closes, fills and strokes the path, nonzero rule.
 pub const OP_PATH_PAINT_FILL_STROKE_CLOSE_NZ: &str = "b";
-/// Fill and stroke path using even-odd rule
+/// `B*`: fills and strokes the path, even-odd rule.
 pub const OP_PATH_PAINT_FILL_STROKE_EO: &str = "B*";
-/// Close, fill and stroke path using even odd rule
+/// `b*`: closes, fills and strokes the path, even-odd rule.
 pub const OP_PATH_PAINT_FILL_STROKE_CLOSE_EO: &str = "b*";
-/// Current path is a clip path, non-zero winding order (usually in like `h W S`)
+/// `W`: intersects the clipping path with the current path, nonzero rule.
 pub const OP_PATH_CONST_CLIP_NZ: &str = "W";
-/// Current path is a clip path, non-zero winding order
+/// `W*`: intersects the clipping path with the current path, even-odd rule.
 pub const OP_PATH_CONST_CLIP_EO: &str = "W*";
 
-/// Rectangle struct (x, y, width, height) from the LOWER LEFT corner of the page
+/// An axis aligned rectangle with the corner closest to the page origin at `(x, y)`.
+///
+/// The origin of a page is its bottom left corner and y points up. Drawn with
+/// [`Op::DrawRectangle`](crate::Op::DrawRectangle), which uses `mode` and `winding_order`.
 #[derive(PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Rect {
+    /// Distance of the left edge from the left side of the page.
     pub x: Pt,
+    /// Distance of the bottom edge from the bottom of the page.
     pub y: Pt,
+    /// Width, in points.
     pub width: Pt,
+    /// Height, in points.
     pub height: Pt,
+    /// How to paint the rectangle. With `None` it is not painted: the path is ended (`n`), or
+    /// used as a clip if `winding_order` is set.
     pub mode: Option<PaintMode>,
+    /// Fill and clip rule. `None` means nonzero when `mode` is set.
     pub winding_order: Option<WindingOrder>,
 }
 
@@ -49,6 +151,7 @@ impl fmt::Debug for Rect {
 }
 
 impl Rect {
+    /// The bottom left corner.
     pub fn lower_left(&self) -> Point {
         Point {
             x: self.x,
@@ -56,6 +159,7 @@ impl Rect {
         }
     }
 
+    /// The top right corner.
     pub fn upper_right(&self) -> Point {
         Point {
             x: self.x + self.width,
@@ -63,6 +167,7 @@ impl Rect {
         }
     }
 
+    /// A rectangle of the given size with its corner at the origin and no paint mode.
     pub fn from_wh(width: Pt, height: Pt) -> Self {
         Self {
             x: Pt(0.0),
@@ -74,6 +179,7 @@ impl Rect {
         }
     }
 
+    /// A rectangle at `(x, y)` with the given size and no paint mode.
     pub fn from_xywh(x: Pt, y: Pt, width: Pt, height: Pt) -> Self {
         Self {
             x,
@@ -85,6 +191,8 @@ impl Rect {
         }
     }
 
+    /// The rectangle as a one-ring polygon. Uses `mode` (default: fill) and `winding_order`
+    /// (default: nonzero).
     pub fn to_polygon(&self) -> Polygon {
         Polygon {
             rings: vec![PolygonRing {
@@ -95,6 +203,7 @@ impl Rect {
         }
     }
 
+    /// The outline of the rectangle as a closed [`Line`].
     pub fn to_line(&self) -> Line {
         Line {
             points: self.gen_points(),
@@ -136,9 +245,8 @@ impl Rect {
         ]
     }
 
+    /// The PDF array `[x, y, width, height]` of real numbers.
     pub fn to_array(&self) -> Vec<lopdf::Object> {
-        // #253: emit Real(f32) values, not rounded integers. Rounding distorts
-        // media/trim/crop boxes (and any other rectangle serialized via this).
         vec![
             self.x.0.into(),
             self.y.0.into(),
@@ -148,44 +256,26 @@ impl Rect {
     }
 }
 
-/// The rule to use in filling/clipping paint operations.
+/// The rule that decides which points are inside a path, for filling and clipping.
 ///
-/// This is meaningful in the following cases:
-///
-/// - When a path uses one of the _fill_ paint operations, this will determine the rule used to fill
-///   the paths.
-/// - When a path uses a [clip] painting mode, this will determine the rule used to limit the
-///   regions of the page affected by painting operators.
-///
-/// Most of the time, `NonZero` is the appropriate option.
-///
-/// [clip]: PaintMode::Clip
+/// The two rules differ only for paths that overlap themselves or have several rings (ISO 32000-1,
+/// 8.5.3.3). `NonZero` is the usual choice. Serialized to JSON in kebab-case.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum WindingOrder {
-    /// Make any filling or clipping paint operators follow the _even-odd rule_.
-    ///
-    /// This rule determines whether a point is inside a path by drawing a ray from that point in
-    /// any direction and simply counting the number of path segments that cross the ray,
-    /// regardless of direction. If this number is odd, the point is inside; if even, the point is
-    /// outside. This yields the same results as the nonzero winding number rule for paths with
-    /// simple shapes, but produces different results for more complex shapes.
+    /// A point is inside if a ray from it crosses an odd number of path segments, whatever their
+    /// direction. Nested rings alternate between filled and empty.
     EvenOdd,
 
-    /// Make any filling or clipping paint operators follow the _nonzero rule_.
-    ///
-    /// This rule determines whether a given point is inside a path by conceptually drawing a ray
-    /// from that point to infinity in any direction and then examining the places where a segment
-    /// of the path crosses the ray. Starting with a count of 0, the rule adds 1 each time a path
-    /// segment crosses the ray from left to right and subtracts 1 each time a segment crosses from
-    /// right to left. After counting all the crossings, if the result is 0, the point is outside
-    /// the path; otherwise, it is inside.
+    /// A point is inside if the path winds around it a net number of times that is not zero.
+    /// Crossings count +1 in one direction and -1 in the other, so a ring that runs the other
+    /// way cuts a hole.
     #[default]
     NonZero,
 }
 
 impl WindingOrder {
-    /// Gets the operator for a clip paint operation.
+    /// The clip operator: `W` or `W*`.
     #[must_use]
     pub fn get_clip_op(&self) -> &'static str {
         match self {
@@ -194,7 +284,7 @@ impl WindingOrder {
         }
     }
 
-    /// Gets the operator for a fill paint operation.
+    /// The fill operator: `f` or `f*`.
     #[must_use]
     pub fn get_fill_op(&self) -> &'static str {
         match self {
@@ -203,7 +293,7 @@ impl WindingOrder {
         }
     }
 
-    /// Gets the operator for a close, fill and stroke painting operation.
+    /// The close, fill and stroke operator: `b` or `b*`.
     #[must_use]
     pub fn get_fill_stroke_close_op(&self) -> &'static str {
         match self {
@@ -212,7 +302,7 @@ impl WindingOrder {
         }
     }
 
-    /// Gets the operator for a fill and stroke painting operation.
+    /// The fill and stroke operator: `B` or `B*`.
     #[must_use]
     pub fn get_fill_stroke_op(&self) -> &'static str {
         match self {
@@ -222,39 +312,38 @@ impl WindingOrder {
     }
 }
 
-/// The path-painting mode for a path.
+/// What to do with a path once it is built. Serialized to JSON in kebab-case.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PaintMode {
-    /// Set the path in clipping mode instead of painting it.
-    ///
-    /// The path is not being drawing, but it will be used for clipping operations instead. The
-    /// rule for clipping are determined by the value [`WindingOrder`] associated to the path.
+    /// Draws nothing and limits later painting to the inside of the path (`W`, then `n`). The
+    /// [`WindingOrder`] picks the rule. Wrap it in a saved graphics state to undo the clip.
     Clip,
 
-    /// Fill the path.
+    /// Fills the inside of the path with the fill color (`f`).
     #[default]
     Fill,
 
-    /// Paint a line along the path.
+    /// Draws a line along the path with the outline color and the current stroke style (`S`).
     Stroke,
 
-    /// Fill the path and paint a line along it.
+    /// Fills the path and then strokes it (`B`).
     FillStroke,
 }
 
+/// A position on a page, in points from the bottom left corner of the page.
 #[derive(Debug, Default, Copy, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Point {
-    /// x position from the bottom left corner in pt
+    /// Distance from the left side of the page, in points.
     pub x: Pt,
-    /// y position from the bottom left corner in pt
+    /// Distance from the bottom of the page, in points.
     pub y: Pt,
 }
 
 impl Point {
-    /// Create a new point.
-    /// **WARNING: The reference point for a point is the bottom left corner, not the top left**
+    /// Creates a point from millimeters, measured from the bottom left corner of the page. The
+    /// values are converted to points. For other units, fill `x` and `y` directly.
     #[inline]
     pub fn new(x: Mm, y: Mm) -> Self {
         Self {
@@ -265,14 +354,13 @@ impl Point {
 }
 
 impl PartialEq for Point {
-    // custom compare function because of floating point inaccuracy
+    // Compares with the tolerance of `Pt`. Coordinates that are exactly 0.0 never compare equal.
     fn eq(&self, other: &Point) -> bool {
         if self.x.0.is_normal()
             && other.x.0.is_normal()
             && self.y.0.is_normal()
             && other.y.0.is_normal()
         {
-            // four floating point numbers have to match
             let x_eq = self.x == other.x;
             if !x_eq {
                 return false;
@@ -287,41 +375,53 @@ impl PartialEq for Point {
     }
 }
 
-/// Either a point or a bezier control point
+/// A vertex of a [`Line`] or [`PolygonRing`]: an on-curve point or a Bezier control point.
+///
+/// A cubic curve is made of three consecutive entries: two control points with `bezier: true`
+/// and the end point after them. A single control point without a partner is drawn as a straight
+/// line to it.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LinePoint {
-    /// Location of the point
+    /// Location of the point.
     pub p: Point,
-    /// If `true`, this point is a bezier control point
+    /// `true` if this point is a Bezier control point instead of a point on the path.
     pub bezier: bool,
 }
 
+/// A path that is stroked with the current outline color and stroke style, never filled.
+///
+/// Drawn with [`Op::DrawLine`](crate::Op::DrawLine) (`m`, `l`, `c`, then `S`).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Line {
-    /// 2D Points for the line
+    /// The vertices in drawing order. The first one starts the path.
     pub points: Vec<LinePoint>,
-    /// Whether the line should automatically be closed
+    /// `true` draws a closing segment from the last point back to the first (`h` before `S`).
     pub is_closed: bool,
 }
 
+/// A closed shape made of one or more rings, filled, stroked or used as a clip.
+///
+/// Drawn with [`Op::DrawPolygon`](crate::Op::DrawPolygon). The default is an empty polygon that
+/// is filled with the nonzero rule. Collecting `(Point, bool)` pairs builds a one-ring polygon
+/// whose `bool` is [`LinePoint::bezier`].
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Polygon {
-    /// 2D Points for the line. The `bool` indicates whether the next point is a bezier control
-    /// point.
+    /// The outline and the holes. Each ring is its own subpath.
     pub rings: Vec<PolygonRing>,
-    /// What type of polygon is this?
+    /// Fill, stroke, fill and stroke, or clip.
     pub mode: PaintMode,
-    /// Winding order to use for constructing this polygon
+    /// Rule for filling and clipping. It decides which rings are holes.
     pub winding_order: WindingOrder,
 }
 
+/// One closed outline of a [`Polygon`]: the outer border, or a hole.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PolygonRing {
-    /// 2D Points for the ring
+    /// The vertices in drawing order. The ring is closed from the last point to the first.
     pub points: Vec<LinePoint>,
 }
 
@@ -341,22 +441,24 @@ impl FromIterator<(Point, bool)> for Polygon {
     }
 }
 
-/// Line dash pattern is made up of a total width
+/// How a stroke is broken into dashes: lengths of dashes and gaps in points.
+///
+/// Written as the `d` operator, `[pattern] offset`.
 #[derive(Debug, Clone, Default, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LineDashPattern {
-    /// Offset at which the dashing pattern should start, measured from the beginning ot the line
-    /// Default: 0 (start directly where the line starts)
+    /// Distance into the pattern at which the line starts, in points (0 starts with a full dash).
     pub offset: f32,
-    /// Dash, gap, dash, gap, ... 
+    /// Alternating lengths in points: dash, gap, dash, gap, and so on. The pattern repeats. A
+    /// single number is used for both dash and gap. An empty pattern is a solid line.
     pub pattern: smallvec::SmallVec<[f32;8]>, 
 }
 
 impl LineDashPattern {
-    /// A dash pattern of alternating dash and gap lengths, starting at `offset`.
+    /// A dash pattern of alternating dash and gap lengths (points), starting `offset` points into
+    /// the pattern. Takes a plain slice, so callers need no `smallvec` dependency.
     ///
-    /// `LineDashPattern { pattern }` is a `SmallVec`, which callers would otherwise have to
-    /// take a `smallvec` dependency to name. Build one from a plain slice instead:
+    /// # Examples
     ///
     /// ```
     /// # use printpdf::LineDashPattern;
@@ -370,11 +472,12 @@ impl LineDashPattern {
         }
     }
 
-    /// An empty pattern — i.e. an unbroken line. This is what resets dashing.
+    /// An empty pattern, a solid line. Use it to switch dashing off again.
     pub fn solid() -> Self {
         Self::default()
     }
 
+    /// The pattern as comma separated numbers, as for the SVG `stroke-dasharray` attribute.
     pub fn get_svg_id(&self) -> String {
         self.pattern
             .iter()
@@ -384,27 +487,21 @@ impl LineDashPattern {
     }
 }
 
-/// __See PDF Reference Page 216__ - Line join style
+/// The shape of the corner where two stroked segments meet (ISO 32000-1, 8.4.3.4).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum LineJoinStyle {
-    /// Miter join. The outer edges of the strokes for the two segments are extended
-    /// until they meet at an angle, as in a picture frame. If the segments meet at too
-    /// sharp an angle (as defined by the miter limit parameter—see “Miter Limit,”
-    /// above), a bevel join is used instead.
+    /// Pointed corner: the outer edges are extended until they meet. A corner sharper than the
+    /// miter limit is cut off like `Bevel`.
     Miter,
-    /// Round join. An arc of a circle with a diameter equal to the line width is drawn
-    /// around the point where the two segments meet, connecting the outer edges of
-    /// the strokes for the two segments. This pieslice-shaped figure is filled in, pro-
-    /// ducing a rounded corner.
+    /// Rounded corner.
     Round,
-    /// Bevel join. The two segments are finished with butt caps (see “Line Cap Style”
-    /// on page 216) and the resulting notch beyond the ends of the segments is filled
-    /// with a triangle.
+    /// Corner cut off flat.
     Bevel,
 }
 
 impl LineJoinStyle {
+    /// The PDF code for the `j` operator: 0 miter, 1 round, 2 bevel.
     pub fn id(&self) -> i64 {
         match self {
             LineJoinStyle::Miter => 0,
@@ -412,6 +509,7 @@ impl LineJoinStyle {
             LineJoinStyle::Bevel => 2,
         }
     }
+    /// The SVG `stroke-linejoin` keyword.
     pub fn to_svg_string(&self) -> &'static str {
         match self {
             LineJoinStyle::Miter => "miter",
@@ -421,26 +519,33 @@ impl LineJoinStyle {
     }
 }
 
-/// The text rendering mode determines how a text is drawn
-/// The default rendering mode is `Fill`. The color of the
-/// fill / stroke is determine by the current pages outline /
-/// fill color.
+/// How the glyphs of text are painted (`Tr` operator, ISO 32000-1, 9.3.6). The default is `Fill`.
 ///
-/// See PDF Reference 1.7 Page 402
+/// Fill uses the fill color, stroke uses the outline color. The clip modes add the glyph outlines
+/// to the clipping path when the text object ends.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum TextRenderingMode {
+    /// Fills the glyphs (mode 0).
     Fill,
+    /// Strokes the glyph outlines (mode 1).
     Stroke,
+    /// Fills and strokes the glyphs (mode 2).
     FillStroke,
+    /// Draws nothing, for example for text that is only meant to be selectable (mode 3).
     Invisible,
+    /// Fills the glyphs and adds them to the clip (mode 4).
     FillClip,
+    /// Strokes the glyphs and adds them to the clip (mode 5).
     StrokeClip,
+    /// Fills and strokes the glyphs and adds them to the clip (mode 6).
     FillStrokeClip,
+    /// Only adds the glyphs to the clip (mode 7).
     Clip,
 }
 
 impl TextRenderingMode {
+    /// The mode for a PDF code from 0 to 7. Any other value gives `Fill`.
     pub fn from_i64(i: i64) -> Self {
         match i {
             0 => TextRenderingMode::Fill,
@@ -454,6 +559,7 @@ impl TextRenderingMode {
             _ => TextRenderingMode::Fill,
         }
     }
+    /// The PDF code (0 to 7) for the `Tr` operator.
     pub fn id(&self) -> i64 {
         match self {
             TextRenderingMode::Fill => 0,
@@ -468,22 +574,20 @@ impl TextRenderingMode {
     }
 }
 
-/// __See PDF Reference (Page 216)__ - Line cap (ending) style
+/// The shape of the two ends of an open stroked path (ISO 32000-1, 8.4.3.3).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum LineCapStyle {
-    /// Butt cap. The stroke is squared off at the endpoint of the path. There is no
-    /// projection beyond the end of the path.
+    /// Flat end exactly at the end point.
     Butt,
-    /// Round cap. A semicircular arc with a diameter equal to the line width is
-    /// drawn around the endpoint and filled in.
+    /// Semicircle around the end point, with the line width as diameter.
     Round,
-    /// Projecting square cap. The stroke continues beyond the endpoint of the path
-    /// for a distance equal to half the line width and is squared off.
+    /// Flat end that extends past the end point by half the line width.
     ProjectingSquare,
 }
 
 impl LineCapStyle {
+    /// The PDF code for the `J` operator: 0 butt, 1 round, 2 projecting square.
     pub fn id(&self) -> i64 {
         match self {
             LineCapStyle::Butt => 0,
@@ -492,6 +596,7 @@ impl LineCapStyle {
         }
     }
 
+    /// The SVG `stroke-linecap` keyword.
     pub fn get_svg_id(&self) -> &'static str {
         match self {
             LineCapStyle::Butt => "butt",
@@ -501,48 +606,79 @@ impl LineCapStyle {
     }
 }
 
+/// A field of an [`ExtendedGraphicsState`] that has been set. Only these are written to the PDF.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename = "kebab-case")]
 pub enum ChangedField {
+    /// `LW`, line width.
     LineWidth,
+    /// `LC`, line cap style.
     LineCap,
+    /// `LJ`, line join style.
     LineJoin,
+    /// `ML`, miter limit.
     MiterLimit,
+    /// `D`, dash pattern.
     LineDashPattern,
+    /// `RI`, rendering intent.
     RenderingIntent,
+    /// Overprint for stroking.
     OverprintStroke,
+    /// Overprint for filling.
     OverprintFill,
+    /// `OPM`, overprint mode.
     OverprintMode,
+    /// `Font`, the font.
     Font,
+    /// `BG`, black generation.
     BlackGeneration,
+    /// `BG2`, black generation, extended.
     BlackGenerationExtra,
+    /// `UCR`, undercolor removal.
     UnderColorRemoval,
+    /// `UCR2`, undercolor removal, extended.
     UnderColorRemovalExtra,
+    /// `TR`, transfer function.
     TransferFunction,
+    /// `TR2`, transfer function, extended.
     TransferFunctionExtra,
+    /// `HT`, halftone.
     HalftoneDictionary,
+    /// `FL`, flatness tolerance.
     FlatnessTolerance,
+    /// `SM`, smoothness tolerance.
     SmoothnessTolerance,
+    /// `SA`, automatic stroke adjustment.
     StrokeAdjustment,
+    /// `BM`, blend mode.
     BlendMode,
+    /// `SMask`, soft mask.
     SoftMask,
+    /// `CA`, opacity of strokes.
     CurrentStrokeAlpha,
+    /// `ca`, opacity of fills.
     CurrentFillAlpha,
+    /// `AIS`, whether the alpha constants are shape values.
     AlphaIsShape,
+    /// `TK`, text knockout.
     TextKnockout,
 }
 
+/// Names a font of the document: one of the built-in PDF fonts, or a font added to the document.
+///
+/// Serialized to JSON as `{ "type": "builtin", "data": ... }` or `{ "type": "external", ... }`.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 #[serde(rename_all = "kebab-case")]
 pub enum BuiltinOrExternalFontId {
-    // One of the 12 default PDF fonts
+    /// One of the 14 standard PDF fonts, which every reader has.
     Builtin(BuiltinFont),
-    /// External, third-party font
+    /// A font that was added to the document.
     External(FontId),
 }
 
 impl BuiltinOrExternalFontId {
+    /// `true` for [`Self::Builtin`].
     pub fn is_builtin(&self) -> bool {
         match self {
             BuiltinOrExternalFontId::Builtin(_) => true,
@@ -550,12 +686,15 @@ impl BuiltinOrExternalFontId {
         }
     }
 
+    /// The font name used as resource name in the PDF.
     pub fn get_id(&self) -> &str {
         match self {
             BuiltinOrExternalFontId::Builtin(builtin_font) => builtin_font.get_id(),
             BuiltinOrExternalFontId::External(font_id) => &font_id.0,
         }
     }
+    /// A built-in font if `s` is the id of one (see [`BuiltinFont::from_id`]), else an external
+    /// font with that id.
     pub fn from_str(s: &str) -> Self {
         if let Some(bf) = BuiltinFont::from_id(s) {
             Self::Builtin(bf)
@@ -565,310 +704,383 @@ impl BuiltinOrExternalFontId {
     }
 }
 
-/// PDF ExtGState dictionary
+/// The extended graphics state (`ExtGState`): a set of graphics parameters that
+/// [`Op::LoadGraphicsState`](crate::Op::LoadGraphicsState) applies with the `gs` operator.
+///
+/// The graphics state holds the parameters a page is drawn with: colors, line style, opacity and
+/// more. Most have their own [`Op`](crate::Op), but opacity, blend mode, soft mask, overprint and
+/// the tolerances can only be set through an `ExtGState`.
+///
+/// Start from [`Default`], set what is needed with the `with_*` methods (or `set_*`), register the
+/// result with [`PdfDocument::add_graphics_state`](crate::PdfDocument::add_graphics_state) and
+/// load the returned id. Only the fields that were set are written. The others keep the value of
+/// the current graphics state. Wrap the use in
+/// [`Op::SaveGraphicsState`](crate::Op::SaveGraphicsState) and
+/// [`Op::RestoreGraphicsState`](crate::Op::RestoreGraphicsState) to undo it. Lengths are in
+/// points. Serialized to JSON in camelCase.
+///
+/// # Examples
+///
+/// ```
+/// use printpdf::*;
+///
+/// let gs = ExtendedGraphicsState::default()
+///     .with_current_fill_alpha(0.5)   // fills are 50 percent opaque
+///     .with_line_width(2.0);          // 2 pt wide strokes
+/// assert!(gs.has_changed(ChangedField::CurrentFillAlpha));
+/// assert!(!gs.has_changed(ChangedField::LineCap));
+/// ```
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtendedGraphicsState {
-    /// Tracks changed fields using strongly typed enum
+    /// The fields that were set. Only these are written.
     pub(crate) changed_fields: HashSet<ChangedField>,
-    /// LW - Line width (PDF 1.3)
+    /// LW - Line width
     pub(crate) line_width: f32,
-    /// LC - Line cap style (PDF 1.3)
+    /// LC - Line cap style
     pub(crate) line_cap: LineCapStyle,
-    /// LJ - Line join style (PDF 1.3)
+    /// LJ - Line join style
     pub(crate) line_join: LineJoinStyle,
-    /// ML - Miter limit (PDF 1.3)
+    /// ML - Miter limit
     pub(crate) miter_limit: f32,
-    /// D - Line dash pattern (PDF 1.3)
+    /// D - Line dash pattern
     pub(crate) line_dash_pattern: Option<LineDashPattern>,
-    /// RI - Rendering intent name (PDF 1.3)
+    /// RI - Rendering intent name
     pub(crate) rendering_intent: RenderingIntent,
     /// OP - Overprint for stroking
     pub(crate) overprint_stroke: bool,
-    /// op - Overprint for nonstroking (PDF 1.3)
+    /// op - Overprint for nonstroking
     pub(crate) overprint_fill: bool,
-    /// OPM - Overprint mode (PDF 1.3)
+    /// OPM - Overprint mode
     pub(crate) overprint_mode: OverprintMode,
-    /// Font array
+    /// Font
     pub(crate) font: Option<BuiltinOrExternalFontId>,
     /// BG - Black-generation function
     pub(crate) black_generation: Option<BlackGenerationFunction>,
-    /// BG2 - Black-generation extra function (PDF 1.3)
+    /// BG2 - Black-generation extra function
     pub(crate) black_generation_extra: Option<BlackGenerationExtraFunction>,
     /// UCR - Undercolor-removal function
     pub(crate) under_color_removal: Option<UnderColorRemovalFunction>,
-    /// UCR2 - Undercolor-removal extra function (PDF 1.3)
+    /// UCR2 - Undercolor-removal extra function
     pub(crate) under_color_removal_extra: Option<UnderColorRemovalExtraFunction>,
     /// TR - Transfer function
     pub(crate) transfer_function: Option<TransferFunction>,
-    /// TR2 - Transfer extra function (PDF 1.3)
+    /// TR2 - Transfer extra function
     pub(crate) transfer_extra_function: Option<TransferExtraFunction>,
     /// HT - Halftone dictionary/stream/name
     pub(crate) halftone_dictionary: Option<HalftoneType>,
-    /// FL - Flatness tolerance (PDF 1.3)
+    /// FL - Flatness tolerance
     pub(crate) flatness_tolerance: f32,
-    /// SM - Smoothness tolerance (PDF 1.3)
+    /// SM - Smoothness tolerance
     pub(crate) smoothness_tolerance: f32,
     /// SA - Automatic stroke adjustment
     pub(crate) stroke_adjustment: bool,
-    /// BM - Blend mode (PDF 1.4)
+    /// BM - Blend mode
     pub(crate) blend_mode: BlendMode,
-    /// SM - Soft mask (PDF 1.4)
+    /// SMask - Soft mask
     pub(crate) soft_mask: Option<SoftMask>,
-    /// CA - Stroking alpha constant (PDF 1.4)
+    /// CA - Stroking alpha constant
     pub(crate) current_stroke_alpha: f32,
-    /// ca - Nonstroking alpha constant (PDF 1.4)
+    /// ca - Nonstroking alpha constant
     pub(crate) current_fill_alpha: f32,
-    /// AIS - Alpha source flag (PDF 1.4)
+    /// AIS - Alpha source flag
     pub(crate) alpha_is_shape: bool,
-    /// TK - Text knockout flag (PDF 1.4)
+    /// TK - Text knockout flag
     pub(crate) text_knockout: bool,
 }
 
-// Implement getter methods for all fields
 impl ExtendedGraphicsState {
-    // Getter methods for all fields
+    /// Line width in points.
     pub fn line_width(&self) -> f32 {
         self.line_width
     }
 
+    /// Shape of the ends of strokes.
     pub fn line_cap(&self) -> LineCapStyle {
         self.line_cap
     }
 
+    /// Shape of the corners of strokes.
     pub fn line_join(&self) -> LineJoinStyle {
         self.line_join
     }
 
+    /// Miter limit: how long a miter join may get, as a multiple of the line width, before it is cut off.
     pub fn miter_limit(&self) -> f32 {
         self.miter_limit
     }
 
+    /// Dash pattern in points, or `None` for a solid line.
     pub fn line_dash_pattern(&self) -> &Option<LineDashPattern> {
         &self.line_dash_pattern
     }
 
+    /// Rendering intent: how colors outside the gamut of the output device are mapped.
     pub fn rendering_intent(&self) -> RenderingIntent {
         self.rendering_intent
     }
 
+    /// Overprint flag for strokes: paint without erasing the colorants below.
     pub fn overprint_stroke(&self) -> bool {
         self.overprint_stroke
     }
 
+    /// Overprint flag for fills: paint without erasing the colorants below.
     pub fn overprint_fill(&self) -> bool {
         self.overprint_fill
     }
 
+    /// Overprint mode, which decides how zero components of a CMYK color are treated.
     pub fn overprint_mode(&self) -> OverprintMode {
         self.overprint_mode
     }
 
+    /// Font selected by the state.
     pub fn font(&self) -> &Option<BuiltinOrExternalFontId> {
         &self.font
     }
 
+    /// Black-generation function. Not written to the PDF.
     pub fn black_generation(&self) -> &Option<BlackGenerationFunction> {
         &self.black_generation
     }
 
+    /// Extended black-generation function. Not written to the PDF.
     pub fn black_generation_extra(&self) -> &Option<BlackGenerationExtraFunction> {
         &self.black_generation_extra
     }
 
+    /// Undercolor-removal function. Not written to the PDF.
     pub fn under_color_removal(&self) -> &Option<UnderColorRemovalFunction> {
         &self.under_color_removal
     }
 
+    /// Extended undercolor-removal function. Not written to the PDF.
     pub fn under_color_removal_extra(&self) -> &Option<UnderColorRemovalExtraFunction> {
         &self.under_color_removal_extra
     }
 
+    /// Transfer function. Not written to the PDF.
     pub fn transfer_function(&self) -> &Option<TransferFunction> {
         &self.transfer_function
     }
 
+    /// Extended transfer function. Not written to the PDF.
     pub fn transfer_extra_function(&self) -> &Option<TransferExtraFunction> {
         &self.transfer_extra_function
     }
 
+    /// Halftone. Not written to the PDF.
     pub fn halftone_dictionary(&self) -> &Option<HalftoneType> {
         &self.halftone_dictionary
     }
 
+    /// Flatness tolerance: the largest allowed error when curves are drawn as lines, in device pixels (0 for the device default).
     pub fn flatness_tolerance(&self) -> f32 {
         self.flatness_tolerance
     }
 
+    /// Smoothness tolerance: the largest allowed color error when painting smooth shadings, from 0.0 to 1.0.
     pub fn smoothness_tolerance(&self) -> f32 {
         self.smoothness_tolerance
     }
 
+    /// Whether thin strokes are adjusted so that they are drawn with a consistent width.
     pub fn stroke_adjustment(&self) -> bool {
         self.stroke_adjustment
     }
 
+    /// Blend mode used when painting over existing content.
     pub fn blend_mode(&self) -> &BlendMode {
         &self.blend_mode
     }
 
+    /// Soft mask. Not written to the PDF, except that `None` writes `SM /None`.
     pub fn soft_mask(&self) -> &Option<SoftMask> {
         &self.soft_mask
     }
 
+    /// Opacity of strokes, from 0.0 (transparent) to 1.0 (opaque).
     pub fn current_stroke_alpha(&self) -> f32 {
         self.current_stroke_alpha
     }
 
+    /// Opacity of fills, from 0.0 (transparent) to 1.0 (opaque).
     pub fn current_fill_alpha(&self) -> f32 {
         self.current_fill_alpha
     }
 
+    /// Whether the alpha values are read as shape (coverage) instead of opacity.
     pub fn alpha_is_shape(&self) -> bool {
         self.alpha_is_shape
     }
 
+    /// Whether overlapping glyphs of one text object knock each other out instead of stacking.
     pub fn text_knockout(&self) -> bool {
         self.text_knockout
     }
 
-    // Setter methods (mainly for internal use and deserialization)
-    // Each setter should also update the changed_fields set
+    /// Sets the line width and marks the field as changed.
     pub fn set_line_width(&mut self, value: f32) {
         self.line_width = value;
         self.changed_fields.insert(ChangedField::LineWidth);
     }
 
+    /// Sets the line cap style and marks the field as changed.
     pub fn set_line_cap(&mut self, value: LineCapStyle) {
         self.line_cap = value;
         self.changed_fields.insert(ChangedField::LineCap);
     }
 
+    /// Sets the line join style and marks the field as changed.
     pub fn set_line_join(&mut self, value: LineJoinStyle) {
         self.line_join = value;
         self.changed_fields.insert(ChangedField::LineJoin);
     }
 
+    /// Sets the miter limit and marks the field as changed.
     pub fn set_miter_limit(&mut self, value: f32) {
         self.miter_limit = value;
         self.changed_fields.insert(ChangedField::MiterLimit);
     }
 
+    /// Sets the dash pattern and marks the field as changed.
     pub fn set_line_dash_pattern(&mut self, value: Option<LineDashPattern>) {
         self.line_dash_pattern = value;
         self.changed_fields.insert(ChangedField::LineDashPattern);
     }
 
+    /// Sets the rendering intent and marks the field as changed.
     pub fn set_rendering_intent(&mut self, value: RenderingIntent) {
         self.rendering_intent = value;
         self.changed_fields.insert(ChangedField::RenderingIntent);
     }
 
+    /// Sets the overprint flag for strokes and marks the field as changed.
     pub fn set_overprint_stroke(&mut self, value: bool) {
         self.overprint_stroke = value;
         self.changed_fields.insert(ChangedField::OverprintStroke);
     }
 
+    /// Sets the overprint flag for fills and marks the field as changed.
     pub fn set_overprint_fill(&mut self, value: bool) {
         self.overprint_fill = value;
         self.changed_fields.insert(ChangedField::OverprintFill);
     }
 
+    /// Sets the overprint mode and marks the field as changed.
     pub fn set_overprint_mode(&mut self, value: OverprintMode) {
         self.overprint_mode = value;
         self.changed_fields.insert(ChangedField::OverprintMode);
     }
 
+    /// Sets the font and marks the field as changed.
     pub fn set_font(&mut self, value: Option<BuiltinOrExternalFontId>) {
         self.font = value;
         self.changed_fields.insert(ChangedField::Font);
     }
 
+    /// Sets the black-generation function and marks the field as changed.
     pub fn set_black_generation(&mut self, value: Option<BlackGenerationFunction>) {
         self.black_generation = value;
         self.changed_fields.insert(ChangedField::BlackGeneration);
     }
 
+    /// Sets the extended black-generation function and marks the field as changed.
     pub fn set_black_generation_extra(&mut self, value: Option<BlackGenerationExtraFunction>) {
         self.black_generation_extra = value;
         self.changed_fields
             .insert(ChangedField::BlackGenerationExtra);
     }
 
+    /// Sets the undercolor-removal function and marks the field as changed.
     pub fn set_under_color_removal(&mut self, value: Option<UnderColorRemovalFunction>) {
         self.under_color_removal = value;
         self.changed_fields.insert(ChangedField::UnderColorRemoval);
     }
 
+    /// Sets the extended undercolor-removal function and marks the field as changed.
     pub fn set_under_color_removal_extra(&mut self, value: Option<UnderColorRemovalExtraFunction>) {
         self.under_color_removal_extra = value;
         self.changed_fields
             .insert(ChangedField::UnderColorRemovalExtra);
     }
 
+    /// Sets the transfer function and marks the field as changed.
     pub fn set_transfer_function(&mut self, value: Option<TransferFunction>) {
         self.transfer_function = value;
         self.changed_fields.insert(ChangedField::TransferFunction);
     }
 
+    /// Sets the extended transfer function and marks the field as changed.
     pub fn set_transfer_extra_function(&mut self, value: Option<TransferExtraFunction>) {
         self.transfer_extra_function = value;
         self.changed_fields
             .insert(ChangedField::TransferFunctionExtra);
     }
 
+    /// Sets the halftone and marks the field as changed.
     pub fn set_halftone_dictionary(&mut self, value: Option<HalftoneType>) {
         self.halftone_dictionary = value;
         self.changed_fields.insert(ChangedField::HalftoneDictionary);
     }
 
+    /// Sets the flatness tolerance and marks the field as changed.
     pub fn set_flatness_tolerance(&mut self, value: f32) {
         self.flatness_tolerance = value;
         self.changed_fields.insert(ChangedField::FlatnessTolerance);
     }
 
+    /// Sets the smoothness tolerance and marks the field as changed.
     pub fn set_smoothness_tolerance(&mut self, value: f32) {
         self.smoothness_tolerance = value;
         self.changed_fields
             .insert(ChangedField::SmoothnessTolerance);
     }
 
+    /// Sets the stroke adjustment flag and marks the field as changed.
     pub fn set_stroke_adjustment(&mut self, value: bool) {
         self.stroke_adjustment = value;
         self.changed_fields.insert(ChangedField::StrokeAdjustment);
     }
 
+    /// Sets the blend mode and marks the field as changed.
     pub fn set_blend_mode(&mut self, value: BlendMode) {
         self.blend_mode = value;
         self.changed_fields.insert(ChangedField::BlendMode);
     }
 
+    /// Sets the soft mask and marks the field as changed.
     pub fn set_soft_mask(&mut self, value: Option<SoftMask>) {
         self.soft_mask = value;
         self.changed_fields.insert(ChangedField::SoftMask);
     }
 
+    /// Sets the opacity of strokes and marks the field as changed.
     pub fn set_current_stroke_alpha(&mut self, value: f32) {
         self.current_stroke_alpha = value;
         self.changed_fields.insert(ChangedField::CurrentStrokeAlpha);
     }
 
+    /// Sets the opacity of fills and marks the field as changed.
     pub fn set_current_fill_alpha(&mut self, value: f32) {
         self.current_fill_alpha = value;
         self.changed_fields.insert(ChangedField::CurrentFillAlpha);
     }
 
+    /// Sets the alpha-is-shape flag and marks the field as changed.
     pub fn set_alpha_is_shape(&mut self, value: bool) {
         self.alpha_is_shape = value;
         self.changed_fields.insert(ChangedField::AlphaIsShape);
     }
 
+    /// Sets the text knockout flag and marks the field as changed.
     pub fn set_text_knockout(&mut self, value: bool) {
         self.text_knockout = value;
         self.changed_fields.insert(ChangedField::TextKnockout);
     }
 
-    // A method to check if a field has been changed
+    /// Whether the field was set, so that it is written to the PDF.
     pub fn has_changed(&self, field: ChangedField) -> bool {
         self.changed_fields.contains(&field)
     }
@@ -1037,7 +1249,7 @@ impl ExtendedGraphicsState {
 }
 
 impl Default for ExtendedGraphicsState {
-    /// Creates a default ExtGState dictionary. Useful for resetting
+    /// The initial values, with no field marked as changed. Writing it gives an empty dictionary.
     fn default() -> Self {
         Self {
             changed_fields: HashSet::new(),
@@ -1071,6 +1283,8 @@ impl Default for ExtendedGraphicsState {
     }
 }
 
+/// Converts the state to the dictionary of the page's `/ExtGState` resources. Only fields marked as
+/// changed are included, and the dictionary is empty if there are none.
 pub fn extgstate_to_dict(val: &ExtendedGraphicsState) -> LoDictionary {
     use std::string::String;
 
@@ -1121,8 +1335,7 @@ pub fn extgstate_to_dict(val: &ExtendedGraphicsState) -> LoDictionary {
         gs_operations.push(("OPM".to_string(), Integer(val.overprint_mode.get_id())));
     }
 
-    // PDF ExtGState: `ca` is the nonstroking (fill) alpha, `CA` is the stroking
-    // (stroke) alpha. (Previously these two keys were swapped.)
+    // `ca` is the nonstroking (fill) alpha, `CA` the stroking (stroke) alpha.
     if val.changed_fields.contains(&ChangedField::CurrentFillAlpha) {
         gs_operations.push(("ca".to_string(), Real(val.current_fill_alpha)));
     }
@@ -1146,7 +1359,6 @@ pub fn extgstate_to_dict(val: &ExtendedGraphicsState) -> LoDictionary {
         gs_operations.push(("TK".to_string(), Boolean(val.text_knockout)));
     }
 
-    // Optional parameters
     if let Some(ldp) = &val.line_dash_pattern {
         if val.changed_fields.contains(&ChangedField::LineDashPattern) {
             let array = ldp.pattern.iter().copied().map(Real).collect();
@@ -1160,10 +1372,10 @@ pub fn extgstate_to_dict(val: &ExtendedGraphicsState) -> LoDictionary {
         }
     }
 
-    // TODO: Handle transfer functions, halftone dictionary, black generation, etc.
+    // Black generation, undercolor removal, transfer functions, halftone and soft masks are not written.
     if val.changed_fields.contains(&ChangedField::BlackGeneration) {
         if let Some(ref _black_generation) = val.black_generation {
-            // TODO
+            // Not written.
         }
     }
 
@@ -1172,7 +1384,7 @@ pub fn extgstate_to_dict(val: &ExtendedGraphicsState) -> LoDictionary {
         .contains(&ChangedField::BlackGenerationExtra)
     {
         if let Some(ref _black_generation_extra) = val.black_generation_extra {
-            // TODO
+            // Not written.
         }
     }
 
@@ -1181,7 +1393,7 @@ pub fn extgstate_to_dict(val: &ExtendedGraphicsState) -> LoDictionary {
         .contains(&ChangedField::UnderColorRemoval)
     {
         if let Some(ref _under_color_removal) = val.under_color_removal {
-            // TODO
+            // Not written.
         }
     }
 
@@ -1190,13 +1402,13 @@ pub fn extgstate_to_dict(val: &ExtendedGraphicsState) -> LoDictionary {
         .contains(&ChangedField::UnderColorRemovalExtra)
     {
         if let Some(ref _under_color_removal_extra) = val.under_color_removal_extra {
-            // TODO
+            // Not written.
         }
     }
 
     if val.changed_fields.contains(&ChangedField::TransferFunction) {
         if let Some(ref _transfer_function) = val.transfer_function {
-            // TODO
+            // Not written.
         }
     }
 
@@ -1205,7 +1417,7 @@ pub fn extgstate_to_dict(val: &ExtendedGraphicsState) -> LoDictionary {
         .contains(&ChangedField::TransferFunctionExtra)
     {
         if let Some(ref _transfer_extra_function) = val.transfer_extra_function {
-            // TODO
+            // Not written.
         }
     }
 
@@ -1214,19 +1426,18 @@ pub fn extgstate_to_dict(val: &ExtendedGraphicsState) -> LoDictionary {
         .contains(&ChangedField::HalftoneDictionary)
     {
         if let Some(ref _halftone_dictionary) = val.halftone_dictionary {
-            // TODO
+            // Not written.
         }
     }
 
     if val.changed_fields.contains(&ChangedField::SoftMask) {
         if let Some(ref _soft_mask) = val.soft_mask {
-            // Soft mask conversion can be handled here.
+            // Not written.
         } else {
             gs_operations.push(("SM".to_string(), Name("None".as_bytes().to_vec())));
         }
     }
 
-    // If there are any operations, add the "Type" key
     if !gs_operations.is_empty() {
         gs_operations.push(("Type".to_string(), "ExtGState".into()));
     }
@@ -1234,20 +1445,19 @@ pub fn extgstate_to_dict(val: &ExtendedGraphicsState) -> LoDictionary {
     LoDictionary::from_iter(gs_operations)
 }
 
-/// __(PDF 1.3)__ A code specifying whether a color component value of 0
-/// in a `DeviceCMYK` color space should erase that component (`EraseUnderlying`) or
-/// leave it unchanged (`KeepUnderlying`) when overprinting (see Section 4.5.6, “Over-
-/// print Control”). Initial value: `EraseUnderlying`
+/// Overprint mode: whether a color component of 0 in a DeviceCMYK color erases that ink
+/// underneath when overprint is on (ISO 32000-1, 8.6.7). It is the `OPM` key.
 #[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum OverprintMode {
-    /// Erase underlying color when overprinting
-    EraseUnderlying, /* 0, default */
-    /// Keep underlying color when overprinting
-    KeepUnderlying, /* 1 */
+    /// Every component, including zeros, replaces the underlying color (`OPM` 0, the default).
+    EraseUnderlying,
+    /// Components that are zero leave the underlying ink untouched (`OPM` 1).
+    KeepUnderlying,
 }
 
 impl OverprintMode {
+    /// The PDF code: 0 or 1.
     pub fn get_id(&self) -> i64 {
         match self {
             OverprintMode::EraseUnderlying => 0,
@@ -1256,110 +1466,74 @@ impl OverprintMode {
     }
 }
 
-/// Black generation calculates the amount of black to be used when trying to
-/// reproduce a particular color.
+/// Black generation: how much black ink to use when converting an RGB color to CMYK
+/// (ISO 32000-1, 10.4). Stored in the graphics state but not written to the PDF.
 #[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum BlackGenerationFunction {
-    /// Regular black generation function
-    ///
-    /// ```rust,ignore
-    /// let cyan = 1.0 - red;
-    /// let magenta = 1.0 - green;
-    /// let yellow = 1.0 - blue;
-    /// let black = min(cyan, magenta, yellow);
-    /// ```
+    /// The standard function: black is the smallest of cyan, magenta and yellow.
     Default,
-    /// Expects an UnderColorRemoval to be set. This will compensate
-    /// the color for the added black
-    ///
-    /// ```rust,ignore
-    /// let cyan = 1.0 - red;
-    /// let magenta = 1.0 - green;
-    /// let yellow = 1.0 - blue;
-    /// let black = min(cyan, magenta, yellow);
-    /// ```
+    /// Like `Default`, meant to be paired with an undercolor-removal function.
     WithUnderColorRemoval,
 }
 
+/// Extended black generation (`BG2`). It has no variants, so no value can be created.
 #[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum BlackGenerationExtraFunction {}
 
-/// See `BlackGenerationFunction`, too. Undercolor removal reduces the amounts
-/// of the cyan, magenta, and yellow components to compensate for the amount of
-/// black that was added by black generation.
-///
-/// The undercolor-removal function computes the amount to subtract from each of
-/// the intermediate c, m, and y values to produce the final cyan, magenta, and yellow
-/// components. It can simply return its k operand unchanged, or it can return 0.0
-/// (so that no color is removed), some fraction of the black amount, or even a
-/// negative amount, thereby adding to the total amount of colorant.
+/// Undercolor removal: how much cyan, magenta and yellow to take away to make up for the black
+/// that black generation added (ISO 32000-1, 10.4). See [`BlackGenerationFunction`]. Stored in the
+/// graphics state but not written to the PDF.
 #[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum UnderColorRemovalFunction {
+    /// The standard function.
     Default,
 }
 
+/// Extended undercolor removal (`UCR2`). It has no variants, so no value can be created.
 #[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum UnderColorRemovalExtraFunction {}
 
+/// Transfer function (`TR`), which adjusts color values for the output device. It has no
+/// variants, so no value can be created.
 #[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum TransferFunction {}
 
+/// Extended transfer function (`TR2`). It has no variants, so no value can be created.
 #[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum TransferExtraFunction {}
 
-/// In PDF 1.2, the graphics state includes a current halftone parameter,
-/// which determines the halftoning process to be used by the painting operators.
-/// It may be defined by either a dictionary or a stream, depending on the
-/// type of halftone; the term halftone dictionary is used generically
-/// throughout this section to refer to either a dictionary object or the
-/// dictionary portion of a stream object. (The halftones that are defined
-/// by streams are specifically identified as such in the descriptions
-/// of particular halftone types; unless otherwise stated, they are
-/// understood to be defined by simple dictionaries instead.)
-/*
-    <<
-        /Type /Halftone
-        /HalftoneType 1
-        /Frequency 120
-        /Angle 30
-        /SpotFunction /CosineDot
-        /TransferFunction /Identity
-    >>
-*/
-/// Deserialized into Integer: 1, 5, 6, 10 or 16
+/// A halftone: how the printer turns continuous tones into a pattern of dots (ISO 32000-1, 10.5).
+/// The variants are the PDF halftone types 1, 5, 6, 10 and 16. Stored in the graphics state but
+/// not written to the PDF. Serialized to JSON as `{ "type": "type1", "data": ... }`.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", tag = "type", content = "data")]
 pub enum HalftoneType {
-    /// 1: Defines a single halftone screen by a frequency, angle, and spot function
+    /// Type 1: one screen from a frequency (lines per inch), an angle (degrees) and a
+    /// [`SpotFunction`].
     Type1(f32, f32, SpotFunction),
-    /// 5: Defines an arbitrary number of halftone screens, one for each colorant or
-    /// color component (including both primary and spot colorants).
-    /// The keys in this dictionary are names of colorants; the values are halftone
-    /// dictionaries of other types, each defining the halftone screen for a single colorant.
+    /// Type 5: one halftone per colorant.
     Type5(Vec<HalftoneType>),
-    /// 6: Defines a single halftone screen by a threshold array containing 8-bit sample values.
+    /// Type 6: one screen from a threshold array of 8-bit values.
     Type6(Vec<u8>),
-    /// 10: Defines a single halftone screen by a threshold array containing 8-bit sample values,
-    /// representing a halftone cell that may have a nonzero screen angle.
+    /// Type 10: like type 6, for a cell that may be rotated.
     Type10(Vec<u8>),
-    /// 16: __(PDF 1.3)__ Defines a single halftone screen by a threshold array containing 16-bit
-    /// sample values, representing a halftone cell that may have a nonzero screen angle.
+    /// Type 16: one screen from a threshold array of 16-bit values.
     Type16(Vec<u16>),
 }
 
 impl HalftoneType {
-    /// Get the identifer integer of the HalftoneType
+    /// The PDF halftone type number: 1, 5, 6, 10 or 16.
     pub fn get_type(&self) -> i64 {
         use self::HalftoneType::*;
         match *self {
             Type1(_, _, _) => 1,
-            Type5(_) => 5, /* this type does not actually exist, todo */
+            Type5(_) => 5,
             Type6(_) => 6,
             Type10(_) => 10,
             Type16(_) => 16,
@@ -1367,136 +1541,135 @@ impl HalftoneType {
     }
 }
 
-/// Spot functions, Table 6.1, Page 489 in Pdf Reference v1.7
-/// The code is pseudo code, returning the grey component at (x, y).
+/// The predefined spot functions of PDF (ISO 32000-1, 10.5.3). A spot function maps a position in
+/// a halftone cell to a grey value and so decides the shape of the dot as it grows.
 #[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SpotFunction {
-    /// `1 - (pow(x, 2) + pow(y, 2))`
+    /// Round dot.
     SimpleDot,
-    /// `pow(x, 2) + pow(y, 2) - 1`
+    /// Inverted round dot.
     InvertedSimpleDot,
-    /// `(sin(360 * x) / 2) + (sin(360 * y) / 2)`
+    /// Two dots per cell.
     DoubleDot,
-    /// `- ((sin(360 * x) / 2) + (sin(360 * y) / 2))`
+    /// Inverted double dot.
     InvertedDoubleDot,
-    /// `(cos(180 * x) / 2) + (cos(180 * y) / 2)`
+    /// Dot shaped by a cosine.
     CosineDot,
-    /// `(sin(360 x (x / 2)) / 2) + (sin(360 * y) / 2)`
+    /// Two dots per cell, with half the horizontal frequency.
     Double,
-    /// `- ((sin(360 x (x / 2)) / 2) + (sin(360 * y) / 2))`
+    /// Inverted `Double`.
     InvertedDouble,
-    /// `- abs(y)`
+    /// Lines parallel to the x axis.
     Line,
-    /// `x`
+    /// Gradient along x.
     LineX,
-    /// `y`
+    /// Gradient along y.
     LineY,
-    /// ```rust,ignore
-    /// if abs(x) + abs(y) <= 1 {
-    ///     1 - (pow(x, 2) + pow(y, 2))
-    /// } else {
-    ///     pow((abs(x) - 1), 2) + pow((abs(y) - 1), 2) - 1
-    /// }
-    /// ```
+    /// Dot that is round when small and inverted when large.
     Round,
-    /// ```rust,ignore
-    /// let w = (3 * abs(x)) + (4 * abs(y)) - 3;
-    ///
-    /// if w < 0 {
-    ///     1 - ((pow(x, 2) + pow((abs(y) / 0.75), 2)) / 4)
-    /// } else if w > 1 {
-    ///     pow((pow((1 - abs(x), 2) + (1 - abs(y)) / 0.75), 2) / 4) - 1
-    /// } else {
-    ///     0.5 - w
-    /// }
-    /// ```
+    /// Elliptical dot.
     Ellipse,
-    /// `1 - (pow(x, 2) + 0.9 * pow(y, 2))`
+    /// Elliptical dot, variant A.
     EllipseA,
-    /// `pow(x, 2) + 0.9 * pow(y, 2) - 1`
+    /// Inverted elliptical dot, variant A.
     InvertedEllipseA,
-    /// `1 - sqrt(pow(x, 2) + (5 / 8) * pow(y, 2))`
+    /// Elliptical dot, variant B.
     EllipseB,
-    /// `1 - (0.9 * pow(x, 2) + pow(y, 2))`
+    /// Elliptical dot, variant C.
     EllipseC,
-    /// `0.9 * pow(x, 2) + pow(y, 2) - 1`
+    /// Inverted elliptical dot, variant C.
     InvertedEllipseC,
-    /// `- max(abs(x), abs(y))`
+    /// Square dot.
     Square,
-    /// `- min(abs(x), abs(y))`
+    /// Cross-shaped dot.
     Cross,
-    /// `(0.9 * abs(x) + abs(y)) / 2`
+    /// Rhomboid dot.
     Rhomboid,
-    /// ```rust,ignore
-    /// let t = abs(x) + abs(y);
-    /// if t <= 0.75 {
-    ///     1 - (pow(x, 2) + pow(y, 2))
-    /// } else if t < 1.23 {
-    ///     1 - (0.85 * abs(x) + abs(y))
-    /// } else {
-    ///     pow((abs(x) - 1), 2) + pow((abs(y) - 1), 2) - 1
-    /// }
-    /// ```
+    /// Diamond-shaped dot.
     Diamond,
 }
 
+/// How new paint is mixed with the paint already on the page (ISO 32000-1, 11.3.5).
+///
+/// Set it with [`ExtendedGraphicsState::with_blend_mode`]. The default is `Normal`, which covers
+/// what is below. Use the constructors such as [`BlendMode::multiply`] to build a value.
+/// Serialized to JSON as the kebab-case name of the inner mode, for example `"color-dodge"`.
 #[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", untagged)]
 pub enum BlendMode {
+    /// A mode that blends each color channel on its own.
     Seperable(SeperableBlendMode),
+    /// A mode that works on hue, saturation and luminosity, so on all channels together.
     NonSeperable(NonSeperableBlendMode),
 }
 
 impl BlendMode {
+    /// `Normal`: the new color covers the old one.
     pub fn normal() -> BlendMode {
         BlendMode::Seperable(SeperableBlendMode::Normal)
     }
+    /// `Multiply`: darkens, black stays black, white changes nothing.
     pub fn multiply() -> BlendMode {
         BlendMode::Seperable(SeperableBlendMode::Multiply)
     }
+    /// `Screen`: lightens, white stays white, black changes nothing.
     pub fn screen() -> BlendMode {
         BlendMode::Seperable(SeperableBlendMode::Screen)
     }
+    /// `Overlay`: multiplies or screens depending on the old color.
     pub fn overlay() -> BlendMode {
         BlendMode::Seperable(SeperableBlendMode::Overlay)
     }
+    /// `Darken`: keeps the darker color of each channel.
     pub fn darken() -> BlendMode {
         BlendMode::Seperable(SeperableBlendMode::Darken)
     }
+    /// `Lighten`: keeps the lighter color of each channel.
     pub fn lighten() -> BlendMode {
         BlendMode::Seperable(SeperableBlendMode::Lighten)
     }
+    /// `ColorDodge`: brightens the old color according to the new one.
     pub fn color_dodge() -> BlendMode {
         BlendMode::Seperable(SeperableBlendMode::ColorDodge)
     }
+    /// `ColorBurn`: darkens the old color according to the new one.
     pub fn color_burn() -> BlendMode {
         BlendMode::Seperable(SeperableBlendMode::ColorBurn)
     }
+    /// `HardLight`: multiplies or screens depending on the new color.
     pub fn hard_light() -> BlendMode {
         BlendMode::Seperable(SeperableBlendMode::HardLight)
     }
+    /// `SoftLight`: darkens or lightens softly depending on the new color.
     pub fn soft_light() -> BlendMode {
         BlendMode::Seperable(SeperableBlendMode::SoftLight)
     }
+    /// `Difference`: the absolute difference of the colors.
     pub fn difference() -> BlendMode {
         BlendMode::Seperable(SeperableBlendMode::Difference)
     }
+    /// `Exclusion`: like `Difference` with less contrast.
     pub fn exclusion() -> BlendMode {
         BlendMode::Seperable(SeperableBlendMode::Exclusion)
     }
+    /// `Hue`: hue of the new color, saturation and luminosity of the old.
     pub fn hue() -> BlendMode {
         BlendMode::NonSeperable(NonSeperableBlendMode::Hue)
     }
+    /// `Saturation`: saturation of the new color, hue and luminosity of the old.
     pub fn saturation() -> BlendMode {
         BlendMode::NonSeperable(NonSeperableBlendMode::Saturation)
     }
+    /// `Color`: hue and saturation of the new color, luminosity of the old.
     pub fn color() -> BlendMode {
         BlendMode::NonSeperable(NonSeperableBlendMode::Color)
     }
+    /// `Luminosity`: luminosity of the new color, hue and saturation of the old.
     pub fn luminosity() -> BlendMode {
         BlendMode::NonSeperable(NonSeperableBlendMode::Luminosity)
     }
+    /// The PDF name of the mode, as written to the `BM` key.
     pub fn get_id(&self) -> &'static str {
         use self::{BlendMode::*, NonSeperableBlendMode::*, SeperableBlendMode::*};
 
@@ -1525,273 +1698,74 @@ impl BlendMode {
     }
 }
 
-/// PDF Reference 1.7, Page 520, Table 7.2
-/// Blending modes for objects
-/// In the following reference, each function gets one new color (the thing to paint on top)
-/// and an old color (the color that was already present before the object gets painted)
+/// Blend modes that compute each color channel on its own (ISO 32000-1, 11.3.5.2).
 ///
-/// The function simply notes the formula that has to be applied to (`color_new`, `color_old`) in
-/// order to get the desired effect. You have to run each formula once for each color channel.
+/// In the formulas `s` is the source (the new paint) and `b` the backdrop (what is already there),
+/// both from 0.0 to 1.0 per channel.
 #[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SeperableBlendMode {
-    /// Selects the source color, ignoring the old color. Default mode.
-    ///
-    /// `color_new`
+    /// The source replaces the backdrop: `s`. The default.
     Normal,
-    /// Multiplies the old color and source color values
-    /// Note that these values have to be in the range [0.0 to 1.0] to work.
-    /// The result color is always at least as dark as either of the two constituent
-    /// colors. Multiplying any color with black produces black; multiplying with white
-    /// leaves the original color unchanged.Painting successive overlapping objects with
-    /// a color other than black or white produces progressively darker colors.
-    ///
-    /// `color_old * color_new`
+    /// Multiplies the colors: `b * s`. The result is never lighter than either color.
     Multiply,
-    /// Multiplies the complements of the old color and new color values, then
-    /// complements the result
-    /// The result color is always at least as light as either of the two constituent colors.
-    /// Screening any color with white produces white; screening with black leaves the original
-    /// color unchanged. The effect is similar to projecting multiple photographic slides
-    /// simultaneously onto a single screen.
-    ///
-    /// `color_old + color_new - (color_old * color_new)`
+    /// Multiplies the complements, then complements the result: `b + s - b * s`. The result is
+    /// never darker than either color.
     Screen,
-    /// Multiplies or screens the colors, depending on the old color value. Source colors
-    /// overlay the old color while preserving its highlights and shadows. The old color is
-    /// not replaced but is mixed with the source color to reflect the lightness or darkness
-    /// of the old color.
-    ///
-    /// TLDR: It's the inverse of HardLight
-    ///
-    /// ```rust,ignore
-    /// if color_old <= 0.5 {
-    ///     Multiply(color_new, 2 x color_old)
-    /// } else {
-    ///     Screen(color_new, 2 * color_old - 1)
-    /// }
-    /// ```
+    /// `Multiply` or `Screen` depending on the backdrop, so that highlights and shadows of the
+    /// backdrop are kept. Same as `HardLight` with the colors swapped.
     Overlay,
-    /// Selects the darker one of two colors.The old color is replaced with the
-    /// new color where the new color is darker; otherwise, it is left unchanged.
-    ///
-    /// `min(color_old, color_new)`
+    /// The darker of the two colors: `min(b, s)`.
     Darken,
-    /// Selects the lighter one of two colors. The old color is replaced with the
-    /// new color where the new color is lighter; otherwise, it is left unchanged.
-    ///
-    /// `max(color_old, color_new)`
+    /// The lighter of the two colors: `max(b, s)`.
     Lighten,
-    /// Brightens the backdrop color to reflect the source color. Painting with
-    /// black produces no changes.
-    ///
-    /// ```rust,ignore
-    /// if color_new < 1 {
-    ///     min(1, color_old / (1 - color_new))
-    /// } else {
-    ///     1
-    /// }
-    /// ```
+    /// Brightens the backdrop to reflect the source. A black source changes nothing.
     ColorDodge,
-    /// Darkens the backdrop color to reflect the source color. Painting with
-    /// white produces no change.
-    ///
-    /// ```rust,ignore
-    /// if color_new > 0 {
-    ///     1 - min(1, (1 - color_old) / color_new)
-    /// } else {
-    ///     0
-    /// }
-    /// ```
+    /// Darkens the backdrop to reflect the source. A white source changes nothing.
     ColorBurn,
-    /// Multiplies or screens the colors, depending on the source color value. The effect is
-    /// similar to shining a harsh spotlight on the old color. It's the inverse of Screen.
-    ///
-    /// ```rust,ignore
-    /// if color_new <= 0.5 {
-    ///     Multiply(color_old, 2 x color_new)
-    /// } else {
-    ///     Screen(color_old, 2 * color_new - 1)
-    /// }
-    /// ```
+    /// `Multiply` or `Screen` depending on the source, like a harsh spotlight.
     HardLight,
-    /// Darkens or lightens the colors, depending on the source color value.
-    /// The effect is similar to shining a diffused spotlight on the backdrop.
-    ///
-    /// ```rust,ignore
-    /// if color_new <= 0.5 {
-    ///     color_old - ((1 - (2 * color_new)) * color_old * (1 - color_old))
-    /// } else {
-    ///     let mut dx_factor = color_old.sqrt();
-    ///     if color_old <= 0.25 {
-    ///         dx_factor = (((16 * color_old - 12) * color_old) + 4) * color_old;
-    ///     }
-    ///     color_old + ((2 * color_new) - 1) * (dx_factor - color_old)
-    /// }
-    /// ```
+    /// Darkens or lightens depending on the source, like a diffused spotlight.
     SoftLight,
-    /// Subtracts the darker of the two constituent colors from the lighter color
-    /// Painting with white inverts the backdrop color; painting with black produces no change.
-    ///
-    /// `abs(color_old - color_new)`
+    /// The absolute difference: `abs(b - s)`. A white source inverts the backdrop.
     Difference,
-    /// Produces an effect similar to that of the Difference mode but lower in contrast.
-    /// Painting with white inverts the backdrop color; painting with black produces no change.
-    ///
-    /// `color_old + color_new - (2 * color_old * color_new)`
+    /// Like `Difference` with less contrast: `b + s - 2 * b * s`.
     Exclusion,
 }
 
-/// Since the nonseparable blend modes consider all color components in combination, their
-/// computation depends on the blending color space in which the components are interpreted.
-/// They may be applied to all multiple-component color spaces that are allowed as blending
-/// color spaces (see Section 7.2.3, “Blending Color Space”).
-///
-/// All of these blend modes conceptually entail the following steps:
-///
-/// 1. Convert the backdrop and source colors from the blending color space to an intermediate HSL
-///    (hue-saturation-luminosity) representation.
-/// 2. Create a new color from some combination of hue, saturation, and luminosity components
-///    selected from the backdrop and source colors.
-/// 3. Convert the result back to the original (blending) color space.
-///
-/// However, the formulas given below do not actually perform these conversions. Instead,
-/// they start with whichever color (backdrop or source) is providing the hue for the result;
-/// then they adjust this color to have the proper saturation and luminosity.
-///
-/// ### For RGB color spaces
-///
-/// The nonseparable blend mode formulas make use of several auxiliary functions. These
-/// functions operate on colors that are assumed to have red, green, and blue components.
-///
-/// ```rust,ignore
-/// # #[macro_use] extern crate printpdf;
-/// # use printpdf::Rgb;
-/// # use printpdf::glob_macros::*;
-/// # fn main() { /* needed for testing*/ }
-/// fn luminosity(input: Rgb) -> f32 {
-///     0.3 * input.r + 0.59 * input.g + 0.11 * input.b
-/// }
-///
-/// fn set_luminosity(input: Rgb, target_luminosity: f32) -> Rgb {
-///     let d = target_luminosity - luminosity(input);
-///     Rgb {
-///         r: input.r + d,
-///         g: input.g + d,
-///         b: input.b + d,
-///         icc_profile: input.icc_profile,
-///     }
-/// }
-///
-/// fn clip_color(mut input: Rgb) -> Rgb {
-///
-///     let lum = luminosity(input);
-///
-///     let mut cur_r = (input.r * 1000.0) as i64;
-///     let mut cur_g = (input.g * 1000.0) as i64;
-///     let mut cur_b = (input.b * 1000.0) as i64;
-///
-///     /// min! and max! is defined in printpdf/src/glob_macros.rs
-///     let mut min = min!(cur_r, cur_g, cur_b);
-///     let mut max = max!(cur_r, cur_g, cur_b);
-///
-///     let new_min = (min as f32) / 1000.0;
-///     let new_max = (max as f32) / 1000.0;
-///
-///     if new_min < 0.0 {
-///         input.r = lum + (((input.r - lum) * lum) / (lum - new_min));
-///         input.g = lum + (((input.g - lum) * lum) / (lum - new_min));
-///         input.b = lum + (((input.b - lum) * lum) / (lum - new_min));
-///     } else if new_max > 1.0 {
-///         input.r = lum + ((input.r - lum) * (1.0 - lum) / (new_max - lum));
-///         input.g = lum + ((input.g - lum) * (1.0 - lum) / (new_max - lum));
-///         input.b = lum + ((input.b - lum) * (1.0 - lum) / (new_max - lum));
-///     }
-///
-///     return input;
-/// }
-///
-/// fn saturation(input: Rgb) -> f32 {
-///     let mut cur_r = (input.r * 1000.0) as i64;
-///     let mut cur_g = (input.g * 1000.0) as i64;
-///     let mut cur_b = (input.b * 1000.0) as i64;
-///
-///     /// min! and max! is defined in printpdf/src/glob_macros.rs
-///     let mut min = min!(cur_r, cur_g, cur_b);
-///     let mut max = max!(cur_r, cur_g, cur_b);
-///
-///     let new_min = (min as f32) / 1000.0;
-///     let new_max = (max as f32) / 1000.0;
-///     new_max - new_min
-/// }
-/// ```
-///
-/// ### For CMYK color spaces
-///
-/// The C, M, and Y components are converted to their complementary R, G, and B components
-/// in the usual way. The formulas above are applied to the RGB color values. The results
-/// are converted back to C, M, and Y.
-///
-/// For the K component, the result is the K component of Cb for the Hue, Saturation, and
-/// Color blend modes; it is the K component of Cs for the Luminosity blend mode.
+/// Blend modes that mix hue, saturation and luminosity, so they look at all color components
+/// together (ISO 32000-1, 11.3.5.3).
 #[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum NonSeperableBlendMode {
+    /// Hue of the source, saturation and luminosity of the backdrop.
     Hue,
+    /// Saturation of the source, hue and luminosity of the backdrop.
     Saturation,
+    /// Hue and saturation of the source, luminosity of the backdrop.
     Color,
+    /// Luminosity of the source, hue and saturation of the backdrop.
     Luminosity,
 }
 
-/* RI name (or ri inside a stream) */
-/// Although CIE-based color specifications are theoretically device-independent,
-/// they are subject to practical limitations in the color reproduction capabilities of
-/// the output device. Such limitations may sometimes require compromises to be
-/// made among various properties of a color specification when rendering colors for
-/// a given device. Specifying a rendering intent (PDF 1.1) allows a PDF file to set priorities
-/// regarding which of these properties to preserve and which to sacrifice.
+/// What to preserve when a color cannot be reproduced exactly on the output device (ISO 32000-1,
+/// 8.6.5.8). It is the `RI` key and matters mostly for print.
 #[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RenderingIntent {
-    /// Colors are represented solely with respect to the light source; no
-    /// correction is made for the output medium’s white point (such as
-    /// the color of unprinted paper). Thus, for example, a monitor’s
-    /// white point, which is bluish compared to that of a printer’s paper,
-    /// would be reproduced with a blue cast. In-gamut colors are
-    /// reproduced exactly; out-of-gamut colors are mapped to the
-    /// nearest value within the reproducible gamut. This style of reproduction
-    /// has the advantage of providing exact color matches
-    /// from one output medium to another. It has the disadvantage of
-    /// causing colors with Y values between the medium’s white point
-    /// and 1.0 to be out of gamut. A typical use might be for logos and
-    /// solid colors that require exact reproduction across different media.
+    /// Exact match of in-gamut colors, without adapting to the white of the paper. For logos and
+    /// solid colors that must match across media.
     AbsoluteColorimetric,
-    /// Colors are represented with respect to the combination of the
-    /// light source and the output medium’s white point (such as the
-    /// color of unprinted paper). Thus, for example, a monitor’s white
-    /// point would be reproduced on a printer by simply leaving the
-    /// paper unmarked, ignoring color differences between the two
-    /// media. In-gamut colors are reproduced exactly; out-of-gamut
-    /// colors are mapped to the nearest value within the reproducible
-    /// gamut. This style of reproduction has the advantage of adapting
-    /// for the varying white points of different output media. It has the
-    /// disadvantage of not providing exact color matches from one me-
-    /// dium to another. A typical use might be for vector graphics.
+    /// Exact match of in-gamut colors relative to the white of the medium. Suits vector graphics.
     RelativeColorimetric,
-    /// Colors are represented in a manner that preserves or emphasizes
-    /// saturation. Reproduction of in-gamut colors may or may not be
-    /// colorimetrically accurate. A typical use might be for business
-    /// graphics, where saturation is the most important attribute of the
-    /// color.
+    /// Keeps colors saturated, even if they are not exact. Suits business graphics.
     Saturation,
-    /// Colors are represented in a manner that provides a pleasing perceptual
-    /// appearance. To preserve color relationships, both in-gamut
-    /// and out-of-gamut colors are generally modified from
-    /// their precise colorimetric values. A typical use might be for scanned images.
+    /// Keeps the look of the whole image pleasing, changing all colors a little. Suits photos.
     Perceptual,
 }
 
 impl RenderingIntent {
+    /// The PDF name of the intent.
     pub fn get_id(&self) -> &'static str {
         use self::RenderingIntent::*;
         match self {
@@ -1803,29 +1777,27 @@ impl RenderingIntent {
     }
 }
 
-/// A soft mask is used for transparent images such as PNG with an alpha component
-/// The bytes range from 0xFF (opaque) to 0x00 (transparent). The alpha channel of a
-/// PNG image have to be sorted out.
-/// Can also be used for Vignettes, etc.
-/// Beware of color spaces!
-/// __See PDF Reference Page 545__ - Soft masks
+/// A mask that sets the opacity of what is painted, pixel by pixel, for example a fade out
+/// (ISO 32000-1, 11.6.5). Bytes run from 0x00 (transparent) to 0xFF (opaque).
+///
+/// The type has no public constructor, and a soft mask in an [`ExtendedGraphicsState`] is not
+/// written to the PDF. Images with an alpha channel get their mask automatically.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SoftMask {
-    /// The data to be used as a soft mask
+    /// The mask samples.
     data: Vec<u8>,
-    /// Bits per component (1 for black / white, 8 for greyscale, up to 16)
+    /// Bits per sample: 1 for black and white, 8 for grey, up to 16.
     bits_per_component: u8,
 }
 
+/// Where the values of a soft mask come from (the `S` key of a soft-mask dictionary).
 #[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SoftMaskFunction {
-    // (Color, Shape, Alpha) = Composite(Color0, Alpha0, Group)
-    /// In this function, the old (backdrop) color does not contribute to the result.
-    /// This is the easies function, but may look bad at edges.
+    /// The mask is the alpha (opacity) of the mask group.
     GroupAlpha,
-    //
+    /// The mask is the luminosity (brightness) of the mask group.
     GroupLuminosity,
 }
 
@@ -1833,8 +1805,7 @@ pub enum SoftMaskFunction {
 mod tests {
     use super::*;
 
-    // #253: Rect::to_array must emit Real(f32), not rounded integers, so that
-    // media/trim/crop boxes are not distorted.
+    // `to_array` emits reals, not rounded integers.
     #[test]
     fn rect_to_array_emits_real_not_rounded() {
         let rect = Rect::from_xywh(Pt(10.4), Pt(20.6), Pt(100.25), Pt(200.75));
@@ -1844,7 +1815,6 @@ mod tests {
         assert_eq!(arr[1], lopdf::Object::Real(20.6));
         assert_eq!(arr[2], lopdf::Object::Real(100.25));
         assert_eq!(arr[3], lopdf::Object::Real(200.75));
-        // Explicitly assert none of them got rounded to integers.
         for o in &arr {
             assert!(matches!(o, lopdf::Object::Real(_)), "expected Real, got {o:?}");
         }
