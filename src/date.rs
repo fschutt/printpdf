@@ -422,6 +422,24 @@ impl ToString for DateTime {
     }
 }
 
+// One part of an offset (`02` of `+02:30`) with the sign of the whole offset applied. A missing
+// part is 0; a part that is not a number, or does not fit an `i8` once the sign is applied
+// (`-128` with the sign `-`), gives `error`.
+fn signed_offset_part(
+    sign: i8,
+    part: Option<&str>,
+    error: &'static str,
+) -> Result<i8, &'static str> {
+    match part {
+        Some(part) => part
+            .parse::<i8>()
+            .ok()
+            .and_then(|value| sign.checked_mul(value))
+            .ok_or(error),
+        None => Ok(0),
+    }
+}
+
 /// Parses the format written by [`DateTime::format`]: `YYYY-MM-DD HH:MM[:SS[.mmm]] +HH[:MM[:SS]]`,
 /// separated by spaces. The offset needs a leading `+` or `-`.
 ///
@@ -433,78 +451,60 @@ impl std::str::FromStr for DateTime {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parts: Vec<&str> = s.split_whitespace().collect();
-        if parts.len() < 3 {
+        let [date_str, time_str, offset_str, ..] = parts.as_slice() else {
             return Err("Invalid datetime format".to_string());
-        }
-
-        let date_parts: Vec<&str> = parts[0].split('-').collect();
-        if date_parts.len() != 3 {
-            return Err("Invalid date format".to_string());
-        }
-
-        let year = date_parts[0].parse::<i32>().map_err(|_| "Invalid year")?;
-        let month = date_parts[1].parse::<u8>().map_err(|_| "Invalid month")?;
-        let day = date_parts[2].parse::<u8>().map_err(|_| "Invalid day")?;
-
-        let time_parts: Vec<&str> = parts[1].split(':').collect();
-        if time_parts.len() < 2 {
-            return Err("Invalid time format".to_string());
-        }
-
-        let hour = time_parts[0].parse::<u8>().map_err(|_| "Invalid hour")?;
-        let minute = time_parts[1].parse::<u8>().map_err(|_| "Invalid minute")?;
-
-        let (second, millisecond) = if time_parts.len() > 2 {
-            let seconds_and_millis: Vec<&str> = time_parts[2].split('.').collect();
-            let second = seconds_and_millis[0]
-                .parse::<u8>()
-                .map_err(|_| "Invalid second")?;
-            let millisecond = if seconds_and_millis.len() > 1 {
-                seconds_and_millis[1]
-                    .parse::<u16>()
-                    .map_err(|_| "Invalid millisecond")?
-            } else {
-                0
-            };
-            (second, millisecond)
-        } else {
-            (0, 0)
         };
 
-        let offset_str = parts[2];
+        let date_parts: Vec<&str> = date_str.split('-').collect();
+        let [year, month, day] = date_parts.as_slice() else {
+            return Err("Invalid date format".to_string());
+        };
+
+        let year = year.parse::<i32>().map_err(|_| "Invalid year")?;
+        let month = month.parse::<u8>().map_err(|_| "Invalid month")?;
+        let day = day.parse::<u8>().map_err(|_| "Invalid day")?;
+
+        let time_parts: Vec<&str> = time_str.split(':').collect();
+        let [hour, minute, rest @ ..] = time_parts.as_slice() else {
+            return Err("Invalid time format".to_string());
+        };
+
+        let hour = hour.parse::<u8>().map_err(|_| "Invalid hour")?;
+        let minute = minute.parse::<u8>().map_err(|_| "Invalid minute")?;
+
+        let (second, millisecond) = match rest.first() {
+            Some(seconds_and_millis) => {
+                let mut pieces = seconds_and_millis.split('.');
+                let second = pieces
+                    .next()
+                    .unwrap_or_default()
+                    .parse::<u8>()
+                    .map_err(|_| "Invalid second")?;
+                let millisecond = match pieces.next() {
+                    Some(millis) => millis.parse::<u16>().map_err(|_| "Invalid millisecond")?,
+                    None => 0,
+                };
+                (second, millisecond)
+            }
+            None => (0, 0),
+        };
+
         if offset_str.len() < 2 {
             return Err("Invalid offset format".to_string());
         }
 
-        let offset_sign = if offset_str.starts_with('-') { -1 } else { 1 };
-        let offset_parts: Vec<&str> = offset_str[1..].split(':').collect();
-
-        if offset_parts.is_empty() {
+        let offset_sign: i8 = if offset_str.starts_with('-') { -1 } else { 1 };
+        let Some(offset_body) = offset_str.get(1..) else {
             return Err("Invalid offset format".to_string());
-        }
-
-        let offset_hours = offset_sign
-            * offset_parts[0]
-                .parse::<i8>()
-                .map_err(|_| "Invalid offset hours")?;
-
-        let offset_minutes = if offset_parts.len() > 1 {
-            offset_sign
-                * offset_parts[1]
-                    .parse::<i8>()
-                    .map_err(|_| "Invalid offset minutes")?
-        } else {
-            0
         };
+        let mut offset_parts = offset_body.split(':');
 
-        let offset_seconds = if offset_parts.len() > 2 {
-            offset_sign
-                * offset_parts[2]
-                    .parse::<i8>()
-                    .map_err(|_| "Invalid offset seconds")?
-        } else {
-            0
-        };
+        let offset_hours =
+            signed_offset_part(offset_sign, offset_parts.next(), "Invalid offset hours")?;
+        let offset_minutes =
+            signed_offset_part(offset_sign, offset_parts.next(), "Invalid offset minutes")?;
+        let offset_seconds =
+            signed_offset_part(offset_sign, offset_parts.next(), "Invalid offset seconds")?;
 
         let dt = DateTime {
             date: Date { year, month, day },
@@ -608,17 +608,17 @@ impl<'de> Deserialize<'de> for Date {
         let s = String::deserialize(deserializer)?;
         let parts: Vec<&str> = s.split('-').collect();
 
-        if parts.len() != 3 {
+        let [year, month, day] = parts.as_slice() else {
             return Err(serde::de::Error::custom("Invalid date format"));
-        }
+        };
 
-        let year = parts[0]
+        let year = year
             .parse::<i32>()
             .map_err(|_| serde::de::Error::custom("Invalid year"))?;
-        let month = parts[1]
+        let month = month
             .parse::<u8>()
             .map_err(|_| serde::de::Error::custom("Invalid month"))?;
-        let day = parts[2]
+        let day = day
             .parse::<u8>()
             .map_err(|_| serde::de::Error::custom("Invalid day"))?;
 
@@ -647,32 +647,34 @@ impl<'de> Deserialize<'de> for Time {
         let s = String::deserialize(deserializer)?;
         let parts: Vec<&str> = s.split(':').collect();
 
-        if parts.len() < 2 {
+        let [hour, minute, rest @ ..] = parts.as_slice() else {
             return Err(serde::de::Error::custom("Invalid time format"));
-        }
+        };
 
-        let hour = parts[0]
+        let hour = hour
             .parse::<u8>()
             .map_err(|_| serde::de::Error::custom("Invalid hour"))?;
-        let minute = parts[1]
+        let minute = minute
             .parse::<u8>()
             .map_err(|_| serde::de::Error::custom("Invalid minute"))?;
 
-        let (second, millisecond) = if parts.len() > 2 {
-            let sec_parts: Vec<&str> = parts[2].split('.').collect();
-            let second = sec_parts[0]
-                .parse::<u8>()
-                .map_err(|_| serde::de::Error::custom("Invalid second"))?;
-            let millisecond = if sec_parts.len() > 1 {
-                sec_parts[1]
-                    .parse::<u16>()
-                    .map_err(|_| serde::de::Error::custom("Invalid millisecond"))?
-            } else {
-                0
-            };
-            (second, millisecond)
-        } else {
-            (0, 0)
+        let (second, millisecond) = match rest.first() {
+            Some(seconds_and_millis) => {
+                let mut pieces = seconds_and_millis.split('.');
+                let second = pieces
+                    .next()
+                    .unwrap_or_default()
+                    .parse::<u8>()
+                    .map_err(|_| serde::de::Error::custom("Invalid second"))?;
+                let millisecond = match pieces.next() {
+                    Some(millis) => millis
+                        .parse::<u16>()
+                        .map_err(|_| serde::de::Error::custom("Invalid millisecond"))?,
+                    None => 0,
+                };
+                (second, millisecond)
+            }
+            None => (0, 0),
         };
 
         Ok(Time {
@@ -699,10 +701,10 @@ impl Serialize for Offset {
         format!(
             "{}{:02}:{:02}:{:02}.{:03}",
             sign,
-            self.hours.abs(),
-            self.minutes.abs(),
-            self.seconds.abs(),
-            self.milliseconds.abs()
+            self.hours.unsigned_abs(),
+            self.minutes.unsigned_abs(),
+            self.seconds.unsigned_abs(),
+            self.milliseconds.unsigned_abs()
         )
         .serialize(serializer)
     }
@@ -719,44 +721,36 @@ impl<'de> Deserialize<'de> for Offset {
             return Err(serde::de::Error::custom("Invalid offset format"));
         }
 
-        let offset_sign = if s.starts_with('-') { -1 } else { 1 };
-        let offset_parts: Vec<&str> = s[1..].split(':').collect();
-
-        if offset_parts.is_empty() {
+        let offset_sign: i8 = if s.starts_with('-') { -1 } else { 1 };
+        let Some(body) = s.get(1..) else {
             return Err(serde::de::Error::custom("Invalid offset format"));
-        }
-
-        let hours = offset_sign
-            * offset_parts[0]
-                .parse::<i8>()
-                .map_err(|_| serde::de::Error::custom("Invalid offset hours"))?;
-
-        let minutes = if offset_parts.len() > 1 {
-            offset_sign
-                * offset_parts[1]
-                    .parse::<i8>()
-                    .map_err(|_| serde::de::Error::custom("Invalid offset minutes"))?
-        } else {
-            0
         };
+        let mut offset_parts = body.split(':');
 
-        let (seconds, milliseconds) = if offset_parts.len() > 2 {
-            let sec_parts: Vec<&str> = offset_parts[2].split('.').collect();
-            let seconds = offset_sign
-                * sec_parts[0]
-                    .parse::<i8>()
-                    .map_err(|_| serde::de::Error::custom("Invalid offset seconds"))?;
-            let milliseconds = if sec_parts.len() > 1 {
-                offset_sign as i16
-                    * sec_parts[1]
+        let hours = signed_offset_part(offset_sign, offset_parts.next(), "Invalid offset hours")
+            .map_err(|msg| serde::de::Error::custom(msg))?;
+
+        let minutes =
+            signed_offset_part(offset_sign, offset_parts.next(), "Invalid offset minutes")
+                .map_err(|msg| serde::de::Error::custom(msg))?;
+
+        let (seconds, milliseconds) = match offset_parts.next() {
+            Some(seconds_and_millis) => {
+                let mut pieces = seconds_and_millis.split('.');
+                let seconds =
+                    signed_offset_part(offset_sign, pieces.next(), "Invalid offset seconds")
+                        .map_err(|msg| serde::de::Error::custom(msg))?;
+                let milliseconds = match pieces.next() {
+                    Some(millis) => millis
                         .parse::<i16>()
-                        .map_err(|_| serde::de::Error::custom("Invalid offset milliseconds"))?
-            } else {
-                0
-            };
-            (seconds, milliseconds)
-        } else {
-            (0, 0)
+                        .ok()
+                        .and_then(|value| i16::from(offset_sign).checked_mul(value))
+                        .ok_or_else(|| serde::de::Error::custom("Invalid offset milliseconds"))?,
+                    None => 0,
+                };
+                (seconds, milliseconds)
+            }
+            None => (0, 0),
         };
 
         Ok(Offset {
@@ -807,35 +801,22 @@ impl<'de> Deserialize<'de> for UtcOffset {
             return Err(serde::de::Error::custom("Invalid offset format"));
         }
 
-        let offset_sign = if s.starts_with('-') { -1 } else { 1 };
-        let offset_parts: Vec<&str> = s[1..].split(':').collect();
-
-        if offset_parts.is_empty() {
+        let offset_sign: i8 = if s.starts_with('-') { -1 } else { 1 };
+        let Some(body) = s.get(1..) else {
             return Err(serde::de::Error::custom("Invalid offset format"));
-        }
-
-        let hours = offset_sign
-            * offset_parts[0]
-                .parse::<i8>()
-                .map_err(|_| serde::de::Error::custom("Invalid offset hours"))?;
-
-        let minutes = if offset_parts.len() > 1 {
-            offset_sign
-                * offset_parts[1]
-                    .parse::<i8>()
-                    .map_err(|_| serde::de::Error::custom("Invalid offset minutes"))?
-        } else {
-            0
         };
+        let mut offset_parts = body.split(':');
 
-        let seconds = if offset_parts.len() > 2 {
-            offset_sign
-                * offset_parts[2]
-                    .parse::<i8>()
-                    .map_err(|_| serde::de::Error::custom("Invalid offset seconds"))?
-        } else {
-            0
-        };
+        let hours = signed_offset_part(offset_sign, offset_parts.next(), "Invalid offset hours")
+            .map_err(|msg| serde::de::Error::custom(msg))?;
+
+        let minutes =
+            signed_offset_part(offset_sign, offset_parts.next(), "Invalid offset minutes")
+                .map_err(|msg| serde::de::Error::custom(msg))?;
+
+        let seconds =
+            signed_offset_part(offset_sign, offset_parts.next(), "Invalid offset seconds")
+                .map_err(|msg| serde::de::Error::custom(msg))?;
 
         Ok(UtcOffset {
             hours,
@@ -869,13 +850,12 @@ pub fn parse_pdf_date(s: &str) -> Result<OffsetDateTime, String> {
 }
 
 fn parse_pdf_date_inner(s: &str) -> Result<OffsetDateTime, String> {
-    let s = if s.starts_with("D:") { &s[2..] } else { s };
+    let s = s.strip_prefix("D:").unwrap_or(s);
     // Slice bytes, not the `&str`: strings from arbitrary PDFs can have multibyte
     // characters where a `&str` range would panic.
-    let b = s.as_bytes();
-    if b.len() < 14 {
+    let Some((fields, offset)) = s.as_bytes().split_at_checked(14) else {
         return Err("Date string too short".to_string());
-    }
+    };
 
     fn digits<T: core::str::FromStr>(b: &[u8]) -> Result<T, String>
     where
@@ -887,32 +867,39 @@ fn parse_pdf_date_inner(s: &str) -> Result<OffsetDateTime, String> {
             .map_err(|e| e.to_string())
     }
 
-    let year: i32 = digits(&b[0..4])?;
-    let month: u8 = digits(&b[4..6])?;
-    let day: u8 = digits(&b[6..8])?;
-    let hour: u8 = digits(&b[8..10])?;
-    let minute: u8 = digits(&b[10..12])?;
-    let second: u8 = digits(&b[12..14])?;
+    // `fields` holds the 14 digits `YYYYMMDDHHMMSS`.
+    let field = |range: core::ops::Range<usize>| {
+        fields
+            .get(range)
+            .ok_or_else(|| "Date string too short".to_string())
+    };
+    let year: i32 = digits(field(0..4)?)?;
+    let month: u8 = digits(field(4..6)?)?;
+    let day: u8 = digits(field(6..8)?)?;
+    let hour: u8 = digits(field(8..10)?)?;
+    let minute: u8 = digits(field(10..12)?)?;
+    let second: u8 = digits(field(12..14)?)?;
 
     let mut offset_hours = 0i8;
     let mut offset_minutes = 0i8;
     let mut offset_seconds = 0i8;
 
-    if b.len() > 14 {
-        let tz_sign = match b[14] {
+    // `offset` is what follows the seconds: the sign, then `HH'MM'SS'`.
+    if let Some((&sign, rest)) = offset.split_first() {
+        let tz_sign = match sign {
             b'+' => 1i8,
             b'-' => -1i8,
             _ => 0i8,
         };
 
-        if b.len() >= 17 {
-            offset_hours = tz_sign * digits::<i8>(&b[15..17]).unwrap_or(0);
+        if let Some(hours) = rest.get(0..2) {
+            offset_hours = tz_sign.saturating_mul(digits::<i8>(hours).unwrap_or(0));
 
-            if b.len() >= 20 && b[17] == b'\'' {
-                offset_minutes = tz_sign * digits::<i8>(&b[18..20]).unwrap_or(0);
+            if let (Some(b'\''), Some(minutes)) = (rest.get(2), rest.get(3..5)) {
+                offset_minutes = tz_sign.saturating_mul(digits::<i8>(minutes).unwrap_or(0));
 
-                if b.len() >= 23 && b[20] == b'\'' {
-                    offset_seconds = tz_sign * digits::<i8>(&b[21..23]).unwrap_or(0);
+                if let (Some(b'\''), Some(seconds)) = (rest.get(5), rest.get(6..8)) {
+                    offset_seconds = tz_sign.saturating_mul(digits::<i8>(seconds).unwrap_or(0));
                 }
             }
         }
@@ -963,10 +950,6 @@ fn check_date_valid(d: &DateTime) -> Result<(), String> {
 }
 
 fn is_valid_date(year: i32, month: u8, day: u8) -> bool {
-    if !(1..=12).contains(&month) {
-        return false;
-    }
-
     let days_in_month = match month {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
         4 | 6 | 9 | 11 => 30,
@@ -977,7 +960,7 @@ fn is_valid_date(year: i32, month: u8, day: u8) -> bool {
                 28
             }
         }
-        _ => unreachable!(),
+        _ => return false,
     };
 
     day >= 1 && day <= days_in_month
