@@ -1,3 +1,6 @@
+//! Internal helpers of the crate: pseudo-random ids for the PDF `/ID` entry, PDF date strings and
+//! gzip. Nothing in this module is public.
+
 use std::{
     io::Read,
     sync::atomic::{AtomicUsize, Ordering},
@@ -5,12 +8,12 @@ use std::{
 
 use crate::date::OffsetDateTime;
 
-/// Since the random number generator doesn't have to be cryptographically secure
-/// it doesn't make sense to import the entire rand library, so this is just a
-/// xorshift pseudo-random function
+/// Counter that feeds [`random_number`]. File identifiers need no cryptographic security, so a
+/// xorshift generator replaces a dependency on a random number crate.
 static RAND_SEED: AtomicUsize = AtomicUsize::new(2100);
 
-/// Xorshift-based random number generator. Impure function
+/// Next number of the xorshift generator. Every call advances a global counter, so the result
+/// differs from call to call and is not cryptographically secure.
 pub(crate) fn random_number() -> usize {
     let mut x = RAND_SEED.fetch_add(21, Ordering::SeqCst);
     #[cfg(target_pointer_width = "64")]
@@ -30,7 +33,7 @@ pub(crate) fn random_number() -> usize {
     }
 }
 
-/// Returns a string with 32 random characters
+/// 32 pseudo-random characters from `A` to `J` (the digits of [`random_number`], mapped to letters).
 pub(crate) fn random_character_string_32() -> String {
     const MAX_CHARS: usize = 32;
     let mut final_string = String::with_capacity(MAX_CHARS);
@@ -51,7 +54,8 @@ pub(crate) fn random_character_string_32() -> String {
     final_string
 }
 
-// D:20170505150224+02'00'
+/// Formats `date` as a PDF date string such as `D:20170505150224+00'00'`. The time zone is always
+/// written as UTC. On wasm the result is the Unix epoch.
 #[cfg(target_family = "wasm")]
 pub(crate) fn to_pdf_time_stamp_metadata(_date: &OffsetDateTime) -> String {
     "D:19700101000000+00'00'".to_string()
@@ -70,12 +74,13 @@ pub(crate) fn to_pdf_time_stamp_metadata(date: &OffsetDateTime) -> String {
     )
 }
 
+/// Formats `date` as an XMP date such as `D:2018-09-19T10:05:05+00'00'`. On wasm the result is the
+/// Unix epoch.
 #[cfg(target_family = "wasm")]
 pub(crate) fn to_pdf_xmp_date(_date: &OffsetDateTime) -> String {
     "D:1970-01-01T00:00:00+00'00'".to_string()
 }
 
-// D:2018-09-19T10:05:05+00'00'
 #[cfg(not(target_family = "wasm"))]
 pub(crate) fn to_pdf_xmp_date(date: &OffsetDateTime) -> String {
     // Since the time is in UTC, we know that the time zone
@@ -83,9 +88,8 @@ pub(crate) fn to_pdf_xmp_date(date: &OffsetDateTime) -> String {
     format!(
         "D:{:04}-{:02}-{:02}T{:02}:{:02}:{:02}+00'00'",
         date.year(),
-        // u8, not the Month enum: Month's Display ignores the {:02} width, so months
-        // 1–9 rendered single-digit — an XMP date veraPDF rejects, defeating the
-        // PDF/A / PDF/X conformance the metadata exists for.
+        // `u8`, not the `Month` enum: Month's Display ignores the `{:02}` width, so months 1 to 9
+        // would have one digit, a date that veraPDF rejects.
         u8::from(date.month()),
         date.day(),
         date.hour(),
@@ -100,6 +104,7 @@ fn u8_to_char(input: u8) -> char {
     (b'A' + input) as char
 }
 
+/// Compresses `bytes` with gzip at the best level.
 #[allow(dead_code)]
 pub(crate) fn compress(bytes: &[u8]) -> Vec<u8> {
     use std::io::prelude::*;
@@ -110,6 +115,7 @@ pub(crate) fn compress(bytes: &[u8]) -> Vec<u8> {
     encoder.finish().unwrap_or_default()
 }
 
+/// Decompresses gzip `bytes`. Returns what could be read if the data is damaged.
 pub(crate) fn uncompress(bytes: &[u8]) -> Vec<u8> {
     use flate2::read::GzDecoder;
     let mut gz = GzDecoder::new(bytes);
