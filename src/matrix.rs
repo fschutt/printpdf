@@ -1,36 +1,61 @@
+//! Transformation matrices: how coordinates are moved, rotated and scaled.
+//!
+//! PDF describes a transformation with six numbers `[a b c d e f]`. A point `(x, y)` is moved to
+//! `(a*x + c*y + e, b*x + d*y + f)`. So `[1 0 0 1 e f]` moves by `(e, f)`, `[sx 0 0 sy 0 0]`
+//! scales, and `[cos sin -sin cos 0 0]` rotates counter-clockwise (y points up).
+//!
+//! Two matrices exist in a content stream:
+//!
+//! - [`CurTransMat`], the *current transformation matrix*, set with `Op::SetTransformationMatrix`
+//!   (`cm`). It applies to everything drawn afterwards and is multiplied with the matrix that is
+//!   already active, so wrap it in `Op::SaveGraphicsState` / `Op::RestoreGraphicsState`.
+//! - [`TextMatrix`], set with `Op::SetTextMatrix` (`Tm`). It positions the text of a text
+//!   section on top of the current transformation matrix and replaces the previous text
+//!   matrix instead of multiplying with it.
+//!
+//! The variants build the six numbers for the common cases; `Raw` takes them directly.
+//!
+//! ```
+//! use printpdf::*;
+//!
+//! let m = CurTransMat::Translate(Pt(10.0), Pt(20.0));
+//! assert_eq!(m.as_array(), [1.0, 0.0, 0.0, 1.0, 10.0, 20.0]);
+//!
+//! let ops = vec![
+//!     Op::SaveGraphicsState,
+//!     Op::SetTransformationMatrix { matrix: CurTransMat::Scale(2.0, 2.0) },
+//!     // ... drawing here is twice as large ...
+//!     Op::RestoreGraphicsState,
+//! ];
+//! # assert_eq!(ops.len(), 3);
+//! ```
+
 use serde_derive::{Deserialize, Serialize};
 
 use crate::units::Pt;
 
-/// PDF "current transformation matrix" (CTM) for the graphics state.
+/// The current transformation matrix (CTM) of the graphics state, written with the `cm`
+/// operator by `Op::SetTransformationMatrix`.
 ///
-/// This transformation affects drawing operations and uses the PDF "cm" operator,
-/// which is cumulative/additive to the graphics state stack. Each transformation
-/// combines with the existing state rather than replacing it completely.
+/// Each use is multiplied with the matrix that is already active, so transformations add up.
+/// The effect lasts until the graphics state is restored with `Op::RestoreGraphicsState`;
+/// put `Op::SaveGraphicsState` before it. Angles are in degrees and rotate counter-clockwise.
 ///
-/// Once set, it operates on all following shapes until `restore_graphics_state()` is called.
-/// It is important to call `save_graphics_state()` before applying transformations.
+/// Serialized to JSON as `{"type": "<variant in kebab-case>", "data": ...}`.
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", tag = "type", content = "data")]
 pub enum CurTransMat {
-    /// Translation matrix (in points from bottom left corner)
-    /// X and Y can have different values
+    /// Moves the origin by (x, y), measured in the current coordinate system.
     Translate(Pt, Pt),
-    /// Rotation matrix (clockwise, in degrees)
-    ///
-    /// Note: This rotates around ORIGIN (0,0) of the CURRENT graphics state
+    /// Rotates by the angle in degrees (counter-clockwise) around the current origin `(0, 0)`.
     Rotate(f32),
-    /// Combined rotate + translate matrix
-    ///
-    /// Rotates around the specified point, in ADDITION to the EXISTING
-    /// matrix of the current graphics state
+    /// Rotates by the angle in degrees (counter-clockwise), then moves the origin to (x, y).
     TranslateRotate(Pt, Pt, f32),
-    /// Scale matrix (1.0 = 100% scale, no change)
-    /// X and Y can have different values
+    /// Scales x and y by the given factors; 1.0 is no change.
     Scale(f32, f32),
-    /// Raw (PDF-internal) PDF matrix
+    /// The six numbers `[a b c d e f]` of the PDF matrix.
     Raw([f32; 6]),
-    /// Identity matrix
+    /// Leaves everything as it is (`[1 0 0 1 0 0]`).
     Identity,
 }
 
@@ -41,6 +66,7 @@ impl PartialEq for CurTransMat {
 }
 
 impl CurTransMat {
+    /// The matrix as a CSS `matrix(a b c d e f)` value.
     pub fn as_css_val(&self) -> String {
         let m = self.as_array();
         format!(
@@ -49,6 +75,8 @@ impl CurTransMat {
         )
     }
 
+    /// Multiplies two matrices given as `[a b c d e f]`. The result applies `a` first and then
+    /// `b`.
     pub fn combine_matrix(a: [f32; 6], b: [f32; 6]) -> [f32; 6] {
         let a = [
             [a[0], a[1], 0.0, 0.0],
@@ -230,11 +258,8 @@ impl CurTransMat {
     }
 }
 
-/// Multiply add. Computes `(self * a) + b` with workaround for
-/// arm-unknown-linux-gnueabi.
-///
-/// `{f32, f64}::mul_add` is completly broken on arm-unknown-linux-gnueabi.
-/// See issue https://github.com/rust-lang/rust/issues/46950.
+// Computes `a * b + c`. `f32::mul_add` is broken on arm-unknown-linux-gnueabi
+// (rust-lang/rust#46950), where a plain multiply and add is used.
 #[inline(always)]
 fn mul_add(a: f32, b: f32, c: f32) -> f32 {
     if cfg!(all(
@@ -250,35 +275,25 @@ fn mul_add(a: f32, b: f32, c: f32) -> f32 {
     }
 }
 
-/// Text matrix for text positioning and transformation in PDF.
+/// The text matrix, written with the `Tm` operator by `Op::SetTextMatrix`. It sets where the
+/// next text is drawn and how it is rotated or scaled.
 ///
-/// IMPORTANT: Unlike CurTransMat, TextMatrix uses the PDF "Tm" operator which
-/// **COMPLETELY REPLACES** the current text matrix rather than combining with it.
-/// This means that setting a TextMatrix will reset any previously established
-/// text position and transformation.
-///
-/// However, the text matrix is added ON TOP OF the "CurTransMat", it does not replace
-/// the "CurTransMat", but it will replace previous operations such as "SetTextPosition".
-///
-/// This is why there is no simple "Rotate" variant - it would reset the text position
-/// to the origin (0,0). Use TranslateRotate instead to maintain position.
-///
-/// Note: `TextScale` does not exist. Use `set_word_spacing()` and `set_character_spacing()`
-/// to specify the scaling between words and characters.
+/// Unlike [`CurTransMat`] it replaces the previous text matrix, including any position set
+/// by an earlier `Op::SetTextCursor`, and is applied on top of the current transformation
+/// matrix. Because the position is replaced too, there is no rotate-only variant: use
+/// [`TextMatrix::TranslateRotate`]. For spacing between words and characters use
+/// `Op::SetWordSpacing` and `Op::SetCharacterSpacing`.
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum TextMatrix {
-    /// Text translate matrix: REPLACES the existing text cursor!
-    /// This is equivalent to `SetTextCursor { x, y }`, since it will replace
-    /// the position of the cursor. The x / y is relative to the pages lower left corner.
+    /// Puts the text position at (x, y), measured from the lower left corner of the page (in
+    /// the current coordinate system). Like `Op::SetTextCursor`, but absolute.
     Translate(Pt, Pt),
-    /// Combined translate + rotate matrix: Rotates text around the specified point
-    /// RELATIVE to the PAGE origin.
-    ///
-    /// Since the `Tm` operator replaces the matrix completely, you must specify
-    /// both position (relative to the PAGE, not the current text) and rotation in one operation
+    /// Rotates the text by the angle in degrees (counter-clockwise) and puts its position at
+    /// (x, y), measured from the lower left corner of the page (in the current coordinate
+    /// system).
     TranslateRotate(Pt, Pt, f32),
-    /// Raw matrix for the PDF "Tm" operator
+    /// The six numbers `[a b c d e f]` of the PDF matrix.
     Raw([f32; 6]),
 }
 
@@ -289,6 +304,8 @@ impl PartialEq for TextMatrix {
 }
 
 impl TextMatrix {
+    /// The matrix as a CSS `matrix(a b c d e f)` value. With `invert_y` the vertical
+    /// translation `f` is negated, to convert from PDF's upward y axis to CSS's downward one.
     pub fn as_css_val(&self, invert_y: bool) -> String {
         let m = self.as_array();
         let factor = if invert_y { -1.0 } else { 1.0 };
@@ -303,6 +320,7 @@ impl TextMatrix {
         )
     }
 
+    /// The six numbers `[a b c d e f]` of the matrix, as written to the PDF.
     pub fn as_array(&self) -> [f32; 6] {
         use self::TextMatrix::*;
         match self {
@@ -321,6 +339,7 @@ impl TextMatrix {
 }
 
 impl CurTransMat {
+    /// The six numbers `[a b c d e f]` of the matrix, as written to the PDF.
     pub fn as_array(&self) -> [f32; 6] {
         use self::CurTransMat::*;
         match self {

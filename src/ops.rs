@@ -1,3 +1,53 @@
+//! The content of a page: [`PdfPage`] and its list of [`Op`]s.
+//!
+//! The visible part of a PDF page is a *content stream*: a sequence of operators that each
+//! take a few operands, for example `12 TL` (set the line height) or `0 0 100 50 re` (add a
+//! rectangle). Reading it top to bottom changes a *graphics state* (colors, line width, font,
+//! transformation matrix) and paints text, paths and images with it.
+//!
+//! [`Op`] has one variant per operator, so a page is a `Vec<Op>`:
+//!
+//! ```
+//! use printpdf::*;
+//!
+//! let ops = vec![
+//!     Op::SaveGraphicsState,                                   // q
+//!     Op::SetOutlineThickness { pt: Pt(2.0) },                 // w
+//!     Op::SetOutlineColor { col: Color::Rgb(Rgb::new(1.0, 0.0, 0.0, None)) }, // RG
+//!     Op::DrawLine {                                           // m, l, S
+//!         line: Line {
+//!             points: vec![
+//!                 LinePoint { p: Point::new(Mm(10.0), Mm(10.0)), bezier: false },
+//!                 LinePoint { p: Point::new(Mm(100.0), Mm(50.0)), bezier: false },
+//!             ],
+//!             is_closed: false,
+//!         },
+//!     },
+//!     Op::RestoreGraphicsState,                                // Q
+//! ];
+//! let page = PdfPage::new(Mm(210.0), Mm(297.0), ops);
+//! assert_eq!(page.ops.len(), 5);
+//! ```
+//!
+//! The variants fall into these groups:
+//!
+//! - **Graphics state**: `SaveGraphicsState`, `RestoreGraphicsState`, `LoadGraphicsState`,
+//!   `SetTransformationMatrix`, `SetRenderingIntent`.
+//! - **Text**: `StartTextSection` and `EndTextSection` enclose `SetFont`, `SetTextCursor`,
+//!   `ShowText` and the spacing operators. Text shown outside such a section is not displayed
+//!   by most viewers.
+//! - **Paths**: `DrawLine`, `DrawRectangle`, `DrawPolygon`, with the stroke settings
+//!   `SetOutlineThickness`, `SetLineDashPattern`, `SetLineJoinStyle`, `SetLineCapStyle`,
+//!   `SetMiterLimit`, and `PaintShading` for gradients.
+//! - **Color**: `SetFillColor`, `SetOutlineColor`, `SetColorSpaceFill`, `SetColorSpaceStroke`.
+//! - **XObjects and images**: `UseXobject` places a registered image or drawing, the
+//!   `*InlineImage` variants delimit an image embedded in the stream.
+//! - **Marked content and layers**: `BeginLayer`/`EndLayer`, `BeginMarkedContent` and
+//!   friends tag a range of operators, `Marker` marks a point.
+//! - **Other**: `LinkAnnotation` (a clickable area), `Unknown` (any other operator).
+//!
+//! The types serialize to JSON as `{"type": "<variant in kebab-case>", "data": {...}}`.
+
 use serde_derive::{Deserialize, Serialize};
 
 pub use crate::text::TextItem;
@@ -13,18 +63,21 @@ use crate::{
     PdfResources, PdfToSvgOptions, PdfWarnMsg, RenderingIntent, XObjectId, XObjectTransform,
 };
 
-/// Font resource reference - either a builtin PDF font or an external font
+/// The font that `Op::SetFont` selects: one of the standard 14 fonts or an embedded font.
+///
+/// Serialized to JSON as `{"type": "builtin" | "external", "data": ...}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", tag = "type", content = "data")]
 pub enum PdfFontHandle {
-    /// Builtin PDF font (F1-F14)
+    /// One of the 14 standard PDF fonts. It is not embedded in the file.
     Builtin(BuiltinFont),
-    /// External font loaded from file
+    /// A font registered with [`PdfDocument::add_font`](crate::PdfDocument::add_font).
     External(FontId),
 }
 
 impl PdfFontHandle {
-    /// Get the PDF resource name for this font
+    /// Returns the name under which the font is listed in the page resources (`F1` to `F14` for
+    /// builtin fonts, the [`FontId`] string otherwise).
     pub fn get_resource_name(&self) -> String {
         match self {
             PdfFontHandle::Builtin(bf) => bf.get_pdf_id().to_string(),
@@ -33,16 +86,28 @@ impl PdfFontHandle {
     }
 }
 
+/// One page: its size and the operations that draw it.
+///
+/// The origin of the page is its bottom left corner and y grows upwards (see the crate
+/// documentation). Serialized as camelCase JSON.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PdfPage {
+    /// The full page area, in points (`/MediaBox`).
     pub media_box: Rect,
+    /// The area of the page after trimming in print production (`/TrimBox`).
     pub trim_box: Rect,
+    /// The area a viewer shows (`/CropBox`).
     pub crop_box: Rect,
+    /// The content stream, executed from first to last.
     pub ops: Vec<Op>,
 }
 
 impl PdfPage {
+    /// Creates a page of `width` x `height` with the given operations.
+    ///
+    /// Media box, trim box and crop box all start at the bottom left corner `(0, 0)` and cover
+    /// the whole page.
     pub fn new(width: Mm, height: Mm, ops: Vec<Op>) -> Self {
         Self {
             media_box: Rect::from_wh(width.into(), height.into()),
@@ -64,7 +129,8 @@ impl PdfPage {
         self.crop_box.to_array().into()
     }
 
-    /// Render the page to an SVG string.
+    /// Renders the page to an SVG string. `resources` must hold the fonts and XObjects the page
+    /// uses, normally `&document.resources`.
     pub fn to_svg(
         &self,
         resources: &PdfResources,
@@ -74,6 +140,7 @@ impl PdfPage {
         crate::render::render_to_svg(self, resources, opts, warnings)
     }
 
+    /// Like [`PdfPage::to_svg`], with the async image encoder.
     pub async fn to_svg_async(
         &self,
         resources: &PdfResources,
@@ -83,6 +150,8 @@ impl PdfPage {
         crate::render::render_to_svg_async(self, resources, opts, warnings).await
     }
 
+    /// Ids of the XObjects the page places with `Op::UseXobject`, in order of use. An id that is
+    /// used twice appears twice.
     pub fn get_xobject_ids(&self) -> Vec<XObjectId> {
         self.ops
             .iter()
@@ -93,11 +162,9 @@ impl PdfPage {
             .collect()
     }
 
+    /// Ids of the embedded fonts that `Op::SetFont` selects on this page, without duplicates, in
+    /// order of first use.
     pub fn get_external_font_ids(&self) -> Vec<FontId> {
-        // This was a `Vec::new()` stub for a long time, which broke every consumer
-        // that copies per-page resources by id — most visibly the wasm demo's page
-        // preview: `resources_for_page` reported no fonts, so `Pdf_PageToSvg`
-        // rendered text without its fonts.
         let mut ids = Vec::new();
         for op in &self.ops {
             if let Op::SetFont {
@@ -113,6 +180,7 @@ impl PdfPage {
         ids
     }
 
+    /// Ids of the layers that `Op::BeginLayer` opens on this page, in order of use.
     pub fn get_layers(&self) -> Vec<LayerInternalId> {
         self.ops
             .iter()
@@ -123,20 +191,13 @@ impl PdfPage {
             .collect()
     }
 
-    /// Extracts text from a PDF page.
+    /// Extracts the text of the page: one string per text section (`BT` to `ET`), with `\r\n`
+    /// between lines. Empty sections are left out.
     ///
-    /// This function processes text-related operations (ShowText) to extract text content.
-    /// It properly handles both TextItem::Text and TextItem::GlyphIds by using the
-    /// current font's cmap to convert glyph IDs to Unicode characters.
-    ///
-    /// Note: This implementation doesn't fully handle complex text positioning or
-    /// layout features such as columns or tables.
-    ///
-    /// # Arguments
-    /// * `resources` - The PDF resources containing font information
-    ///
-    /// # Returns
-    /// A vector of text chunks extracted from text sections
+    /// [`TextItem::GlyphIds`] are turned back into characters with the CID stored with the
+    /// glyph, or else with the cmap of the current font from `resources`; unknown glyphs
+    /// become U+FFFD. Lines are detected from the vertical text position only, so columns and
+    /// tables are not reconstructed.
     pub fn extract_text(&self, resources: &PdfResources) -> Vec<String> {
         let mut text_chunks = Vec::new();
         let mut current_chunk = String::new();
@@ -167,23 +228,22 @@ impl PdfPage {
                 }
                 Op::SetFont { font, size } => {
                     cur_font_size = size.0;
-                    // Track the current font for glyph ID decoding
                     match font {
                         crate::ops::PdfFontHandle::External(font_id) => {
                             current_font =
                                 resources.fonts.map.get(font_id).map(|pf| &pf.parsed_font);
                         }
                         crate::ops::PdfFontHandle::Builtin(_) => {
-                            // Builtin text arrives as TextItem::Text; a stale
-                            // external font must not be used for glyph decode.
+                            // Builtin text is `TextItem::Text`; drop the previous
+                            // external font so it is not used to decode glyph ids.
                             current_font = None;
                         }
                     }
                 }
                 Op::SetTextMatrix { matrix } => {
-                    // Only a *vertical* move is a line break. Documents that
-                    // position every run with its own Tm (common with shaped
-                    // text) used to produce one line per glyph run here.
+                    // Only a vertical move is a line break: documents that position
+                    // every run with its own Tm (common with shaped text) would
+                    // otherwise get one line per glyph run.
                     let m = matrix.as_array();
                     let (new_x, new_y) = (m[4], m[5]);
                     match cur_text_matrix_y {
@@ -191,10 +251,9 @@ impl PdfPage {
                             current_chunk.push_str("\r\n");
                         }
                         Some(_) => {
-                            // Same baseline: horizontal move. A word gap is a
-                            // move that lands visibly past where the previous
-                            // run ended; per-glyph positioning moves land
-                            // exactly at the pen position.
+                            // Same baseline: a word gap is a move that lands visibly past
+                            // where the previous run ended; per-glyph moves land exactly
+                            // at the pen position.
                             let gap_threshold = (cur_font_size * 0.15).max(0.1);
                             let is_gap = match pen_x {
                                 Some(px) => new_x - px > gap_threshold,
@@ -246,11 +305,9 @@ impl PdfPage {
                                 }
                             }
                             TextItem::GlyphIds(glyphs) => {
-                                // Prefer the per-glyph Unicode attached at
-                                // parse time (from the font's ToUnicode CMap):
-                                // it handles ligatures/multi-char mappings and
-                                // works even when the font resource itself is
-                                // unavailable.
+                                // The Unicode attached at parse time (from the font's
+                                // ToUnicode CMap) is preferred: it handles ligatures and
+                                // works without the font resource.
                                 for codepoint in glyphs {
                                     if let Some(cid) = codepoint.cid.as_ref() {
                                         current_chunk.push_str(cid);
@@ -303,11 +360,8 @@ impl PdfPage {
         text_chunks
     }
 
-    /// Helper function to convert glyph ID to character using font's cmap
+    // Reverse lookup through the cmap; only the Basic Multilingual Plane is searched.
     fn glyph_id_to_char(font: &ParsedFont, gid: u16) -> Option<char> {
-        // Try to find a character that maps to this glyph ID
-        // This is a reverse lookup through the cmap
-        // For efficiency, we only check common Unicode ranges
         for codepoint in 0..0x10000u32 {
             if let Some(mapped_gid) = font.lookup_glyph_index(codepoint) {
                 if mapped_gid == gid {
@@ -319,9 +373,8 @@ impl PdfPage {
     }
 }
 
-/// Horizontal advance of one glyph, in em (relative to font size).
-/// Used by text extraction to distinguish per-glyph positioning moves from
-/// real word gaps. Falls back to 0.5em when the metric is unavailable.
+// Horizontal advance of one glyph in em (relative to the font size), to tell per-glyph
+// positioning moves from word gaps in text extraction. 0.5 em when the metric is missing.
 #[cfg(feature = "text_layout")]
 pub(crate) fn glyph_advance_em(font: &ParsedFont, gid: u16) -> f32 {
     let upm = font.font_metrics.units_per_em as f32;
@@ -336,8 +389,8 @@ pub(crate) fn glyph_advance_em(font: &ParsedFont, gid: u16) -> f32 {
     }
 }
 
-/// See the `text_layout` variant above; the stub `ParsedFont` stores widths in
-/// `glyph_widths` (already in font units) with `units_per_em` alongside.
+// Same as above for the `ParsedFont` without `text_layout`, which stores `glyph_widths`
+// in font units next to `units_per_em`.
 #[cfg(not(feature = "text_layout"))]
 pub(crate) fn glyph_advance_em(font: &ParsedFont, gid: u16) -> f32 {
     let upm = font.units_per_em as f32;
@@ -350,14 +403,18 @@ pub(crate) fn glyph_advance_em(font: &ParsedFont, gid: u16) -> f32 {
     }
 }
 
+/// What a layer is meant for (`/Intent` of an optional content group).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum LayerIntent {
+    /// For viewing: the layer is shown and hidden by viewers.
     View,
+    /// For design: the layer is only meaningful to the authoring application.
     Design,
 }
 
 impl LayerIntent {
+    /// The PDF name of the intent.
     pub fn to_string(&self) -> &'static str {
         match self {
             LayerIntent::View => "View",
@@ -366,13 +423,16 @@ impl LayerIntent {
     }
 }
 
+/// The kind of content in a layer, written as `/Subtype` of its creator info.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum LayerSubtype {
+    /// Artwork such as drawings and text.
     Artwork,
 }
 
 impl LayerSubtype {
+    /// The PDF name of the subtype.
     pub fn to_string(&self) -> &'static str {
         match self {
             LayerSubtype::Artwork => "Artwork",
@@ -380,16 +440,27 @@ impl LayerSubtype {
     }
 }
 
+/// A layer (optional content group) that a viewer can show or hide.
+///
+/// Register it with [`PdfDocument::add_layer`](crate::PdfDocument::add_layer) and wrap the
+/// content between `Op::BeginLayer` and `Op::EndLayer`.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Layer {
+    /// The name shown in the layers panel of a viewer.
     pub name: String,
+    /// The application that created the layer (`/CreatorInfo`).
     pub creator: String,
+    /// What the layer is for. Not written to the file: every layer is saved with the intent
+    /// `[View Design]`.
     pub intent: LayerIntent,
+    /// The kind of content in the layer.
     pub usage: LayerSubtype,
 }
 
 impl Layer {
+    /// Creates a layer called `name` with the creator "Adobe Illustrator 14.0", intent
+    /// [`LayerIntent::Design`] and subtype [`LayerSubtype::Artwork`].
     pub fn new(name: &str) -> Self {
         Self {
             name: name.to_string(),
@@ -400,135 +471,270 @@ impl Layer {
     }
 }
 
-/// Operations that can occur in a PDF page
+/// One operation of a page's content stream, mostly one PDF operator with its operands.
+///
+/// The group overview is in the [module documentation](self). The documentation of each
+/// variant names the operator it is written as. Lengths are in points ([`Pt`]) and positions
+/// are measured from the bottom left corner of the page unless noted otherwise.
+///
+/// Serialized to JSON as `{"type": "<variant name in kebab-case>", "data": {<fields>}}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", tag = "type", content = "data")]
 pub enum Op {
-    /// Debugging or section marker (arbitrary id can mark a certain point in a stream of
-    /// operations)
-    Marker { id: String },
-    /// "CS" operator, sets the color space for stroking operations
-    SetColorSpaceStroke { id: String },
-    /// "cs" operator, sets the color space for fill operations
-    SetColorSpaceFill { id: String },
-    /// Starts a layer
-    BeginLayer { layer_id: LayerInternalId },
-    /// Ends a layer (is inserted if missing at the page end)
+    /// `MP`: marks a point in the stream with a tag. Draws nothing; useful for debugging.
+    Marker {
+        /// Tag of the marked point.
+        id: String,
+    },
+    /// `CS`: selects the color space (a named resource) for stroking operations.
+    SetColorSpaceStroke {
+        /// Resource name of the color space.
+        id: String,
+    },
+    /// `cs`: selects the color space (a named resource) for fill operations.
+    SetColorSpaceFill {
+        /// Resource name of the color space.
+        id: String,
+    },
+    /// `BDC` with the `/OC` tag: starts content that belongs to a layer. End it with
+    /// [`Op::EndLayer`].
+    BeginLayer {
+        /// A layer registered with [`PdfDocument::add_layer`](crate::PdfDocument::add_layer).
+        layer_id: LayerInternalId,
+    },
+    /// `EMC`: ends the content of a layer.
     EndLayer,
-    /// Saves the graphics configuration on the stack (line thickness, colors, overprint, etc.)
+    /// `q`: pushes the graphics state (colors, line style, matrix, font, ...) on a stack.
     SaveGraphicsState,
-    /// Pops the last graphics configuration state off the stack
+    /// `Q`: pops the graphics state pushed by the last [`Op::SaveGraphicsState`].
     RestoreGraphicsState,
-    /// Loads a specific graphics state (necessary for describing extended graphics)
-    LoadGraphicsState { gs: ExtendedGraphicsStateId },
-    /// `BT` - Starts a section of text
+    /// `gs`: applies an extended graphics state (blend mode, opacity, overprint, ...).
+    LoadGraphicsState {
+        /// A state registered with
+        /// [`PdfDocument::add_graphics_state`](crate::PdfDocument::add_graphics_state).
+        gs: ExtendedGraphicsStateId,
+    },
+    /// `BT`: starts a text object. Text operators belong between this and [`Op::EndTextSection`].
     StartTextSection,
-    /// `ET` - Ends a text section (inserted by default at the page end)
+    /// `ET`: ends a text object.
     EndTextSection,
-    
-    // --- New 1:1 PDF operations (preferred) ---
-    /// `Tf` operator: Set font and size
-    /// This maps 1:1 to PDF and should be used instead of SetFontSize/SetFontSizeBuiltinFont
-    SetFont { font: PdfFontHandle, size: Pt },
-    /// `Tj`/`TJ` operators: Show text at current position
-    /// Font must be set first with SetFont. This maps 1:1 to PDF.
-    ShowText { items: Vec<TextItem> },
-    /// `T*` Adds a line break to the text, depends on the line height
+    /// `Tf`: sets the font and size (in points) of the text that follows.
+    SetFont {
+        /// The font to use.
+        font: PdfFontHandle,
+        /// The font size.
+        size: Pt,
+    },
+    /// `Tj` / `TJ`: shows text at the current text position. A font must be set first with
+    /// [`Op::SetFont`].
+    ShowText {
+        /// Strings, glyph runs and spacing adjustments, shown one after another.
+        items: Vec<TextItem>,
+    },
+    /// `T*`: moves to the start of the next line, one line height (see [`Op::SetLineHeight`])
+    /// below the current one.
     AddLineBreak,
-    /// `TL` - Sets the line height for the text
-    SetLineHeight { lh: Pt },
-    /// `Tw`: Sets the word spacing in point (default: 100.0)
-    SetWordSpacing { pt: Pt },
-    /// Positions the text cursor in the page from the bottom left corner (can be manipulated
-    /// further with `SetTextMatrix`)
-    SetTextCursor { pos: Point },
-    /// Sets the fill color for texts / polygons
-    SetFillColor { col: Color },
-    /// Sets the outline color for texts / polygons
-    SetOutlineColor { col: Color },
-    /// Sets the outline thickness for texts / lines / polygons
-    SetOutlineThickness { pt: Pt },
-    /// Sets the outline dash pattern
-    SetLineDashPattern { dash: LineDashPattern },
-    /// Line join style: miter, round or limit
-    SetLineJoinStyle { join: LineJoinStyle },
-    /// Line cap style: butt, round, or projecting-square
-    SetLineCapStyle { cap: LineCapStyle },
-    /// Set a miter limit in Pt
-    SetMiterLimit { limit: Pt },
-    /// Sets the text rendering mode (fill, stroke, fill-stroke, clip, fill-clip)
-    SetTextRenderingMode { mode: TextRenderingMode },
-    /// Sets the character spacing (default: 1.0)
-    SetCharacterSpacing { multiplier: f32 },
-    /// `Ts`: Sets the line offset (default: 1.0)
-    SetLineOffset { multiplier: f32 },
-    /// Draw a line (colors, dashes configured earlier)
-    DrawLine { line: Line },
-    /// Draw a rectangle
-    DrawRectangle { rectangle: Rect },
-    /// Draw a polygon
-    DrawPolygon { polygon: Polygon },
-    /// Set the transformation matrix for this page. Make sure to save the old graphics state
-    /// before invoking!
-    SetTransformationMatrix { matrix: CurTransMat },
-    /// Sets a matrix that only affects subsequent text objects.
-    SetTextMatrix { matrix: TextMatrix },
-    /// Adds a link annotation (use `PdfDocument::add_link` to register the `LinkAnnotation` on the
-    /// document)
-    LinkAnnotation { link: LinkAnnotation },
-    /// Instantiates an XObject with a given transform (if the XObject has a width / height).
-    /// Use `PdfDocument::add_xobject` to register the object and get the ID.
+    /// `TL`: sets the line height ("leading") used by [`Op::AddLineBreak`].
+    SetLineHeight {
+        /// Distance between two baselines.
+        lh: Pt,
+    },
+    /// `Tw`: sets the extra space added to every space character. The default is 0.
+    SetWordSpacing {
+        /// The extra space.
+        pt: Pt,
+    },
+    /// `Td`: moves the text position by `pos` from the start of the current line. Right after
+    /// [`Op::StartTextSection`] this is the position on the page, measured from the bottom left
+    /// corner.
+    SetTextCursor {
+        /// The offset (the position on the page for the first move in a text section).
+        pos: Point,
+    },
+    /// `g` / `rg` / `k`: sets the fill color of text and shapes (gray, RGB or CMYK, by the kind
+    /// of [`Color`]).
+    SetFillColor {
+        /// The color; components are in the range 0.0 to 1.0.
+        col: Color,
+    },
+    /// `G` / `RG` / `K`: sets the stroke color of outlines (gray, RGB or CMYK, by the kind of
+    /// [`Color`]).
+    SetOutlineColor {
+        /// The color; components are in the range 0.0 to 1.0.
+        col: Color,
+    },
+    /// `w`: sets the line width used for strokes.
+    SetOutlineThickness {
+        /// The line width.
+        pt: Pt,
+    },
+    /// `d`: sets the dash pattern of strokes.
+    SetLineDashPattern {
+        /// Dash and gap lengths and the start offset.
+        dash: LineDashPattern,
+    },
+    /// `j`: sets how the corners of a stroked path are joined (miter, round or bevel).
+    SetLineJoinStyle {
+        /// The join style.
+        join: LineJoinStyle,
+    },
+    /// `J`: sets how the ends of a stroked line look (butt, round or projecting square).
+    SetLineCapStyle {
+        /// The cap style.
+        cap: LineCapStyle,
+    },
+    /// `M`: sets the miter limit, which turns a sharp miter join into a bevel.
+    SetMiterLimit {
+        /// The limit, written as the plain number.
+        limit: Pt,
+    },
+    /// `Tr`: sets whether text is filled, stroked, both, or used as a clipping path.
+    SetTextRenderingMode {
+        /// The rendering mode.
+        mode: TextRenderingMode,
+    },
+    /// `Tc`: sets the extra space added after every glyph. The default is 0.
+    SetCharacterSpacing {
+        /// The extra space, written as the plain number (text space units).
+        multiplier: f32,
+    },
+    /// `Ts`: sets the text rise, the offset of the baseline up (positive) or down. Used for
+    /// superscript and subscript. The default is 0.
+    SetLineOffset {
+        /// The offset, written as the plain number (text space units).
+        multiplier: f32,
+    },
+    /// `m`, `l`, `c`, `h`, `S`: strokes a line made of straight and bezier segments with the
+    /// current outline settings. It is closed first when `is_closed` is set.
+    DrawLine {
+        /// The line.
+        line: Line,
+    },
+    /// `re` followed by the paint operator of the rectangle's `mode` (`f`, `S`, `B` or `W n`
+    /// for fill, stroke, fill and stroke, clip). Without a mode nothing is painted.
+    DrawRectangle {
+        /// The rectangle; its `mode` and `winding_order` decide how it is painted.
+        rectangle: Rect,
+    },
+    /// `m`, `l`, `c` for every ring, `h`, then the paint operator of the polygon's `mode`
+    /// (fill, stroke, close and fill and stroke, or clip).
+    DrawPolygon {
+        /// The polygon.
+        polygon: Polygon,
+    },
+    /// `cm`: multiplies the current transformation matrix, so it moves, rotates or scales
+    /// everything drawn afterwards. Wrap it in [`Op::SaveGraphicsState`] and
+    /// [`Op::RestoreGraphicsState`] to limit its effect.
+    SetTransformationMatrix {
+        /// The matrix to apply.
+        matrix: CurTransMat,
+    },
+    /// `Tm`: replaces the text matrix, which positions, rotates and scales the text of the
+    /// current text section.
+    SetTextMatrix {
+        /// The new text matrix.
+        matrix: TextMatrix,
+    },
+    /// A clickable area. It is not part of the content stream: when saving, it is added to the
+    /// `/Annots` of the page.
+    LinkAnnotation {
+        /// The area and what happens on a click.
+        link: LinkAnnotation,
+    },
+    /// `q`, `cm`, `Do`, `Q`: draws an XObject (an image or a drawing) with the given placement.
     UseXobject {
+        /// An XObject registered with [`PdfDocument::add_image`](crate::PdfDocument::add_image)
+        /// or [`PdfDocument::add_xobject`](crate::PdfDocument::add_xobject).
         id: XObjectId,
+        /// Position, rotation and scale of the XObject. Images are first scaled to their pixel
+        /// size at the transform's DPI.
         transform: XObjectTransform,
     },
-    /// `TD` operation
-    MoveTextCursorAndSetLeading { tx: f32, ty: f32 },
-    /// `ri` operation
-    SetRenderingIntent { intent: RenderingIntent },
-    /// `Tz` operation
-    SetHorizontalScaling { percent: f32 },
-    /// Begins an inline image object.
+    /// `TD`: moves the text position by `(tx, ty)` and sets the line height to `-ty`.
+    MoveTextCursorAndSetLeading {
+        /// Horizontal move, in text space units.
+        tx: f32,
+        /// Vertical move, in text space units.
+        ty: f32,
+    },
+    /// `ri`: sets the rendering intent, which says how colors are converted when the output
+    /// device cannot show them exactly.
+    SetRenderingIntent {
+        /// The intent.
+        intent: RenderingIntent,
+    },
+    /// `Tz`: sets the horizontal scaling of glyphs. 100 is normal width.
+    SetHorizontalScaling {
+        /// The scale in percent.
+        percent: f32,
+    },
+    /// `BI`: begins an inline image, an image stored inside the content stream.
     BeginInlineImage,
-    /// Begins the inline image data.
+    /// `ID`: begins the data of an inline image.
     BeginInlineImageData,
-    /// Ends the inline image object.
+    /// `EI`: ends an inline image.
     EndInlineImage,
-    /// Begins a marked content sequence.
-    BeginMarkedContent { tag: String },
-    /// Begins a marked content sequence with an accompanying property list.
-    BeginMarkedContentWithProperties {
+    /// `BMC`: begins a marked-content sequence with a tag.
+    BeginMarkedContent {
+        /// The tag naming the kind of content.
         tag: String,
+    },
+    /// `BDC`: begins a marked-content sequence with a tag and a property dictionary.
+    BeginMarkedContentWithProperties {
+        /// The tag naming the kind of content.
+        tag: String,
+        /// The property dictionary.
         properties: DictItem,
     },
-    /// Starts an optional content layer
-    BeginOptionalContent { layer_id: LayerInternalId },
-    /// Defines a marked content point with properties.
+    /// `BDC` with the `/OC` tag: begins optional content, which a viewer can show or hide.
+    BeginOptionalContent {
+        /// The layer the content belongs to.
+        layer_id: LayerInternalId,
+    },
+    /// `DP`: defines a marked-content point with properties.
     DefineMarkedContentPoint {
+        /// The tag naming the point.
         tag: String,
+        /// The properties of the point.
         properties: Vec<DictItem>,
     },
-    /// Ends the current marked-content sequence.
+    /// `EMC`: ends the current marked-content sequence.
     EndMarkedContent,
-    /// Ends the current marked-content sequence.
+    /// `EMC`: ends a marked-content sequence started with properties.
     EndMarkedContentWithProperties,
-    /// Ends the current optional content sequence.
+    /// `EMC`: ends optional content.
     EndOptionalContent,
-    /// Begins a compatibility section (operators inside are ignored).
+    /// `BX`: begins a compatibility section, in which unknown operators are ignored.
     BeginCompatibilitySection,
-    /// Ends a compatibility section.
+    /// `EX`: ends a compatibility section.
     EndCompatibilitySection,
-    /// Moves to the next line and shows text (the `'` operator).
-    MoveToNextLineShowText { text: String },
-    /// Sets spacing, moves to the next line, and shows text (the `"` operator).
-    SetSpacingMoveAndShowText {
-        word_spacing: f32,
-        char_spacing: f32,
+    /// `'`: moves to the start of the next line and shows text.
+    MoveToNextLineShowText {
+        /// The text, encoded for the current font.
         text: String,
     },
-    /// `sh` operator: paint a registered shading (gradient) over the current clip
-    /// region. The shading must exist in `resources.shadings` under `id`.
-    PaintShading { id: ShadingId },
-    /// Unknown, custom key / value operation
-    Unknown { key: String, value: Vec<DictItem> },
+    /// `"`: sets word and character spacing, moves to the start of the next line and shows
+    /// text.
+    SetSpacingMoveAndShowText {
+        /// Word spacing (like `Tw`).
+        word_spacing: f32,
+        /// Character spacing (like `Tc`).
+        char_spacing: f32,
+        /// The text, encoded for the current font.
+        text: String,
+    },
+    /// `sh`: paints a shading (a gradient) over the current clipping region.
+    PaintShading {
+        /// A shading registered with
+        /// [`PdfDocument::add_shading`](crate::PdfDocument::add_shading).
+        id: ShadingId,
+    },
+    /// Any other operator. It is written only when [`PdfSaveOptions::secure`](crate::PdfSaveOptions::secure)
+    /// is `false`, and dropped otherwise.
+    Unknown {
+        /// The operator name.
+        key: String,
+        /// The operands.
+        value: Vec<DictItem>,
+    },
 }
