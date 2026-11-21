@@ -17,6 +17,7 @@
 - Pages, Bookmarks, link annotations (read / write)
 - Layers (read / write)
 - Graphics: lines, shapes, bezier curves, SVG content (read / write)
+- Gradients: axial and radial (read / write), also from CSS `linear-gradient` and `radial-gradient` in HTML
 - Images encoding / decoding (read support: experimental / write supported with `image`)
 - Embedded fonts, Unicode support (read support: experimental / write)
 - Minifying file size (auto-subsetting fonts)
@@ -35,9 +36,8 @@ Experimental features:
 
 NOT supported are:
 
-- Gradients
-- Patterns
-- File attachements
+- Patterns (tiling and shading patterns as fill or stroke colors)
+- File attachments
 - Open Prepress Interface
 - Halftoning images
 - Conformance / error checking for various PDF standards
