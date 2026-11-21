@@ -1,24 +1,23 @@
 target/*
-./*.pdf
-./test_
-test_*
+/ppdf/target
 .vscode/*
-.cargo/*
 .idea/
 *.pdf
 *.svg
 out.txt
-/pkg
-examples/.DS_Store
-Cargo.lock
-.DS_Store
-web/pdfjs-4.7.76-legacy-dist
-web/pdfjs-4.7.76-legacy-dist/*
-web/__MACOSX
+test_*
 .DS_Store
 *.txt
-/default-fonts.js
+
+# The demo that scripts/build-demo.sh assembles
+/_site
+
+# Cargo.lock is ignored for the library, but ppdf is a binary and commits its lock file.
+Cargo.lock
+!/ppdf/Cargo.lock
+
 /tests/e2e/node_modules
 /tests/e2e/package.json
 /tests/e2e/package-lock.json
 /.cargo/
+.cargo/*

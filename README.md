@@ -9,7 +9,7 @@
 
 > [!NOTE]
 > HTML-to-PDF rendering (`PdfDocument::from_html`, `html` feature) works for
-> basic layouts - tables, page breaks, headers/footers - but is still
+> basic layouts - tables, page breaks, footnotes - but is still
 > evolving. For pixel-exact control, position PDF elements manually with ops.
 
 ## Features
@@ -227,9 +227,9 @@ For creating tables, etc. printpdf uses a basic layout system, similar to wkhtml
 book rendering and reports / forms / etc. Includes automatic page-breaking.
 
 Since printpdf supports WASM, there is an interactive demo at 
-https://fschutt.github.io/printpdf - try playing with the XML.
+https://fschutt.github.io/printpdf - try playing with the HTML.
 
-See [SYNTAX.md](./SYNTAX.md) for the XML syntax description.
+See [docs/HTML.md](docs/HTML.md) for the supported HTML/CSS.
 
 ```rust
 // needs --features="html"
@@ -241,26 +241,13 @@ fn main() {
 
     let html = r#"
     <html>
-
         <!-- printpdf automatically breaks content into pages -->
         <body style="padding:10mm">
-            <p style="color: red; font-family: sans-serif;" data-chapter="1" data-subsection="First subsection">Hello!</p>
-            <div style="width:200px;height:200px;background:red;" data-chapter="1" data-subsection="Second subsection">
+            <p style="color: red; font-family: sans-serif;">Hello!</p>
+            <div style="width:200px;height:200px;background:red;">
                 <p>World!</p>
             </div>
         </body>
-
-        <!-- configure header and footer for each page -->
-        <head>
-            <header>
-                <h4 style="color: #2e2e2e;min-height: 8mm;">Chapter {attr:chapter} * {attr:subsection}</h4>
-                <p style="position: absolute;top:5mm;left:5mm;">{builtin:pagenum}</p>
-            </header>
-
-            <footer>
-                <hr/>
-            <footer/>
-        </head>
     </html>
     "#;
 
@@ -281,6 +268,18 @@ fn main() {
         .unwrap()
         .save(&PdfSaveOptions::default(), &mut warnings);
 }
+```
+
+## Command line
+
+[`ppdf`](ppdf) is a command-line tool built on printpdf. It converts a PDF to JSON
+and back, so a PDF can be edited with `jq`, and it extracts text, text boxes, SVG
+pages, fonts and images. It also renders HTML to PDF.
+
+```sh
+cargo install ppdf
+ppdf json in.pdf | jq '.pages |= [.[1], .[0]] + .[2:]' | ppdf pdf - -o swapped.pdf
+ppdf text in.pdf
 ```
 
 ## Roadmap

@@ -11,7 +11,7 @@
 # tests/e2e/driver.mjs + scenarios.mjs are the same files you can run locally:
 #   bash scripts/build-demo.sh
 #   cd tests/e2e && npm i puppeteer-core && node driver.mjs \
-#     --root ../.. --chrome "$(command -v google-chrome)" \
+#     --root ../../_site --chrome "$(command -v google-chrome)" \
 #     --scenarios ./scenarios.mjs --out /tmp/e2e-artifacts
 name: Demo e2e (headless chrome)
 
@@ -59,7 +59,7 @@ jobs:
           CHROME="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium-browser)"
           echo "using chrome: $CHROME ($($CHROME --version))"
           cd tests/e2e
-          node driver.mjs --root ../.. --chrome "$CHROME" \
+          node driver.mjs --root ../../_site --chrome "$CHROME" \
             --scenarios ./scenarios.mjs --out "$RUNNER_TEMP/e2e-artifacts"
       - name: Validate downloaded PDFs with poppler
         run: |

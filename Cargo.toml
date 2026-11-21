@@ -12,25 +12,17 @@ readme = "README.md"
 description = "Rust library for reading and writing PDF files"
 keywords = ["pdf", "gui", "graphics", "wkhtmltopdf"]
 categories = ["gui"]
-# Only the top-level web-demo/dev files are excluded (leading "/" = repo-root-anchored,
-# gitignore syntax; the old "./..."-prefixed globs matched nothing at all). Everything
-# under examples/assets and tests/ SHIPS ON PURPOSE despite being ~9 MB of the package:
+# Only the web demo (web/), the docs (docs/) and the separate ppdf CLI crate (ppdf/) are
+# excluded (leading "/" = repo-root-anchored, gitignore syntax). Everything under
+# examples/assets and tests/ SHIPS ON PURPOSE despite being ~9 MB of the package:
 # lib tests and examples include_bytes!/include_str! those files, so excluding them
 # breaks `cargo test` of the published crate (distro packagers run it). The package is
 # at ~87% of crates.io's 10 MiB cap — publish-safety in ci.yaml watches the size; do
 # not add large assets.
 exclude = [
-  "/index.html",
-  "/script.js",
-  "/style.css",
-  "/subset.ttf",
-  "/build.sh",
-  "/gen.sh",
-  "/API.md",
-  "/COMPARISON.md",
-  "/STRUCTS.md",
-  "/SYNTAX.md",
-  "/CHANGELOG2.md",
+  "/web",
+  "/docs",
+  "/ppdf",
 ]
 autoexamples = false
 edition = "2021"

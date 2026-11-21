@@ -1,8 +1,13 @@
 // Headless e2e scenarios for the printpdf wasm demo. Each scenario drives the
 // REAL page (no API shortcuts): typing, tab switches, file uploads, downloads.
 // Run via driver.mjs; every scenario also fails on any console error it causes.
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { stat } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+
+// Test assets sit next to this file. ctx.root is the directory that is served (the demo
+// in _site/), which does not contain tests/.
+const here = dirname(fileURLToPath(import.meta.url));
 
 const SEL = {
     page: '.pdf-viewer .page svg',
@@ -140,7 +145,7 @@ export const scenarios = [
         async run(page, ctx) {
             await page.click('#tab-sign');
             const sig = await page.$('#signature-image-upload');
-            await sig.uploadFile(join(ctx.root, 'tests/e2e/assets/signature.png'));
+            await sig.uploadFile(join(here, 'assets/signature.png'));
             // The decode is async (Pdf_DecodeImage) — clicking apply before it
             // finishes places nothing. Wait for the ready flag.
             await page.waitForFunction(

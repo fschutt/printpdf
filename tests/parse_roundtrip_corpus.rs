@@ -1,6 +1,6 @@
 //! Round-trip audit harness: parse -> save -> parse for every corpus PDF.
 //!
-//! Corpus = the `*_example.pdf` files that `bash gen.sh` writes into the repo
+//! Corpus = the `*_example.pdf` files that `bash scripts/gen-examples.sh` writes into the repo
 //! root (skipped silently when absent, so CI stays green without the corpus)
 //! plus documents that other tests in this file build through the public API.
 //!
