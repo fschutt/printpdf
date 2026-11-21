@@ -1,87 +1,128 @@
-//! Interactive forms (AcroForm): read a PDF's fields - their kind, fully
-//! qualified name, value, options and where their widgets sit - and FILL
-//! them: the values written into the fields (with a fresh appearance, so
-//! every viewer shows them), or FLATTENED into the pages (drawn as page
-//! content, the fields removed: "the rendered PDF with the values"), with
-//! STAMPS (vector drawings - a signature) drawn onto pages.
+//! Interactive forms (AcroForm): reading, filling and flattening.
 //!
-//! Works on the PDF's own bytes at the `lopdf` level, not on printpdf's op
-//! model: a parsed `PdfDocument` drops the form (widgets, `/AcroForm`,
-//! appearance streams) and re-serialises from scratch, so filling through it
-//! would lose the form and everything else the model does not carry. Here
-//! every object the fill does not touch is written back as it was.
+//! A PDF form is a tree of *fields* (a text box, a check box, a drop-down, ...) listed under
+//! the `/AcroForm` entry of the document catalog. Each field has a name, a value and one or
+//! more *widgets*: annotations that say on which page, and in which rectangle, the field is
+//! drawn. A widget shows its field through an *appearance stream*, a small content stream stored
+//! with the widget. Viewers draw that stream, so a changed value is only visible if the
+//! appearance changes with it.
 //!
-//! The text of a generated appearance is set in the standard Helvetica
-//! (WinAnsiEncoding): characters outside Windows-1252 become `?`.
+//! * [`parse_form_fields`] reads the fields of a PDF: kind, fully qualified name
+//!   (`parent.child`), value, options and widgets.
+//! * [`fill_form`] sets values, writes a new appearance stream for each changed widget and
+//!   returns the new PDF. With `flatten` it instead draws every widget's appearance into its
+//!   page and removes the widgets and the form, which leaves a plain PDF that shows the values.
+//!   It can also draw [`FormStamp`]s (vector drawings, for example a signature) onto pages.
+//! * [`fields_svg`] draws the values of parsed fields as SVG, for showing a form on a page
+//!   that was rendered without its widgets.
+//!
+//! This module works on the bytes of the PDF with `lopdf`, not on [`PdfDocument`](crate::PdfDocument):
+//! parsing a PDF into a `PdfDocument` drops the form, and saving it writes the document
+//! from scratch. Here every object that is not changed is written back as it was.
+//!
+//! Page numbers in this module start at 0 (unlike the 1-based pages of the
+//! [`annotation`](crate::annotation) module), and rectangles are `[llx, lly, urx, ury]` in
+//! points from the bottom left corner of the page.
+//!
+//! Limits: generated appearances use the built-in Helvetica font with WinAnsiEncoding, and
+//! characters outside Windows-1252 are drawn as `?`. A value is written as given: it is not
+//! checked against `read_only`, `max_len` or a choice's options. Push buttons and signature
+//! fields are not given a value or a generated appearance, and signing is not supported. Only
+//! fields listed under `/AcroForm /Fields` are found; XFA form data is ignored.
+//!
+//! # Examples
+//!
+//! ```no_run
+//! use printpdf::forms::{fill_form, parse_form_fields, FieldValue};
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let bytes = std::fs::read("form.pdf")?;
+//! for field in parse_form_fields(&bytes)? {
+//!     println!("{} = {:?}", field.name, field.value);
+//! }
+//! let values = [FieldValue { name: "person.name".into(), value: "Grace".into() }];
+//! // `false`: keep the form editable. Pass `true` to flatten it into the pages.
+//! let filled = fill_form(&bytes, &values, &[], false)?;
+//! std::fs::write("filled.pdf", filled)?;
+//! # Ok(())
+//! # }
+//! ```
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream, StringFormat};
 
-/// What a field is.
+/// The kind of a form field, from its `/FT` entry and field flags (ISO 32000-1, 12.7.4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FormFieldKind {
-    /// A text box (`/FT /Tx`).
+    /// Text box (`/FT /Tx`).
     Text,
-    /// A check box (`/FT /Btn`, neither radio nor push button).
+    /// Check box (`/FT /Btn`, neither radio nor push button).
     CheckBox,
-    /// A group of radio buttons (`/FT /Btn` with the Radio flag): one field,
-    /// one widget per button, the value is the chosen button's state name.
+    /// Group of radio buttons (`/FT /Btn` with the Radio flag): one field with one widget per
+    /// button. The value is the state name of the chosen button.
     RadioButton,
-    /// A drop-down (`/FT /Ch` with the Combo flag).
+    /// Drop-down list (`/FT /Ch` with the Combo flag).
     ComboBox,
-    /// A list (`/FT /Ch`).
+    /// List box (`/FT /Ch` without the Combo flag).
     ListBox,
-    /// A push button (no value).
+    /// Push button (`/FT /Btn` with the Pushbutton flag). It has no value.
     PushButton,
-    /// A signature field (`/FT /Sig`).
+    /// Signature field (`/FT /Sig`).
     Signature,
 }
 
-/// Where a field is drawn: one of its widget annotations.
+/// Where a field is drawn: one widget annotation of a field.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FormWidget {
-    /// The page, 0-based.
+    /// Page the widget is on, starting at 0.
     pub page: usize,
-    /// `[llx, lly, urx, ury]` in PDF points (origin bottom-left).
+    /// Bounds `[llx, lly, urx, ury]` in points, origin at the bottom left of the page.
     pub rect: [f32; 4],
-    /// A check box's / radio button's "on" state name (`Yes`, `Choice1`),
-    /// from its appearance dictionary; empty for other fields.
+    /// Name of the "on" state of a check box or radio button (`Yes`, `Choice1`), taken from its
+    /// appearance dictionary. Empty for other fields and for widgets without appearances.
     pub on_state: String,
-    /// Hidden or not printed (annotation flags): drawn by no viewer.
+    /// The annotation has the Hidden or NoView flag, so viewers do not show it.
     pub hidden: bool,
 }
 
-/// One form field.
+/// A form field with its value and widgets, as read by [`parse_form_fields`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct FormField {
-    /// The fully qualified name (`parent.child`): what a value is set by.
+    /// Fully qualified name (`parent.child`), the partial names of the field and its ancestors
+    /// joined with dots. [`FieldValue::name`] refers to a field by this name.
     pub name: String,
+    /// What kind of field this is.
     pub kind: FormFieldKind,
-    /// The value: a text, a choice's display text, a check box's /
-    /// radio group's state name (`Off` when unchecked).
+    /// Current value: the text of a text field, the display text of a choice, or the state
+    /// name of a check box or radio group (`Off` when unchecked). Empty when unset.
     pub value: String,
-    /// The default value (`/DV`), in the same form.
+    /// Default value (`/DV`), in the same form as `value`.
     pub default_value: String,
-    /// A choice's options (display texts); a radio group's on-states.
+    /// Display texts of a choice's options; the on-state names of a radio group.
     pub options: Vec<String>,
+    /// The places where the field is drawn.
     pub widgets: Vec<FormWidget>,
+    /// The ReadOnly flag is set. [`fill_form`] does not check it.
     pub read_only: bool,
+    /// The Required flag is set.
     pub required: bool,
-    /// A text field with several lines.
+    /// Text field with several lines (the Multiline flag).
     pub multiline: bool,
-    /// A text field showing bullets.
+    /// Text field that shows asterisks instead of its text (the Password flag).
     pub password: bool,
-    /// A text field's maximum length; `None` for no limit.
+    /// Maximum length of a text field in characters, `None` for no limit. [`fill_form`] does
+    /// not check it.
     pub max_len: Option<u32>,
-    /// The font size from the default appearance (`/DA`); 0 = auto.
+    /// Font size in points from the default appearance string (`/DA`); `0.0` selects the size
+    /// automatically.
     pub font_size: f32,
-    /// 0 left, 1 centred, 2 right (`/Q`).
+    /// Text alignment from `/Q`: 0 left, 1 centered, 2 right.
     pub alignment: u8,
 }
 
 impl FormField {
-    /// Whether a check box / radio value means "checked" for `widget`.
+    /// Whether the value of this check box or radio group means "checked" for `widget`.
     #[must_use]
     pub fn is_on(&self, widget: &FormWidget) -> bool {
         is_on_value(&self.value, widget)
@@ -96,42 +137,56 @@ fn is_on_value(value: &str, widget: &FormWidget) -> bool {
     }
 }
 
-/// A value to set: the field's fully qualified name and its new value - a
-/// text, a choice's display text, a check box's on-state name (`true` works
-/// too) or `Off` / `false`.
+/// A value to set with [`fill_form`].
+///
+/// `value` is a text for a text field, the display text for a choice, and for a check box or
+/// radio group the name of the on-state (`Yes`; `true` also works) or `Off` / `false`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldValue {
+    /// Fully qualified name of the field, see [`FormField::name`].
     pub name: String,
+    /// The new value.
     pub value: String,
 }
 
-/// One segment of a stamp's path, in the stamp's own coordinates (SVG-like:
-/// y down, inside its `view_box`).
+/// One segment of a stamp's path, in the stamp's own coordinates (like SVG: y points down,
+/// inside the stamp's `view_box`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum StampSegment {
+    /// Starts a new subpath at `(x, y)` (`m`).
     MoveTo(f32, f32),
+    /// Straight line to `(x, y)` (`l`).
     LineTo(f32, f32),
+    /// Cubic Bezier curve: two control points, then the end point (`c`).
     CubicTo(f32, f32, f32, f32, f32, f32),
+    /// Closes the subpath with a straight line to its start (`h`).
     Close,
 }
 
-/// A path of a stamp: stroked and / or filled, colours as RGB 0..1.
+/// A path of a stamp, stroked, filled or both. Colors are RGB with components in `0.0..=1.0`.
+/// A path with neither stroke nor fill is not drawn.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StampPath {
+    /// The path, in view-box coordinates.
     pub segments: Vec<StampSegment>,
-    /// The stroke: width (in view-box units) and colour.
+    /// Line width in view-box units and RGB color, `None` for no outline.
     pub stroke: Option<(f32, [f32; 3])>,
+    /// RGB fill color, `None` for no fill.
     pub fill: Option<[f32; 3]>,
 }
 
-/// A vector drawing put on a page (a signature): its paths, drawn in
-/// `view_box` coordinates (`[x, y, width, height]`, y down) and mapped onto
-/// `rect` (`[llx, lly, urx, ury]` in points).
+/// A vector drawing put on a page by [`fill_form`], for example a handwritten signature.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FormStamp {
+    /// Page to draw on, starting at 0. A page that does not exist is ignored.
     pub page: usize,
+    /// Where the drawing goes on the page: `[llx, lly, urx, ury]` in points from the bottom
+    /// left corner.
     pub rect: [f32; 4],
+    /// Coordinate system of the paths: `[x, y, width, height]`, y down. It is scaled to fill
+    /// `rect`. Nothing is drawn if its width or height is not positive.
     pub view_box: [f32; 4],
+    /// The paths of the drawing, drawn in order.
     pub paths: Vec<StampPath>,
 }
 
@@ -169,12 +224,14 @@ struct FoundField {
     inherited: Inherited,
 }
 
-/// The fields of the PDF `bytes`, in document order. A PDF without a form
-/// has none.
+/// Reads the form fields of the PDF `bytes`, in document order. A PDF without a form gives an
+/// empty list.
+///
+/// A field with an unknown or missing `/FT` entry is left out.
 ///
 /// # Errors
 ///
-/// When the bytes do not load as a PDF.
+/// Returns an error when the bytes do not load as a PDF.
 pub fn parse_form_fields(bytes: &[u8]) -> Result<Vec<FormField>, String> {
     let doc = Document::load_mem(bytes).map_err(|e| format!("not a PDF: {e}"))?;
     Ok(form_fields(&doc))
@@ -440,8 +497,8 @@ fn rect_of(doc: &Document, object: &Object) -> Option<[f32; 4]> {
     Some([v[0].min(v[2]), v[1].min(v[3]), v[0].max(v[2]), v[1].max(v[3])])
 }
 
-/// A text string (PDF 32000 7.9.2.2): UTF-16BE with a BOM, UTF-8 with one,
-/// else PDFDocEncoding (read as Latin-1, which it matches for text).
+/// Decodes a PDF text string (ISO 32000-1, 7.9.2.2): UTF-16BE or UTF-8 when it starts with a
+/// byte order mark, else PDFDocEncoding, which is read as Latin-1.
 #[must_use]
 pub fn decode_text_string(bytes: &[u8]) -> String {
     if let Some(utf16) = bytes.strip_prefix(&[0xFE, 0xFF]) {
@@ -522,8 +579,6 @@ fn da_colour(da: &[u8]) -> String {
     }
     "0 g".to_string()
 }
-
-// ==== Drawing a field's value ====
 
 /// Helvetica's advance widths for the printable ASCII range (AFM, per 1000
 /// units); a character outside it counts as 556.
@@ -714,10 +769,12 @@ fn appearance_content(field: &FormField, widget: &FormWidget, da: &[u8], w: f32,
     out
 }
 
-/// A field's value as SVG elements in a page's user space (`page_height`
-/// points tall, y down) - what [`fill_form`] would draw, for showing a form's
-/// values on a page rendered without its widgets. Widgets of other pages,
-/// hidden ones and empty values draw nothing.
+/// Draws the values of `fields` on `page` (starting at 0) as SVG elements, for showing a form
+/// on a page that was rendered without its widgets.
+///
+/// The coordinates are those of an SVG page `page_height` points tall (y down). The result has
+/// the same look as what [`fill_form`] draws: check marks, radio dots and text in Helvetica.
+/// Widgets of other pages, hidden widgets and empty values draw nothing.
 #[must_use]
 pub fn fields_svg(fields: &[FormField], page: usize, page_height: f32) -> String {
     let mut svg = String::new();
@@ -806,16 +863,19 @@ fn xml_escape(text: &str) -> String {
     out
 }
 
-// ==== Filling ====
-
-/// The PDF `bytes` with `values` set and `stamps` drawn: the fields keep
-/// their values (with a fresh appearance each, `/NeedAppearances` set), or,
-/// with `flatten`, every field is drawn into its page and the form removed.
-/// A value for a name the form does not have is ignored.
+/// Sets form field values and draws stamps, and returns the new PDF.
+///
+/// Each field named in `values` gets its value and a new appearance stream for every widget,
+/// and `/NeedAppearances` is set so that viewers may regenerate them. A name that the form does
+/// not have is ignored. `stamps` are drawn on top of the page content.
+///
+/// With `flatten`, every visible widget (not only the filled ones) is drawn into its page,
+/// using its own appearance or a generated one, and the widgets and the `/AcroForm` entry are
+/// removed, so the result has no form fields left. Hidden widgets are not drawn.
 ///
 /// # Errors
 ///
-/// When the bytes do not load as a PDF, or the result cannot be written.
+/// Returns an error when the bytes do not load as a PDF or the result cannot be written.
 pub fn fill_form(
     bytes: &[u8],
     values: &[FieldValue],
@@ -838,7 +898,6 @@ pub fn fill_form(
         .map(|v| (v.name.as_str(), v.value.as_str()))
         .collect();
 
-    // 1. The values into the fields, and a fresh appearance per widget.
     for (found, field) in &mut fields {
         let Some(value) = wanted.get(field.name.as_str()) else {
             continue;
@@ -846,7 +905,6 @@ pub fn fill_form(
         set_value(&mut doc, found, field, value);
     }
 
-    // 2. Flatten: each visible widget's appearance drawn into its page.
     let mut page_content: BTreeMap<usize, Vec<u8>> = BTreeMap::new();
     let mut page_xobjects: BTreeMap<usize, Vec<(Vec<u8>, ObjectId)>> = BTreeMap::new();
     if flatten {
@@ -883,7 +941,6 @@ pub fn fill_form(
         }
     }
 
-    // 3. The stamps.
     for stamp in stamps {
         page_content
             .entry(stamp.page)
@@ -891,7 +948,6 @@ pub fn fill_form(
             .extend_from_slice(&stamp_content(stamp));
     }
 
-    // 4. The new content after each page's own (its graphics state reset).
     for (page, content) in &page_content {
         let Some(page_id) = page_ids.get(page).copied() else {
             continue;
@@ -900,7 +956,6 @@ pub fn fill_form(
         append_page_content(&mut doc, page_id, content.clone(), &xobjects);
     }
 
-    // 5. Flattened: no widgets, no form.
     if flatten {
         let widget_ids: BTreeSet<ObjectId> = fields
             .iter()
