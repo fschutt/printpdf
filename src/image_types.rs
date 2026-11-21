@@ -453,20 +453,25 @@ pub(crate) fn raw_image_to_basic_stream(
     };
 
     let stride = ncolor + usize::from(has_alpha);
-    let mut color = Vec::with_capacity(im.width * im.height * ncolor);
+    // The capacities come from the samples, not from `width` and `height`: they need not agree.
+    let pixel_count = raw.len() / stride;
+    let mut color = Vec::with_capacity(pixel_count * ncolor);
     let mut alpha = if has_alpha {
-        Vec::with_capacity(im.width * im.height)
+        Vec::with_capacity(pixel_count)
     } else {
         Vec::new()
     };
     for px in raw.chunks_exact(stride) {
-        match (ncolor, bgr) {
-            (3, false) => color.extend_from_slice(&px[0..3]),
-            (3, true) => color.extend_from_slice(&[px[2], px[1], px[0]]),
-            _ => color.push(px[0]),
+        match (ncolor, bgr, px) {
+            (3, false, [r, g, b, ..]) => color.extend_from_slice(&[*r, *g, *b]),
+            (3, true, [b, g, r, ..]) => color.extend_from_slice(&[*r, *g, *b]),
+            (_, _, [grey, ..]) => color.push(*grey),
+            _ => {}
         }
         if has_alpha {
-            alpha.push(px[stride - 1]);
+            if let Some(&a) = px.last() {
+                alpha.push(a);
+            }
         }
     }
 

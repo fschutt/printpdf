@@ -20,6 +20,11 @@ pub use crate::image_types::{
     RawImageFormat,
 };
 
+// The decoders read the size of the picture from the file header, so a few bytes can ask for
+// gigabytes. A file that decodes to more bytes than this, or has a longer side, is refused.
+const MAX_DECODED_IMAGE_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_IMAGE_SIDE: u32 = 1 << 20;
+
 struct RawImageU8 {
     pub pixels: Vec<u8>,
     pub width: usize,
@@ -78,6 +83,17 @@ impl RawImageFormat {
             RGBAF32 => (ColorBits::Bit16, ColorSpace::Rgba),
         }
     }
+
+    // Samples per pixel.
+    fn channels(&self) -> usize {
+        use self::RawImageFormat::*;
+        match self {
+            R8 | R16 => 1,
+            RG8 | RG16 => 2,
+            RGB8 | RGB16 | BGR8 | RGBF32 => 3,
+            RGBA8 | RGBA16 | BGRA8 | RGBAF32 => 4,
+        }
+    }
 }
 
 impl RawImageData {
@@ -99,6 +115,15 @@ impl RawImageData {
             RawImageData::U8(vec) => vec.is_empty(),
             RawImageData::U16(vec) => vec.is_empty(),
             RawImageData::F32(vec) => vec.is_empty(),
+        }
+    }
+
+    // The number of samples, whatever their type.
+    fn sample_count(&self) -> usize {
+        match self {
+            RawImageData::U8(vec) => vec.len(),
+            RawImageData::U16(vec) => vec.len(),
+            RawImageData::F32(vec) => vec.len(),
         }
     }
 }
@@ -144,6 +169,14 @@ impl RawImage {
             pixels: RawImageData::empty(format),
             tag: Vec::new(),
         }
+    }
+
+    // `width * height * channels`, the number of samples `pixels` must hold. `None` when the
+    // product does not fit in a `usize`.
+    fn expected_sample_count(&self) -> Option<usize> {
+        self.width
+            .checked_mul(self.height)?
+            .checked_mul(self.data_format.channels())
     }
 
     /// Like [`RawImage::decode_from_bytes`]. In a browser (`wasm32` with the `js-sys` feature) it
@@ -227,7 +260,8 @@ impl RawImage {
     /// # Errors
     ///
     /// Returns a message when the format is not recognized or its feature is not enabled, when
-    /// decoding fails, or for a color type that has no [`RawImageFormat`].
+    /// decoding fails, when the picture needs more than 512 MiB decoded or has a side longer
+    /// than 1,048,576 pixels, or for a color type that has no [`RawImageFormat`].
     ///
     /// # Examples
     ///
@@ -318,11 +352,16 @@ impl RawImage {
             }
         }
 
-        let im = match image::ImageReader::new(Cursor::new(bytes))
+        let mut reader = image::ImageReader::new(Cursor::new(bytes))
             .with_guessed_format()
-            .map_err(|e| e.to_string())?
-            .decode()
-        {
+            .map_err(|e| e.to_string())?;
+        let mut limits = image::Limits::default();
+        limits.max_alloc = Some(MAX_DECODED_IMAGE_BYTES);
+        limits.max_image_width = Some(MAX_IMAGE_SIDE);
+        limits.max_image_height = Some(MAX_IMAGE_SIDE);
+        reader.limits(limits);
+
+        let im = match reader.decode() {
             Ok(img) => img,
             Err(e) => {
                 let err_msg = e.to_string();
@@ -594,29 +633,46 @@ impl RawImage {
     ///
     /// # Errors
     ///
-    /// Returns a message for any other pixel format and when no format in `target_fmt` can be
-    /// written.
+    /// Returns a message for any other pixel format, when the image has no pixels or a side
+    /// longer than `u32::MAX`, when the pixel buffer does not hold exactly
+    /// `width * height * channels` samples, and when no format in `target_fmt` can be written.
     pub fn encode_to_bytes(
         &self,
         target_fmt: &[OutputImageFormat],
     ) -> Result<(Vec<u8>, OutputImageFormat), String> {
+        let (width, height) = match (u32::try_from(self.width), u32::try_from(self.height)) {
+            (Ok(w), Ok(h)) if w > 0 && h > 0 => (w, h),
+            _ => {
+                return Err(
+                    "Failed to construct dynamic image (no pixels, or a side is too long)"
+                        .to_string(),
+                )
+            }
+        };
+        // The encoders panic on a buffer of another length.
+        if self.expected_sample_count() != Some(self.pixels.sample_count()) {
+            return Err(
+                "Failed to construct dynamic image (the pixels do not match the size)".to_string(),
+            );
+        }
+
         let dyn_image = match (&self.pixels, self.data_format) {
             (RawImageData::U8(ref vec), RawImageFormat::R8) => {
-                image::GrayImage::from_raw(self.width as u32, self.height as u32, vec.clone())
+                image::GrayImage::from_raw(width, height, vec.clone())
                     .map(DynamicImage::ImageLuma8)
             }
             (RawImageData::U8(ref vec), RawImageFormat::RG8) => {
-                image::ImageBuffer::from_raw(self.width as u32, self.height as u32, vec.clone())
+                image::ImageBuffer::from_raw(width, height, vec.clone())
                     .map(|buf: image::ImageBuffer<image::LumaA<u8>, Vec<u8>>| {
                         DynamicImage::ImageLumaA8(buf)
                     })
             }
             (RawImageData::U8(ref vec), RawImageFormat::RGB8) => {
-                image::RgbImage::from_raw(self.width as u32, self.height as u32, vec.clone())
+                image::RgbImage::from_raw(width, height, vec.clone())
                     .map(DynamicImage::ImageRgb8)
             }
             (RawImageData::U8(ref vec), RawImageFormat::RGBA8) => {
-                image::RgbaImage::from_raw(self.width as u32, self.height as u32, vec.clone())
+                image::RgbaImage::from_raw(width, height, vec.clone())
                     .map(DynamicImage::ImageRgba8)
             }
             _ => None,
@@ -706,41 +762,21 @@ impl RawImage {
     /// Whether every pixel is fully opaque. False for formats without alpha, and for the
     /// grey-and-alpha formats.
     pub fn is_fully_opaque(&self) -> bool {
+        // The alpha sample is the fourth of each pixel.
         match &self.pixels {
             RawImageData::U8(data) => match self.data_format {
-                RawImageFormat::RGBA8 => {
-                    for i in 3..data.len() {
-                        if i % 4 == 3 && data[i] != 255 {
-                            return false;
-                        }
-                    }
-                    true
-                }
-                RawImageFormat::BGRA8 => {
-                    for i in 3..data.len() {
-                        if i % 4 == 3 && data[i] != 255 {
-                            return false;
-                        }
-                    }
-                    true
-                }
+                RawImageFormat::RGBA8 => data.iter().skip(3).step_by(4).all(|&a| a == 255),
+                RawImageFormat::BGRA8 => data.iter().skip(3).step_by(4).all(|&a| a == 255),
                 _ => false,
             },
             RawImageData::U16(data) => match self.data_format {
-                RawImageFormat::RGBA16 => {
-                    for i in 3..data.len() {
-                        if i % 4 == 3 && data[i] != 65535 {
-                            return false;
-                        }
-                    }
-                    true
-                }
+                RawImageFormat::RGBA16 => data.iter().skip(3).step_by(4).all(|&a| a == 65535),
                 _ => false,
             },
             RawImageData::F32(data) => match self.data_format {
                 RawImageFormat::RGBAF32 => {
-                    for i in 3..data.len() {
-                        if i % 4 == 3 && data[i] < 0.999 {
+                    for &alpha in data.iter().skip(3).step_by(4) {
+                        if alpha < 0.999 {
                             return false;
                         }
                     }
@@ -760,11 +796,9 @@ impl RawImage {
         self.pixels = match (&self.pixels, self.data_format) {
             (RawImageData::U8(data), RawImageFormat::RGBA8) => {
                 let mut rgb = Vec::with_capacity(data.len() / 4 * 3);
-                for i in (0..data.len()).step_by(4) {
-                    if i + 2 < data.len() {
-                        rgb.push(data[i]);
-                        rgb.push(data[i + 1]);
-                        rgb.push(data[i + 2]);
+                for pixel in data.chunks(4) {
+                    if let Some(color) = pixel.get(..3) {
+                        rgb.extend_from_slice(color);
                     }
                 }
                 self.data_format = RawImageFormat::RGB8;
@@ -772,11 +806,9 @@ impl RawImage {
             }
             (RawImageData::U8(data), RawImageFormat::BGRA8) => {
                 let mut bgr = Vec::with_capacity(data.len() / 4 * 3);
-                for i in (0..data.len()).step_by(4) {
-                    if i + 2 < data.len() {
-                        bgr.push(data[i]);
-                        bgr.push(data[i + 1]);
-                        bgr.push(data[i + 2]);
+                for pixel in data.chunks(4) {
+                    if let Some(color) = pixel.get(..3) {
+                        bgr.extend_from_slice(color);
                     }
                 }
                 self.data_format = RawImageFormat::BGR8;
@@ -784,11 +816,9 @@ impl RawImage {
             }
             (RawImageData::U16(data), RawImageFormat::RGBA16) => {
                 let mut rgb = Vec::with_capacity(data.len() / 4 * 3);
-                for i in (0..data.len()).step_by(4) {
-                    if i + 2 < data.len() {
-                        rgb.push(data[i]);
-                        rgb.push(data[i + 1]);
-                        rgb.push(data[i + 2]);
+                for pixel in data.chunks(4) {
+                    if let Some(color) = pixel.get(..3) {
+                        rgb.extend_from_slice(color);
                     }
                 }
                 self.data_format = RawImageFormat::RGB16;
@@ -796,11 +826,9 @@ impl RawImage {
             }
             (RawImageData::F32(data), RawImageFormat::RGBAF32) => {
                 let mut rgb = Vec::with_capacity(data.len() / 4 * 3);
-                for i in (0..data.len()).step_by(4) {
-                    if i + 2 < data.len() {
-                        rgb.push(data[i]);
-                        rgb.push(data[i + 1]);
-                        rgb.push(data[i + 2]);
+                for pixel in data.chunks(4) {
+                    if let Some(color) = pixel.get(..3) {
+                        rgb.extend_from_slice(color);
                     }
                 }
                 self.data_format = RawImageFormat::RGBF32;
@@ -842,65 +870,41 @@ impl RawImage {
     /// (at most 3 of 255, or 768 of 65535, apart), so it could be stored as greyscale. False
     /// for the float formats.
     pub fn is_actually_greyscale(&self) -> bool {
+        // a small difference is tolerated, as JPEG artifacts cause it
+        fn nearly_equal(ch1: i32, ch2: i32, ch3: i32, tolerance: i32) -> bool {
+            (ch1 - ch2).abs() <= tolerance
+                && (ch1 - ch3).abs() <= tolerance
+                && (ch2 - ch3).abs() <= tolerance
+        }
+
         match (&self.pixels, self.data_format) {
             (RawImageData::U8(data), RawImageFormat::RGB8)
-            | (RawImageData::U8(data), RawImageFormat::BGR8) => {
-                for i in (0..data.len()).step_by(3) {
-                    if i + 2 < data.len() {
-                        let ch1 = data[i];
-                        let ch2 = data[i + 1];
-                        let ch3 = data[i + 2];
-
-                        // a small difference is tolerated, as JPEG artifacts cause it
-                        if (ch1 as i16 - ch2 as i16).abs() > 3
-                            || (ch1 as i16 - ch3 as i16).abs() > 3
-                            || (ch2 as i16 - ch3 as i16).abs() > 3
-                        {
-                            return false;
-                        }
-                    }
+            | (RawImageData::U8(data), RawImageFormat::BGR8) => data.chunks(3).all(|px| match *px {
+                [ch1, ch2, ch3, ..] => {
+                    nearly_equal(i32::from(ch1), i32::from(ch2), i32::from(ch3), 3)
                 }
-                true
-            }
+                _ => true,
+            }),
             (RawImageData::U8(data), RawImageFormat::RGBA8)
-            | (RawImageData::U8(data), RawImageFormat::BGRA8) => {
-                for i in (0..data.len()).step_by(4) {
-                    if i + 2 < data.len() {
-                        let ch1 = data[i];
-                        let ch2 = data[i + 1];
-                        let ch3 = data[i + 2];
-
-                        if (ch1 as i16 - ch2 as i16).abs() > 3
-                            || (ch1 as i16 - ch3 as i16).abs() > 3
-                            || (ch2 as i16 - ch3 as i16).abs() > 3
-                        {
-                            return false;
-                        }
-                    }
+            | (RawImageData::U8(data), RawImageFormat::BGRA8) => data.chunks(4).all(|px| match *px {
+                [ch1, ch2, ch3, ..] => {
+                    nearly_equal(i32::from(ch1), i32::from(ch2), i32::from(ch3), 3)
                 }
-                true
-            }
+                _ => true,
+            }),
             (RawImageData::U16(data), RawImageFormat::RGB16)
             | (RawImageData::U16(data), RawImageFormat::RGBA16) => {
-                for i in (0..data.len()).step_by(if self.data_format == RawImageFormat::RGBA16 {
+                let stride = if self.data_format == RawImageFormat::RGBA16 {
                     4
                 } else {
                     3
-                }) {
-                    if i + 2 < data.len() {
-                        let ch1 = data[i];
-                        let ch2 = data[i + 1];
-                        let ch3 = data[i + 2];
-
-                        if (ch1 as i32 - ch2 as i32).abs() > 768
-                            || (ch1 as i32 - ch3 as i32).abs() > 768
-                            || (ch2 as i32 - ch3 as i32).abs() > 768
-                        {
-                            return false;
-                        }
+                };
+                data.chunks(stride).all(|px| match *px {
+                    [ch1, ch2, ch3, ..] => {
+                        nearly_equal(i32::from(ch1), i32::from(ch2), i32::from(ch3), 768)
                     }
-                }
-                true
+                    _ => true,
+                })
             }
             _ => false,
         }
@@ -916,81 +920,57 @@ impl RawImage {
         self.pixels = match (&self.pixels, self.data_format) {
             (RawImageData::U8(data), RawImageFormat::RGB8) => {
                 let mut grey = Vec::with_capacity(data.len() / 3);
-                for i in (0..data.len()).step_by(3) {
-                    if i + 2 < data.len() {
-                        let g = (0.299 * data[i] as f32
-                            + 0.587 * data[i + 1] as f32
-                            + 0.114 * data[i + 2] as f32) as u8;
-                        grey.push(g);
-                    }
+                for &[r, g, b] in data.as_chunks::<3>().0 {
+                    let luma = (0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32) as u8;
+                    grey.push(luma);
                 }
                 self.data_format = RawImageFormat::R8;
                 RawImageData::U8(grey)
             }
             (RawImageData::U8(data), RawImageFormat::BGR8) => {
                 let mut grey = Vec::with_capacity(data.len() / 3);
-                for i in (0..data.len()).step_by(3) {
-                    if i + 2 < data.len() {
-                        let g = (0.114 * data[i] as f32
-                            + 0.587 * data[i + 1] as f32
-                            + 0.299 * data[i + 2] as f32) as u8;
-                        grey.push(g);
-                    }
+                for &[b, g, r] in data.as_chunks::<3>().0 {
+                    let luma = (0.114 * b as f32 + 0.587 * g as f32 + 0.299 * r as f32) as u8;
+                    grey.push(luma);
                 }
                 self.data_format = RawImageFormat::R8;
                 RawImageData::U8(grey)
             }
             (RawImageData::U8(data), RawImageFormat::RGBA8) => {
                 let mut grey_alpha = Vec::with_capacity(data.len() / 2);
-                for i in (0..data.len()).step_by(4) {
-                    if i + 3 < data.len() {
-                        let g = (0.299 * data[i] as f32
-                            + 0.587 * data[i + 1] as f32
-                            + 0.114 * data[i + 2] as f32) as u8;
-                        grey_alpha.push(g);
-                        grey_alpha.push(data[i + 3]);
-                    }
+                for &[r, g, b, a] in data.as_chunks::<4>().0 {
+                    let luma = (0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32) as u8;
+                    grey_alpha.push(luma);
+                    grey_alpha.push(a);
                 }
                 self.data_format = RawImageFormat::RG8;
                 RawImageData::U8(grey_alpha)
             }
             (RawImageData::U8(data), RawImageFormat::BGRA8) => {
                 let mut grey_alpha = Vec::with_capacity(data.len() / 2);
-                for i in (0..data.len()).step_by(4) {
-                    if i + 3 < data.len() {
-                        let g = (0.114 * data[i] as f32
-                            + 0.587 * data[i + 1] as f32
-                            + 0.299 * data[i + 2] as f32) as u8;
-                        grey_alpha.push(g);
-                        grey_alpha.push(data[i + 3]);
-                    }
+                for &[b, g, r, a] in data.as_chunks::<4>().0 {
+                    let luma = (0.114 * b as f32 + 0.587 * g as f32 + 0.299 * r as f32) as u8;
+                    grey_alpha.push(luma);
+                    grey_alpha.push(a);
                 }
                 self.data_format = RawImageFormat::RG8;
                 RawImageData::U8(grey_alpha)
             }
             (RawImageData::U16(data), RawImageFormat::RGB16) => {
                 let mut grey = Vec::with_capacity(data.len() / 3);
-                for i in (0..data.len()).step_by(3) {
-                    if i + 2 < data.len() {
-                        let g = (0.299 * data[i] as f32
-                            + 0.587 * data[i + 1] as f32
-                            + 0.114 * data[i + 2] as f32) as u16;
-                        grey.push(g);
-                    }
+                for &[r, g, b] in data.as_chunks::<3>().0 {
+                    let luma = (0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32) as u16;
+                    grey.push(luma);
                 }
                 self.data_format = RawImageFormat::R16;
                 RawImageData::U16(grey)
             }
             (RawImageData::U16(data), RawImageFormat::RGBA16) => {
                 let mut grey_alpha = Vec::with_capacity(data.len() / 2);
-                for i in (0..data.len()).step_by(4) {
-                    if i + 3 < data.len() {
-                        let g = (0.299 * data[i] as f32
-                            + 0.587 * data[i + 1] as f32
-                            + 0.114 * data[i + 2] as f32) as u16;
-                        grey_alpha.push(g);
-                        grey_alpha.push(data[i + 3]);
-                    }
+                for &[r, g, b, a] in data.as_chunks::<4>().0 {
+                    let luma = (0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32) as u16;
+                    grey_alpha.push(luma);
+                    grey_alpha.push(a);
                 }
                 self.data_format = RawImageFormat::RG16;
                 RawImageData::U16(grey_alpha)
@@ -1007,7 +987,8 @@ impl RawImage {
     ///
     /// # Errors
     ///
-    /// Returns a message for `RG16` and for every non-greyscale format.
+    /// Returns a message for `RG16` and for every non-greyscale format, and when the pixel buffer
+    /// does not hold `width * height * channels` samples.
     pub fn apply_dithering(&mut self) -> Result<(), String> {
         if !self.is_greyscale_format() {
             return Err("Dithering can only be applied to greyscale images".to_string());
@@ -1017,68 +998,56 @@ impl RawImage {
             (RawImageData::U8(data), RawImageFormat::R8) => {
                 let width = self.width;
                 let height = self.height;
-                let mut grid = Vec::with_capacity(height);
-
-                for y in 0..height {
-                    let mut row = Vec::with_capacity(width);
-                    for x in 0..width {
-                        let idx = y * width + x;
-                        if idx < data.len() {
-                            row.push(data[idx] as i16);
-                        } else {
-                            row.push(0);
-                        }
-                    }
-                    grid.push(row);
+                if width.checked_mul(height) != Some(data.len()) {
+                    return Err("The pixels do not match the size of the image".to_string());
                 }
 
+                // The rows of the picture one after the other: the pixel at (x, y) is
+                // `grid[y * width + x]`, and the buffer is as long as the picture is large.
+                let mut grid: Vec<i16> = data.iter().map(|&p| i16::from(p)).collect();
+
                 for y in 0..height {
                     for x in 0..width {
-                        let old_pixel = grid[y][x];
+                        let index = y * width + x;
+                        let old_pixel = grid.get(index).copied().unwrap_or(0);
                         let new_pixel = if old_pixel > 127 { 255 } else { 0 };
                         let quant_error = old_pixel - new_pixel;
 
-                        grid[y][x] = new_pixel;
+                        if let Some(pixel) = grid.get_mut(index) {
+                            *pixel = new_pixel;
+                        }
 
                         if x + 1 < width {
-                            grid[y][x + 1] = (grid[y][x + 1] + quant_error * 7 / 16).clamp(0, 255);
+                            spread_error(&mut grid, index.checked_add(1), quant_error, 7);
                         }
 
                         if y + 1 < height {
+                            let below = index.checked_add(width);
                             if x > 0 {
-                                grid[y + 1][x - 1] =
-                                    (grid[y + 1][x - 1] + quant_error * 3 / 16).clamp(0, 255);
+                                let below_left = below.and_then(|i| i.checked_sub(1));
+                                spread_error(&mut grid, below_left, quant_error, 3);
                             }
 
-                            grid[y + 1][x] = (grid[y + 1][x] + quant_error * 5 / 16).clamp(0, 255);
+                            spread_error(&mut grid, below, quant_error, 5);
 
                             if x + 1 < width {
-                                grid[y + 1][x + 1] =
-                                    (grid[y + 1][x + 1] + quant_error / 16).clamp(0, 255);
+                                let below_right = below.and_then(|i| i.checked_add(1));
+                                spread_error(&mut grid, below_right, quant_error, 1);
                             }
                         }
                     }
                 }
 
-                let mut result = Vec::with_capacity(data.len());
-                for y in 0..height {
-                    for x in 0..width {
-                        result.push(grid[y][x] as u8);
-                    }
-                }
-
-                *data = result;
+                *data = grid.iter().map(|&p| p as u8).collect();
                 Ok(())
             }
             (RawImageData::U8(data), RawImageFormat::RG8) => {
                 let mut grey = Vec::with_capacity(data.len() / 2);
                 let mut alpha = Vec::with_capacity(data.len() / 2);
 
-                for i in (0..data.len()).step_by(2) {
-                    if i + 1 < data.len() {
-                        grey.push(data[i]);
-                        alpha.push(data[i + 1]);
-                    }
+                for &[g, a] in data.as_chunks::<2>().0 {
+                    grey.push(g);
+                    alpha.push(a);
                 }
 
                 let mut temp_img = RawImage {
@@ -1093,11 +1062,9 @@ impl RawImage {
 
                 if let RawImageData::U8(dithered_grey) = &temp_img.pixels {
                     let mut combined = Vec::with_capacity(data.len());
-                    for i in 0..dithered_grey.len() {
-                        if i < dithered_grey.len() && i < alpha.len() {
-                            combined.push(dithered_grey[i]);
-                            combined.push(alpha[i]);
-                        }
+                    for (&grey, &alpha) in dithered_grey.iter().zip(alpha.iter()) {
+                        combined.push(grey);
+                        combined.push(alpha);
                     }
                     *data = combined;
                 }
@@ -1136,7 +1103,7 @@ impl RawImage {
     }
 
     /// The size of the pixel data in bytes, uncompressed: `width * height` times the bytes per
-    /// pixel of the format.
+    /// pixel of the format. A size that overflows is reported as a very large one.
     pub fn estimate_size_bytes(&self) -> usize {
         let bits_per_pixel = match self.data_format {
             RawImageFormat::R8 => 8,
@@ -1151,7 +1118,10 @@ impl RawImage {
             RawImageFormat::RGBAF32 => 128, // 4 * 32 bits
         };
 
-        (self.width * self.height * bits_per_pixel).div_ceil(8)
+        self.width
+            .saturating_mul(self.height)
+            .saturating_mul(bits_per_pixel)
+            .div_ceil(8)
     }
 
     /// Scales the image down, keeping its aspect ratio, until its uncompressed size
@@ -1161,7 +1131,8 @@ impl RawImage {
     /// # Errors
     ///
     /// Returns a message when scaling is needed but the format is not an 8-bit one (`R8`, `RG8`,
-    /// `RGB8`, `RGBA8`, `BGR8`, `BGRA8`).
+    /// `RGB8`, `RGBA8`, `BGR8`, `BGRA8`), or the pixel buffer does not hold
+    /// `width * height * channels` samples.
     pub fn resize_to_fit_size(&mut self, max_size_bytes: usize) -> Result<(), String> {
         let current_size = self.estimate_size_bytes();
         if current_size <= max_size_bytes {
@@ -1177,143 +1148,22 @@ impl RawImage {
         let new_height = new_height.max(1);
 
         match (&self.pixels, self.data_format) {
-            (RawImageData::U8(data), RawImageFormat::RGB8) => {
-                let mut new_data = Vec::with_capacity(new_width * new_height * 3);
-                for y in 0..new_height {
-                    for x in 0..new_width {
-                        let old_x = (x as f64 * self.width as f64 / new_width as f64) as usize;
-                        let old_y = (y as f64 * self.height as f64 / new_height as f64) as usize;
-                        let old_idx = (old_y * self.width + old_x) * 3;
-
-                        if old_idx + 2 < data.len() {
-                            new_data.push(data[old_idx]);
-                            new_data.push(data[old_idx + 1]);
-                            new_data.push(data[old_idx + 2]);
-                        } else {
-                            new_data.push(0);
-                            new_data.push(0);
-                            new_data.push(0);
-                        }
-                    }
-                }
-                self.pixels = RawImageData::U8(new_data);
-                self.width = new_width;
-                self.height = new_height;
-                Ok(())
-            }
-            (RawImageData::U8(data), RawImageFormat::RGBA8) => {
-                let mut new_data = Vec::with_capacity(new_width * new_height * 4);
-                for y in 0..new_height {
-                    for x in 0..new_width {
-                        let old_x = (x as f64 * self.width as f64 / new_width as f64) as usize;
-                        let old_y = (y as f64 * self.height as f64 / new_height as f64) as usize;
-                        let old_idx = (old_y * self.width + old_x) * 4;
-
-                        if old_idx + 3 < data.len() {
-                            new_data.push(data[old_idx]);
-                            new_data.push(data[old_idx + 1]);
-                            new_data.push(data[old_idx + 2]);
-                            new_data.push(data[old_idx + 3]);
-                        } else {
-                            new_data.push(0);
-                            new_data.push(0);
-                            new_data.push(0);
-                            new_data.push(0);
-                        }
-                    }
-                }
-                self.pixels = RawImageData::U8(new_data);
-                self.width = new_width;
-                self.height = new_height;
-                Ok(())
-            }
-            (RawImageData::U8(data), RawImageFormat::BGR8) => {
-                let mut new_data = Vec::with_capacity(new_width * new_height * 3);
-                for y in 0..new_height {
-                    for x in 0..new_width {
-                        let old_x = (x as f64 * self.width as f64 / new_width as f64) as usize;
-                        let old_y = (y as f64 * self.height as f64 / new_height as f64) as usize;
-                        let old_idx = (old_y * self.width + old_x) * 3;
-
-                        if old_idx + 2 < data.len() {
-                            new_data.push(data[old_idx]);
-                            new_data.push(data[old_idx + 1]);
-                            new_data.push(data[old_idx + 2]);
-                        } else {
-                            new_data.push(0);
-                            new_data.push(0);
-                            new_data.push(0);
-                        }
-                    }
-                }
-                self.pixels = RawImageData::U8(new_data);
-                self.width = new_width;
-                self.height = new_height;
-                Ok(())
-            }
-            (RawImageData::U8(data), RawImageFormat::BGRA8) => {
-                let mut new_data = Vec::with_capacity(new_width * new_height * 4);
-                for y in 0..new_height {
-                    for x in 0..new_width {
-                        let old_x = (x as f64 * self.width as f64 / new_width as f64) as usize;
-                        let old_y = (y as f64 * self.height as f64 / new_height as f64) as usize;
-                        let old_idx = (old_y * self.width + old_x) * 4;
-
-                        if old_idx + 3 < data.len() {
-                            new_data.push(data[old_idx]);
-                            new_data.push(data[old_idx + 1]);
-                            new_data.push(data[old_idx + 2]);
-                            new_data.push(data[old_idx + 3]);
-                        } else {
-                            new_data.push(0);
-                            new_data.push(0);
-                            new_data.push(0);
-                            new_data.push(0);
-                        }
-                    }
-                }
-                self.pixels = RawImageData::U8(new_data);
-                self.width = new_width;
-                self.height = new_height;
-                Ok(())
-            }
-            (RawImageData::U8(data), RawImageFormat::R8) => {
-                let mut new_data = Vec::with_capacity(new_width * new_height);
-                for y in 0..new_height {
-                    for x in 0..new_width {
-                        let old_x = (x as f64 * self.width as f64 / new_width as f64) as usize;
-                        let old_y = (y as f64 * self.height as f64 / new_height as f64) as usize;
-                        let old_idx = old_y * self.width + old_x;
-
-                        if old_idx < data.len() {
-                            new_data.push(data[old_idx]);
-                        } else {
-                            new_data.push(0);
-                        }
-                    }
-                }
-                self.pixels = RawImageData::U8(new_data);
-                self.width = new_width;
-                self.height = new_height;
-                Ok(())
-            }
-            (RawImageData::U8(data), RawImageFormat::RG8) => {
-                let mut new_data = Vec::with_capacity(new_width * new_height * 2);
-                for y in 0..new_height {
-                    for x in 0..new_width {
-                        let old_x = (x as f64 * self.width as f64 / new_width as f64) as usize;
-                        let old_y = (y as f64 * self.height as f64 / new_height as f64) as usize;
-                        let old_idx = (old_y * self.width + old_x) * 2;
-
-                        if old_idx + 1 < data.len() {
-                            new_data.push(data[old_idx]);
-                            new_data.push(data[old_idx + 1]);
-                        } else {
-                            new_data.push(0);
-                            new_data.push(0);
-                        }
-                    }
-                }
+            (
+                RawImageData::U8(data),
+                RawImageFormat::R8
+                | RawImageFormat::RG8
+                | RawImageFormat::RGB8
+                | RawImageFormat::BGR8
+                | RawImageFormat::RGBA8
+                | RawImageFormat::BGRA8,
+            ) => {
+                let new_data = resample_nearest(
+                    data,
+                    (self.width, self.height),
+                    (new_width, new_height),
+                    self.data_format.channels(),
+                )
+                .ok_or_else(|| "The pixels do not match the size of the image".to_string())?;
                 self.pixels = RawImageData::U8(new_data);
                 self.width = new_width;
                 self.height = new_height;
@@ -1322,6 +1172,46 @@ impl RawImage {
             _ => Err("Resize not implemented for this format".to_string()),
         }
     }
+}
+
+// Adds `weight / 16` of a dithering error to the pixel at `index`, if there is one.
+fn spread_error(grid: &mut [i16], index: Option<usize>, error: i16, weight: i16) {
+    if let Some(pixel) = index.and_then(|i| grid.get_mut(i)) {
+        *pixel = (*pixel + error * weight / 16).clamp(0, 255);
+    }
+}
+
+// Scales a picture of `channels` samples per pixel by taking the nearest pixel. `None` when `data`
+// does not hold exactly `width * height * channels` samples.
+fn resample_nearest(
+    data: &[u8],
+    (width, height): (usize, usize),
+    (new_width, new_height): (usize, usize),
+    channels: usize,
+) -> Option<Vec<u8>> {
+    if width.checked_mul(height)?.checked_mul(channels)? != data.len() {
+        return None;
+    }
+    let capacity = new_width.checked_mul(new_height)?.checked_mul(channels)?;
+    let mut new_data = Vec::with_capacity(capacity);
+    for y in 0..new_height {
+        let old_y = (y as f64 * height as f64 / new_height as f64) as usize;
+        for x in 0..new_width {
+            let old_x = (x as f64 * width as f64 / new_width as f64) as usize;
+            let start = old_y
+                .saturating_mul(width)
+                .saturating_add(old_x)
+                .saturating_mul(channels);
+            match start
+                .checked_add(channels)
+                .and_then(|end| data.get(start..end))
+            {
+                Some(pixel) => new_data.extend_from_slice(pixel),
+                None => new_data.extend(std::iter::repeat_n(0, channels)),
+            }
+        }
+    }
+    Some(new_data)
 }
 
 /// Encodes an image as an image XObject stream: optimizes it with `options`, splits the alpha
@@ -1539,31 +1429,30 @@ fn get_compression_filter_by_format(format: ImageCompression) -> &'static str {
 fn jpeg_encode(image: &RawImageU8, quality: f32) -> Option<Vec<u8>> {
     let quality = (quality * 100.0) as u8;
 
+    let width = u32::try_from(image.width).ok()?;
+    let height = u32::try_from(image.height).ok()?;
+    let channels = match image.data_format {
+        RawImageFormat::R8 => 1,
+        RawImageFormat::RGB8 | RawImageFormat::BGR8 => 3,
+        _ => return None,
+    };
+    // The encoder panics on a buffer of another length.
+    if image.width.checked_mul(image.height)?.checked_mul(channels)? != image.pixels.len() {
+        return None;
+    }
+
     let img = match image.data_format {
-        RawImageFormat::RGB8 => image::RgbImage::from_raw(
-            image.width as u32,
-            image.height as u32,
-            image.pixels.clone(),
-        )
-        .map(image::DynamicImage::ImageRgb8),
-        RawImageFormat::R8 => image::GrayImage::from_raw(
-            image.width as u32,
-            image.height as u32,
-            image.pixels.clone(),
-        )
-        .map(image::DynamicImage::ImageLuma8),
+        RawImageFormat::RGB8 => image::RgbImage::from_raw(width, height, image.pixels.clone())
+            .map(image::DynamicImage::ImageRgb8),
+        RawImageFormat::R8 => image::GrayImage::from_raw(width, height, image.pixels.clone())
+            .map(image::DynamicImage::ImageLuma8),
         RawImageFormat::BGR8 => {
             let mut rgb_data = Vec::with_capacity(image.pixels.len());
-            for chunk in image.pixels.chunks(3) {
-                if chunk.len() == 3 {
-                    rgb_data.push(chunk[2]); // R
-                    rgb_data.push(chunk[1]); // G
-                    rgb_data.push(chunk[0]); // B
-                }
+            for &[b, g, r] in image.pixels.as_chunks::<3>().0 {
+                rgb_data.extend_from_slice(&[r, g, b]);
             }
 
-            image::RgbImage::from_raw(image.width as u32, image.height as u32, rgb_data)
-                .map(image::DynamicImage::ImageRgb8)
+            image::RgbImage::from_raw(width, height, rgb_data).map(image::DynamicImage::ImageRgb8)
         }
         _ => None,
     }?;
@@ -1585,12 +1474,12 @@ fn jpeg_encode(image: &RawImageU8, quality: f32) -> Option<Vec<u8>> {
 fn pack_bilevel(image: &RawImageU8) -> Option<Vec<u8>> {
     if image.data_format != RawImageFormat::R8
         || image.width == 0
-        || image.pixels.len() != image.width * image.height
+        || image.width.checked_mul(image.height) != Some(image.pixels.len())
         || image.pixels.iter().any(|&p| p != 0 && p != 255)
     {
         return None;
     }
-    let mut bits = Vec::with_capacity(image.width.div_ceil(8) * image.height);
+    let mut bits = Vec::with_capacity(image.width.div_ceil(8).checked_mul(image.height)?);
     for row in image.pixels.chunks(image.width) {
         for eight in row.chunks(8) {
             let byte =
@@ -1633,14 +1522,10 @@ fn rle_encode(data: &[u8]) -> Option<Vec<u8>> {
     let mut result = Vec::with_capacity(data.len());
     let mut i = 0;
 
-    while i < data.len() {
+    while let Some(&current_byte) = data.get(i) {
         let mut run_length = 1;
-        let current_byte = data[i];
 
-        while i + run_length < data.len()
-            && data[i + run_length] == current_byte
-            && run_length < 128
-        {
+        while run_length < 128 && data.get(i + run_length) == Some(&current_byte) {
             run_length += 1;
         }
 
@@ -1654,18 +1539,13 @@ fn rle_encode(data: &[u8]) -> Option<Vec<u8>> {
 
             i += 1;
 
-            while i < data.len()
-                && (i + 1 >= data.len() || data[i] != data[i + 1])
-                && literal_count < 128
-            {
+            while literal_count < 128 && data.get(i).is_some_and(|b| data.get(i + 1) != Some(b)) {
                 literal_count += 1;
                 i += 1;
             }
 
             result.push((257 - literal_count) as u8);
-            for j in 0..literal_count {
-                result.push(data[literal_start + j]);
-            }
+            result.extend_from_slice(data.get(literal_start..i)?);
         }
     }
 
@@ -1700,9 +1580,9 @@ fn split_rawimage_into_rgb_plus_alpha(im: RawImage) -> (RawImageU8, Option<RawIm
                 if let RawImageData::U8(vec) = im.pixels {
                     let mut grey = Vec::with_capacity(vec.len() / 2);
                     let mut alpha = Vec::with_capacity(vec.len() / 2);
-                    for i in (0..vec.len()).step_by(2) {
-                        grey.push(vec[i]);
-                        alpha.push(vec[i + 1]);
+                    for &[g, a] in vec.as_chunks::<2>().0 {
+                        grey.push(g);
+                        alpha.push(a);
                     }
                     (grey, alpha)
                 } else {
@@ -1713,9 +1593,9 @@ fn split_rawimage_into_rgb_plus_alpha(im: RawImage) -> (RawImageU8, Option<RawIm
                 if let RawImageData::U16(vec) = im.pixels {
                     let mut grey = Vec::with_capacity(vec.len() / 2);
                     let mut alpha = Vec::with_capacity(vec.len() / 2);
-                    for i in (0..vec.len()).step_by(2) {
-                        grey.push(vec[i]);
-                        alpha.push(vec[i + 1]);
+                    for &[g, a] in vec.as_chunks::<2>().0 {
+                        grey.push(g);
+                        alpha.push(a);
                     }
                     (u16vec_to_u8(grey), u16vec_to_u8(alpha))
                 } else {
@@ -1757,13 +1637,9 @@ fn bgra_to_bgr(rgba: Vec<u8>) -> (Vec<u8>, Vec<u8>) {
     let mut rgb = Vec::with_capacity(rgba.len() / 4 * 3);
     let mut alpha = Vec::with_capacity(rgba.len() / 4);
 
-    for i in (0..rgba.len()).step_by(4) {
-        if i + 3 < rgba.len() {
-            rgb.push(rgba[i]); // B
-            rgb.push(rgba[i + 1]); // G
-            rgb.push(rgba[i + 2]); // R
-            alpha.push(rgba[i + 3]); // A
-        }
+    for &[b, g, r, a] in rgba.as_chunks::<4>().0 {
+        rgb.extend_from_slice(&[b, g, r]);
+        alpha.push(a);
     }
 
     (rgb, alpha)
@@ -1772,11 +1648,9 @@ fn bgra_to_bgr(rgba: Vec<u8>) -> (Vec<u8>, Vec<u8>) {
 fn rgba_to_rgb(data: Vec<u8>) -> (Vec<u8>, Vec<u8>) {
     let mut rgb = Vec::with_capacity(data.len() / 4 * 3);
     let mut alpha = Vec::with_capacity(data.len() / 4);
-    for i in (0..data.len()).step_by(4) {
-        rgb.push(data[i]);
-        rgb.push(data[i + 1]);
-        rgb.push(data[i + 2]);
-        alpha.push(data[i + 3]);
+    for &[r, g, b, a] in data.as_chunks::<4>().0 {
+        rgb.extend_from_slice(&[r, g, b]);
+        alpha.push(a);
     }
 
     (rgb, alpha)
@@ -1786,11 +1660,9 @@ fn rgba_to_rgb(data: Vec<u8>) -> (Vec<u8>, Vec<u8>) {
 fn rgba_to_rgb16(data: Vec<u16>) -> (Vec<u16>, Vec<u16>) {
     let mut rgb = Vec::with_capacity(data.len() / 4 * 3);
     let mut alpha = Vec::with_capacity(data.len() / 4);
-    for i in (0..data.len()).step_by(4) {
-        rgb.push(data[i]);
-        rgb.push(data[i + 1]);
-        rgb.push(data[i + 2]);
-        alpha.push(data[i + 3]);
+    for &[r, g, b, a] in data.as_chunks::<4>().0 {
+        rgb.extend_from_slice(&[r, g, b]);
+        alpha.push(a);
     }
 
     (rgb, alpha)
@@ -1800,11 +1672,9 @@ fn rgba_to_rgb16(data: Vec<u16>) -> (Vec<u16>, Vec<u16>) {
 fn rgba_to_rgbf32(data: Vec<f32>) -> (Vec<f32>, Vec<f32>) {
     let mut rgb = Vec::with_capacity(data.len() / 4 * 3);
     let mut alpha = Vec::with_capacity(data.len() / 4);
-    for i in (0..data.len()).step_by(4) {
-        rgb.push(data[i]);
-        rgb.push(data[i + 1]);
-        rgb.push(data[i + 2]);
-        alpha.push(data[i + 3]);
+    for &[r, g, b, a] in data.as_chunks::<4>().0 {
+        rgb.extend_from_slice(&[r, g, b]);
+        alpha.push(a);
     }
 
     (rgb, alpha)
@@ -1869,6 +1739,15 @@ mod browser_image {
 
         let width = bitmap.width() as usize;
         let height = bitmap.height() as usize;
+
+        // The pixels are copied out as RGBA: refuse what `decode_from_bytes` refuses.
+        let too_large = width
+            .checked_mul(height)
+            .and_then(|pixels| pixels.checked_mul(4))
+            .map_or(true, |bytes| bytes as u64 > super::MAX_DECODED_IMAGE_BYTES);
+        if too_large {
+            return Err(format!("Image too large: {width} x {height} pixels"));
+        }
 
         canvas.set_width(width as u32);
         canvas.set_height(height as u32);
