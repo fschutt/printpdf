@@ -1,4 +1,4 @@
-//! Bitmap types: [`RawImage`] and the options that control how images are written to a PDF.
+//! Bitmaps and the options for writing them.
 //!
 //! The types here are available without any feature. Decoding image files and encoding them
 //! again needs the `images` feature, plus one feature per file format (`png`, `jpeg`, `gif`,

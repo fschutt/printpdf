@@ -1,4 +1,4 @@
-//! Typed lengths: [`Pt`] (points), [`Mm`] (millimeters) and [`Px`] (pixels).
+//! Typed lengths and the conversions between them.
 //!
 //! PDF measures everything in points: 1 pt = 1/72 inch = 0.3528 mm. The wrappers keep
 //! millimeters and points from being mixed up; convert with `From` / `Into`:

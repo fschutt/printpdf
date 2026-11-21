@@ -280,7 +280,7 @@ pub struct PageToSvgOutput {
     pub warnings: Vec<PdfWarnMsg>,
 }
 
-/// Renders a page to SVG with [`render_to_svg`](crate::render_to_svg).
+/// Renders a page to SVG with [`PdfPage::to_svg`](crate::PdfPage::to_svg).
 ///
 /// Never returns an error; problems are reported as warnings.
 pub fn page_to_svg(input: PageToSvgInput) -> Result<PageToSvgOutput, String> {

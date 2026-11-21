@@ -1,4 +1,4 @@
-//! Text items, and how text is encoded into and decoded from PDF strings.
+//! Text items and the encoding of PDF strings.
 //!
 //! In a PDF, text is shown by the `Tj` and `TJ` operators. `Tj` takes one string and `TJ` takes
 //! an array that mixes strings with numbers; each number shifts the pen by that many

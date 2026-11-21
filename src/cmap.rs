@@ -1,4 +1,4 @@
-//! CMaps: the tables that connect the bytes of a PDF string to glyphs and to text.
+//! CMaps: tables that map the bytes of a PDF string to glyphs and text.
 //!
 //! A CMap ("character map") is a small PostScript-like text stream. Two kinds matter for fonts:
 //!

@@ -1,4 +1,4 @@
-//! Gradients: axial (linear) and radial shadings.
+//! Gradients: axial and radial shadings.
 //!
 //! A *shading* is a PDF object that paints a smooth transition between colors. It is used for
 //! gradients. An *axial* shading blends along a line between two points. A *radial* shading

@@ -1,4 +1,4 @@
-//! Text extraction with geometry: the text of a page as line, word and glyph boxes.
+//! Text extraction with positions.
 //!
 //! [`PdfPage::extract_text`] returns only the text of a page. [`PdfPage::extract_text_boxes`]
 //! also says where every line, word and glyph sits, which is what a viewer needs for

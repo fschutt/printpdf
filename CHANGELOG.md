@@ -27,6 +27,7 @@ All notable changes to printpdf are documented in this file. The format follows
 ### Removed
 
 - **Breaking:** the `font_embedding` and `image_optimization` fields of `GeneratePdfOptions`. `from_html` never read them: fonts are always embedded, and image recompression is `PdfSaveOptions::image_optimization`. JSON that still contains the fields is accepted and the fields are ignored.
+- **Breaking:** `render_to_svg` and `render_to_svg_async` are no longer public. Use `PdfPage::to_svg`, `PdfPage::to_svg_async` or `PdfDocument::page_to_svg`; `PdfToSvgOptions` stays.
 - Unused files: the working notes of the image decoding change, `subset.ttf`, `build.sh`, a disabled shape test and two example files that were never registered. `CHANGELOG2.md` is merged into this file.
 
 ### Fixed

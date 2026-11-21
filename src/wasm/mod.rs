@@ -1,4 +1,4 @@
-//! A JSON API for calling printpdf from JavaScript, and the plain Rust types behind it.
+//! A JSON API for calling printpdf from JavaScript.
 //!
 //! JS code cannot share Rust structs, so every function takes one JSON string and returns one
 //! JSON string. [`api`] holds those functions (the `Pdf_*` family, exported with `wasm-bindgen`

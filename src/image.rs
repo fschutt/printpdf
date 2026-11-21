@@ -1,6 +1,7 @@
-//! Decoding image files into [`RawImage`]s, encoding them again, and turning them into PDF image
-//! streams. Requires the `images` feature; the file formats need their own features (`png`,
-//! `jpeg`, `gif`, ...). The types and the explanation of how PDF stores images are in
+//! Decoding and encoding image files. Requires the `images` feature.
+//!
+//! It also turns a [`RawImage`] into a PDF image stream. The file formats need their own features
+//! (`png`, `jpeg`, `gif`, ...). The types and the explanation of how PDF stores images are in
 //! [`image_types`](crate::image_types).
 //!
 //! [`RawImage::decode_from_bytes`] reads a file, [`RawImage::encode_to_bytes`] writes one. The

@@ -1,4 +1,4 @@
-//! Paths, painting and the graphics state.
+//! Paths and the graphics state.
 //!
 //! A PDF page is drawn by a *content stream*, a list of operators. To draw a shape the stream
 //! first builds a *path* and then paints it. A path is a list of *subpaths*. A subpath starts

@@ -1,5 +1,6 @@
-//! Internal helpers of the crate: pseudo-random ids for the PDF `/ID` entry, PDF date strings and
-//! gzip. Nothing in this module is public.
+//! Internal helpers. Nothing in this module is public.
+//!
+//! It holds pseudo-random ids for the PDF `/ID` entry, PDF date strings and gzip.
 
 use std::{
     io::Read,

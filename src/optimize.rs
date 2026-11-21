@@ -1,6 +1,8 @@
-//! Shrinks a finished PDF (the bytes of a file, not a [`PdfDocument`](crate::PdfDocument)):
-//! its bitmaps are encoded again (`optimize_images`) and redundant `/ActualText` entries are
-//! dropped ([`optimize_text`]). Pages, fonts and the text a reader extracts stay as they are.
+//! Shrinks a finished PDF.
+//!
+//! It works on the bytes of a file, not on a [`PdfDocument`](crate::PdfDocument). Bitmaps are
+//! encoded again (`optimize_images`) and redundant `/ActualText` entries are dropped
+//! ([`optimize_text`]). Pages, fonts and the text a reader extracts stay as they are.
 //!
 //! Use them on PDFs from other programs, or on your own output when size matters. A document
 //! made with this crate is already optimized when saved with

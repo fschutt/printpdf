@@ -272,7 +272,7 @@ pub mod html;
 #[cfg(feature = "html")]
 pub use html::*;
 
-/// Public API for text shaping using azul text3
+/// Re-exports of azul's text layout types, for use with [`shape`].
 #[cfg(feature = "text_layout")]
 pub mod text_shaping {
     pub use azul_layout::text3::cache::{FontManager, UnifiedLayout, ParsedFontTrait, LoadedFonts};
@@ -299,10 +299,9 @@ pub use deserialize::*;
 pub(crate) mod render;
 pub use render::*;
 
-/// Page setup for [`PdfDocument::from_html`]. Every field is optional and falls back to the
-/// default named in its documentation.
+/// Page setup for [`PdfDocument::from_html`].
 ///
-/// The type is serialized to JSON with the field names as written; `None` fields are omitted.
+/// Every field is optional and falls back to the default named in its documentation. The type is serialized to JSON with the field names as written; `None` fields are omitted.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct GeneratePdfOptions {
     /// Page width in mm. Default 210.0 (A4).
@@ -369,8 +368,10 @@ impl GeneratePdfOptions {
     }
 }
 
-/// Binary data given either as raw bytes or as a base64 string (also as a `data:...;base64,...`
-/// URL), for the image and font maps of [`PdfDocument::from_html`].
+/// Binary data as raw bytes or as a base64 string.
+///
+/// A string may also be a `data:...;base64,...` URL. The image and font maps of
+/// [`PdfDocument::from_html`] use this type.
 ///
 /// Base64 exists for JavaScript callers, where `atob` / `btoa` avoid mismatches between
 /// `ArrayBuffer`, `Uint8Array` and byte arrays. The enum is `#[serde(untagged)]`: JSON can hold
@@ -425,7 +426,9 @@ fn get_base64_substr(input: &str) -> &str {
     }
 }
 
-/// Id of a bookmark in [`PdfDocument::bookmarks`].
+/// Id of a bookmark.
+///
+/// It is the key in [`PdfDocument::bookmarks`].
 ///
 /// The wrapped string is the resource name used in the PDF.
 #[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -445,7 +448,10 @@ impl Default for PageAnnotId {
     }
 }
 
-/// Id of an XObject (image, SVG or other reusable drawing) in [`PdfResources::xobjects`], used by `Op::UseXobject`.
+/// Id of an XObject, for [`Op::UseXobject`].
+///
+/// It is the key in [`PdfResources::xobjects`]. An XObject is an image, an SVG or another reusable
+/// drawing.
 ///
 /// The wrapped string is the resource name used in the PDF.
 #[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -465,7 +471,9 @@ impl Default for XObjectId {
     }
 }
 
-/// Id of an embedded font in [`PdfResources::fonts`], used by [`PdfFontHandle::External`].
+/// Id of an embedded font, for [`PdfFontHandle::External`].
+///
+/// It is the key in [`PdfResources::fonts`].
 ///
 /// The wrapped string is the resource name used in the PDF.
 #[derive(Debug, PartialEq, Hash, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -485,7 +493,9 @@ impl Default for FontId {
     }
 }
 
-/// Id of a layer (optional content group) in [`PdfResources::layers`], used by `Op::BeginLayer`.
+/// Id of a layer, for [`Op::BeginLayer`].
+///
+/// A layer is an optional content group. The id is the key in [`PdfResources::layers`].
 ///
 /// The wrapped string is the resource name used in the PDF.
 #[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -505,7 +515,9 @@ impl Default for LayerInternalId {
     }
 }
 
-/// Id of an extended graphics state in [`PdfResources::extgstates`], used by `Op::LoadGraphicsState`.
+/// Id of an extended graphics state, for [`Op::LoadGraphicsState`].
+///
+/// It is the key in [`PdfResources::extgstates`].
 ///
 /// The wrapped string is the resource name used in the PDF.
 #[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -545,7 +557,9 @@ impl Default for IccProfileId {
     }
 }
 
-/// A PDF document: metadata, the resources its pages share, bookmarks and the pages.
+/// A PDF document with its pages and shared resources.
+///
+/// It holds the metadata, the shared resources, the bookmarks and the pages.
 ///
 /// Build one with [`PdfDocument::new`], [`PdfDocument::parse`] or [`PdfDocument::from_html`],
 /// write it with [`PdfDocument::save`]. Serializes to JSON with camelCase field names.
@@ -1060,9 +1074,9 @@ impl PdfDocument {
     }
 }
 
-/// The objects that pages share and refer to by id, stored once per file.
+/// The objects that pages share, stored once per file.
 ///
-/// Add to them with the `add_*` methods of [`PdfDocument`]. Serialized as camelCase JSON.
+/// Pages refer to them by id. Add to them with the `add_*` methods of [`PdfDocument`]. Serialized as camelCase JSON.
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PdfResources {
@@ -1083,7 +1097,9 @@ pub struct PdfResources {
     pub layers: PdfLayerMap,
 }
 
-/// Layers of a document by id (serialized as the plain map).
+/// Layers by id.
+///
+/// Serialized as the plain map.
 #[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct PdfLayerMap {
@@ -1091,7 +1107,9 @@ pub struct PdfLayerMap {
     pub map: BTreeMap<LayerInternalId, Layer>,
 }
 
-/// Fonts of a document by id (serialized as the plain map).
+/// Fonts by id.
+///
+/// Serialized as the plain map.
 #[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct PdfFontMap {
@@ -1099,7 +1117,9 @@ pub struct PdfFontMap {
     pub map: BTreeMap<FontId, crate::font::PdfFont>,
 }
 
-/// XObjects of a document by id (serialized as the plain map).
+/// XObjects by id.
+///
+/// Serialized as the plain map.
 #[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct XObjectMap {
@@ -1107,7 +1127,9 @@ pub struct XObjectMap {
     pub map: BTreeMap<XObjectId, XObject>,
 }
 
-/// Bookmarks of a document by id (serialized as the plain map).
+/// Bookmarks by id.
+///
+/// Serialized as the plain map.
 #[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct PageAnnotMap {
@@ -1115,7 +1137,9 @@ pub struct PageAnnotMap {
     pub map: BTreeMap<PageAnnotId, PageAnnotation>,
 }
 
-/// Extended graphics states of a document by id (serialized as the plain map).
+/// Extended graphics states by id.
+///
+/// Serialized as the plain map.
 #[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ExtendedGraphicsStateMap {
@@ -1123,7 +1147,9 @@ pub struct ExtendedGraphicsStateMap {
     pub map: BTreeMap<ExtendedGraphicsStateId, ExtendedGraphicsState>,
 }
 
-/// Shadings of a document by id (serialized as the plain map).
+/// Shadings by id.
+///
+/// Serialized as the plain map.
 #[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ShadingMap {
@@ -1131,9 +1157,10 @@ pub struct ShadingMap {
     pub map: BTreeMap<ShadingId, crate::shading::Shading>,
 }
 
-/// The document information that a PDF stores twice: in the "Info" dictionary and, for
-/// conformance levels that require it, as XMP metadata. Keeping both in one struct keeps them
-/// in sync.
+/// Document metadata that a PDF stores in two places.
+///
+/// The "Info" dictionary always has it, and conformance levels that require XMP metadata have it
+/// there too. Keeping both in one struct keeps them in sync.
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PdfMetadata {
@@ -1195,7 +1222,9 @@ pub struct XmpMetadata {
     pub rendition_class: Option<String>,
 }
 
-/// The "Info" dictionary of a PDF: title, author, dates and the conformance level.
+/// The "Info" dictionary of a PDF.
+///
+/// It holds the title, author, dates and the conformance level.
 ///
 /// [`Default`] gives empty strings and the Unix epoch for all three dates.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]

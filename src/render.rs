@@ -35,7 +35,9 @@ use crate::{
     UnderColorRemovalFunction, WindingOrder, XObject, XObjectId, XObjectTransform,
 };
 
-/// Options for [`render_to_svg`].
+/// Options for rendering a page to SVG.
+///
+/// Used by [`PdfPage::to_svg`](crate::PdfPage::to_svg).
 ///
 /// Serialized as JSON with camelCase keys.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -471,7 +473,7 @@ impl GraphicsStateVec {
 ///
 /// Not rendered: gradients (`sh`), transparency, blend modes and soft masks, colorspace changes
 /// and inline images (these add a warning). An unknown operator becomes an XML comment.
-pub fn render_to_svg(
+pub(crate) fn render_to_svg(
     page: &PdfPage,
     resources: &PdfResources,
     opts: &PdfToSvgOptions,
@@ -483,7 +485,7 @@ pub fn render_to_svg(
 
 /// Like [`render_to_svg`], but encodes the images with the async encoder, for targets where
 /// blocking is not allowed (wasm).
-pub async fn render_to_svg_async(
+pub(crate) async fn render_to_svg_async(
     page: &PdfPage,
     resources: &PdfResources,
     opts: &PdfToSvgOptions,

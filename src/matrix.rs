@@ -1,4 +1,4 @@
-//! Transformation matrices: how coordinates are moved, rotated and scaled.
+//! Transformation matrices.
 //!
 //! PDF describes a transformation with six numbers `[a b c d e f]`. A point `(x, y)` is moved to
 //! `(a*x + c*y + e, b*x + d*y + f)`. So `[1 0 0 1 e f]` moves by `(e, f)`, `[sx 0 0 sy 0 0]`

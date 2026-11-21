@@ -1,4 +1,4 @@
-//! Component definitions that printpdf adds to azul's HTML component map.
+//! HTML components that printpdf adds to azul's component map.
 //!
 //! When printpdf turns HTML into a PDF, azul parses the markup into a DOM and looks up each tag
 //! in a `ComponentMap`. azul's builtin library already covers the standard HTML tags

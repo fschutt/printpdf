@@ -1,4 +1,4 @@
-//! PDF standards (PDF/A, PDF/X, ...) and the settings that follow from them.
+//! PDF standards such as PDF/A and PDF/X, and what they require.
 //!
 //! Besides the general PDF format (ISO 32000), there are subset standards for specific
 //! jobs: PDF/A for long-term archiving (ISO 19005), PDF/X for print production

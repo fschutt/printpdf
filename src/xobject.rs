@@ -1,4 +1,4 @@
-//! XObjects: bitmaps and blocks of vector graphics that a page draws with the `Do` operator.
+//! XObjects: images and reusable drawings that a page draws with the `Do` operator.
 //!
 //! A page's content stream only holds drawing operators. Anything bigger, such as a bitmap, or
 //! vector graphics that appear several times, is stored once as an *XObject* ("external object":

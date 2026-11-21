@@ -1,4 +1,4 @@
-//! Interactive forms (AcroForm): reading, filling and flattening.
+//! Interactive forms (AcroForm).
 //!
 //! A PDF form is a tree of *fields* (a text box, a check box, a drop-down, ...) listed under
 //! the `/AcroForm` entry of the document catalog. Each field has a name, a value and one or

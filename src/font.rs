@@ -1,4 +1,4 @@
-//! Fonts: the 14 built-in PDF fonts, fonts embedded from font files, and the helpers that write them.
+//! Built-in and embedded fonts.
 //!
 //! # Fonts in a PDF
 //!

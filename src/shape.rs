@@ -1,4 +1,4 @@
-//! Text layout to PDF operations.
+//! Turns a text layout into PDF operations.
 //!
 //! A PDF content stream has no line breaking, kerning rules or bidirectional text: it only says
 //! "show these glyphs at these positions". Working that out is the job of a text layout engine.
