@@ -1388,6 +1388,8 @@ fn api_html_documents_and_options_that_are_odd_give_a_result_or_an_error() {
     assert_eq!(r["status"], 0, "{r}");
 }
 
+// Without `text_layout` a font does not keep its source bytes, so the JSON has no data URI to corrupt.
+#[cfg(feature = "text_layout")]
 #[test]
 fn api_documents_with_corrupted_fonts_give_an_error_envelope() {
     if in_child_process("api_documents_with_corrupted_fonts_give_an_error_envelope", 180, 2000) {
