@@ -8,6 +8,7 @@ All notable changes to printpdf are documented in this file. The format follows
 ### Added
 
 - `ppdf`, a command-line tool in `ppdf/` (its own crate, not part of the printpdf package). It converts a PDF to JSON and back so the document can be edited with `jq`, prints text, text boxes, SVG pages, fonts and images, and renders HTML to PDF. See `ppdf/README.md`.
+- `web/minimal.html`: a single HTML file that makes a PDF in the browser with two wasm calls. It imports the package of the latest release from the demo site, and is deployed with it. Described in `docs/API.md`.
 - `docs/HTML.md` documents the HTML and CSS that `from_html` supports. It replaces `SYNTAX.md`, which described an API that no longer exists.
 
 ### Changed

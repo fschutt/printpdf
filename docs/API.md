@@ -40,6 +40,71 @@ only built with the `js-sys` feature.
 
 The structure of a `PdfDocument` is described in [STRUCTS.md](STRUCTS.md).
 
+## A complete page
+
+This is all it takes to make a PDF in the browser: one HTML file, no build. It imports the
+package of the latest release from the demo site, which allows cross-origin loading, so it also
+works when opened from disk. The file is `web/minimal.html` in the repository, and it is served at
+<https://fschutt.github.io/printpdf/minimal.html>.
+
+To pin a version or to work offline, build your own package with `wasm-pack build --target web`
+and import `./pkg/printpdf.js` instead. The wasm file is about 14 MB, so the first load takes a moment.
+
+```html
+<!doctype html>
+<meta charset="utf-8">
+<title>printpdf: HTML to PDF in the browser</title>
+
+<textarea id="html" rows="8" cols="60">
+<h1 style="color: #b7410e">Hello PDF</h1>
+<p>This page was laid out and written by printpdf, compiled to WebAssembly.</p>
+</textarea>
+<p><button id="make" disabled>Make PDF</button> <span id="status">loading...</span></p>
+
+<script type="module">
+  // The package of the latest release, served by the demo site (it allows cross-origin loading),
+  // so this file works on its own, even opened from disk. To pin a version or work offline, build
+  // your own with `wasm-pack build --target web` and import './pkg/printpdf.js' instead.
+  import init, { Pdf_HtmlToDocument, Pdf_DocumentToBytes } from 'https://fschutt.github.io/printpdf/pkg/printpdf.js';
+
+  // Every function takes one JSON string and returns one: { status, data }.
+  // status 0 is success and `data` is the result, anything else is an error and `data` is the message.
+  async function call(fn, input) {
+    const result = JSON.parse(await fn(JSON.stringify(input)));
+    if (result.status !== 0) throw new Error(result.data);
+    return result.data;
+  }
+
+  const status = document.getElementById('status');
+  const button = document.getElementById('make');
+  await init(); // loads and compiles printpdf_bg.wasm
+  button.disabled = false;
+  status.textContent = 'ready';
+
+  button.onclick = async () => {
+    try {
+      // 1. HTML to a document. The result is the PdfDocument as a JSON object (and warnings).
+      const { doc } = await call(Pdf_HtmlToDocument, { html: document.getElementById('html').value });
+
+      // 2. Document to PDF bytes, returned as base64.
+      const { bytes } = await call(Pdf_DocumentToBytes, { doc });
+
+      // 3. Download it.
+      const pdf = Uint8Array.from(atob(bytes), (c) => c.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([pdf], { type: 'application/pdf' }));
+      Object.assign(document.createElement('a'), { href: url, download: 'hello.pdf' }).click();
+      status.textContent = `done, ${pdf.length} bytes`;
+    } catch (e) {
+      status.textContent = 'error: ' + e.message;
+    }
+  };
+</script>
+```
+
+Two calls are enough: `Pdf_HtmlToDocument` turns HTML into a document, `Pdf_DocumentToBytes` turns
+the document into a PDF. The other functions below are for reading existing PDFs, rendering
+pages to SVG, and adding fonts and images.
+
 ## Initialization
 
 `printpdf_bg.wasm` has to be next to `printpdf.js`. Initialize the module once:

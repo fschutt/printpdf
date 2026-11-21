@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds the wasm demo into _site/ (not checked in):
-#   _site/index.html, script.js, style.css   the page, copied from web/
+#   _site/index.html, minimal.html, script.js, style.css   the pages, copied from web/
 #   _site/pkg/                               wasm-pack output
 #   _site/default-fonts.js                   base64 default fonts for the HTML examples
 #   _site/examples/assets/...                assets the demo fetches at runtime
@@ -17,7 +17,7 @@ wasm-pack build --target web --no-pack --no-typescript --release \
   --out-dir "$SITE/pkg" \
   --no-default-features --features "html,js-sys,gif,jpeg,png,pnm,tiff,bmp,webp"
 
-cp web/index.html web/script.js web/style.css "$SITE/"
+cp web/index.html web/minimal.html web/script.js web/style.css "$SITE/"
 
 # script.js fetches ./examples/assets/img/cat.jpg for the recipe example.
 mkdir -p "$SITE/examples/assets/img"
