@@ -219,6 +219,21 @@
 //! The repository's `examples/` folder has runnable programs for most of these.
 
 #![warn(missing_docs)]
+// A failure comes back as an `Err`, a warning or a skipped item, never as a panic: on
+// `wasm32-unknown-unknown` a panic traps and cannot be caught. `cargo clippy` enforces it.
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented,
+        clippy::indexing_slicing,
+        clippy::string_slice
+    )
+)]
 
 use std::collections::BTreeMap;
 
