@@ -1928,8 +1928,14 @@ pub struct PageState {
     /// The decode kind of the currently selected font (set by `Tf`).
     pub current_font_decode: Option<FontTextDecodeKind>,
 
-    /// Current transformation matrix stack. Each entry is a 6-float array [a b c d e f].
+    /// Current transformation matrix stack. Each entry is a 6-float array [a b c d e f]. The
+    /// stack has a depth limit; `q` operators beyond it are counted in
+    /// [`PageState::untracked_saves`].
     pub transform_stack: Vec<[f32; 6]>,
+
+    /// Number of open `q` operators beyond the depth limit of [`PageState::transform_stack`]. A
+    /// `Q` ends one of these before it pops the stack.
+    pub untracked_saves: usize,
 
     /// Absolute translation of the text line matrix. `Td` is relative, so it is accumulated here
     /// and emitted as an absolute [`Op::SetTextCursor`]. Reset by `BT`, set by `Tm`.
@@ -1938,8 +1944,14 @@ pub struct PageState {
     /// right amount.
     pub text_leading: f32,
 
-    /// Name of the current marked content, if any (set by BMC/BDC)
+    /// Name of the current marked content, if any (set by BMC/BDC). The stack has a depth limit;
+    /// `BMC` and `BDC` operators beyond it are counted in
+    /// [`PageState::untracked_marked_content`].
     pub current_marked_content: Vec<String>,
+
+    /// Number of open `BMC` and `BDC` operators beyond the depth limit of
+    /// [`PageState::current_marked_content`]. An `EMC` ends one of these before it pops the stack.
+    pub untracked_marked_content: usize,
 
     /// The path under construction (`m`, `l`, `c`, `re`, ...), until a painting operator ends it.
     pub path_builder: PathBuilder,
@@ -1950,6 +1962,13 @@ pub struct PageState {
     /// Holds a rectangle whose winding order is set by `W` and `W*`.
     pub rectangle_builder: RectangleBuilder,
 }
+
+// A content stream can open `q`, `BMC` and `BDC` without ever closing them. Past these depths the
+// operators are only counted: their ops are still emitted and the matching `Q` and `EMC` still
+// balance, but the stacks stay small. ISO 32000-1, Annex C, gives 28 as the `q` depth a reader has
+// to support.
+const MAX_GRAPHICS_STATE_DEPTH: usize = 256;
+const MAX_MARKED_CONTENT_DEPTH: usize = 256;
 
 /// Holds the rectangle that `W` and `W*` set the winding order of.
 #[derive(Debug, Clone, Default)]
@@ -1972,12 +1991,11 @@ impl RectangleBuilder {
 
     /// [`Op::DrawRectangle`] for the held rectangle, or no ops when there is none.
     pub fn get_ops(&self) -> Vec<Op> {
-        if self.rectangle.is_none() {
-            vec![]
-        } else {
-            vec![Op::DrawRectangle {
-                rectangle: self.rectangle.as_ref().unwrap().clone(),
-            }]
+        match &self.rectangle {
+            Some(rectangle) => vec![Op::DrawRectangle {
+                rectangle: rectangle.clone(),
+            }],
+            None => vec![],
         }
     }
 
@@ -2031,6 +2049,8 @@ pub struct PathBuilder {
     subpaths: Vec<Vec<PathOperation>>,
     current_point: Option<Point>,
     start_point: Option<Point>,
+    /// True once `W` or `W*` has emitted the clip of the path under construction.
+    clip_emitted: bool,
 }
 
 impl PathBuilder {
@@ -2115,6 +2135,7 @@ impl PathBuilder {
         self.subpaths.clear();
         self.current_point = None;
         self.start_point = None;
+        self.clip_emitted = false;
     }
 
     #[cfg(test)]
@@ -2170,9 +2191,8 @@ pub fn path_to_op(path: &PdfPath) -> Op {
         }
     }
 
-    if path.subpaths.len() == 1
+    if matches!(path.subpaths.as_slice(), [only] if !only.is_closed)
         && path.paint_mode == PaintMode::Stroke
-        && !path.subpaths[0].is_closed
     {
         if let Some(ring) = all_rings.first() {
             return Op::DrawLine {
@@ -2507,7 +2527,7 @@ fn decode_show_text_string(
                         .as_chunks::<2>()
                         .0
                         .iter()
-                        .map(|c| (u16::from_be_bytes([c[0], c[1]]) as u32, 2))
+                        .map(|c| (u32::from(u16::from_be_bytes(*c)), 2))
                         .collect()
                 }
             };
@@ -2591,6 +2611,32 @@ fn decode_show_text_to_string(
     }
 }
 
+/// Records an opened marked content sequence (`BMC`, `BDC`) on the stack of `state`. Past the
+/// depth limit it is only counted, with one warning where the limit is crossed.
+fn open_marked_content(
+    state: &mut PageState,
+    tag: String,
+    page: usize,
+    op_id: usize,
+    warnings: &mut Vec<PdfWarnMsg>,
+) {
+    if state.current_marked_content.len() < MAX_MARKED_CONTENT_DEPTH {
+        state.current_marked_content.push(tag);
+        return;
+    }
+    if state.untracked_marked_content == 0 {
+        warnings.push(PdfWarnMsg::warning(
+            page,
+            op_id,
+            format!(
+                "Marked content nested deeper than {MAX_MARKED_CONTENT_DEPTH} levels; \
+                 the nesting is no longer tracked"
+            ),
+        ));
+    }
+    state.untracked_marked_content = state.untracked_marked_content.saturating_add(1);
+}
+
 /// Converts one content stream operator into zero or more [`Op`]s.
 ///
 /// `state` carries the current font, text position and open path between calls: path operators
@@ -2610,16 +2656,32 @@ pub fn parse_op(
     let mut out_ops = Vec::new();
     match op.operator.as_str() {
         "q" => {
-            let top = state
-                .transform_stack
-                .last()
-                .copied()
-                .unwrap_or([1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
-            state.transform_stack.push(top);
+            if state.transform_stack.len() < MAX_GRAPHICS_STATE_DEPTH {
+                let top = state
+                    .transform_stack
+                    .last()
+                    .copied()
+                    .unwrap_or([1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
+                state.transform_stack.push(top);
+            } else {
+                if state.untracked_saves == 0 {
+                    warnings.push(PdfWarnMsg::warning(
+                        page,
+                        op_id,
+                        format!(
+                            "'q' nested deeper than {MAX_GRAPHICS_STATE_DEPTH} levels; \
+                             the nesting is no longer tracked"
+                        ),
+                    ));
+                }
+                state.untracked_saves = state.untracked_saves.saturating_add(1);
+            }
             out_ops.push(Op::SaveGraphicsState);
         }
         "Q" => {
-            if state.transform_stack.pop().is_none() {
+            if state.untracked_saves > 0 {
+                state.untracked_saves = state.untracked_saves.saturating_sub(1);
+            } else if state.transform_stack.pop().is_none() {
                 // Unbalanced `Q`: warn, and still emit the op.
                 warnings.push(PdfWarnMsg::error(
                     page,
@@ -2630,16 +2692,16 @@ pub fn parse_op(
             out_ops.push(Op::RestoreGraphicsState);
         }
         "MP" => {
-            if op.operands.len() != 1 {
+            let [operand] = op.operands.as_slice() else {
                 warnings.push(PdfWarnMsg::error(
                     page,
                     op_id,
                     "MP expects 1 operand".to_string(),
                 ));
                 return Ok(Vec::new());
-            }
+            };
 
-            let id = match as_name(&op.operands[0]) {
+            let id = match as_name(operand) {
                 Some(name) => name,
                 None => {
                     warnings.push(PdfWarnMsg::error(
@@ -2654,16 +2716,16 @@ pub fn parse_op(
             out_ops.push(Op::Marker { id });
         }
         "CS" => {
-            if op.operands.len() != 1 {
+            let [operand] = op.operands.as_slice() else {
                 warnings.push(PdfWarnMsg::error(
                     page,
                     op_id,
                     "CS expects 1 operand".to_string(),
                 ));
                 return Ok(Vec::new());
-            }
+            };
 
-            let id = match as_name(&op.operands[0]) {
+            let id = match as_name(operand) {
                 Some(name) => name,
                 None => {
                     warnings.push(PdfWarnMsg::error(
@@ -2678,16 +2740,16 @@ pub fn parse_op(
             out_ops.push(Op::SetColorSpaceStroke { id });
         }
         "cs" => {
-            if op.operands.len() != 1 {
+            let [operand] = op.operands.as_slice() else {
                 warnings.push(PdfWarnMsg::error(
                     page,
                     op_id,
                     "cs expects 1 operand".to_string(),
                 ));
                 return Ok(Vec::new());
-            }
+            };
 
-            let id = match as_name(&op.operands[0]) {
+            let id = match as_name(operand) {
                 Some(name) => name,
                 None => {
                     warnings.push(PdfWarnMsg::error(
@@ -2702,15 +2764,15 @@ pub fn parse_op(
             out_ops.push(Op::SetColorSpaceFill { id });
         }
         "ri" => {
-            if op.operands.len() != 1 {
+            let [operand] = op.operands.as_slice() else {
                 warnings.push(PdfWarnMsg::error(
                     page,
                     op_id,
                     "ri expects 1 operand".to_string(),
                 ));
                 return Ok(Vec::new());
-            }
-            let intent = match as_name(&op.operands[0]) {
+            };
+            let intent = match as_name(operand) {
                 Some(i) => i,
                 None => {
                     warnings.push(PdfWarnMsg::error(
@@ -2741,10 +2803,10 @@ pub fn parse_op(
             out_ops.push(Op::SetRenderingIntent { intent });
         }
         "rg" => {
-            if op.operands.len() == 3 {
-                let r = to_f32(&op.operands[0]);
-                let g = to_f32(&op.operands[1]);
-                let b = to_f32(&op.operands[2]);
+            if let [r, g, b] = op.operands.as_slice() {
+                let r = to_f32(r);
+                let g = to_f32(g);
+                let b = to_f32(b);
                 out_ops.push(Op::SetFillColor {
                     col: Color::Rgb(crate::Rgb {
                         r,
@@ -2762,10 +2824,10 @@ pub fn parse_op(
             }
         }
         "RG" => {
-            if op.operands.len() == 3 {
-                let r = to_f32(&op.operands[0]);
-                let g = to_f32(&op.operands[1]);
-                let b = to_f32(&op.operands[2]);
+            if let [r, g, b] = op.operands.as_slice() {
+                let r = to_f32(r);
+                let g = to_f32(g);
+                let b = to_f32(b);
                 out_ops.push(Op::SetOutlineColor {
                     col: Color::Rgb(crate::Rgb {
                         r,
@@ -2783,11 +2845,11 @@ pub fn parse_op(
             }
         }
         "k" => {
-            if op.operands.len() == 4 {
-                let c = to_f32(&op.operands[0]);
-                let m = to_f32(&op.operands[1]);
-                let y = to_f32(&op.operands[2]);
-                let k = to_f32(&op.operands[3]);
+            if let [c, m, y, k] = op.operands.as_slice() {
+                let c = to_f32(c);
+                let m = to_f32(m);
+                let y = to_f32(y);
+                let k = to_f32(k);
                 out_ops.push(Op::SetFillColor {
                     col: Color::Cmyk(crate::Cmyk {
                         c,
@@ -2806,11 +2868,11 @@ pub fn parse_op(
             }
         }
         "K" => {
-            if op.operands.len() == 4 {
-                let c = to_f32(&op.operands[0]);
-                let m = to_f32(&op.operands[1]);
-                let y = to_f32(&op.operands[2]);
-                let k = to_f32(&op.operands[3]);
+            if let [c, m, y, k] = op.operands.as_slice() {
+                let c = to_f32(c);
+                let m = to_f32(m);
+                let y = to_f32(y);
+                let k = to_f32(k);
                 out_ops.push(Op::SetOutlineColor {
                     col: Color::Cmyk(crate::Cmyk {
                         c,
@@ -2829,8 +2891,8 @@ pub fn parse_op(
             }
         }
         "g" => {
-            if op.operands.len() == 1 {
-                let gray = to_f32(&op.operands[0]);
+            if let [gray] = op.operands.as_slice() {
+                let gray = to_f32(gray);
                 out_ops.push(Op::SetFillColor {
                     col: Color::Greyscale(crate::Greyscale {
                         percent: gray,
@@ -2846,8 +2908,8 @@ pub fn parse_op(
             }
         }
         "G" => {
-            if op.operands.len() == 1 {
-                let gray = to_f32(&op.operands[0]);
+            if let [gray] = op.operands.as_slice() {
+                let gray = to_f32(gray);
                 out_ops.push(Op::SetOutlineColor {
                     col: Color::Greyscale(crate::Greyscale {
                         percent: gray,
@@ -2923,7 +2985,7 @@ pub fn parse_op(
                     op_id,
                     "Warning: 'Tj' with no operands".to_string(),
                 ));
-            } else if let lopdf::Object::String(bytes, _format) = &op.operands[0] {
+            } else if let Some(lopdf::Object::String(bytes, _format)) = op.operands.first() {
                 // Warn if no font was set via Tf operator
                 if state.current_font_resource.is_none() {
                     warnings.push(PdfWarnMsg::warning(
@@ -2957,8 +3019,8 @@ pub fn parse_op(
             out_ops.push(Op::AddLineBreak);
         }
         "TL" => {
-            if op.operands.len() == 1 {
-                let val = to_f32(&op.operands[0]);
+            if let [operand] = op.operands.as_slice() {
+                let val = to_f32(operand);
                 state.text_leading = val;
                 out_ops.push(Op::SetLineHeight { lh: Pt(val) });
             } else {
@@ -2970,8 +3032,8 @@ pub fn parse_op(
             }
         }
         "Ts" => {
-            if op.operands.len() == 1 {
-                let rise = to_f32(&op.operands[0]);
+            if let [operand] = op.operands.as_slice() {
+                let rise = to_f32(operand);
                 out_ops.push(Op::SetLineOffset { multiplier: rise });
             } else {
                 warnings.push(PdfWarnMsg::error(
@@ -2982,8 +3044,8 @@ pub fn parse_op(
             }
         }
         "Tw" => {
-            if op.operands.len() == 1 {
-                let spacing = to_f32(&op.operands[0]);
+            if let [operand] = op.operands.as_slice() {
+                let spacing = to_f32(operand);
                 out_ops.push(Op::SetWordSpacing { pt: Pt(spacing) });
             } else {
                 warnings.push(PdfWarnMsg::error(
@@ -2994,8 +3056,8 @@ pub fn parse_op(
             }
         }
         "Tz" => {
-            if op.operands.len() == 1 {
-                let scale_percent = to_f32(&op.operands[0]);
+            if let [operand] = op.operands.as_slice() {
+                let scale_percent = to_f32(operand);
                 out_ops.push(Op::SetHorizontalScaling {
                     percent: scale_percent,
                 });
@@ -3008,10 +3070,10 @@ pub fn parse_op(
             }
         }
         "TD" => {
-            if op.operands.len() == 2 {
+            if let [tx, ty] = op.operands.as_slice() {
                 // TD = Td + set leading to -ty. Relative move; track it and the leading.
-                let tx = to_f32(&op.operands[0]);
-                let ty = to_f32(&op.operands[1]);
+                let tx = to_f32(tx);
+                let ty = to_f32(ty);
                 state.text_line[0] += tx;
                 state.text_line[1] += ty;
                 state.text_leading = -ty;
@@ -3025,13 +3087,13 @@ pub fn parse_op(
             }
         }
         "Tm" => {
-            if op.operands.len() == 6 {
-                let a = to_f32(&op.operands[0]);
-                let b = to_f32(&op.operands[1]);
-                let c = to_f32(&op.operands[2]);
-                let d = to_f32(&op.operands[3]);
-                let e = to_f32(&op.operands[4]);
-                let f = to_f32(&op.operands[5]);
+            if let [a, b, c, d, e, f] = op.operands.as_slice() {
+                let a = to_f32(a);
+                let b = to_f32(b);
+                let c = to_f32(c);
+                let d = to_f32(d);
+                let e = to_f32(e);
+                let f = to_f32(f);
                 // Tm sets the text line matrix absolutely; track its translation
                 // so a following relative `Td` accumulates from here.
                 state.text_line = [e, f];
@@ -3047,29 +3109,29 @@ pub fn parse_op(
             }
         }
         "Tc" => {
-            if op.operands.len() != 1 {
+            let [operand] = op.operands.as_slice() else {
                 warnings.push(PdfWarnMsg::error(
                     page,
                     op_id,
                     "Tc expects 1 operand".to_string(),
                 ));
                 return Ok(Vec::new());
-            }
-            let spacing = to_f32(&op.operands[0]);
+            };
+            let spacing = to_f32(operand);
             out_ops.push(Op::SetCharacterSpacing {
                 multiplier: spacing,
             });
         }
         "Tr" => {
-            if op.operands.len() != 1 {
+            let [operand] = op.operands.as_slice() else {
                 warnings.push(PdfWarnMsg::error(
                     page,
                     op_id,
                     "Tr expects 1 operand".to_string(),
                 ));
                 return Ok(Vec::new());
-            }
-            let mode = match &op.operands[0] {
+            };
+            let mode = match operand {
                 Object::Integer(i) => *i,
                 Object::Real(r) => *r as i64,
                 _ => {
@@ -3086,16 +3148,16 @@ pub fn parse_op(
             });
         }
         "gs" => {
-            if op.operands.len() != 1 {
+            let [operand] = op.operands.as_slice() else {
                 warnings.push(PdfWarnMsg::error(
                     page,
                     op_id,
                     "gs expects 1 operand".to_string(),
                 ));
                 return Ok(Vec::new());
-            }
+            };
 
-            let gs_name = match as_name(&op.operands[0]) {
+            let gs_name = match as_name(operand) {
                 Some(name) => name,
                 None => {
                     warnings.push(PdfWarnMsg::error(
@@ -3124,8 +3186,8 @@ pub fn parse_op(
         }
 
         "Tf" => {
-            if op.operands.len() == 2 {
-                if let Some(font_name) = as_name(&op.operands[0]) {
+            if let [font, size] = op.operands.as_slice() {
+                if let Some(font_name) = as_name(font) {
                     state.current_font = Some(BuiltinOrExternalFontId::from_str(&font_name));
                     state.current_font_resource = Some(font_name.clone());
                     // The document's own font resources win over the F1-F14 builtin naming: a
@@ -3135,7 +3197,7 @@ pub fn parse_op(
                         None => BuiltinFont::from_id(&font_name).map(FontTextDecodeKind::Builtin),
                     };
                 }
-                let size_val = to_f32(&op.operands[1]);
+                let size_val = to_f32(size);
                 state.current_font_size = Some(crate::units::Pt(size_val));
 
                 if let (Some(font_resource), Some(sz)) =
@@ -3184,11 +3246,11 @@ pub fn parse_op(
         }
 
         "Td" => {
-            if op.operands.len() == 2 {
+            if let [tx, ty] = op.operands.as_slice() {
                 // `Td` is relative to the text line matrix: accumulate it and emit an absolute
                 // cursor, since `SetTextCursor` is absolute.
-                let tx = to_f32(&op.operands[0]);
-                let ty = to_f32(&op.operands[1]);
+                let tx = to_f32(tx);
+                let ty = to_f32(ty);
                 state.text_line[0] += tx;
                 state.text_line[1] += ty;
                 out_ops.push(Op::SetTextCursor {
@@ -3205,15 +3267,15 @@ pub fn parse_op(
         "BDC" => {
             // Typically something like: [Name("Span"), Properties as a Dictionary]
             // In case of optional content: [Name("OC"), Name("MyLayer")]
-            if op.operands.len() != 2 {
+            let [tag, properties] = op.operands.as_slice() else {
                 warnings.push(PdfWarnMsg::error(
                     page,
                     op_id,
                     "BDC expects 2 operands".to_string(),
                 ));
                 return Ok(Vec::new());
-            }
-            let Some(marked_content_nm) = as_name(&op.operands[0]) else {
+            };
+            let Some(marked_content_nm) = as_name(tag) else {
                 warnings.push(PdfWarnMsg::error(
                     page,
                     op_id,
@@ -3222,7 +3284,7 @@ pub fn parse_op(
                 return Ok(Vec::new());
             };
             if marked_content_nm.as_str() == "OC" {
-                let Some(layer_nm) = as_name(&op.operands[1]) else {
+                let Some(layer_nm) = as_name(properties) else {
                     warnings.push(PdfWarnMsg::error(
                         page,
                         op_id,
@@ -3236,7 +3298,7 @@ pub fn parse_op(
                     layer_id: crate::LayerInternalId(layer_nm),
                 });
             } else {
-                match op.operands[1].as_dict() {
+                match properties.as_dict() {
                     Ok(dict) => {
                         out_ops.push(Op::BeginMarkedContentWithProperties {
                             tag: marked_content_nm.clone(),
@@ -3256,18 +3318,18 @@ pub fn parse_op(
                     }
                 }
             }
-            state.current_marked_content.push(marked_content_nm.clone());
+            open_marked_content(state, marked_content_nm, page, op_id, warnings);
         }
         "BMC" => {
-            if op.operands.len() != 1 {
+            let [operand] = op.operands.as_slice() else {
                 warnings.push(PdfWarnMsg::error(
                     page,
                     op_id,
                     "BMC expects 1 operand".to_string(),
                 ));
                 return Ok(Vec::new());
-            }
-            let marked_content_nm = match as_name(&op.operands[0]) {
+            };
+            let marked_content_nm = match as_name(operand) {
                 Some(t) => t,
                 None => {
                     warnings.push(PdfWarnMsg::error(
@@ -3278,13 +3340,16 @@ pub fn parse_op(
                     return Ok(Vec::new());
                 }
             };
-            state.current_marked_content.push(marked_content_nm.clone());
             out_ops.push(Op::BeginMarkedContent {
                 tag: marked_content_nm.clone(),
             });
+            open_marked_content(state, marked_content_nm, page, op_id, warnings);
         }
         "EMC" => {
-            if let Some(_marked_content_str) = state.current_marked_content.pop() {
+            if state.untracked_marked_content > 0 {
+                state.untracked_marked_content = state.untracked_marked_content.saturating_sub(1);
+                out_ops.push(Op::EndMarkedContent {});
+            } else if let Some(_marked_content_str) = state.current_marked_content.pop() {
                 out_ops.push(Op::EndMarkedContent {});
             } else {
                 warnings.push(PdfWarnMsg::error(
@@ -3296,18 +3361,15 @@ pub fn parse_op(
         }
 
         "cm" => {
-            if op.operands.len() == 6 {
-                let floats: Vec<f32> = op.operands.iter().map(to_f32).collect();
+            if let [a, b, c, d, e, f] = op.operands.as_slice() {
+                let floats = [to_f32(a), to_f32(b), to_f32(c), to_f32(d), to_f32(e), to_f32(f)];
                 if let Some(top) = state.transform_stack.last_mut() {
                     // multiply top by these floats
-                    let combined = crate::matrix::CurTransMat::combine_matrix(
-                        *top,
-                        floats.as_slice().try_into().unwrap(),
-                    );
+                    let combined = crate::matrix::CurTransMat::combine_matrix(*top, floats);
                     *top = combined;
                 }
                 out_ops.push(Op::SetTransformationMatrix {
-                    matrix: crate::matrix::CurTransMat::Raw(floats.try_into().unwrap()),
+                    matrix: crate::matrix::CurTransMat::Raw(floats),
                 });
             } else {
                 warnings.push(PdfWarnMsg::error(
@@ -3331,13 +3393,13 @@ pub fn parse_op(
         }
         "c" => {
             // c x1 y1 x2 y2 x3 y3
-            if op.operands.len() == 6 {
-                let x1 = to_f32(&op.operands[0]);
-                let y1 = to_f32(&op.operands[1]);
-                let x2 = to_f32(&op.operands[2]);
-                let y2 = to_f32(&op.operands[3]);
-                let x3 = to_f32(&op.operands[4]);
-                let y3 = to_f32(&op.operands[5]);
+            if let [x1, y1, x2, y2, x3, y3] = op.operands.as_slice() {
+                let x1 = to_f32(x1);
+                let y1 = to_f32(y1);
+                let x2 = to_f32(x2);
+                let y2 = to_f32(y2);
+                let x3 = to_f32(x3);
+                let y3 = to_f32(y3);
 
                 state.path_builder.curve_to(
                     Point {
@@ -3364,11 +3426,11 @@ pub fn parse_op(
         "v" => {
             // v x2 y2 x3 y3
             // The first control point is implied to be the current point
-            if op.operands.len() == 4 {
-                let x2 = to_f32(&op.operands[0]);
-                let y2 = to_f32(&op.operands[1]);
-                let x3 = to_f32(&op.operands[2]);
-                let y3 = to_f32(&op.operands[3]);
+            if let [x2, y2, x3, y3] = op.operands.as_slice() {
+                let x2 = to_f32(x2);
+                let y2 = to_f32(y2);
+                let x3 = to_f32(x3);
+                let y3 = to_f32(y3);
 
                 state.path_builder.v_curve_to(
                     Point {
@@ -3391,11 +3453,11 @@ pub fn parse_op(
         "y" => {
             // y x1 y1 x3 y3
             // The second control point is implied to be the final point
-            if op.operands.len() == 4 {
-                let x1 = to_f32(&op.operands[0]);
-                let y1 = to_f32(&op.operands[1]);
-                let x3 = to_f32(&op.operands[2]);
-                let y3 = to_f32(&op.operands[3]);
+            if let [x1, y1, x3, y3] = op.operands.as_slice() {
+                let x1 = to_f32(x1);
+                let y1 = to_f32(y1);
+                let x3 = to_f32(x3);
+                let y3 = to_f32(y3);
 
                 state.path_builder.y_curve_to(
                     Point {
@@ -3420,11 +3482,11 @@ pub fn parse_op(
             state.path_builder.close_path();
         }
         "re" => {
-            if op.operands.len() == 4 {
-                let x = Pt(to_f32(&op.operands[0]));
-                let y = Pt(to_f32(&op.operands[1]));
-                let width = Pt(to_f32(&op.operands[2]));
-                let height = Pt(to_f32(&op.operands[3]));
+            if let [x, y, width, height] = op.operands.as_slice() {
+                let x = Pt(to_f32(x));
+                let y = Pt(to_f32(y));
+                let width = Pt(to_f32(width));
+                let height = Pt(to_f32(height));
                 // `re` appends a closed rectangle to the current path (ISO 32000-1, 8.5.2.1); the
                 // operator after it (`f`, `S`, `B`, `W n`) fills, strokes or clips it.
                 let corner = |dx: f32, dy: f32| Point {
@@ -3533,12 +3595,23 @@ pub fn parse_op(
             state.path_builder.clear();
         }
         "W" => {
-            // Set clip path using non-zero winding rule
-            let path = state
-                .path_builder
-                .build(PaintMode::Clip, WindingOrder::NonZero);
-            if !path.subpaths.is_empty() {
-                out_ops.push(path_to_op(&path));
+            // Set clip path using non-zero winding rule. `W` does not consume the path, so a
+            // second `W` on a growing path would emit the whole path again and the output would
+            // grow with the square of the input: a path is clipped once.
+            if state.path_builder.clip_emitted {
+                warnings.push(PdfWarnMsg::warning(
+                    page,
+                    op_id,
+                    "'W' on a path that is already clipped; skipped".to_string(),
+                ));
+            } else {
+                let path = state
+                    .path_builder
+                    .build(PaintMode::Clip, WindingOrder::NonZero);
+                if !path.subpaths.is_empty() {
+                    out_ops.push(path_to_op(&path));
+                    state.path_builder.clip_emitted = true;
+                }
             }
             // Note: We don't clear the path here since clipping doesn't consume the path
             state
@@ -3546,17 +3619,26 @@ pub fn parse_op(
                 .set_winding_order(WindingOrder::NonZero);
         }
         "W*" => {
-            // Set clip path using even-odd winding rule
-            let path = state
-                .path_builder
-                .build(PaintMode::Clip, WindingOrder::EvenOdd);
-            if !path.subpaths.is_empty()
-                || out_ops.last().is_some_and(|last_op| match last_op {
-                    Op::DrawRectangle { .. } => true,
-                    _ => false,
-                })
-            {
-                out_ops.push(path_to_op(&path));
+            // Set clip path using even-odd winding rule; a path is clipped once (see `W`).
+            if state.path_builder.clip_emitted {
+                warnings.push(PdfWarnMsg::warning(
+                    page,
+                    op_id,
+                    "'W*' on a path that is already clipped; skipped".to_string(),
+                ));
+            } else {
+                let path = state
+                    .path_builder
+                    .build(PaintMode::Clip, WindingOrder::EvenOdd);
+                if !path.subpaths.is_empty()
+                    || out_ops.last().is_some_and(|last_op| match last_op {
+                        Op::DrawRectangle { .. } => true,
+                        _ => false,
+                    })
+                {
+                    out_ops.push(path_to_op(&path));
+                    state.path_builder.clip_emitted = true;
+                }
             }
             // Note: We don't clear the path here since clipping doesn't consume the path
             state
@@ -3610,15 +3692,13 @@ pub fn parse_op(
 
         "d" => {
             // "d [2 2] 0" => dash 2 on, 2 off, offset=0
-            if op.operands.len() == 2 {
-                // operand 0 is the dash array, operand 1 is the dash offset
-                if let Some(arr_obj) = op.operands.first() {
-                    if let Ok(arr) = arr_obj.as_array() {
-                        let pattern = arr.iter().map(to_f32).collect();
-                        let offset = to_f32(&op.operands[1]);
-                        let dash = LineDashPattern { offset, pattern };
-                        out_ops.push(Op::SetLineDashPattern { dash });
-                    }
+            // operand 0 is the dash array, operand 1 is the dash offset
+            if let [arr_obj, offset] = op.operands.as_slice() {
+                if let Ok(arr) = arr_obj.as_array() {
+                    let pattern = arr.iter().map(to_f32).collect();
+                    let offset = to_f32(offset);
+                    let dash = LineDashPattern { offset, pattern };
+                    out_ops.push(Op::SetLineDashPattern { dash });
                 }
             }
         }
@@ -3626,35 +3706,35 @@ pub fn parse_op(
         "sc" | "scn" => {
             // The operand count picks the color space: 1 gray, 3 RGB, 4 CMYK.
             let floats = op.operands.iter().map(to_f32).collect::<Vec<_>>();
-            match floats.len() {
-                1 => {
+            match floats.as_slice() {
+                [gray] => {
                     // grayscale
                     out_ops.push(Op::SetFillColor {
                         col: Color::Greyscale(crate::Greyscale {
-                            percent: floats[0],
+                            percent: *gray,
                             icc_profile: None,
                         }),
                     });
                 }
-                3 => {
+                [r, g, b] => {
                     // rgb
                     out_ops.push(Op::SetFillColor {
                         col: Color::Rgb(crate::Rgb {
-                            r: floats[0],
-                            g: floats[1],
-                            b: floats[2],
+                            r: *r,
+                            g: *g,
+                            b: *b,
                             icc_profile: None,
                         }),
                     });
                 }
-                4 => {
+                [c, m, y, k] => {
                     // cmyk
                     out_ops.push(Op::SetFillColor {
                         col: Color::Cmyk(crate::Cmyk {
-                            c: floats[0],
-                            m: floats[1],
-                            y: floats[2],
-                            k: floats[3],
+                            c: *c,
+                            m: *m,
+                            y: *y,
+                            k: *k,
                             icc_profile: None,
                         }),
                     });
@@ -3672,32 +3752,32 @@ pub fn parse_op(
         // Stroke color; the operand count picks the color space as for `sc`.
         "SC" | "SCN" => {
             let floats = op.operands.iter().map(to_f32).collect::<Vec<_>>();
-            match floats.len() {
-                1 => {
+            match floats.as_slice() {
+                [gray] => {
                     out_ops.push(Op::SetOutlineColor {
                         col: Color::Greyscale(crate::Greyscale {
-                            percent: floats[0],
+                            percent: *gray,
                             icc_profile: None,
                         }),
                     });
                 }
-                3 => {
+                [r, g, b] => {
                     out_ops.push(Op::SetOutlineColor {
                         col: Color::Rgb(crate::Rgb {
-                            r: floats[0],
-                            g: floats[1],
-                            b: floats[2],
+                            r: *r,
+                            g: *g,
+                            b: *b,
                             icc_profile: None,
                         }),
                     });
                 }
-                4 => {
+                [c, m, y, k] => {
                     out_ops.push(Op::SetOutlineColor {
                         col: Color::Cmyk(crate::Cmyk {
-                            c: floats[0],
-                            m: floats[1],
-                            y: floats[2],
-                            k: floats[3],
+                            c: *c,
+                            m: *m,
+                            y: *y,
+                            k: *k,
                             icc_profile: None,
                         }),
                     });
@@ -3732,10 +3812,10 @@ pub fn parse_op(
             }
         }
         "\"" => {
-            if op.operands.len() == 3 {
-                let word_spacing = to_f32(&op.operands[0]);
-                let char_spacing = to_f32(&op.operands[1]);
-                if let lopdf::Object::String(bytes, _) = &op.operands[2] {
+            if let [word_spacing, char_spacing, text] = op.operands.as_slice() {
+                let word_spacing = to_f32(word_spacing);
+                let char_spacing = to_f32(char_spacing);
+                if let lopdf::Object::String(bytes, _) = text {
                     let text = decode_show_text_to_string(
                         bytes,
                         state.current_font_decode.as_ref(),
