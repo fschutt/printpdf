@@ -1,14 +1,22 @@
-//! Bridge module to translate azul-layout PDF operations to printpdf operations.
+//! Turns an azul display list into the [`Op`]s of a PDF page.
 //!
-//! This module converts the intermediate PDF representation from azul-layout
-//! into printpdf's native Op enum, allowing us to leverage azul's layout engine
-//! while using printpdf's PDF generation.
+//! After layout, azul describes a page as a display list: rectangles, borders, gradients, shadows,
+//! images, clips and blocks of already shaped text with the position of every glyph. This module
+//! converts each item into PDF drawing operations. Layout works in CSS px with the origin at the
+//! top left; the output is in points with the origin at the bottom left of the page, shifted by
+//! the page margins.
 //!
-//! IMPORTANT: This module now converts DisplayList directly to printpdf Ops,
-//! bypassing the intermediate azul PdfOp representation. This allows us to
-//! Important: This module uses positioned glyphs from azul's layout engine to
-//! generate ShowText operations (with SetFont for font/size), which map 1:1 to PDF operators.
-//! which is necessary for proper text shaping in complex scripts.
+//! Text is written glyph by glyph: each glyph gets its own text matrix (`Tm`) and a `ShowText`
+//! of its glyph id, so the line breaking and shaping of the layout engine are kept exactly. Each
+//! run is wrapped in an `/ActualText` marked-content span so that copy and paste and text
+//! extraction still see the real string.
+//!
+//! Some features need document-level resources that a list of ops cannot hold: transparency
+//! (ExtGState), gradients (shadings) and rasterized effects. The conversion collects these in a
+//! [`BridgeResources`], which the caller registers on the document with
+//! [`BridgeResources::register_into`]. Images are looked up in a [`ResolvedImages`] table.
+//!
+//! The entry point is [`display_list_to_printpdf_ops_with_margins`].
 
 use std::{
     borrow::Cow,
@@ -33,52 +41,45 @@ use azul_css::props::basic::{
     geometry::{LayoutPoint, LayoutRect, LayoutSize},
 };
 
-/// Resolved `<img>` resources keyed by the `src` value that appeared in the HTML.
+/// Decoded `<img>` images by the `src` value in the HTML.
 ///
-/// Each entry pairs the deterministic [`XObjectId`] under which the image is
-/// registered on the [`crate::PdfDocument`] with the decoded [`RawImage`] (kept
-/// so the bridge can read the natural pixel size when building the placement
-/// transform).
+/// Each entry holds the [`XObjectId`] the image is registered under on the document and the
+/// decoded [`RawImage`], whose pixel size the bridge needs to place it.
 pub type ResolvedImages = BTreeMap<String, (XObjectId, RawImage)>;
 
-/// PDF resources synthesized by the bridge while translating a display list, to
-/// be registered on the destination [`crate::PdfDocument`] before serialization.
+/// Document-level resources that the converted ops refer to by id.
 ///
-/// The bridge produces a flat `Vec<Op>` and has no access to the document, but
-/// several display-list features need *document-level* resources referenced by
-/// name from the content stream: alpha/opacity and soft masks need an
-/// `ExtGState`, and rasterized effects (conic gradients, blurred shadows) need
-/// image/form `XObject`s. The bridge mints a unique id (via `*::new()`) for each,
-/// emits the op that references it, and records the definition here;
-/// [`BridgeResources::register_into`] then drains them onto the document's
-/// `resources` (mirroring how `<img>` Image XObjects are registered).
+/// The conversion returns a flat list of ops and cannot touch the document, but transparency
+/// needs an ExtGState, linear and radial gradients need a shading, and conic gradients and
+/// blurred shadows need an image or form XObject. The bridge creates each with a fresh id,
+/// writes the op that uses the id and records the definition here. Register them on the document
+/// with [`register_into`](Self::register_into) before saving, or the ops refer to resources that
+/// do not exist.
 #[derive(Default)]
 pub struct BridgeResources {
-    /// Extended graphics states (fill/stroke alpha, soft masks).
+    /// Graphics states for fill and stroke alpha and soft masks.
     pub extgstates: Vec<(ExtendedGraphicsStateId, ExtendedGraphicsState)>,
-    /// Axial/radial shadings (linear/radial gradients).
+    /// Axial and radial shadings, for linear and radial gradients.
     pub shadings: Vec<(ShadingId, Shading)>,
-    /// Image / form XObjects synthesized by the bridge.
+    /// Image and form XObjects the bridge made, for conic gradients and blurred shadows.
     pub xobjects: Vec<(XObjectId, XObject)>,
 }
 
 impl BridgeResources {
-    /// Allocate an `ExtGState`, record it, and return its id (for `LoadGraphicsState`).
     fn add_extgstate(&mut self, gs: ExtendedGraphicsState) -> ExtendedGraphicsStateId {
         let id = ExtendedGraphicsStateId::new();
         self.extgstates.push((id.clone(), gs));
         id
     }
 
-    /// Allocate a shading, record it, and return its id (for `PaintShading`).
     fn add_shading(&mut self, shading: Shading) -> ShadingId {
         let id = ShadingId::new();
         self.shadings.push((id.clone(), shading));
         id
     }
 
-    /// Drain the synthesized resources into a document's resource maps. Existing
-    /// entries are kept (`or_insert`), matching the merge semantics elsewhere.
+    /// Moves the resources into `resources`. Entries with the same id that are already there
+    /// are kept.
     pub fn register_into(self, resources: &mut crate::PdfResources) {
         for (id, gs) in self.extgstates {
             resources.extgstates.map.entry(id).or_insert(gs);
@@ -92,12 +93,14 @@ impl BridgeResources {
     }
 }
 
-/// Build the deterministic [`XObjectId`] used to register an `<img src=KEY>`
-/// image on the document. Both the bridge (which emits `Op::UseXobject`) and the
-/// document-assembly step (which registers the XObject) derive the id from the
-/// `src` key, so they always agree without sharing state.
+/// The [`XObjectId`] of the `<img src="...">` image with this `src`.
+///
+/// The id only depends on the `src` (`HtmlImg_` and the `src` with everything but letters and
+/// digits replaced by `_`), so the bridge that writes the `UseXobject` op and the code that
+/// registers the image agree without sharing state. Two `src` values that differ only in such
+/// characters get the same id.
 pub fn image_xobject_id(src_key: &str) -> XObjectId {
-    // Keep it readable but avoid characters that would be awkward in a PDF name.
+    // Avoid characters that are awkward in a PDF name.
     let sanitized: String = src_key
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
@@ -105,13 +108,11 @@ pub fn image_xobject_id(src_key: &str) -> XObjectId {
     XObjectId(format!("HtmlImg_{}", sanitized))
 }
 
-/// Decode every entry of an `images` map (key = `src`, value = raw image bytes)
-/// into a [`ResolvedImages`] table. Images that fail to decode are skipped (the
-/// corresponding `<img>` simply renders nothing).
+/// Decodes every entry of an `images` map (`src` to image file bytes) into a [`ResolvedImages`]
+/// table. Entries that cannot be decoded are skipped, and their `<img>` draws nothing.
 ///
-/// This decodes the whole map, used or not. The renderers
-/// ([`crate::html::xml_to_pdf_pages`], `PdfDocument::from_html*`) decode only the
-/// `src` values their pages draw ([`referenced_image_srcs`]).
+/// This decodes the whole map, used or not. The HTML renderers decode only the images a page
+/// draws, see [`referenced_image_srcs`].
 pub fn resolve_html_images(images: &BTreeMap<String, Vec<u8>>) -> ResolvedImages {
     let mut out = ResolvedImages::new();
     for (key, bytes) in images.iter() {
@@ -122,8 +123,7 @@ pub fn resolve_html_images(images: &BTreeMap<String, Vec<u8>>) -> ResolvedImages
     out
 }
 
-/// Decode the encoded bytes of one `<img>` entry. Every HTML image decode goes
-/// through here, so the tests can count them (`HTML_IMAGE_DECODES`).
+// Every HTML image decode goes through here, so the tests can count them.
 fn decode_html_image(bytes: &[u8]) -> Result<RawImage, String> {
     #[cfg(test)]
     {
@@ -134,14 +134,13 @@ fn decode_html_image(bytes: &[u8]) -> Result<RawImage, String> {
 
 #[cfg(test)]
 thread_local! {
-    /// How many images this thread decoded through [`decode_html_image`]: the
-    /// tests check that a render decodes only the pictures its pages show.
+    // How many images this thread decoded: tests check that a render decodes only the pictures
+    // its pages show.
     pub(crate) static HTML_IMAGE_DECODES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-/// The `src` of the `<img>` a display-list item draws, if it draws one. azul
-/// hands an HTML `<img>` to the display list as a `NullImage` whose `tag` is the
-/// `src` string (set by `xml_node_to_dom_fast`); the bytes are looked up by it.
+// azul hands an HTML `<img>` to the display list as a `NullImage` whose `tag` is the `src`
+// string; the bytes are looked up by it.
 fn html_image_src(item: &DisplayListItem) -> Option<String> {
     match item {
         DisplayListItem::Image { image, .. } => match image.get_data() {
@@ -154,11 +153,11 @@ fn html_image_src(item: &DisplayListItem) -> Option<String> {
     }
 }
 
-/// Every `<img src>` the laid-out pages draw, once each. These are the only
-/// entries of the images map a render needs.
+/// The `src` of every `<img>` the display lists draw, once each. These are the only entries of
+/// the images map a render needs.
 ///
-/// CSS `background-image: url(..)` is not in here: the HTML renderer resolves it
-/// through azul's `ImageCache`, which it leaves empty, so it draws nothing yet.
+/// CSS `background-image: url(...)` is not included: the renderer gives azul an empty image
+/// cache, so such images are not drawn.
 pub fn referenced_image_srcs(display_lists: &[DisplayList]) -> BTreeSet<String> {
     display_lists
         .iter()
@@ -167,12 +166,11 @@ pub fn referenced_image_srcs(display_lists: &[DisplayList]) -> BTreeSet<String> 
         .collect()
 }
 
-/// Where a render looks up the encoded bytes of an `<img src>`: the
-/// `XmlRenderOptions::images` map, or the `Base64OrRaw` map handed to
-/// `PdfDocument::from_html*` (base64-decoded only when the page shows it).
+// Where a render looks up the bytes of an `<img src>`: the `XmlRenderOptions::images` map, or
+// the `Base64OrRaw` map given to `PdfDocument::from_html*` (decoded only when a page draws it).
 pub(crate) trait HtmlImageSource {
-    /// The encoded bytes stored under `src`: `None` if there is no such entry,
-    /// `Some(Err(..))` if the entry cannot be turned into bytes (bad base64).
+    // `None` if there is no entry for `src`, `Some(Err(..))` if it cannot be turned into bytes
+    // (bad base64).
     fn image_bytes(&self, src: &str) -> Option<Result<Cow<'_, [u8]>, String>>;
 }
 
@@ -187,7 +185,7 @@ impl HtmlImageSource for BTreeMap<String, crate::Base64OrRaw> {
         use base64::{engine::general_purpose::STANDARD, Engine as _};
         self.get(src).map(|entry| match entry {
             crate::Base64OrRaw::Raw(bytes) => Ok(Cow::Borrowed(bytes.as_slice())),
-            // Decoded the way `from_html*` always did (plain standard alphabet).
+            // Plain standard base64 alphabet.
             crate::Base64OrRaw::B64(text) => match STANDARD.decode(text) {
                 Ok(bytes) => Ok(Cow::Owned(bytes)),
                 Err(e) => Err(format!("Base64 decode error: {}", e)),
@@ -196,11 +194,9 @@ impl HtmlImageSource for BTreeMap<String, crate::Base64OrRaw> {
     }
 }
 
-/// Decode the pictures a render draws, once each: every `src` in `referenced`
-/// (see [`referenced_image_srcs`]), looked up in `images`. The other entries of
-/// `images` are not touched, so a page does not pay for the pictures of the rest
-/// of the book. A `src` without an entry, or whose entry cannot be read or
-/// decoded, is reported in `warnings`, and its `<img>` renders nothing.
+// Decodes the images a render draws, once each: every `src` in `referenced`, looked up in
+// `images`. The other entries are not touched. A `src` without an entry, or one that cannot be
+// read or decoded, is reported in `warnings` and its `<img>` draws nothing.
 pub(crate) fn resolve_referenced_html_images(
     referenced: &BTreeSet<String>,
     images: &dyn HtmlImageSource,
@@ -246,16 +242,12 @@ fn convert_color(color: &ColorU) -> Color {
     })
 }
 
-/// Open a q/Q scope for a text run whose color is not fully opaque and set its
-/// fill color inside it. Returns `false` (emitting nothing) for opaque colors so
-/// the caller can keep its cheaper cached-color path.
-///
-/// `alpha == 0` (`color: transparent`) switches to text rendering mode 3
-/// (invisible): the glyphs stay selectable/searchable — the standard OCR text
-/// layer — instead of being painted opaque black. Partial alpha gets an
-/// `ExtGState` when `bridge_res` is available; without it the text stays opaque.
-/// Text state (Tr) is part of the graphics state, so the caller's `Q` after `ET`
-/// resets both.
+// Opens a `q` scope for a text run whose color is not fully opaque and sets the fill color
+// inside it. Returns `false` and emits nothing for opaque colors.
+//
+// Alpha 0 (`color: transparent`) uses text rendering mode 3 (invisible), so the text stays
+// selectable and searchable. Other alpha values get an ExtGState when `bridge_res` is given;
+// without it the text is opaque. The caller's `Q` after `ET` ends the scope.
 fn begin_translucent_text(
     ops: &mut Vec<Op>,
     bridge_res: Option<&mut BridgeResources>,
@@ -274,11 +266,8 @@ fn begin_translucent_text(
     true
 }
 
-/// If `color` is translucent (`a < 255`), mint an `ExtGState` carrying the
-/// fill+stroke alpha, record it on `bridge_res`, and emit `LoadGraphicsState`
-/// so the subsequent fill/stroke draws with that alpha. Call this *inside* a
-/// q/Q (Save/RestoreGraphicsState) scope so the alpha stays local to the
-/// current primitive. No-op for fully opaque colors.
+// For a translucent color, creates an ExtGState with that fill and stroke alpha and loads it.
+// Call it inside a `q`/`Q` scope so the alpha stays local. Does nothing for opaque colors.
 fn apply_fill_alpha(ops: &mut Vec<Op>, bridge_res: &mut BridgeResources, color: &ColorU) {
     if color.a >= 255 {
         return;
@@ -291,10 +280,8 @@ fn apply_fill_alpha(ops: &mut Vec<Op>, bridge_res: &mut BridgeResources, color: 
     ops.push(Op::LoadGraphicsState { gs: id });
 }
 
-/// Build a clip-mode polygon (for the `W n` clip operator) covering `bounds`
-/// (CSS px) with optional rounded corners `radii_px` = `[tl, tr, br, bl]` in
-/// CSS px. Coordinates are converted to PDF pt (with the Y-axis flip). Used to
-/// constrain a gradient `sh` paint (and box backgrounds) to the element box.
+// A clip polygon (`W n`) covering `bounds` (CSS px) with corner radii `[tl, tr, br, bl]` (CSS
+// px), in PDF pt. Used to keep a gradient paint inside its element box.
 fn make_clip_polygon(
     transform: &CoordTransform,
     bounds: &LogicalRect,
@@ -331,9 +318,7 @@ fn make_clip_polygon(
     }
 }
 
-/// Resolve a gradient stop color to a concrete RGBA. System colors are
-/// theme-dependent; for static PDF output they fall back to opaque black
-/// (rare in document gradients).
+// System colors depend on the theme and become opaque black.
 fn resolve_stop_color(c: &ColorOrSystem) -> ColorU {
     match c {
         ColorOrSystem::Color(col) => *col,
@@ -341,9 +326,7 @@ fn resolve_stop_color(c: &ColorOrSystem) -> ColorU {
     }
 }
 
-/// Convert azul normalized linear color stops (offset 0..100%) to shading stops
-/// (offset 0..1, RGB 0..1). Per-stop alpha is dropped — PDF axial/radial
-/// shadings have no alpha channel (a translucent gradient would need a soft mask).
+// Per-stop alpha is dropped: PDF axial and radial shadings have no alpha channel.
 fn normalize_gradient_stops(
     stops: &azul_css::props::style::background::NormalizedLinearColorStopVec,
 ) -> Vec<GradientStop> {
@@ -359,16 +342,16 @@ fn normalize_gradient_stops(
         .collect()
 }
 
-/// Convert a display list directly to printpdf Ops with margin support.
-/// 
-/// This version applies margins during coordinate transformation:
-/// - `margin_left_pt`: Shifts all X coordinates to the right
-/// - `margin_top_pt`: Shifts all Y coordinates down from the top
-/// 
-/// The layout engine produces coordinates relative to (0,0) at top-left of the content area.
-/// PDF uses bottom-left origin. This function transforms coordinates as:
-/// - PDF_X = layout_x + margin_left
-/// - PDF_Y = page_height - layout_y - margin_top
+/// Converts the display list of one page into PDF ops.
+///
+/// The display list is in CSS px with the origin at the top left of the content area.
+/// `page_size` is the full page in points (not the content area) and `margin_left_pt` and
+/// `margin_top_pt` the page margins in points; a layout point `(x, y)` in px ends up at
+/// `(x * 72/96 + margin_left, page_height - y * 72/96 - margin_top)` on the page. The fonts of the
+/// text must be loaded in `font_manager`, and `<img>` images must be in `images`. Resources the
+/// ops refer to are added to `bridge_res`, which the caller registers on the document.
+///
+/// The result is always `Ok`; the `Result` is part of the signature.
 pub fn display_list_to_printpdf_ops_with_margins<T: ParsedFontTrait + 'static>(
     display_list: &DisplayList,
     page_size: LogicalSize,
@@ -382,32 +365,19 @@ pub fn display_list_to_printpdf_ops_with_margins<T: ParsedFontTrait + 'static>(
     let page_height = page_size.height;
     let transform = CoordTransform::new(page_height, margin_left_pt, margin_top_pt);
 
-    // Track the current TextLayout for glyph-to-unicode mapping
     let mut current_text_layout: Option<(&azul_layout::text3::cache::UnifiedLayout, LogicalRect)> = None;
 
-    // Deferred text emission (#220 F4). In azul's display lists a text block is
-    // sequenced as
-    //
-    //   TextLayout (shaping data) .. Rect/Border/.. (element backgrounds) .. Text runs
-    //
-    // — screen renderers draw the trailing `Text` items, so inline backgrounds
-    // (e.g. `<span style="background-color: yellow">`) correctly paint *under*
-    // their text. The PDF bridge instead draws all text from the `TextLayout`
-    // item (the `Text` runs carry no shaping/cid data) — and doing so at the
-    // `TextLayout`'s own position painted the intervening background rects OVER
-    // the text, leaving e.g. an opaque highlight box with invisible text.
-    //
-    // Fix: hold the `TextLayout` here and emit its ops at the position of the
-    // first subsequent `Text` item — the exact place azul's own painting order
-    // draws that text — or, if no `Text` item follows, before the next
-    // `TextLayout` / any graphics-state scope change / the end of the list.
+    // A text block is sequenced as `TextLayout` (the shaped glyphs), then the element backgrounds,
+    // then the `Text` runs, so that backgrounds (`<span style="background-color: yellow">`)
+    // paint under their text. The bridge draws text from the `TextLayout` item, because the
+    // `Text` runs carry no glyph ids. Drawing it at the `TextLayout` would paint the backgrounds
+    // over it, so the layout is held here and emitted at the first following `Text` item, or
+    // before the next `TextLayout`, the next clip or opacity scope change, or the end of the list.
     let mut pending_text: Option<(&azul_layout::text3::cache::UnifiedLayout, LogicalRect, ColorU)> = None;
 
     for item in display_list.items.iter() {
-        // Flush the deferred text before (a) the `Text` items that mark where
-        // azul's painting order draws it, (b) the next `TextLayout`, and (c) any
-        // clip/opacity scope push/pop, so the text stays inside the same
-        // graphics-state scope it was laid out in.
+        // Flush the deferred text here so that it stays inside the graphics-state scope it was
+        // laid out in.
         if matches!(
             item,
             DisplayListItem::TextLayout { .. }
@@ -447,7 +417,7 @@ pub fn display_list_to_printpdf_ops_with_margins<T: ParsedFontTrait + 'static>(
         );
     }
 
-    // Trailing TextLayout without any following Text item / scope change.
+    // A `TextLayout` at the end of the list.
     if let Some((layout, bounds, color)) = pending_text.take() {
         render_unified_layout_with_margins(&mut ops, layout, &bounds, color, &transform, font_manager, bridge_res);
     }
@@ -455,29 +425,22 @@ pub fn display_list_to_printpdf_ops_with_margins<T: ParsedFontTrait + 'static>(
     Ok(ops)
 }
 
-/// Convert a display list directly to printpdf Ops (without margins, for backwards compatibility).
-/// This bypasses the intermediate azul PdfOp format to generate
-/// WriteCodepoints has been replaced with ShowText (use SetFont first to set the font).
+/// Like [`display_list_to_printpdf_ops_with_margins`] with no margins and no images.
+///
+/// Gradients, shadows and transparency need resources that this function drops, so use the
+/// version with margins and register the [`BridgeResources`] when the display list has them.
 pub fn display_list_to_printpdf_ops<T: ParsedFontTrait + 'static>(
     display_list: &DisplayList,
     page_size: LogicalSize,
     font_manager: &FontManager<T>,
 ) -> Result<Vec<Op>, String> {
-    // Back-compat entry point: callers here do not collect bridge-synthesized
-    // resources (alpha/opacity/gradients/shadows), so those would not be
-    // registered. Prefer `display_list_to_printpdf_ops_with_margins` +
-    // `BridgeResources::register_into`.
     let mut bridge_res = BridgeResources::default();
     display_list_to_printpdf_ops_with_margins(display_list, page_size, 0.0, 0.0, font_manager, &ResolvedImages::new(), &mut bridge_res)
 }
 
-/// CSS px to PDF pt conversion factor.
-/// The layout engine works in CSS px (where 1pt = 96/72 px).
-/// PDF coordinates are in pt (1pt = 1/72 inch).
-/// To convert layout px back to PDF pt: multiply by 72/96.
+// The layout engine works in CSS px (96 per inch), PDF in points (72 per inch).
 const CSS_PX_TO_PT: f32 = 72.0 / 96.0;
 
-/// Convert a value in PDF pt to `Mm` (1 pt = 25.4/72 mm ≈ 0.352778 mm)
 #[inline]
 fn pt_to_mm(pt: f32) -> Mm {
     Mm::from(Pt(pt))
@@ -517,8 +480,7 @@ fn make_rect_polygon_pt(x: f32, y: f32, w: f32, h: f32) -> crate::graphics::Poly
     }
 }
 
-/// Coordinate transformation parameters for converting from layout to PDF coordinates.
-/// All layout coordinates are in CSS px; this struct converts them to PDF pt.
+// Converts layout coordinates (CSS px, origin top left) to PDF points (origin bottom left).
 #[derive(Clone, Copy)]
 struct CoordTransform {
     /// Full page height in PDF pt (for Y-axis flip)
@@ -712,8 +674,7 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
     margin_left: f32,
     margin_top: f32,
     current_text_layout: &mut Option<(&'a UnifiedLayout, LogicalRect)>,
-    // Kept in the signature (T is the FontManager's font type); text emission moved
-    // to the deferred flush in `display_list_to_printpdf_ops_with_margins`.
+    // Text is emitted by the deferred flush in `display_list_to_printpdf_ops_with_margins`.
     _font_manager: &FontManager<T>,
     images: &ResolvedImages,
     bridge_res: &mut BridgeResources,
@@ -798,33 +759,23 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
             font_size_px: _,
             color: _,
         } => {
-            // Not rendered here: `display_list_to_printpdf_ops_with_margins`
-            // intercepts TextLayout items and defers their emission so that
-            // element background rects that azul sequences between the
-            // TextLayout and its Text runs paint UNDER the text (#220 F4).
-            // Only keep the tracking side effect for direct callers.
+            // Not drawn here: `display_list_to_printpdf_ops_with_margins` defers the text so the
+            // backgrounds between the `TextLayout` and its `Text` runs paint under it.
             if let Some(unified_layout) = layout.downcast_ref::<azul_layout::text3::cache::UnifiedLayout>() {
                 *current_text_layout = Some((unified_layout, *bounds.inner()));
             }
         }
 
         DisplayListItem::Text { glyphs, font_hash, font_size_px, color, .. } => {
-            // Render simple text items (used for headers/footers)
-            // These use Unicode codepoints as glyph indices and a placeholder font hash (0)
-            // 
-            // IMPORTANT: For external fonts (font_hash != 0), the TextLayout item already
-            // renders the text via render_unified_layout_with_margins(). The Text items
-            // are kept in the display list for other renderers (like WebRender for screen)
-            // but should be SKIPPED for PDF output to avoid double-rendering.
+            // `Text` items with font hash 0 are headers and footers: they use Unicode codepoints
+            // as glyph indices and are drawn with a standard PDF font. All other `Text` items
+            // repeat text that the `TextLayout` item draws, and are skipped.
             if glyphs.is_empty() {
                 return;
             }
             
-            // For text with font_hash == 0, use a builtin PDF font (Helvetica)
-            // This is used for page headers/footers which don't go through text shaping
             let use_builtin_font = font_hash.font_hash == 0;
             
-            // Skip external fonts - they are rendered via TextLayout
             if !use_builtin_font {
                 return;
             }
@@ -1053,9 +1004,9 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
             if inner.size.width <= 0.0 || inner.size.height <= 0.0 {
                 return;
             }
-            // v1: center the gradient in the box and use the farthest-corner
-            // radius (the CSS default). Explicit position/size keywords and
-            // ellipse aspect ratios are approximated as a centered circle.
+            // The gradient is centered in the box with the farthest-corner radius (the CSS
+            // default). Position and size keywords and ellipse aspect ratios are approximated
+            // as a centered circle.
             let cx = inner.size.width / 2.0;
             let cy = inner.size.height / 2.0;
             let r_px = cx.max(inner.size.width - cx).hypot(cy.max(inner.size.height - cy));
@@ -1191,7 +1142,7 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
                 azul_core::svg::SvgLineJoin::Miter | azul_core::svg::SvgLineJoin::MiterClip => {
                     ops.push(Op::SetLineJoinStyle { join: crate::graphics::LineJoinStyle::Miter });
                     if outline.miter_limit.is_finite() && outline.miter_limit >= 1.0 {
-                        // A ratio, not a length; the op's type is `Pt` for historical reasons.
+                        // A ratio, not a length, although the op takes a `Pt`.
                         ops.push(Op::SetMiterLimit { limit: Pt(outline.miter_limit) });
                     }
                 }
@@ -1273,10 +1224,11 @@ fn convert_display_list_item_with_margins<'a, T: ParsedFontTrait + 'static>(
     }
 }
 
-/// Public API for rendering UnifiedLayout to PDF operations (without margins)
-/// 
-/// This is useful for rendering text layouts directly without going through
-/// the full display list conversion.
+/// Renders a shaped text layout to ops, without going through a display list.
+///
+/// The layout is placed at the page origin: `bounds_width` and `bounds_height` give the size of
+/// its box, `page_height` is the page height used to flip y, and the coordinates are taken as
+/// they are, in the unit of the layout, without px to pt conversion or margins.
 pub fn render_unified_layout_public<T: ParsedFontTrait + 'static>(
     layout: &UnifiedLayout,
     bounds_width: f32,
@@ -1294,7 +1246,6 @@ pub fn render_unified_layout_public<T: ParsedFontTrait + 'static>(
     ops
 }
 
-/// Implementation function for rendering UnifiedLayout to PDF operations
 fn render_unified_layout_impl<T: ParsedFontTrait + 'static>(
     ops: &mut Vec<Op>,
     layout: &UnifiedLayout,
@@ -1305,26 +1256,24 @@ fn render_unified_layout_impl<T: ParsedFontTrait + 'static>(
 ) {
     use azul_layout::text3::glyphs::get_glyph_runs_pdf;
 
-    // Get loaded fonts from font manager for glyph run extraction
     let loaded_fonts = font_manager.get_loaded_fonts();
     
-    // Get PDF-optimized glyph runs (grouped by font/color/style/line)
+    // Glyph runs are grouped by font, color, style and line.
     let glyph_runs = get_glyph_runs_pdf(layout, &loaded_fonts);
 
     if glyph_runs.is_empty() {
         return;
     }
 
-    // Track current color to avoid redundant operations
+    // Skips color ops that would not change anything.
     let mut current_color: Option<ColorU> = None;
 
-    // Process each glyph run - each run will have its own text section
+    // Each run gets its own text section.
     for run in glyph_runs.iter() {
         if run.glyphs.is_empty() {
             continue;
         }
 
-        // Set color if it changed (BEFORE text section)
         let scoped = begin_translucent_text(ops, None, &run.color);
         if scoped {
             current_color = None;
@@ -1343,11 +1292,9 @@ fn render_unified_layout_impl<T: ParsedFontTrait + 'static>(
             size: Pt(run.font_size_px * CSS_PX_TO_PT),
         });
 
-        // Start text section AFTER setting font and color
         ops.push(Op::StartTextSection);
 
         // Layout coordinates are in CSS px; convert to PDF pt.
-        // Position each glyph absolutely using SetTextMatrix + ShowText
         // This gives us complete control over positioning for RTL, vertical text, etc.
         // and avoids relying on PDF's font metrics for cursor advancement
         for glyph in &run.glyphs {
@@ -1361,7 +1308,6 @@ fn render_unified_layout_impl<T: ParsedFontTrait + 'static>(
             let pdf_x = glyph_x_px * CSS_PX_TO_PT;
             let pdf_y = page_height - glyph_y_px * CSS_PX_TO_PT;
 
-            // Set the text matrix to position this specific glyph
             // The matrix values are in PDF user space units (points)
             ops.push(Op::SetTextMatrix {
                 matrix: crate::matrix::TextMatrix::Raw([
@@ -1374,7 +1320,6 @@ fn render_unified_layout_impl<T: ParsedFontTrait + 'static>(
                 ]),
             });
 
-            // Render just this one glyph
             ops.push(Op::ShowText {
                 items: vec![crate::text::TextItem::GlyphIds(vec![
                     crate::text::Codepoint {
@@ -1386,7 +1331,6 @@ fn render_unified_layout_impl<T: ParsedFontTrait + 'static>(
             });
         }
 
-        // End text section after this run
         ops.push(Op::EndTextSection);
         if scoped {
             ops.push(Op::RestoreGraphicsState);
@@ -1415,7 +1359,6 @@ fn render_unified_layout_with_margins<T: ParsedFontTrait + 'static>(
 ) {
     use azul_layout::text3::glyphs::get_glyph_runs_pdf;
 
-    // Get loaded fonts from font manager for glyph run extraction
     let loaded_fonts = font_manager.get_loaded_fonts();
     
     // Get PDF-optimized glyph runs (grouped by font/color/style/line)
@@ -1425,52 +1368,35 @@ fn render_unified_layout_with_margins<T: ParsedFontTrait + 'static>(
         return;
     }
 
-    // ========================================================================
-    // FIRST PASS: Render all inline background colors BEFORE any text
-    // ========================================================================
-    // 
-    // This two-pass approach ensures proper z-order:
-    // - Pass 1: Draw all background rectangles (this loop)
-    // - Pass 2: Draw all text on top of backgrounds (next loop)
-    // 
-    // Without this separation, backgrounds would be drawn interleaved with text,
-    // potentially covering text from previous runs.
-    // 
-    // The background_color comes from CSS like: <span style="background-color: yellow">
-    // It's propagated through: CSS -> StyleProperties -> ShapedGlyph -> PdfGlyphRun
-    // 
+    // Two passes keep the z-order right: first the inline backgrounds
+    // (`<span style="background-color: yellow">`) of all runs, then the text on top, so a
+    // background never covers the text of an earlier run.
     for run in glyph_runs.iter() {
         if run.glyphs.is_empty() {
             continue;
         }
         
-        // Render background if present
         if let Some(bg_color) = run.background_color {
             if bg_color.a > 0 {
-                // Calculate bounding box of this glyph run
                 if let (Some(first_glyph), Some(last_glyph)) = 
                     (run.glyphs.first(), run.glyphs.last()) 
                 {
                     let font_size = run.font_size_px;
-                    // Estimate ascent/descent from font size (typical values)
+                    // Ascent and descent are estimated from the font size.
                     let ascent = font_size * 0.8;
                     let descent = font_size * 0.2;
                     
-                    // Calculate background rectangle in layout space
                     let bg_start_x = bounds.origin.x + first_glyph.position.x;
                     let bg_end_x = bounds.origin.x + last_glyph.position.x + last_glyph.advance;
                     let bg_width = bg_end_x - bg_start_x;
                     
-                    // Background spans from ascent to descent relative to baseline
                     let baseline_y = bounds.origin.y + first_glyph.position.y;
                     let bg_top_y = baseline_y - ascent;
                     let bg_height = ascent + descent;
                     
-                    // Transform to PDF coordinates (px → pt via transform)
                     let pdf_x = transform.x(bg_start_x);
                     let pdf_y = transform.rect_y(bg_top_y, bg_height);
                     
-                    // Convert dimensions from CSS px to PDF pt
                     let pdf_w = transform.dim(bg_width);
                     let pdf_h = transform.dim(bg_height);
                     
@@ -1486,13 +1412,6 @@ fn render_unified_layout_with_margins<T: ParsedFontTrait + 'static>(
         }
     }
 
-    // ========================================================================
-    // SECOND PASS: Render all text AFTER backgrounds
-    // ========================================================================
-    //
-    // Now that all backgrounds are drawn, render the text on top.
-    // Each glyph run gets its own BT...ET text section for proper font handling.
-    //
     let mut current_color: Option<ColorU> = None;
 
     for run in glyph_runs.iter() {
@@ -1500,7 +1419,6 @@ fn render_unified_layout_with_margins<T: ParsedFontTrait + 'static>(
             continue;
         }
 
-        // Set color if it changed (BEFORE text section)
         let scoped = begin_translucent_text(ops, Some(&mut *bridge_res), &run.color);
         if scoped {
             current_color = None;
@@ -1511,48 +1429,32 @@ fn render_unified_layout_with_margins<T: ParsedFontTrait + 'static>(
             current_color = Some(run.color);
         }
 
-        // Set font (convert CSS px to PDF pt)
         let font_id = FontId(format!("F{}", run.font_hash));
         ops.push(Op::SetFont {
             font: crate::ops::PdfFontHandle::External(font_id.clone()),
             size: Pt(transform.dim(run.font_size_px)),
         });
 
-        // Start text section AFTER setting font and color
         ops.push(Op::StartTextSection);
 
-        // Wrap the run's glyphs in an /ActualText marked-content span so copy-paste,
-        // selection and accessibility use the real string. We position each glyph
-        // with its own text matrix for pixel-accurate layout, which otherwise makes
-        // extractors treat every glyph as a separate word. (Saving with `optimize` merges
-        // the glyphs into one TJ a line and drops the span again where they then read as
-        // the same text anyway: optimize.rs.)
+        // The /ActualText span gives copy and paste and accessibility the real string; with a
+        // text matrix per glyph, extractors would see every glyph as a separate word. Saving
+        // with `optimize` merges the runs again (see text_merge.rs).
         let run_text: String = run.glyphs.iter().map(|g| g.unicode_codepoint.as_str()).collect();
         let wrapped = !run_text.is_empty();
         if wrapped {
             ops.push(actualtext_span_begin(&run_text));
         }
 
-        // Position each glyph absolutely using SetTextMatrix + ShowText
         for glyph in &run.glyphs {
-            // NOTE: Glyphs have already been filtered by the pagination/clipping code
-            // in display_list.rs (clip_and_offset_display_item). The glyph positions
-            // are page-relative and should be rendered directly.
-            //
-            // The bounds.origin represents where this TextLayout block starts on the page,
-            // and glyph.position is relative to the block origin (after the clipping pass).
-
-            // Calculate absolute position for this glyph in layout space
+            // The glyphs of a page are already clipped by pagination. `glyph.position` is relative
+            // to the origin of the text block.
             let glyph_x_layout = bounds.origin.x + glyph.position.x;
             let glyph_y_layout = bounds.origin.y + glyph.position.y;
 
-            // Transform to PDF coordinate system with margins:
-            // - Add margin_left to X
-            // - Flip Y and subtract margin_top
             let pdf_x = transform.x(glyph_x_layout);
             let pdf_y = transform.y(glyph_y_layout);
 
-            // Set the text matrix to position this specific glyph
             ops.push(Op::SetTextMatrix {
                 matrix: crate::matrix::TextMatrix::Raw([
                     1.0,    // a: Horizontal scaling
@@ -1564,7 +1466,6 @@ fn render_unified_layout_with_margins<T: ParsedFontTrait + 'static>(
                 ]),
             });
 
-            // Render just this one glyph
             ops.push(Op::ShowText {
                 items: vec![crate::text::TextItem::GlyphIds(vec![
                     crate::text::Codepoint {
@@ -1580,7 +1481,6 @@ fn render_unified_layout_with_margins<T: ParsedFontTrait + 'static>(
             ops.push(Op::EndMarkedContent);
         }
 
-        // End text section after this run
         ops.push(Op::EndTextSection);
         if scoped {
             ops.push(Op::RestoreGraphicsState);
@@ -1589,18 +1489,13 @@ fn render_unified_layout_with_margins<T: ParsedFontTrait + 'static>(
 
 }
 
-/// Apply margin offset to all PDF operations.
-/// 
-/// This shifts all coordinates by the specified margins:
-/// - `offset_x` shifts content to the right (for left margin)
-/// - `offset_y` shifts content up (for bottom margin in PDF coordinate system)
+/// Moves the coordinates of the ops by `offset_x` to the right and `offset_y` up (PDF y points
+/// up), for example to add a margin to ops that were converted without one.
 pub fn apply_margin_offset(ops: &mut [Op], offset_x: crate::Mm, offset_y: crate::Mm) {
-    // Skip if no offset needed
     if offset_x.0 == 0.0 && offset_y.0 == 0.0 {
         return;
     }
     
-    // Convert mm offsets to pt (1 mm = 2.83465 pt)
     let offset_x_pt = crate::Pt(offset_x.0 * 2.83465);
     let offset_y_pt = crate::Pt(offset_y.0 * 2.83465);
     
@@ -1983,9 +1878,8 @@ mod tests {
         .expect("bridge conversion")
     }
 
-    /// The stroke of an SVG shape reaches the bridge as a `StrokedPath` carrying
-    /// its geometry. It used to fall through to the catch-all arm and vanish
-    /// from the PDF; it must be written as a stroked path, curve and all.
+    /// The stroke of an SVG shape reaches the bridge as a `StrokedPath` carrying its geometry and
+    /// is written as a stroked path, curve and all.
     #[test]
     fn stroked_svg_path_is_written_as_a_pdf_stroke() {
         // <svg width="120" height="60" viewBox="0 0 120 60"> laid out at (10, 20):
@@ -2154,10 +2048,9 @@ mod tests {
         .expect("bridge conversion")
     }
 
-    /// The fill of an SVG shape is its fill colour painted as a rectangle under a
-    /// mask made from the path. The mask clip used to be skipped, so the whole
-    /// rectangle was printed. With the path on the clip item, the PDF clips to
-    /// it before the rectangle is filled, and leaves the clip afterwards.
+    /// The fill of an SVG shape is its fill colour painted as a rectangle under a mask made from
+    /// the path. The PDF clips to the path before the rectangle is filled, and leaves the clip
+    /// afterwards.
     #[test]
     fn svg_fill_is_clipped_to_its_path() {
         // <path d="M10 50 L60 10 L110 50 Z" fill-rule="evenodd"/> in a 120x60 view box

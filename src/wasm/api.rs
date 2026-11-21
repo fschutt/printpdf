@@ -1,57 +1,72 @@
 #![allow(non_snake_case)]
 
-//! Entrypoint for the WASM API. Note that this module is seperated into `mod api`
-//! and `mod structs`, so that you can use the same API even on a non-WASM target,
-//! without the JS limitations of having to jump through base64 encoding / decoding.
+//! The `Pdf_*` functions: each takes one JSON string and returns one JSON string.
+//!
+//! On wasm targets they are exported to JS with `wasm-bindgen`; on other targets they are
+//! ordinary functions, which is handy for tests. The `Pdf_*Sync` functions run on every target.
+//! The functions without the suffix are `async`, exist only on wasm with the `js-sys` feature
+//! and take the same input.
+//!
+//! # The envelope
+//!
+//! Every function returns JSON of the form `{"status": n, "data": ...}`:
+//!
+//! | `status` | `data` |
+//! | --- | --- |
+//! | 0 | the output of the function |
+//! | 1 | an error string: the input is not valid JSON of the expected shape |
+//! | 2 | an error string: the function failed, for example the PDF could not be parsed |
+//! | 3 | an error string: the output could not be serialized to JSON |
+//!
+//! Byte inputs (`bytes`, `images`, `fonts`) take a base64 string, with or without a
+//! `data:...;base64,` prefix, or an array of numbers. Keys are camelCase (`returnByteArray`),
+//! except inside `options` of [`Pdf_HtmlToDocumentSync`] and the save options of
+//! [`Pdf_DocumentToBytesSync`], which are snake_case (`page_width`).
+//!
+//! ```js
+//! const result = JSON.parse(Pdf_HtmlToDocumentSync(JSON.stringify({ html: "<h1>Hi</h1>" })));
+//! if (result.status !== 0) throw new Error(result.data);
+//! const pdf = JSON.parse(Pdf_DocumentToBytesSync(JSON.stringify({ doc: result.data.doc })));
+//! const base64Pdf = pdf.data.bytes;
+//! ```
 
 #[cfg(all(target_family = "wasm", feature = "js-sys"))]
 use std::{future::Future, pin::Pin};
 
 use serde_derive::{Deserialize, Serialize};
 
-/// Generalized API return for WASM / JS
+/// The JSON envelope every function returns, see the [module docs](self).
 #[derive(Serialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "lowercase")]
 pub struct PdfApiReturn<T: serde::Serialize> {
-    /// If "status" is 0, then data contains the processed data
-    /// If non-zero, data is the error string.
+    /// 0 on success, otherwise 1, 2 or 3 (see the module docs).
     pub status: usize,
-    /// Data or error of the function called
+    /// The output of the function if `status` is 0, otherwise the error string.
     pub data: StatusOrData<T>,
 }
 
-/// Data or error of the output of the function.
+/// The `data` of a [`PdfApiReturn`]. It is untagged: JSON holds the output or the error string
+/// as it is.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(untagged)]
 pub enum StatusOrData<T: serde::Serialize> {
+    /// The output of the function.
     Ok(T),
+    /// The error message.
     Error(String),
 }
 
-/// Parses the input HTML, converts it to PDF pages and outputs the generated
-/// PDF as a JSON object
+/// Renders HTML to a document.
 ///
-/// Input: `{ html, images?, fonts?, options? }` (see
-/// [`crate::wasm::structs::HtmlToDocumentInput`]; `options` fields are
-/// snake_case, e.g. `page_width`).
+/// Input: `{ html, images?, fonts?, options? }`, see
+/// [`HtmlToDocumentInput`](crate::wasm::structs::HtmlToDocumentInput). Output: `{ doc, warnings }`.
+/// The fonts of [`Pdf_RegisterFontsSync`] are available to the HTML too.
 ///
-/// ```js,no_run,ignore
-/// let html = "<!doctype html><html><body><h1>Hello!</h1></body></html>";
-/// let input = JSON.stringify({ html: html, fonts: {}, images: {} });
-/// let result = JSON.parse(Pdf_HtmlToDocumentSync(input));
-/// console.log(result);
-/// // {
-/// //   status: 0,   // 1 = bad input, 2 = conversion failed, 3 = output unserializable
-/// //   data: {
-/// //     doc: {
-/// //       metadata: { info, xmp? },
-/// //       resources: { fonts, xobjects, extgstates, shadings, layers },
-/// //       bookmarks: {},
-/// //       pages: [{ mediaBox, trimBox, cropBox, ops }]
-/// //     },
-/// //     warnings: [{ page, opId, severity, msg }]
-/// //   }   // on status != 0, `data` is the error string instead
-/// // }
+/// ```js
+/// const html = "<!doctype html><html><body><h1>Hello!</h1></body></html>";
+/// const result = JSON.parse(Pdf_HtmlToDocumentSync(JSON.stringify({ html })));
+/// // { status: 0, data: { doc: { metadata, resources, bookmarks, pages: [...] },
+/// //                      warnings: [{ page, opId, severity, msg }] } }
 /// ```
 #[allow(non_snake_case)]
 #[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
@@ -59,35 +74,46 @@ pub fn Pdf_HtmlToDocumentSync(input: String) -> String {
     api_inner(&input, crate::wasm::structs::html_to_document)
 }
 
-/// Parses the input PDF file (as a base64 encoded string or raw byte array),
-/// outputs the parsed PDF (and any warnings) as a JSON object
+/// Parses a PDF file into a document.
 ///
-/// ```js,no_run,ignore
-/// let input = JSON.stringify({ bytes: btoa(my_pdf_binary_string), options: {} });
-/// let result = JSON.parse(Pdf_BytesToDocumentSync(input));
-/// console.log(result.data.doc);      // PdfDocument (same shape as Pdf_HtmlToDocumentSync)
-/// console.log(result.data.warnings); // [{ page, opId, severity, msg }]
+/// Input: `{ bytes, options? }`, see
+/// [`BytesToDocumentInput`](crate::wasm::structs::BytesToDocumentInput). Output: `{ doc, warnings }`,
+/// the same shape as [`Pdf_HtmlToDocumentSync`].
+///
+/// ```js
+/// const input = JSON.stringify({ bytes: btoa(pdfBinaryString) });
+/// const result = JSON.parse(Pdf_BytesToDocumentSync(input));
+/// console.log(result.data.doc.pages.length);
 /// ```
 #[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
 pub fn Pdf_BytesToDocumentSync(input: String) -> String {
     api_inner(&input, crate::wasm::structs::bytes_to_document)
 }
 
-/// Helper function that takes a PDF page and outputs a list of all
-/// images IDs / fonts IDs that have to be gathered from the documents
-/// resources in order to render this page.
+/// Lists the resources a page uses.
+///
+/// Input: `{ page }`. Output: `{ xobjects, fonts, layers }`, the ids to take from the
+/// document's resources to render the page on its own.
 #[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
 pub fn Pdf_ResourcesForPageSync(input: String) -> String {
     api_inner(&input, crate::wasm::structs::resources_for_page)
 }
 
-/// Takes a `PdfPage` JS object and outputs the SVG string for that page
+/// Renders a page to SVG.
+///
+/// Input: `{ page, resources?, options? }`, see
+/// [`PageToSvgInput`](crate::wasm::structs::PageToSvgInput); pass the `resources` of the document so
+/// that fonts and images are found. Output: `{ svg, warnings }`.
 #[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
 pub fn Pdf_PageToSvgSync(input: String) -> String {
     api_inner(&input, crate::wasm::structs::page_to_svg)
 }
 
-/// Takes a `PdfDocument` JS object and returns the base64 PDF bytes
+/// Writes a document to a PDF file.
+///
+/// Input: `{ doc, options?, returnByteArray? }`, see
+/// [`DocumentToBytesInput`](crate::wasm::structs::DocumentToBytesInput). Output: `{ bytes, warnings }`
+/// where `bytes` is a base64 string, or an array of numbers with `returnByteArray`.
 #[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
 pub fn Pdf_DocumentToBytesSync(input: String) -> String {
     api_inner(&input, crate::wasm::structs::document_to_bytes)
@@ -117,21 +143,16 @@ where
     .unwrap_or_else(|e| output_serialization_error_envelope(&e))
 }
 
-/// Fallback envelope for when the *response* cannot be serialized (e.g. a
-/// `ParsedFont` in the output document errors in its custom `Serialize`).
-///
-/// This used to be `unwrap_or_default()`, i.e. the API returned an **empty
-/// string** — which every caller (script.js does `JSON.parse(result)`
-/// unconditionally) turned into an unrelated "Unexpected end of JSON input"
-/// error with the actual cause lost. Always hand out a well-formed
-/// `{"status":3,"data":"<why>"}` envelope instead.
+// The status 3 envelope, for a response that cannot be serialized (for example a font whose
+// `Serialize` fails). It is always valid JSON, so callers that parse the result do not fail with
+// an unrelated "Unexpected end of JSON input".
 fn output_serialization_error_envelope(e: &serde_json::Error) -> String {
-    // Serializing a `&str` cannot fail, but avoid any chance of recursing.
     let msg = serde_json::to_string(&format!("failed to serialize output: {e}"))
         .unwrap_or_else(|_| "\"failed to serialize output\"".to_string());
     format!("{{\"status\":3,\"data\":{msg}}}")
 }
 
+/// Async version of [`Pdf_HtmlToDocumentSync`].
 #[cfg(all(target_family = "wasm", feature = "js-sys"))]
 #[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
 pub async fn Pdf_HtmlToDocument(input: String) -> String {
@@ -141,6 +162,7 @@ pub async fn Pdf_HtmlToDocument(input: String) -> String {
     .await
 }
 
+/// Async version of [`Pdf_BytesToDocumentSync`].
 #[cfg(all(target_family = "wasm", feature = "js-sys"))]
 #[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
 pub async fn Pdf_BytesToDocument(input: String) -> String {
@@ -150,6 +172,7 @@ pub async fn Pdf_BytesToDocument(input: String) -> String {
     .await
 }
 
+/// Async version of [`Pdf_DocumentToBytesSync`].
 #[cfg(all(target_family = "wasm", feature = "js-sys"))]
 #[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
 pub async fn Pdf_DocumentToBytes(input: String) -> String {
@@ -159,6 +182,7 @@ pub async fn Pdf_DocumentToBytes(input: String) -> String {
     .await
 }
 
+/// Async version of [`Pdf_ResourcesForPageSync`].
 #[cfg(all(target_family = "wasm", feature = "js-sys"))]
 #[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
 pub async fn Pdf_ResourcesForPage(input: String) -> String {
@@ -168,6 +192,7 @@ pub async fn Pdf_ResourcesForPage(input: String) -> String {
     .await
 }
 
+/// Async version of [`Pdf_PageToSvgSync`].
 #[cfg(all(target_family = "wasm", feature = "js-sys"))]
 #[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
 pub async fn Pdf_PageToSvg(input: String) -> String {
@@ -207,16 +232,18 @@ where
     }
 }
 
-/// Registers fonts once for ALL subsequent `Pdf_HtmlToDocument` calls (merged
-/// under each call's own `fonts`, which win on name clash). Call this at app
-/// startup with your default fonts instead of re-sending megabytes of base64
-/// with every render.
+/// Registers fonts for all later [`Pdf_HtmlToDocumentSync`] calls.
 ///
-/// ```js,no_run,ignore
-/// let r = JSON.parse(Pdf_RegisterFontsSync(JSON.stringify({
+/// Input: `{ fonts, replace? }`, see
+/// [`RegisterFontsInput`](crate::wasm::structs::RegisterFontsInput). Output: `{ registered, total }`.
+/// The fonts are merged under the `fonts` of each render, which win on a name clash. Call this
+/// once at startup instead of sending the fonts with every render.
+///
+/// ```js
+/// const r = JSON.parse(Pdf_RegisterFontsSync(JSON.stringify({
 ///   fonts: { "Helvetica.ttf": HELVETICA_B64 },
 /// })));
-/// // r == { status: 0, data: { registered: 1, total: 1 } }
+/// // { status: 0, data: { registered: 1, total: 1 } }
 /// ```
 #[allow(non_snake_case)]
 #[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
@@ -224,13 +251,14 @@ pub fn Pdf_RegisterFontsSync(input: String) -> String {
     api_inner(&input, crate::wasm::structs::register_fonts)
 }
 
-/// Decodes an image file (PNG/JPEG/...) into the `RawImage` JSON shape used in
-/// `doc.resources.xobjects`, so JS can add images/signatures to a parsed
-/// document and reference them with a `use-xobject` op.
+/// Decodes an image file (PNG, JPEG and so on) into the image JSON that `doc.resources.xobjects`
+/// holds, so JS can add an image to a parsed document and draw it with a `use-xobject` op.
 ///
-/// ```js,no_run,ignore
-/// let r = JSON.parse(Pdf_DecodeImageSync(JSON.stringify({ bytes: pngB64 })));
-/// // r == { status: 0, data: { image: { width, height, ... }, warnings: [] } }
+/// Input: `{ bytes }`. Output: `{ image, warnings }`.
+///
+/// ```js
+/// const r = JSON.parse(Pdf_DecodeImageSync(JSON.stringify({ bytes: pngB64 })));
+/// // { status: 0, data: { image: { width, height, ... }, warnings: [] } }
 /// ```
 #[allow(non_snake_case)]
 #[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
@@ -238,6 +266,7 @@ pub fn Pdf_DecodeImageSync(input: String) -> String {
     api_inner(&input, crate::wasm::structs::decode_image)
 }
 
+/// Async version of [`Pdf_RegisterFontsSync`].
 #[cfg(all(target_family = "wasm", feature = "js-sys"))]
 #[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
 pub async fn Pdf_RegisterFonts(input: String) -> String {
@@ -247,6 +276,7 @@ pub async fn Pdf_RegisterFonts(input: String) -> String {
     .await
 }
 
+/// Async version of [`Pdf_DecodeImageSync`].
 #[cfg(all(target_family = "wasm", feature = "js-sys"))]
 #[cfg_attr(target_family = "wasm", wasm_bindgen::prelude::wasm_bindgen)]
 pub async fn Pdf_DecodeImage(input: String) -> String {
@@ -256,10 +286,8 @@ pub async fn Pdf_DecodeImage(input: String) -> String {
     .await
 }
 
-/// Forward Rust panic messages to the browser console. Without this hook a
-/// panic surfaces as an opaque `RuntimeError: unreachable` with no message at
-/// all — exactly how the demo's first-render failure presented during the 0.12
-/// rework debugging.
+/// Runs when the wasm module loads and forwards Rust panic messages to the browser console.
+/// Without it a panic shows up as an opaque `RuntimeError: unreachable`.
 #[cfg(all(target_family = "wasm", feature = "js-sys"))]
 #[wasm_bindgen::prelude::wasm_bindgen(start)]
 pub fn printpdf_wasm_init() {

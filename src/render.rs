@@ -1,3 +1,24 @@
+//! Renders a [`PdfPage`] to an SVG string, for previews in a browser.
+//!
+//! A page is a list of [`Op`](crate::Op)s that change a graphics state (colors, line width, the
+//! current font, the transformation matrix) and draw with it. The renderer walks that list,
+//! keeps a stack of graphics states for `q` and `Q`, and writes one SVG element per drawing op:
+//! text, lines, polygons and rectangles, images and link annotations. The SVG is `width` by
+//! `height` points (the media box) with the origin moved to the top left, as SVG expects.
+//!
+//! Supported: text with embedded and standard fonts, glyph ids painted with the font's own
+//! outlines, stroke and fill colors (RGB, CMYK, grayscale), dash patterns, joins and caps, the
+//! transformation and text matrices, images, link annotations, layers and marked content (as
+//! `<g>` groups).
+//!
+//! Not rendered: gradients (`sh`), transparency, blend modes and soft masks from an ExtGState,
+//! inline images (a warning is added), and colorspace changes (`cs`, `CS`). Unknown operators
+//! become an XML comment. A font is embedded in the SVG as a `@font-face` rule, so the SVG can be
+//! large.
+//!
+//! The entry points are [`PdfPage::to_svg`](crate::PdfPage::to_svg), [`render_to_svg`] and
+//! [`render_to_svg_async`].
+
 use std::collections::BTreeMap;
 
 use base64::Engine;
@@ -14,18 +35,18 @@ use crate::{
     UnderColorRemovalFunction, WindingOrder, XObject, XObjectId, XObjectTransform,
 };
 
+/// Options for [`render_to_svg`].
+///
+/// Serialized as JSON with camelCase keys.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PdfToSvgOptions {
-    /// When rendering ImageXObjects, the images are embedded in the SVG.
-    /// You can specify here, which image formats you'd like to output, i.e.
-    /// `[Jpeg, Png, Avif]` will first try to encode the image to
-    /// `image/jpeg,base64=...`, if the encoding fails, it will try
-    /// `Png`, and last `Avif`.
+    /// Formats to embed images in, in order of preference: each image is encoded with the first
+    /// format that works, and left out when none does. `[Jpeg, Png, Avif]` tries JPEG, then
+    /// PNG, then AVIF.
     ///
-    /// If you want to render the SVG later using `svg2png`, not all image
-    /// formats might be supported, but generally in a
-    /// browser context you can prefer `WebP` and `Avif` to save space.
+    /// [`Default`] is `[Png, Jpeg, Bmp]`, which most SVG converters read. A JSON object without
+    /// this key gets the list of [`PdfToSvgOptions::web`] instead.
     #[serde(default = "default_image_formats_web")]
     pub image_formats: Vec<OutputImageFormat>,
 }
@@ -56,6 +77,8 @@ fn default_image_formats_web() -> Vec<OutputImageFormat> {
 }
 
 impl PdfToSvgOptions {
+    /// Options for browsers: tries AVIF and WebP first, which are the smallest, then JPEG, PNG,
+    /// BMP, TIFF, GIF and TGA.
     pub fn web() -> Self {
         Self {
             image_formats: default_image_formats_web(),
@@ -63,8 +86,7 @@ impl PdfToSvgOptions {
     }
 }
 
-/// During rendering this holds all of the "graphics state" of a page, so we
-/// can push / save / pop GraphicsStates and restore the state with q / Q operations.
+// The graphics state of the page while it is rendered, pushed and popped by `q` and `Q`.
 #[derive(Debug, Clone, Default)]
 struct GraphicsState {
     text_cursor: Point,
@@ -436,6 +458,19 @@ impl GraphicsStateVec {
     }
 }
 
+/// Renders `page` to an SVG string.
+///
+/// `resources` must hold the fonts, images, graphics states and layers the page refers to (the
+/// resources of the document the page belongs to). Problems that do not stop rendering, such as a
+/// font that cannot be embedded, are added to `warnings`.
+///
+/// The SVG is as wide and high as the media box in points, with the origin at the top left.
+/// It draws text (embedded fonts become `@font-face` rules, so the SVG can be large), lines,
+/// polygons, rectangles, images and link annotations, with colors, dash patterns, joins, caps and
+/// the transformation and text matrices; layers and marked content become `<g>` groups.
+///
+/// Not rendered: gradients (`sh`), transparency, blend modes and soft masks, colorspace changes
+/// and inline images (these add a warning). An unknown operator becomes an XML comment.
 pub fn render_to_svg(
     page: &PdfPage,
     resources: &PdfResources,
@@ -446,6 +481,8 @@ pub fn render_to_svg(
     render_to_svg_internal(page, resources, map, warnings)
 }
 
+/// Like [`render_to_svg`], but encodes the images with the async encoder, for targets where
+/// blocking is not allowed (wasm).
 pub async fn render_to_svg_async(
     page: &PdfPage,
     resources: &PdfResources,
@@ -508,7 +545,6 @@ fn render_to_svg_internal(
 ) -> String {
     use crate::ops::Op;
 
-    // Extract page dimensions from the media box
     let width = page.media_box.width.0;
     let height = page.media_box.height.0;
 
@@ -520,21 +556,13 @@ fn render_to_svg_internal(
     ));
     svg.push('\n');
 
-    // Handle fonts
+    // Embed the fonts as @font-face rules.
     let (_, subset_fonts) = crate::serialize::prepare_fonts_for_serialization(resources, std::slice::from_ref(page), true, warnings);
     if !subset_fonts.is_empty() {
-        // Embed fonts via a <style> block
         svg.push_str("<style>\n");
-        // Iterate over PDF fonts and embed each via an @font-face rule.
-        //
-        // Prefer the *original* full sfnt bytes over the PDF subset. The subset
-        // fonts printpdf writes for the PDF font program drop OS/2, name and post
-        // tables (they are not needed inside a PDF /FontFile2). Browsers, however,
-        // run webfonts through the OpenType Sanitizer, which rejects a face that
-        // is missing OS/2 — so an @font-face built from the subset silently fails
-        // to load and the browser falls back to a default serif. The <text>
-        // elements carry real unicode content, so the original font's cmap maps
-        // them directly and no subsetting/gid remap is needed for the preview.
+        // Use the original font bytes rather than the PDF subset: the subset has no OS/2 table,
+        // so browsers reject it as a webfont and fall back to a default serif. The `<text>`
+        // elements hold real Unicode text, which the original cmap maps directly.
         for (font_id, font) in subset_fonts.iter() {
             let original = resources
                 .fonts
@@ -553,22 +581,19 @@ fn render_to_svg_internal(
         svg.push_str("</style>\n");
     }
 
-    // Initialize graphics state and tracking variables
     let mut gst = GraphicsStateVec::new();
     let mut in_text_section = false;
-    let mut current_svg_group = Vec::new(); // Stack to track nested groups
+    let mut current_svg_group = Vec::new(); // open `<g>` elements, innermost last
     let mut glyph_outlines = GlyphOutlineDefs::default();
 
-    // Process all PDF operations
     for op in &page.ops {
         match op {
             Op::SetColorSpaceFill { .. } => {
-                // TODO
+                // Colorspace changes are ignored.
             }
             Op::SetColorSpaceStroke { .. } => {
-                // TODO
+                // Colorspace changes are ignored.
             }
-            // Graphics state modifications
             Op::SetRenderingIntent { intent } => {
                 gst.set_rendering_intent(*intent);
             }
@@ -621,7 +646,6 @@ fn render_to_svg_internal(
                 gst.set_word_spacing(*pt);
             }
             Op::SetFont { font, size } => {
-                // Use PdfFontHandle enum to set font
                 match font {
                     crate::ops::PdfFontHandle::Builtin(builtin) => {
                         gst.set_font_size_builtin(builtin, *size);
@@ -632,8 +656,6 @@ fn render_to_svg_internal(
                 }
             }
             Op::ShowText { items } => {
-                // ShowText requires that font was set previously via SetFont
-                // The renderer tracks current font in GraphicsState
                 if in_text_section {
                     // No font set: fall back to the default builtin font.
                     let current_font = gst
@@ -651,7 +673,6 @@ fn render_to_svg_internal(
                 }
             }
 
-            // Content structure
             Op::BeginMarkedContent { tag } => {
                 gst.begin_marked_content(tag.clone());
                 svg.push_str(&format!(
@@ -685,7 +706,6 @@ fn render_to_svg_internal(
             }
             Op::BeginCompatibilitySection => {
                 gst.begin_compatibility_section();
-                // We'll skip content in compatibility sections
             }
             Op::EndCompatibilitySection => {
                 gst.end_compatibility_section();
@@ -735,20 +755,14 @@ fn render_to_svg_internal(
                 }
             }
 
-            // Text operations
             Op::StartTextSection => {
                 in_text_section = true;
-                // We don't create a text element here; each WriteText call will do that
             }
             Op::EndTextSection => {
                 in_text_section = false;
             }
             Op::AddLineBreak => {
-                // T*: move to the start of the NEXT line. In PDF that keeps the
-                // line-start x (the text line matrix x) and drops y by the
-                // leading; it does NOT reset x to 0. Resetting x left every
-                // continuation line flush against the page edge instead of under
-                // the first line.
+                // `T*` keeps the x of the line start and drops y by the leading.
                 let leading = gst.get_text_leading();
                 let current_cursor = gst.get_text_cursor();
                 gst.set_text_cursor(Point {
@@ -757,7 +771,6 @@ fn render_to_svg_internal(
                 });
             }
             Op::MoveTextCursorAndSetLeading { tx, ty } => {
-                // Update cursor position and set leading
                 let current_cursor = gst.get_text_cursor();
                 gst.set_text_cursor(Point {
                     x: Pt(current_cursor.x.0 + tx),
@@ -767,7 +780,7 @@ fn render_to_svg_internal(
             }
             Op::MoveToNextLineShowText { text } => {
                 if in_text_section {
-                    // First move to next line using leading (keep the line-start x)
+                    // Next line, as with `T*`.
                     let leading = gst.get_text_leading();
                     let current_cursor = gst.get_text_cursor();
                     gst.set_text_cursor(Point {
@@ -775,7 +788,6 @@ fn render_to_svg_internal(
                         y: Pt(current_cursor.y.0 - leading.0),
                     });
 
-                    // Then show text
                     let items = vec![TextItem::Text(text.clone())];
 
                     if let Some(font) = gst.get_current_font() {
@@ -796,11 +808,10 @@ fn render_to_svg_internal(
                 text,
             } => {
                 if in_text_section {
-                    // Set spacing
                     gst.set_word_spacing(Pt(*word_spacing));
                     gst.set_character_spacing(*char_spacing);
 
-                    // Move to next line (keep the line-start x)
+                    // Next line, as with `T*`.
                     let leading = gst.get_text_leading();
                     let current_cursor = gst.get_text_cursor();
                     gst.set_text_cursor(Point {
@@ -808,7 +819,6 @@ fn render_to_svg_internal(
                         y: Pt(current_cursor.y.0 - leading.0),
                     });
 
-                    // Show text
                     let items = vec![TextItem::Text(text.clone())];
 
                     if let Some(font) = gst.get_current_font() {
@@ -824,7 +834,6 @@ fn render_to_svg_internal(
                 }
             }
 
-            // Drawing operations
             Op::DrawLine { line } => {
                 let line_svg = render_line_to_svg(line, &gst, height);
                 svg.push_str(&line_svg);
@@ -842,24 +851,19 @@ fn render_to_svg_internal(
                 svg.push_str(&xobject_svg);
             }
             Op::LinkAnnotation { link } => {
-                // Render link annotations as SVG links
                 match &link.actions {
                     Actions::Goto(destination) => {
-                        // Internal link to a page
                         let page_num = match destination {
                             Destination::Xyz { page, .. } => page,
-                            // Handle other destination types if needed
                         };
 
-                        // Create SVG link
                         svg.push_str(&format!("<a href=\"#page{}\">", page_num));
 
-                        // Add rectangle for the link area
                         svg.push_str(&format!(
                             "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"none\" \
                              stroke=\"none\" pointer-events=\"all\"/>",
                             link.rect.x.0,
-                            height - link.rect.y.0 - link.rect.height.0, // Convert Y coordinate
+                            height - link.rect.y.0 - link.rect.height.0, // PDF y is up, SVG y is down
                             link.rect.width.0,
                             link.rect.height.0
                         ));
@@ -867,15 +871,13 @@ fn render_to_svg_internal(
                         svg.push_str("</a>");
                     }
                     Actions::Uri(uri) => {
-                        // External link
                         svg.push_str(&format!("<a href=\"{}\" target=\"_blank\">", uri));
 
-                        // Add rectangle for the link area
                         svg.push_str(&format!(
                             "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"none\" \
                              stroke=\"none\" pointer-events=\"all\"/>",
                             link.rect.x.0,
-                            height - link.rect.y.0 - link.rect.height.0, // Convert Y coordinate
+                            height - link.rect.y.0 - link.rect.height.0,
                             link.rect.width.0,
                             link.rect.height.0
                         ));
@@ -885,9 +887,7 @@ fn render_to_svg_internal(
                 }
             }
 
-            // Inline image operations - simplified implementation
             Op::BeginInlineImage | Op::BeginInlineImageData | Op::EndInlineImage => {
-                // These operations would need more complex handling
                 warnings.push(PdfWarnMsg::info(
                     0,
                     0,
@@ -895,19 +895,16 @@ fn render_to_svg_internal(
                 ));
             }
 
-            // Gradients are not rendered in the SVG preview (the PDF output uses a
-            // `/Shading` resource painted with `sh`). Skip silently here.
+            // Gradients (`sh`) are not rendered.
             Op::PaintShading { .. } => {}
 
-            // Unknown operations
             Op::Unknown { key, value: _ } => {
-                // Add comment for debugging
                 svg.push_str(&format!("<!-- Unknown PDF operator: {} -->", key));
             }
         }
     }
 
-    // Close any remaining open groups
+    // Close the groups the page left open.
     for _group_type in current_svg_group.iter().rev() {
         svg.push_str("</g>");
     }
@@ -917,7 +914,6 @@ fn render_to_svg_internal(
     svg
 }
 
-// Helper function to convert a Color to SVG color string
 fn color_to_svg(color: &Color) -> String {
     match color {
         Color::Rgb(rgb) => {
@@ -953,7 +949,6 @@ fn color_to_svg(color: &Color) -> String {
     }
 }
 
-// Escapes text for use in SVG
 fn escape_xml_text(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -993,7 +988,6 @@ fn svg_path_data(points: &[LinePoint], page_height: f32) -> String {
     d
 }
 
-// Gets combined transform string for SVG elements
 fn get_svg_transform(
     ctm: &CurTransMat,
     text_matrix: &Option<TextMatrix>,
@@ -1001,12 +995,8 @@ fn get_svg_transform(
 ) -> String {
     let mut transform = String::new();
 
-    // Apply CTM first. The path points are already flipped to the page,
-    // u = (x, H - y), so the transform is flip . CTM . flip:
-    // (a x + c y + e, H - (b x + d y + f)) rewritten in u. The translation
-    // used to be (e, H - f), which left a scaled shape (`q 0.5 0 0 0.5 0 0
-    // cm`, every PDF that draws in its own units) d * H too low - mostly
-    // off the page.
+    // The path points are already flipped to the page, u = (x, H - y), so the transform is
+    // flip . CTM . flip, which rewritten in u is (a x + c y + e, H - (b x + d y + f)).
     let ctm_array = ctm.as_array();
     if *ctm != CurTransMat::Identity {
         let [a, b, c, d, e, f] = ctm_array;
@@ -1082,16 +1072,13 @@ impl GlyphOutlineDefs {
 
 /// Renders one `ShowText`.
 ///
-/// Glyph ids from a shaper (`TextItem::GlyphIds`) are painted with the glyphs'
-/// own outlines, the way the PDF shows them. Writing them out as their Unicode
-/// text instead hands the text back to the browser to shape a second time,
-/// glyph by glyph: every Arabic letter then comes out in its isolated form,
-/// ligatures and Indic conjuncts fall apart, and a visual-order run read from a
-/// PDF is bidi-reversed again. The `<text>` is still written, unpainted, so the
-/// preview stays selectable and searchable.
+/// Glyph ids from a shaper (`TextItem::GlyphIds`) are painted with the glyphs' own outlines, as
+/// the PDF shows them. Writing them as Unicode text would let the browser shape them a second
+/// time (isolated Arabic letters, broken ligatures). The `<text>` is still written, unpainted,
+/// so the preview stays selectable and searchable.
 ///
-/// Everything else (`TextItem::Text`, builtin fonts, faces without outlines)
-/// is a painted `<text>` as before.
+/// Everything else (`TextItem::Text`, standard fonts, faces without outlines) is a painted
+/// `<text>`.
 fn render_show_text(
     items: &[TextItem],
     font: &BuiltinOrExternalFontId,
@@ -1331,7 +1318,6 @@ enum TextLayer {
     Unpainted,
 }
 
-// Renders text items (with offsets) to SVG
 fn render_text_items_to_svg(
     items: &[TextItem],
     font_id: &BuiltinOrExternalFontId,
@@ -1468,7 +1454,6 @@ fn render_text_items_to_svg(
     result
 }
 
-// Renders a line to SVG
 fn render_line_to_svg(line: &Line, gst: &GraphicsStateVec, page_height: f32) -> String {
     if line.points.is_empty() {
         return String::new();
@@ -1530,7 +1515,6 @@ fn render_line_to_svg(line: &Line, gst: &GraphicsStateVec, page_height: f32) -> 
     )
 }
 
-// Renders a polygon to SVG
 fn render_polygon_to_svg(polygon: &Polygon, gst: &GraphicsStateVec, page_height: f32) -> String {
     if polygon.rings.is_empty() {
         return String::new();
@@ -1626,7 +1610,6 @@ fn render_polygon_to_svg(polygon: &Polygon, gst: &GraphicsStateVec, page_height:
     )
 }
 
-// Renders an image to SVG
 fn render_image_to_svg(
     id: &XObjectId,
     transform: &XObjectTransform,
@@ -1635,32 +1618,25 @@ fn render_image_to_svg(
     page_height: f32,
     gst: &GraphicsStateVec,
 ) -> String {
-    // Get the XObject and its binary data if available
     let xobject_opt = resources.xobjects.map.get(id);
     let image_data_opt = image_map.get(id);
 
     if let (Some(xobject), Some((bytes, fmt))) = (xobject_opt, image_data_opt) {
         if let Some((width, height)) = xobject.get_width_height() {
-            // Convert dimensions to points
             let dpi = transform.dpi.unwrap_or(300.0);
             let w_pt = width.into_pt(dpi).0;
             let h_pt = height.into_pt(dpi).0;
 
-            // Base64 encode the image data
             let base64_str = base64::prelude::BASE64_STANDARD.encode(bytes);
             let data_url = format!("data:{};base64,{}", fmt.mime_type(), base64_str);
 
-            // Calculate transformations
-            // Start with the XObject transform
             let mut transforms = Vec::new();
 
-            // Apply scaling if specified
             if let Some(scale_x) = transform.scale_x {
                 let scale_y = transform.scale_y.unwrap_or(scale_x);
                 transforms.push(format!("scale({}, {})", scale_x, scale_y));
             }
 
-            // Apply rotation if specified
             if let Some(rotate) = &transform.rotate {
                 transforms.push(format!(
                     "rotate({}, {}, {})",
@@ -1670,12 +1646,10 @@ fn render_image_to_svg(
                 ));
             }
 
-            // Apply translation if specified
             let tx = transform.translate_x.unwrap_or(Pt(0.0));
             let ty = transform.translate_y.unwrap_or(Pt(0.0));
             transforms.push(format!("translate({}, {})", tx.0, page_height - ty.0));
 
-            // Apply current transformation matrix from graphics state
             let ctm = gst.get_transform_matrix();
             if ctm != CurTransMat::Identity {
                 transforms.push(ctm.as_css_val());
@@ -1687,7 +1661,6 @@ fn render_image_to_svg(
                 String::new()
             };
 
-            // Create the SVG image element
             return format!(
                 "<image width=\"{}\" height=\"{}\" href=\"{}\"{} />",
                 w_pt, h_pt, data_url, transform_attr
@@ -1695,5 +1668,5 @@ fn render_image_to_svg(
         }
     }
 
-    String::new() // Return empty string if something failed
+    String::new()
 }
