@@ -491,10 +491,8 @@ fn number(object: &Object) -> Option<f32> {
 fn rect_of(doc: &Document, object: &Object) -> Option<[f32; 4]> {
     let array = doc.dereference(object).ok()?.1.as_array().ok()?;
     let v: Vec<f32> = array.iter().filter_map(number).collect();
-    if v.len() != 4 {
-        return None;
-    }
-    Some([v[0].min(v[2]), v[1].min(v[3]), v[0].max(v[2]), v[1].max(v[3])])
+    let [x0, y0, x1, y1] = <[f32; 4]>::try_from(v).ok()?;
+    Some([x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1)])
 }
 
 /// Decodes a PDF text string (ISO 32000-1, 7.9.2.2): UTF-16BE or UTF-8 when it starts with a
@@ -504,7 +502,8 @@ pub fn decode_text_string(bytes: &[u8]) -> String {
     if let Some(utf16) = bytes.strip_prefix(&[0xFE, 0xFF]) {
         let units: Vec<u16> = utf16
             .chunks_exact(2)
-            .map(|c| u16::from_be_bytes([c[0], c[1]]))
+            .filter_map(|c| <[u8; 2]>::try_from(c).ok())
+            .map(u16::from_be_bytes)
             .collect();
         return String::from_utf16_lossy(&units);
     }
@@ -527,7 +526,26 @@ fn encode_text_string(text: &str) -> Vec<u8> {
     out
 }
 
+// How deeply the arrays of a value may nest, and how many objects one value may visit. A real
+// value is a string, a name or an array of them; the limits stop arrays that hold themselves
+// and arrays that fan out into one another.
+const MAX_VALUE_DEPTH: usize = 8;
+const MAX_VALUE_OBJECTS: usize = 4096;
+
 fn value_text(doc: &Document, value: &Object) -> String {
+    let mut budget = MAX_VALUE_OBJECTS;
+    value_text_within(doc, value, MAX_VALUE_DEPTH, &mut budget)
+}
+
+// `value_text` with `depth` more levels of arrays allowed and `budget` more objects to visit.
+fn value_text_within(doc: &Document, value: &Object, depth: usize, budget: &mut usize) -> String {
+    let Some(depth) = depth.checked_sub(1) else {
+        return String::new();
+    };
+    if *budget == 0 {
+        return String::new();
+    }
+    *budget = budget.saturating_sub(1);
     let Ok((_, value)) = doc.dereference(value) else {
         return String::new();
     };
@@ -536,7 +554,7 @@ fn value_text(doc: &Document, value: &Object) -> String {
         Object::Name(name) => String::from_utf8_lossy(name).into_owned(),
         Object::Array(items) => items
             .iter()
-            .map(|item| value_text(doc, item))
+            .map(|item| value_text_within(doc, item, depth, budget))
             .collect::<Vec<_>>()
             .join(", "),
         Object::Stream(stream) => decode_text_string(&stream.content),
@@ -573,8 +591,8 @@ fn da_colour(da: &[u8]) -> String {
             "k" => 4,
             _ => continue,
         };
-        if i >= n {
-            return tokens[i - n..=i].join(" ");
+        if let Some(operands) = i.checked_sub(n).and_then(|first| tokens.get(first..=i)) {
+            return operands.join(" ");
         }
     }
     "0 g".to_string()
@@ -592,15 +610,13 @@ const HELVETICA_WIDTHS: [u16; 95] = [
 ];
 
 fn helvetica_width(text: &str, size: f32) -> f32 {
-    let units: u32 = text
+    let units: u64 = text
         .chars()
         .map(|c| {
-            let code = c as u32;
-            if (0x20..=0x7E).contains(&code) {
-                u32::from(HELVETICA_WIDTHS[(code - 0x20) as usize])
-            } else {
-                556
-            }
+            (c as u32)
+                .checked_sub(0x20)
+                .and_then(|index| HELVETICA_WIDTHS.get(index as usize))
+                .map_or(556, |width| u64::from(*width))
         })
         .sum();
     units as f32 * size / 1000.0
