@@ -1,19 +1,41 @@
-/// ToUnicode CMap parsing
+//! CMaps: the tables that connect the bytes of a PDF string to glyphs and to text.
+//!
+//! A CMap ("character map") is a small PostScript-like text stream. Two kinds matter for fonts:
+//!
+//! - A **ToUnicode CMap** is the `/ToUnicode` entry of a font. It maps each character code the
+//!   content stream uses (for embedded fonts, the glyph id) to the Unicode text it stands for.
+//!   Viewers use it for copy, paste and search; without it the text of an embedded font is
+//!   unreadable. See [`ToUnicodeCMap`], which also writes one for the fonts printpdf embeds.
+//! - A **CID CMap** is the `/Encoding` of a composite (Type0) font. It splits the bytes of a
+//!   string into codes and maps each code to a CID, the index of a glyph in the font. printpdf
+//!   writes `Identity-H` (two-byte codes, code equal to CID); [`CidCMap`] reads that and CMaps
+//!   embedded in a PDF.
+//!
+//! # Examples
+//!
+//! ```
+//! use printpdf::ToUnicodeCMap;
+//!
+//! let cmap = ToUnicodeCMap::parse("1 beginbfchar <0003> <0020> endbfchar").unwrap();
+//! assert_eq!(cmap.lookup_string(3).as_deref(), Some(" "));
+//! ```
 use std::collections::BTreeMap;
 
 use lopdf::{Dictionary, Document, Object};
 
 use crate::text::CMap;
 
-/// A single bfrange line may cover at most this many CIDs. Real CMaps map 1–4 byte
-/// codes, so no legitimate range spans more than 64k entries — but the CMap stream of
-/// a parsed PDF is attacker-controlled, and one hostile 3-token line like
-/// `<00000000> <FFFFFFFF> <0041>` would otherwise expand to 2^32 map insertions.
+/// The most codes a single `bfrange` may cover. Real CMaps map codes of 1 to 4 bytes, so no
+/// legitimate range spans more than 64k entries. The stream comes from the file, and a line
+/// such as `<00000000> <FFFFFFFF> <0041>` would otherwise expand to 2^32 entries.
 const MAX_BFRANGE_ENTRIES: u64 = 65_536;
 
-/// The mapping from a CID to one or more Unicode code points.
+/// A ToUnicode CMap: character codes (CIDs) mapped to the Unicode text they stand for.
+///
+/// A mapping targets one or more Unicode scalar values, several for a ligature such as "fi".
 #[derive(Debug)]
 pub struct ToUnicodeCMap {
+    /// Code to Unicode scalar values.
     pub mappings: BTreeMap<u32, Vec<u32>>,
 }
 
@@ -105,9 +127,6 @@ fn hex_to_u32(hex: &str) -> Result<u32, String> {
 /// Parse a hex string token used as a *target*: UTF-16BE code units, possibly
 /// several characters (ligatures like `<004600660069>` = "ffi") and possibly
 /// surrogate pairs (`<D835DC56>` = U+1D456). Returns Unicode scalar values.
-///
-/// Tokens of up to 4 hex digits (the overwhelmingly common case) decode exactly
-/// like the old single-number path.
 fn hex_to_unicode_scalars(hex: &str) -> Result<Vec<u32>, String> {
     if hex.is_empty() {
         return Err("empty hex token".to_string());
@@ -117,8 +136,7 @@ fn hex_to_unicode_scalars(hex: &str) -> Result<Vec<u32>, String> {
         return Ok(vec![hex_to_u32(hex)?]);
     }
     if !hex.len().is_multiple_of(4) {
-        // Not a whole number of UTF-16BE units; historic behavior parsed the
-        // token as one number, keep that as a fallback for short odd tokens.
+        // Not a whole number of UTF-16BE units: read the token as one number.
         return hex_to_u32(hex).map(|v| vec![v]);
     }
     let mut units = Vec::with_capacity(hex.len() / 4);
@@ -140,7 +158,16 @@ fn hex_to_unicode_scalars(hex: &str) -> Result<Vec<u32>, String> {
 }
 
 impl ToUnicodeCMap {
-    /// Parses a ToUnicode CMap from the given input string.
+    /// Parses a ToUnicode CMap from its text.
+    ///
+    /// Reads the `bfchar` and `bfrange` sections (both forms of `bfrange`: one start value
+    /// that is incremented, or an array with one target per code); everything else is
+    /// ignored. Malformed entries are skipped.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a hex token that is not a number, a reversed `bfrange`, or one that
+    /// spans more than 65536 codes.
     pub fn parse(input: &str) -> Result<ToUnicodeCMap, String> {
         let mut mappings = BTreeMap::new();
         let tokens = tokenize_cmap(input);
@@ -182,13 +209,11 @@ impl ToUnicodeCMap {
                                 };
                                 let start = hex_to_u32(start_tok)?;
                                 let end = hex_to_u32(end_tok)?;
-                                // Reject reversed and oversized ranges instead of expanding
-                                // them: `end - start + 1` underflows (panics with overflow
-                                // checks on) when end < start, and an unbounded span is a
-                                // decompression-bomb-style DoS. The caller
-                                // (extract_to_unicode_cmap) downgrades the Err to a warning,
-                                // so a hostile CMap costs the font its ToUnicode map but
-                                // never the whole document.
+                                // Reject reversed and oversized ranges: `end - start + 1`
+                                // would underflow, and a huge span would expand to millions
+                                // of entries. The caller turns the error into a warning, so a
+                                // hostile CMap costs the font its ToUnicode map and nothing
+                                // else.
                                 if end < start {
                                     return Err(format!(
                                         "bfrange: end {:04X} < start {:04X}",
@@ -274,12 +299,12 @@ impl ToUnicodeCMap {
         Ok(ToUnicodeCMap { mappings })
     }
 
-    /// Look up a single code/CID, returning its Unicode scalar values.
+    /// The Unicode scalar values a code maps to.
     pub fn lookup(&self, cid: u32) -> Option<&Vec<u32>> {
         self.mappings.get(&cid)
     }
 
-    /// Map a single code/CID to a String (empty when unmapped).
+    /// The text a code maps to, or `None` when the code is unmapped or maps to nothing valid.
     pub fn lookup_string(&self, cid: u32) -> Option<String> {
         let unis = self.mappings.get(&cid)?;
         let s: String = unis
@@ -293,7 +318,11 @@ impl ToUnicodeCMap {
         }
     }
 
-    /// Generates a CMap string representation suitable for embedding in a PDF.
+    /// Writes the CMap as the text of a `/ToUnicode` stream.
+    ///
+    /// `font_name` becomes the CMap's `/Ordering` and name. The codespace is `<0000> <FFFF>`
+    /// (two-byte codes), and mappings are written as `bfchar` blocks of at most 100 entries,
+    /// with targets in UTF-16BE. Codes with an empty target are left out.
     pub fn to_cmap_string(&self, font_name: &str) -> String {
         // Header section
         let mut result = format!(
@@ -359,27 +388,24 @@ impl ToUnicodeCMap {
     }
 }
 
-// ---------------------------------------------------------------------------
-// CID CMaps (the Type0 /Encoding side — NOT ToUnicode)
-// ---------------------------------------------------------------------------
-
-/// A code→CID CMap: the `/Encoding` of a composite (Type0) font (ISO 32000-1,
-/// 9.7.5). Where [`ToUnicodeCMap`] maps *codes to text* for extraction, this maps
-/// the raw content-stream bytes to *codes* (via the codespace ranges — codes may
-/// be 1–4 bytes, variable width!) and codes to *CIDs* (via cidrange/cidchar).
+/// A CMap from codes to CIDs: the `/Encoding` of a composite (Type0) font (ISO 32000-1,
+/// 9.7.5).
 ///
-/// Built either from an embedded CMap stream or from the two predefined CMaps
-/// printpdf fully supports without external data (`Identity-H`/`Identity-V`).
-/// The other predefined CMaps (90ms-RKSJ-H, GBK-EUC-H, UniJIS-UCS2-H, …) require
-/// Adobe's CMap data files, which printpdf does not ship — the caller keeps its
-/// warning for those.
+/// Where [`ToUnicodeCMap`] maps codes to text, this maps the bytes of a content-stream string
+/// to codes (through the codespace ranges; codes are 1 to 4 bytes and may differ in length)
+/// and codes to CIDs (through the `cidrange` and `cidchar` entries).
+///
+/// Built from an embedded CMap stream, or from the two predefined CMaps that need no external
+/// data, `Identity-H` and `Identity-V`. The other predefined CMaps (`90ms-RKSJ-H`,
+/// `GBK-EUC-H`, `UniJIS-UCS2-H`, ...) need Adobe's CMap files, which printpdf does not
+/// include; [`CidCMap::parse`] reports them as unresolved.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CidCMap {
-    /// 0 = horizontal, 1 = vertical (`/WMode`).
+    /// Writing mode from `/WMode`: 0 is horizontal, 1 is vertical.
     pub wmode: u8,
-    /// `(byte_len, lo_bytes, hi_bytes)` — a code of `byte_len` bytes belongs to
-    /// this range when every byte lies within the corresponding lo/hi bytes
-    /// (bytewise comparison per spec, not numeric).
+    /// Codespace ranges as `(byte_len, lo_bytes, hi_bytes)`: a code of `byte_len` bytes lies in
+    /// the range when each of its bytes lies between the corresponding lo and hi bytes
+    /// (compared byte by byte, not as numbers).
     codespace: Vec<(u8, [u8; 4], [u8; 4])>,
     /// `(byte_len, lo, hi, dst_cid)` from cidrange: code → dst + (code - lo).
     ranges: Vec<(u8, u32, u32, u32)>,
@@ -389,13 +415,13 @@ pub struct CidCMap {
     identity: bool,
 }
 
-/// One entry from a CMap-supported hex range line may cover at most this many
-/// codes; mirrors [`MAX_BFRANGE_ENTRIES`] (the stream is attacker-controlled).
+/// The most codes a single `cidrange` may cover; the stream comes from the file, see
+/// [`MAX_BFRANGE_ENTRIES`].
 const MAX_CIDRANGE_SPAN: u64 = 65_536;
 
 impl CidCMap {
-    /// The `Identity-H` (wmode 0) / `Identity-V` (wmode 1) predefined CMap:
-    /// 2-byte codes, code == CID.
+    /// The predefined `Identity-H` (`wmode` 0) or `Identity-V` (`wmode` 1) CMap: two-byte
+    /// codes, code equal to CID.
     pub fn identity(wmode: u8) -> Self {
         CidCMap {
             wmode,
@@ -406,14 +432,21 @@ impl CidCMap {
         }
     }
 
-    /// Whether this is one of the identity CMaps (the fast path everywhere).
+    /// Whether this is an identity CMap, where code equals CID and no table is consulted.
     pub fn is_identity(&self) -> bool {
         self.identity
     }
 
-    /// Parse an embedded CMap stream. Returns the CMap plus the name of a
-    /// `usecmap` base it could NOT resolve (only the identity CMaps can be
-    /// resolved without Adobe's data files) — the caller should warn about it.
+    /// Parses an embedded CMap stream.
+    ///
+    /// Returns the CMap and, when the stream says `usecmap` with a base other than
+    /// `Identity-H` or `Identity-V`, that base's name: it cannot be resolved without Adobe's
+    /// data files, and the caller should warn about it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a malformed hex token, a code that is not 1 to 4 bytes, or a
+    /// `cidrange` spanning more than 65536 codes.
     pub fn parse(input: &str) -> Result<(CidCMap, Option<String>), String> {
         let tokens = tokenize_cmap(input);
         let mut cmap = CidCMap {
@@ -555,11 +588,10 @@ impl CidCMap {
         self.ranges.is_empty() && self.singles.is_empty()
     }
 
-    /// Split a content-stream string into `(code, byte_len)` per the codespace
-    /// ranges (ISO 32000-1, 9.7.6.2): a code matches a range of length L when its
-    /// L bytes each lie within the range's corresponding lo/hi bytes. On no
-    /// match, the shortest range length starting at a matching first byte is
-    /// consumed (mapping to notdef later); failing that, one byte.
+    /// Splits a content-stream string into `(code, byte_len)` pairs by the codespace ranges
+    /// (ISO 32000-1, 9.7.6.2). A code matches a range of length L when each of its L bytes lies
+    /// within the range's bytes. Where nothing matches, the shortest range whose first byte
+    /// matches is consumed (the code maps to notdef later), or else one byte.
     pub fn split_codes(&self, bytes: &[u8]) -> Vec<(u32, u8)> {
         let mut out = Vec::with_capacity(bytes.len() / 2);
         let mut pos = 0;
@@ -609,9 +641,8 @@ impl CidCMap {
         out
     }
 
-    /// The CID for a code of the given byte length. Unmapped codes are CID 0
-    /// (notdef) — except for the identity CMaps, where code == CID by
-    /// definition.
+    /// The CID for a code of the given byte length. Unmapped codes give CID 0 (notdef),
+    /// except in the identity CMaps, where the code is the CID.
     pub fn cid_for_code(&self, code: u32, byte_len: u8) -> u32 {
         if self.identity {
             return code;
@@ -630,11 +661,10 @@ impl CidCMap {
     }
 }
 
-/// Implement the CMap trait on our ToUnicodeCMap.
+/// Decodes strings of two-byte codes, as `Identity-H` fonts use; a trailing odd byte and
+/// unmapped codes are skipped.
 impl CMap for ToUnicodeCMap {
     fn map_bytes(&self, bytes: &[u8]) -> String {
-        // For simplicity, assume that the byte sequence represents CIDs in big-endian,
-        // and that each CID is 2 bytes long.
         let mut result = String::new();
         let mut i = 0;
         while i + 1 < bytes.len() {
@@ -652,8 +682,12 @@ impl CMap for ToUnicodeCMap {
     }
 }
 
-/// Looks for a `ToUnicode` CMap entry on the dictionary, resolves it to a dictionary
-/// and parses the `ToUnicodeCMap`.
+/// Reads and parses the `/ToUnicode` CMap of a font dictionary.
+///
+/// # Errors
+///
+/// Returns an error when the entry is missing or is neither a stream nor a reference to one,
+/// when the stream cannot be decompressed or is not UTF-8, or when the CMap does not parse.
 pub fn get_to_unicode_cmap_from_font(
     font_dict: &Dictionary,
     doc: &Document,
@@ -688,7 +722,7 @@ mod tests {
 
     #[test]
     fn single_line_bfchar_is_parsed() {
-        // PostScript does not require newlines; a line-based parser lost these.
+        // PostScript does not require newlines between tokens.
         let cmap = "begincmap 1 beginbfchar <0003> <0020> endbfchar endcmap";
         let parsed = ToUnicodeCMap::parse(cmap).unwrap();
         assert_eq!(parsed.mappings.get(&3), Some(&vec![0x20]));
@@ -696,9 +730,7 @@ mod tests {
 
     #[test]
     fn multi_codepoint_bfchar_target() {
-        // <00660066> is the two-character target "ff". The old parser tried to
-        // read it as one u32 (0x00660066) and produced garbage, and 12-digit
-        // targets made the whole CMap fail to parse.
+        // <00660066> is the two-character target "ff", not one 32-bit number.
         let cmap = "beginbfchar\n<0001> <00660066>\n<0002> <004600660069>\nendbfchar";
         let parsed = ToUnicodeCMap::parse(cmap).unwrap();
         assert_eq!(parsed.mappings.get(&1), Some(&vec![0x66, 0x66]));
@@ -732,14 +764,14 @@ mod tests {
 
     #[test]
     fn bfrange_reversed_is_error() {
-        // Guard: keep rejecting reversed ranges (underflow / DoS protection).
+        // A reversed range is an error (it would underflow).
         let cmap = "beginbfrange\n<0002> <0001> [<0041>]\nendbfrange";
         assert!(ToUnicodeCMap::parse(cmap).is_err());
     }
 
     #[test]
     fn bfrange_huge_range_is_bounded() {
-        // Guard: a hostile few-byte bfrange must not allocate 2^21 entries.
+        // A hostile few-byte bfrange must not expand to millions of entries.
         let cmap = "beginbfrange\n<000000> <1FFFFF> <0041>\nendbfrange";
         if let Ok(m) = ToUnicodeCMap::parse(cmap) { assert!(m.mappings.len() <= 65_536) }
     }

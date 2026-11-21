@@ -1,40 +1,24 @@
-//! Text shaping and measurement
+//! Text layout to PDF operations.
 //!
-//! This module provides functionality for measuring and shaping text,
-//! allowing for complex text layout with precise positioning, line breaks,
-//! and text flow around "holes" (like images or other non-text content).
-//!
-//! # Overview
-//!
-//! The text shaping pipeline converts raw text + font into positioned glyphs:
+//! A PDF content stream has no line breaking, kerning rules or bidirectional text: it only says
+//! "show these glyphs at these positions". Working that out is the job of a text layout engine.
+//! printpdf uses the one of azul-layout, which turns text and fonts into a [`UnifiedLayout`]
+//! (lines of positioned glyph ids). [`layout_to_ops`] and [`layout_to_ops_with_offset`] turn
+//! such a layout into [`Op`]s that draw it. They are also available as
+//! [`crate::text_shaping`], and the HTML renderer ([`crate::PdfDocument::from_html`]) uses them
+//! for all of its text.
 //!
 //! ```text
-//! Text + Font + Options
-//!       ↓
-//! UnifiedLayout (from azul-layout text3 engine)
-//!       ↓
-//! Vec<Op> (PDF operations)
+//! text + fonts  ->  UnifiedLayout (azul-layout)  ->  Vec<Op>
 //! ```
 //!
-//! # Example
+//! Both functions require the `text_layout` feature. The option and result types of this
+//! module ([`TextShapingOptions`], [`ShapedText`], ...) are plain data that no function of
+//! printpdf reads or produces.
 //!
-//! ```ignore
-//! use printpdf::*;
-//!
-//! // Load a font
-//! let font_bytes = std::fs::read("my_font.ttf")?;
-//! let font = ParsedFont::from_bytes(&font_bytes, 0)?;
-//!
-//! // Shape text
-//! let options = TextShapingOptions::new(Pt(12.0))
-//!     .with_max_width(Pt(200.0))
-//!     .with_align(TextAlign::Left);
-//!
-//! let layout = shape_text("Hello, World!", &font, &options)?;
-//!
-//! // Convert to PDF operations
-//! let ops = layout_to_ops(&layout, page_height, &font_id, Color::black());
-//! ```
+//! To lay out text yourself without azul-layout, see
+//! [`show_placed_glyphs`](crate::show_placed_glyphs), which draws glyphs at positions you
+//! supply.
 
 use crate::{Color, FontId, Pt, Rect, Rgb};
 
@@ -50,17 +34,7 @@ use azul_layout::text3::{
 #[cfg(feature = "text_layout")]
 use azul_css::props::basic::ColorU;
 
-/// Represents a "hole" in the text layout where text won't flow.
-///
-/// Text holes are rectangular regions that text should flow around,
-/// useful for inline images or other non-text content.
-///
-/// # Example
-/// ```ignore
-/// let hole = TextHole {
-///     rect: Rect { x: Pt(100.0), y: Pt(200.0), width: Pt(50.0), height: Pt(50.0) }
-/// };
-/// ```
+/// A rectangular area that text should flow around, such as an inline image.
 #[derive(Debug, Clone)]
 pub struct TextHole {
     /// The rectangular area of the hole in points
@@ -91,7 +65,9 @@ pub enum TextDirection {
     Rtl,
 }
 
-/// Options for text shaping and layout
+/// Options for laying out a block of text.
+///
+/// Plain data; no function of printpdf reads it (see the [module docs](crate::shape)).
 #[derive(Debug, Clone)]
 pub struct TextShapingOptions {
     /// Font size in points (1 pt = 1/72 inch)
@@ -237,9 +213,9 @@ pub struct ShapedLine {
     pub index: usize,
 }
 
-/// A block of shaped text with full layout information.
+/// A block of shaped text with its layout.
 ///
-/// This is the result of text shaping and can be converted to PDF operations.
+/// Plain data; no function of printpdf produces it (see the [module docs](crate::shape)).
 #[derive(Debug, Clone)]
 pub struct ShapedText {
     /// Font ID that the ShapedText used
@@ -278,28 +254,24 @@ impl ShapedText {
     }
 }
 
-// ============================================================================
-// High-level API for text shaping (requires text_layout feature)
-// ============================================================================
-
-/// Convert a `UnifiedLayout` to PDF operations.
+/// Converts a [`UnifiedLayout`] to PDF operations.
 ///
-/// This is the main function for converting azul's layout output to printpdf operations.
-/// It handles:
-/// - Coordinate transformation from layout space (top-left origin) to PDF space (bottom-left origin)
-/// - Font selection via SetFont operations
-/// - Glyph positioning via SetTextMatrix
-/// - Color handling via SetFillColor
+/// For each glyph run (consecutive glyphs of one font, size and color) it emits
+/// `SetFillColor` when the color changes, `SetFont`, and a text section with one
+/// `SetTextMatrix` and `ShowText` per glyph. A run that asks for bold from a face without a
+/// bold cut is drawn filled and stroked, inside its own graphics state.
 ///
-/// # Arguments
-/// * `layout` - The unified layout from azul's text3 engine
-/// * `page_height` - The page height in points (for Y-coordinate flipping)
-/// * `font_id` - The font ID to use in PDF operations
-/// * `loaded_fonts` - Pre-loaded fonts for glyph lookup
-/// * `default_color` - Default text color if not specified per-glyph
+/// Layout space has its origin at the top left with y down, PDF space at the bottom left, so
+/// every y is flipped with `page_height`. Layout lengths are used as pt.
 ///
-/// # Returns
-/// A vector of PDF operations that render the text
+/// * `layout` - the layout from azul's text3 engine.
+/// * `page_height` - height of the page in pt.
+/// * `font_id` - ignored. Each run's font is named `F{font_hash}`, so the document's font
+///   resources must be registered under those ids, as the HTML renderer does.
+/// * `loaded_fonts` - the fonts the glyphs are looked up in.
+/// * `default_color` - ignored; colors come from the runs.
+///
+/// Requires the `text_layout` feature.
 #[cfg(feature = "text_layout")]
 pub fn layout_to_ops<T: ParsedFontTrait + 'static>(
     layout: &UnifiedLayout,
@@ -311,22 +283,14 @@ pub fn layout_to_ops<T: ParsedFontTrait + 'static>(
     layout_to_ops_with_offset(layout, page_height, font_id, loaded_fonts, default_color, Pt(0.0), Pt(0.0))
 }
 
-/// Convert a `UnifiedLayout` to PDF operations with position offset.
+/// Like [`layout_to_ops`], and moves the layout by an offset on the page.
 ///
-/// Same as `layout_to_ops` but allows specifying an offset for positioning
-/// the text block on the page.
+/// `offset_x` is the distance in pt from the left edge of the page and `offset_y` the distance
+/// from the top edge (downward); both are added to the glyph positions of the layout. The other
+/// parameters are those of [`layout_to_ops`], including that `font_id` and `_default_color` are
+/// ignored.
 ///
-/// # Arguments
-/// * `layout` - The unified layout from azul's text3 engine
-/// * `page_height` - The page height in points (for Y-coordinate flipping)
-/// * `font_id` - The font ID to use in PDF operations
-/// * `loaded_fonts` - Pre-loaded fonts for glyph lookup
-/// * `default_color` - Default text color if not specified per-glyph
-/// * `offset_x` - X offset from the left edge of the page
-/// * `offset_y` - Y offset from the top edge of the page (will be converted to PDF coordinates)
-///
-/// # Returns
-/// A vector of PDF operations that render the text
+/// Requires the `text_layout` feature.
 #[cfg(feature = "text_layout")]
 pub fn layout_to_ops_with_offset<T: ParsedFontTrait + 'static>(
     layout: &UnifiedLayout,
@@ -431,7 +395,7 @@ pub fn layout_to_ops_with_offset<T: ParsedFontTrait + 'static>(
     ops
 }
 
-/// Helper function to convert azul ColorU to printpdf Color
+/// Converts an azul `ColorU` (0 to 255 per channel) to an RGB [`Color`].
 #[cfg(feature = "text_layout")]
 fn coloru_to_color(color: &ColorU) -> Color {
     Color::Rgb(Rgb {

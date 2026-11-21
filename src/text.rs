@@ -1,37 +1,71 @@
+//! Text items, and how text is encoded into and decoded from PDF strings.
+//!
+//! In a PDF, text is shown by the `Tj` and `TJ` operators. `Tj` takes one string and `TJ` takes
+//! an array that mixes strings with numbers; each number shifts the pen by that many
+//! thousandths of the font size (a positive number moves it left, which is how kerning is
+//! written). A PDF string is only bytes, and the font decides what the bytes mean:
+//!
+//! - the 14 built-in fonts use `WinAnsiEncoding`, one byte per character ([`win_ansi_char`]);
+//! - embedded fonts use `Identity-H`, where every two bytes are a glyph id (a CID), so the
+//!   string holds no readable text. The text comes back through the font's `/ToUnicode` CMap
+//!   (see [`crate::cmap`]).
+//!
+//! printpdf models what a `TJ` array holds as [`TextItem`]: a piece of text, a number, or a
+//! run of glyph ids ([`Codepoint`]). [`Op::ShowText`](crate::Op::ShowText) carries a list of
+//! them. When a document is saved, `Text` is encoded for the current font; when a PDF is read,
+//! strings are decoded with the functions of this module.
+//!
+//! # Examples
+//!
+//! ```
+//! use printpdf::{encode_pdf_string_literal, win_ansi_char};
+//!
+//! assert_eq!(encode_pdf_string_literal("a (b)"), r"(a \(b\))");
+//! assert_eq!(win_ansi_char(0x80), '\u{20AC}'); // the euro sign
+//! ```
+
 use lopdf::{Object, StringFormat};
 use serde_derive::{Deserialize, Serialize};
 
-/// Represents a positioned glyph with optional CID mapping
+/// A glyph shown by a `TJ` array, with the kerning that follows it.
 #[derive(Debug, Clone, PartialEq, PartialOrd, Deserialize, Serialize)]
 pub struct Codepoint {
-    /// Glyph ID in the font
+    /// Glyph id in the font. For an embedded font this is the code written to the content
+    /// stream (before subsetting renumbers it).
     pub gid: u16,
-    /// Horizontal offset in thousandths of an em
+    /// Kerning that follows the glyph, in thousandths of the font size. Written as a `TJ`
+    /// number, so a positive value moves the next glyph to the left.
     pub offset: f32,
-    /// Optional CID for CID-keyed fonts (used for ToUnicode mapping)
+    /// The text this glyph stands for, used to build the font's `/ToUnicode` map: several
+    /// characters for a ligature, empty for a glyph whose text another glyph carries. Despite
+    /// the name it is not a CID. `None` leaves the text to the font's reverse lookup.
     pub cid: Option<String>,
 }
 
 impl Codepoint {
+    /// A glyph without text.
     pub fn new(gid: u16, offset: f32) -> Self {
         Self { gid, offset, cid: None }
     }
     
+    /// A glyph with the text it stands for.
     pub fn with_cid(gid: u16, offset: f32, cid: String) -> Self {
         Self { gid, offset, cid: Some(cid) }
     }
 }
 
-/// Represents a text segment (decoded as a UTF-8 String) or a spacing adjustment
+/// One element of a `TJ` array: text, a kerning number, or a run of glyph ids.
+///
+/// Serialized with serde untagged: a string, a number, or an array of [`Codepoint`].
 #[derive(Debug, Clone, PartialEq, PartialOrd, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum TextItem {
-    /// A segment of text
+    /// Text, encoded for the current font when the document is saved.
     Text(String),
-    /// A spacing adjustment, in thousandths of an em
+    /// Kerning, in thousandths of the font size; a positive value moves the pen left.
     Offset(f32),
-    /// Positioned glyph IDs with horizontal offsets and optional CID mapping
-    /// This avoids the need to convert GIDs to strings during parsing
+    /// Glyph ids written as they are, for text that was shaped or read from a PDF; no
+    /// character lookup is needed.
     GlyphIds(Vec<Codepoint>),
 }
 
@@ -71,25 +105,26 @@ impl From<i64> for TextItem {
     }
 }
 
-// Optional: For convenience with small integer literals
 impl From<u8> for TextItem {
     fn from(n: u8) -> Self {
         TextItem::Offset(n as f32)
     }
 }
 
-/// A trait for mapping raw byte sequences to Unicode using a ToUnicode CMap.
-/// (In a full implementation, this would use the actual mapping defined in the PDF.)
+/// Maps the bytes of a PDF string to text, as a `/ToUnicode` CMap does.
+///
+/// Implemented by [`ToUnicodeCMap`](crate::cmap::ToUnicodeCMap).
 pub trait CMap {
+    /// Decodes `bytes` to text. Unmapped codes are skipped.
     fn map_bytes(&self, bytes: &[u8]) -> String;
 }
 
-/// Decode a single WinAnsiEncoding (CP1252) byte to its Unicode character.
+/// Decodes one `WinAnsiEncoding` (Windows-1252) byte to its character.
 ///
-/// This is the exact inverse of the encoder used for the 14 built-in fonts
-/// (`/Encoding /WinAnsiEncoding`, PDF 32000-1 Annex D.2). WinAnsi agrees with
-/// ASCII in 0x20..=0x7E and with Latin-1 in 0xA0..=0xFF; 0x80..=0x9F holds
-/// typographic punctuation. Unassigned bytes decode to U+FFFD.
+/// This is the inverse of the encoding used for the 14 built-in fonts (ISO 32000-1, Annex D.2).
+/// It agrees with ASCII in `0x20..=0x7E` and with Latin-1 in `0xA0..=0xFF`; `0x80..=0x9F` holds
+/// typographic punctuation. Tab, newline and carriage return pass through. Every other byte
+/// decodes to U+FFFD.
 pub fn win_ansi_char(b: u8) -> char {
     match b {
         0x20..=0x7E => b as char,
@@ -121,18 +156,17 @@ pub fn win_ansi_char(b: u8) -> char {
         0x9C => '\u{0153}', // œ oe ligature
         0x9E => '\u{017E}', // ž z caron
         0x9F => '\u{0178}', // Ÿ Y diaeresis
-        // 0x00..=0x1F control range and the unassigned 0x81/0x8D/0x8F/0x90/0x9D:
-        // tab/newline pass through so text extraction keeps whitespace.
+        // Tab, newline and carriage return pass through so extraction keeps whitespace;
+        // the other control codes and 0x81/0x8D/0x8F/0x90/0x9D are unassigned.
         b'\t' | b'\n' | b'\r' => b as char,
         _ => '\u{FFFD}',
     }
 }
 
-/// Decode the bytes of a text-showing operator for a *simple* (one-byte-code)
-/// font: each byte is one character code. Codes are looked up in the font's
-/// ToUnicode CMap when one exists, falling back to WinAnsiEncoding — the
-/// standard encoding of the built-in fonts and the most common simple-font
-/// encoding in the wild.
+/// Decodes the bytes of a text-showing operator of a simple (one byte per code) font.
+///
+/// Each byte is looked up in the font's `/ToUnicode` CMap when there is one, and decoded as
+/// WinAnsi otherwise.
 pub fn decode_simple_font_bytes(bytes: &[u8], to_unicode: Option<&crate::cmap::ToUnicodeCMap>) -> String {
     let mut out = String::with_capacity(bytes.len());
     for &b in bytes {
@@ -145,15 +179,15 @@ pub fn decode_simple_font_bytes(bytes: &[u8], to_unicode: Option<&crate::cmap::T
     out
 }
 
-/// Decode a PDF string (literal or hexadecimal) into a Rust UTF‑8 String.
-/// If a ToUnicode CMap is provided, use it to map the raw bytes; otherwise, fallback
-/// to assuming the bytes are encoded in WinAnsi (or UTF‑8 when possible).
+/// Decodes a PDF string object to text; any other object gives an empty string.
+///
+/// A hexadecimal string that starts with the byte order mark `FE FF` is UTF-16BE. Any other
+/// string goes through `to_unicode` when given, and is read as UTF-8 (lossily) otherwise.
 pub fn decode_pdf_string(obj: &Object, to_unicode: Option<&impl CMap>) -> String {
     if let Object::String(ref bytes, format) = obj {
         match format {
             StringFormat::Literal => {
-                // Here you should process escape sequences (\, \(, \), octal codes, etc.).
-                // For simplicity, we assume the provided bytes are already unescaped.
+                // lopdf has already unescaped the bytes of a literal string.
                 if let Some(cmap) = to_unicode {
                     cmap.map_bytes(bytes)
                 } else {
@@ -187,9 +221,8 @@ pub fn decode_pdf_string(obj: &Object, to_unicode: Option<&impl CMap>) -> String
     }
 }
 
-/// Given the operands of a TJ operator (an array of PDF objects),
-/// decode them into a Vec<TextItem> where string elements become TextItem::Text
-/// (after decoding) and numbers become TextItem::Offset.
+/// Decodes the operands of a `TJ` operator: strings become [`TextItem::Text`] (see
+/// [`decode_pdf_string`]) and numbers become [`TextItem::Offset`]. Other objects are skipped.
 pub fn decode_tj_operands(operands: &[Object], to_unicode: Option<&impl CMap>) -> Vec<TextItem> {
     let mut items = Vec::new();
     for obj in operands {
@@ -205,16 +238,19 @@ pub fn decode_tj_operands(operands: &[Object], to_unicode: Option<&impl CMap>) -
                 items.push(TextItem::Offset(*r));
             }
             _ => {
-                // Ignore unsupported types or log a warning.
+                // Other object types are skipped.
             }
         }
     }
     items
 }
 
-/// Given the operands of a TJ operator, extract raw glyph IDs without decoding to Unicode.
-/// This is more efficient for round-trip PDF editing where text extraction is not needed.
-/// Returns TextItem::GlyphIds instead of TextItem::Text.
+/// Decodes the operands of a `TJ` operator to glyph ids, without looking up any text.
+///
+/// Strings become [`TextItem::GlyphIds`] and numbers become [`TextItem::Offset`]; other
+/// objects are skipped. The length of a string decides how it is read: an even length of at
+/// least 2 is taken as two-byte codes (an `Identity-H` font), anything else as one byte per
+/// code.
 pub fn decode_tj_operands_as_glyph_ids(operands: &[Object]) -> Vec<TextItem> {
     let mut items = Vec::new();
     let mut current_glyphs = Vec::new();
@@ -268,7 +304,8 @@ pub fn decode_tj_operands_as_glyph_ids(operands: &[Object]) -> Vec<TextItem> {
     items
 }
 
-/// Decode Tj operator string as raw glyph IDs
+/// Decodes the string of a `Tj` operator to glyph ids, with the same length rule as
+/// [`decode_tj_operands_as_glyph_ids`]. An empty string gives no items.
 pub fn decode_tj_string_as_glyph_ids(bytes: &[u8]) -> Vec<TextItem> {
     let mut glyphs = Vec::new();
     
@@ -295,8 +332,9 @@ pub fn decode_tj_string_as_glyph_ids(bytes: &[u8]) -> Vec<TextItem> {
     }
 }
 
-/// Encode a Rust string as a PDF literal string.
-/// It surrounds the string with parentheses and escapes special characters.
+/// Encodes text as a PDF literal string: wrapped in parentheses, with `(`, `)`, `\` and the
+/// control characters `\n`, `\r`, `\t`, `\b`, `\f` escaped. Other characters are kept as they
+/// are, so the result is not a WinAnsi byte string.
 pub fn encode_pdf_string_literal(s: &str) -> String {
     let mut result = String::with_capacity(s.len() + 2);
     result.push('(');
@@ -317,8 +355,8 @@ pub fn encode_pdf_string_literal(s: &str) -> String {
     result
 }
 
-/// Encode a Rust string as a PDF hex string.
-/// The string is encoded as UTF-16BE with a BOM (0xFEFF) and then output as hex.
+/// Encodes text as a PDF hexadecimal string of UTF-16BE code units with a byte order mark
+/// (`<FEFF...>`).
 pub fn encode_pdf_string_hex(s: &str) -> String {
     // Encode as UTF-16BE with BOM.
     let mut utf16: Vec<u16> = Vec::new();
@@ -332,8 +370,8 @@ pub fn encode_pdf_string_hex(s: &str) -> String {
     format!("<{}>", hex)
 }
 
-/// Given a Rust string, decide whether a literal or hex encoding yields a smaller output.
-/// Returns the PDF string representation.
+/// Encodes text as a literal string or a hexadecimal string, whichever is shorter; the
+/// literal string wins a tie.
 pub fn encode_pdf_string_minimal(s: &str) -> String {
     let literal = encode_pdf_string_literal(s);
     let hex = encode_pdf_string_hex(s);
@@ -344,9 +382,15 @@ pub fn encode_pdf_string_minimal(s: &str) -> String {
     }
 }
 
-/// Encodes a vector of TextItem into a vector of lopdf::Object suitable for a TJ operator.
-/// Text segments are encoded as PDF strings (choosing the minimal encoding),
-/// spacing offsets as numbers, and glyph IDs as hex strings.
+/// Encodes [`TextItem`]s as the operands of a `TJ` operator.
+///
+/// Text becomes a string (literal as UTF-8 bytes, or hexadecimal as UTF-16BE with a byte
+/// order mark, whichever is shorter), an offset becomes a real number, and a glyph run becomes
+/// one two-byte hexadecimal string per glyph, followed by its offset as an integer (truncated)
+/// when it is not zero.
+///
+/// This is a generic encoding. When a document is saved, text is encoded for the font in use
+/// instead (WinAnsi for built-in fonts, glyph ids for embedded fonts).
 pub fn encode_text_items(items: &[TextItem]) -> Vec<Object> {
     let mut objs = Vec::new();
     for item in items {
@@ -372,8 +416,7 @@ pub fn encode_text_items(items: &[TextItem]) -> Vec<Object> {
                 }
             }
             TextItem::Offset(n) => {
-                // Keep fractional kerning: flooring to Integer lost sub-unit
-                // offsets (the serializer's own path always wrote Real).
+                // A real number keeps fractional kerning.
                 objs.push(Object::Real(*n));
             }
             TextItem::GlyphIds(glyphs) => {
@@ -392,15 +435,15 @@ pub fn encode_text_items(items: &[TextItem]) -> Vec<Object> {
     objs
 }
 
-/// The `BDC` that opens a `/Span` marked-content sequence with `text` as its `/ActualText`
-/// (UTF-16BE with its byte-order mark); close it with [`crate::Op::EndMarkedContent`].
+/// The `BDC` operator that opens a `/Span` marked-content sequence with `text` as its
+/// `/ActualText` (UTF-16BE with a byte order mark). Close the span with
+/// [`Op::EndMarkedContent`](crate::Op::EndMarkedContent).
 ///
-/// Copying, searching and accessibility read the span's glyphs as `text`, instead of
-/// reconstructing it from the glyphs: from their `/ToUnicode` text, which a glyph shared by two
-/// letters has only once (Arabic letters drawn as one body and their dots), and from their
-/// positions, which a layout that places every glyph turns into spurious spaces. Saving with
-/// [`crate::PdfSaveOptions::optimize`] drops the span again where its glyphs read as `text`
-/// anyway ([`crate::optimize_text`]).
+/// Viewers use the `/ActualText` for copying, searching and accessibility instead of
+/// reconstructing the text from the glyphs, which fails where a glyph is shared by two letters
+/// (Arabic) or where every glyph is placed on its own and the gaps read as spaces. Saving with
+/// [`PdfSaveOptions::optimize`](crate::PdfSaveOptions::optimize) drops the span where the
+/// glyphs read as `text` anyway ([`crate::optimize_text`]).
 pub fn actual_text_span(text: &str) -> crate::Op {
     let mut data = vec![0xFE, 0xFF];
     for u in text.encode_utf16() {
@@ -420,42 +463,48 @@ pub fn actual_text_span(text: &str) -> crate::Op {
     }
 }
 
-/// A glyph where a text layout put it - azul's text3 (the glyphs of its positioned clusters),
-/// or any other shaper - for [`show_placed_glyphs`] to draw it there.
+/// A glyph at the position a text layout gave it, for [`show_placed_glyphs`].
+///
+/// Requires the `text_layout` feature.
 #[cfg(feature = "text_layout")]
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlacedGlyph {
-    /// Its font: an index into the fonts given to [`show_placed_glyphs`]
+    /// Index of its font in the `fonts` given to [`show_placed_glyphs`].
     pub font: usize,
-    /// Its glyph id in that font
+    /// Glyph id in that font.
     pub gid: u16,
-    /// Where it is drawn: its origin from the start of the baseline, in pt of the text space
-    /// (the text matrix in force), x along the baseline, y up from it (a mark raised over its
-    /// letter)
+    /// Horizontal origin in pt, along the baseline from its start, in the text space of the
+    /// current text matrix.
     pub x: f32,
+    /// Vertical origin in pt, up from the baseline (a mark raised over its letter).
     pub y: f32,
-    /// The text it stands for in the font's `/ToUnicode` map: its cluster's text on one glyph
-    /// of the cluster, empty on the others (a mark, a dot drawn apart from its letter)
+    /// The text the glyph stands for in the font's `/ToUnicode` map: the cluster's text on one
+    /// glyph of the cluster, empty on the others (a mark, a dot drawn apart from its letter).
     pub text: String,
 }
 
-/// The operations that draw `glyphs` - one line of them, left to right, each in its font of
-/// `fonts` at `size` - exactly where a text layout put them, inside a text section whose text
-/// matrix stands at the start of their baseline (after [`crate::Op::StartTextSection`] and the
-/// matrix; the character spacing `Tc` at 0 and the horizontal scaling `Tz` at 100, as a PDF
-/// starts):
+/// Returns the operations that draw one line of `glyphs` where a text layout put them.
 ///
-/// - one `TJ` per stretch of one font and one rise, the pen moved to each glyph with a kern
-///   against the glyph's width in the font's `/W` - the width printpdf writes there
-///   ([`glyph_pdf_width`]), which a PDF viewer moves the pen on by - so kerning, mark offsets,
-///   a run drawn right to left and letter spacing all land where the layout put them;
-/// - a glyph above or below the baseline (a mark) shown with the text rise `Ts`, which is 0
+/// The glyphs are shown left to right inside a text section whose text matrix is at the start
+/// of the baseline (after [`Op::StartTextSection`](crate::Op::StartTextSection) and a matrix,
+/// with `Tc` at 0 and `Tz` at 100, which are their initial values). Each glyph is drawn in
+/// `fonts[glyph.font]` at `size`; a `font` out of range selects the first font. Nothing is
+/// returned when `fonts` or `glyphs` is empty or `size` is not positive.
+///
+/// The operations are:
+///
+/// - one `TJ` per stretch of one font and one rise, with kerning numbers that move the pen to
+///   each glyph. They are measured against the glyph widths in `/W` ([`glyph_pdf_width`]), so
+///   kerning, mark offsets, right-to-left runs and letter spacing land where the layout put
+///   them;
+/// - a glyph above or below the baseline (a mark) is shown with the text rise `Ts`, which is 0
 ///   again at the end;
-/// - with an `actual_text`, all of it in an [`actual_text_span`] of that text, so the PDF's
-///   text reads as the layout's text where the glyphs can not say it.
+/// - with `actual_text`, all of it inside an [`actual_text_span`] of that text.
 ///
-/// `fonts` are each font's resource id (as added to the document) with its parsed face, whose
-/// glyph widths the kerns are measured against; a glyph's `font` past their end is the first's.
+/// `fonts` pairs each font's [`FontId`](crate::FontId), as added to the document, with its
+/// parsed face.
+///
+/// Requires the `text_layout` feature.
 #[cfg(feature = "text_layout")]
 pub fn show_placed_glyphs(
     fonts: &[(crate::FontId, &crate::font::AzulParsedFont)],
@@ -530,8 +579,10 @@ pub fn show_placed_glyphs(
     ops
 }
 
-/// A glyph's width in the font's `/W` array as printpdf writes it: its advance in thousandths
-/// of an em, cut to a whole number. A PDF viewer moves the pen on by it after showing the glyph.
+/// The width of a glyph as printpdf writes it to the `/W` array: its advance in thousandths of
+/// an em, truncated to a whole number, or 0 when unknown. A viewer advances the pen by it.
+///
+/// Requires the `text_layout` feature.
 #[cfg(feature = "text_layout")]
 pub fn glyph_pdf_width(font: &crate::font::AzulParsedFont, gid: u16) -> i64 {
     let units_per_em = f32::from(font.pdf_font_metrics.units_per_em);
