@@ -73,6 +73,10 @@ impl XObject {
     }
 }
 
+// The most that `ExternalStream::decompressed_content` inflates a stream to: a few bytes of zlib
+// can expand to gigabytes.
+const MAX_DECODED_STREAM_BYTES: usize = 256 * 1024 * 1024;
+
 // Adds the XObject to `doc` as an indirect object and returns its id.
 pub(crate) fn add_xobject_to_document(
     xobj: &XObject,
@@ -161,10 +165,11 @@ impl ExternalStream {
         lopdf::Stream::new(dict, self.content.clone()).with_compression(self.compress)
     }
 
-    /// The content with its `/Filter`s decoded, or the stored bytes when they cannot be decoded.
+    /// The content with its `/Filter`s decoded, or the stored bytes when they cannot be decoded
+    /// or would decode to more than 256 MiB.
     pub fn decompressed_content(&self) -> Vec<u8> {
         self.into_lopdf()
-            .decompressed_content()
+            .decompressed_content_with_limit(MAX_DECODED_STREAM_BYTES)
             .unwrap_or(self.content.clone())
     }
 

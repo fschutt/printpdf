@@ -343,15 +343,17 @@ fn register_supplied_fonts(
 /// The legacy family (name ID 1), full name (ID 4) and PostScript name (ID 6) from the `name`
 /// table of a TrueType or OpenType font. Empty on any malformed data: the names are only aliases.
 fn collect_font_name_aliases(data: &[u8]) -> Vec<String> {
+    // The offsets come from the font, so every sum is checked: on a 32-bit target (wasm) a
+    // `u32` offset plus a small number overflows a `usize`.
     fn u16_at(d: &[u8], o: usize) -> Option<u16> {
-        Some(u16::from_be_bytes([*d.get(o)?, *d.get(o + 1)?]))
+        Some(u16::from_be_bytes([*d.get(o)?, *d.get(o.checked_add(1)?)?]))
     }
     fn u32_at(d: &[u8], o: usize) -> Option<u32> {
         Some(u32::from_be_bytes([
             *d.get(o)?,
-            *d.get(o + 1)?,
-            *d.get(o + 2)?,
-            *d.get(o + 3)?,
+            *d.get(o.checked_add(1)?)?,
+            *d.get(o.checked_add(2)?)?,
+            *d.get(o.checked_add(3)?)?,
         ]))
     }
 
@@ -371,30 +373,31 @@ fn collect_font_name_aliases(data: &[u8]) -> Vec<String> {
             0
         };
 
-        let num_tables = u16_at(data, sfnt_start + 4)? as usize;
+        let num_tables = u16_at(data, sfnt_start.checked_add(4)?)? as usize;
         let mut name_table = None;
         for i in 0..num_tables {
-            let rec = sfnt_start + 12 + i * 16;
-            if data.get(rec..rec + 4)? == b"name" {
-                name_table = Some(u32_at(data, rec + 8)? as usize);
+            let rec = sfnt_start.checked_add(12)?.checked_add(i.checked_mul(16)?)?;
+            if data.get(rec..rec.checked_add(4)?)? == b"name" {
+                name_table = Some(u32_at(data, rec.checked_add(8)?)? as usize);
                 break;
             }
         }
         let name_table = name_table?;
 
-        let count = u16_at(data, name_table + 2)? as usize;
-        let string_storage = name_table + u16_at(data, name_table + 4)? as usize;
+        let count = u16_at(data, name_table.checked_add(2)?)? as usize;
+        let string_storage =
+            name_table.checked_add(u16_at(data, name_table.checked_add(4)?)? as usize)?;
 
         for i in 0..count {
-            let rec = name_table + 6 + i * 12;
+            let rec = name_table.checked_add(6)?.checked_add(i.checked_mul(12)?)?;
             let platform = u16_at(data, rec)?;
-            let name_id = u16_at(data, rec + 6)?;
+            let name_id = u16_at(data, rec.checked_add(6)?)?;
             if !matches!(name_id, 1 | 4 | 6) {
                 continue;
             }
-            let len = u16_at(data, rec + 8)? as usize;
-            let off = string_storage + u16_at(data, rec + 10)? as usize;
-            let bytes = data.get(off..off + len)?;
+            let len = u16_at(data, rec.checked_add(8)?)? as usize;
+            let off = string_storage.checked_add(u16_at(data, rec.checked_add(10)?)? as usize)?;
+            let bytes = data.get(off..off.checked_add(len)?)?;
             match platform {
                 // Unicode / Windows: UTF-16 BE
                 0 | 3 => {
@@ -424,17 +427,12 @@ fn collect_font_name_aliases(data: &[u8]) -> Vec<String> {
 /// not counted.
 fn count_svg_text_elements(svg: &str) -> usize {
     let bytes = svg.as_bytes();
-    let mut count = 0;
-    let mut i = 0;
-    while let Some(pos) = svg[i..].find("<text") {
-        let after = i + pos + "<text".len();
-        match bytes.get(after) {
-            Some(c) if c.is_ascii_alphanumeric() => {}
-            _ => count += 1,
-        }
-        i = after;
-    }
-    count
+    svg.match_indices("<text")
+        .filter(|(pos, tag)| {
+            let after = pos.saturating_add(tag.len());
+            !matches!(bytes.get(after), Some(c) if c.is_ascii_alphanumeric())
+        })
+        .count()
 }
 
 /// Number of text nodes that survived usvg parsing (it drops text whose font is not found).
@@ -465,8 +463,8 @@ fn get_media_box(doc: &lopdf::Document, page_id: lopdf::ObjectId) -> Option<[f32
                 return None;
             }
             let mut vals = [0.0_f32; 4];
-            for (i, obj) in arr.iter().enumerate() {
-                vals[i] = lopdf_number(obj)?;
+            for (val, obj) in vals.iter_mut().zip(arr.iter()) {
+                *val = lopdf_number(obj)?;
             }
             return Some([
                 vals[0].min(vals[2]),
