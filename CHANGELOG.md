@@ -48,6 +48,7 @@ All notable changes to printpdf are documented in this file. The format follows
 - ToUnicode and CID CMaps are limited to 2^20 entries and 1024 codespace ranges, a `usecmap` chain no longer takes quadratic time, and the CFF width scan stops after 10,000 steps per glyph (subroutine fan-out hung it). `/W` runs and the synthetic sfnt of a CFF font no longer overflow.
 - A multi-byte first character of a timezone offset, and offset parts that overflow, no longer panic in the date parser.
 - The arc of a rounded corner is cut into at most 256 segments (a radius of 1e5 made a million points).
+- The SVG output (`PdfPage::to_svg`, `PdfDocument::page_to_svg`, the wasm `Pdf_PageToSvg`) escapes every string it takes from a PDF: the tags of marked content, marker ids, layer ids and names, link targets, font names and the names of unknown operators. A crafted PDF could add an `onmouseover` attribute or a `<script>` element through them, which runs wherever the SVG is inlined into a page, as the web demo does. A link other than `http`, `https`, `mailto`, `tel` or a relative reference (`javascript:`, `data:`) is left out with a warning. Font names in the `@font-face` rule and the `<text>` elements keep only letters, digits and `.`, `-`, `+`, `_`.
 
 ## 0.12.14 - 2026-11-21
 

@@ -606,7 +606,8 @@ fn render_to_svg_internal(
             };
             svg.push_str(&format!(
                 r#"@font-face {{ font-family: "{}"; src: url("data:font/otf;charset=utf-8;base64,{}"); }}"#,
-                font_id.0, base64::prelude::BASE64_STANDARD.encode(bytes),
+                svg_font_family(&font_id.0),
+                base64::prelude::BASE64_STANDARD.encode(bytes),
             ));
         }
         svg.push_str("</style>\n");
@@ -718,21 +719,21 @@ fn render_to_svg_internal(
             Op::BeginMarkedContent { tag } => {
                 svg.push_str(&format!(
                     "<g class=\"marked-content\" data-tag=\"{}\">",
-                    tag
+                    escape_xml_attr(tag)
                 ));
                 current_svg_group.push(String::from("marked"));
             }
             Op::BeginMarkedContentWithProperties { tag, properties: _ } => {
                 svg.push_str(&format!(
                     "<g class=\"marked-content\" data-tag=\"{}\">",
-                    tag
+                    escape_xml_attr(tag)
                 ));
                 current_svg_group.push(String::from("marked"));
             }
             Op::DefineMarkedContentPoint { tag, properties: _ } => {
                 svg.push_str(&format!(
                     "<g class=\"marked-content-point\" data-tag=\"{}\"></g>",
-                    tag
+                    escape_xml_attr(tag)
                 ));
             }
             Op::EndMarkedContent | Op::EndMarkedContentWithProperties => {
@@ -752,17 +753,21 @@ fn render_to_svg_internal(
             Op::Marker { id } => {
                 svg.push_str(&format!(
                     "<g class='marker' id='{}' style='display:none;'></g>",
-                    id
+                    escape_xml_attr(id)
                 ));
             }
             Op::BeginLayer { layer_id } | Op::BeginOptionalContent { layer_id } => {
                 if let Some(layer) = resources.layers.map.get(layer_id) {
                     svg.push_str(&format!(
                         "<g class=\"layer\" id=\"{}\" data-name=\"{}\">",
-                        layer_id.0, layer.name
+                        escape_xml_attr(&layer_id.0),
+                        escape_xml_attr(&layer.name)
                     ));
                 } else {
-                    svg.push_str(&format!("<g class=\"layer\" id=\"{}\">", layer_id.0));
+                    svg.push_str(&format!(
+                        "<g class=\"layer\" id=\"{}\">",
+                        escape_xml_attr(&layer_id.0)
+                    ));
                 }
                 current_svg_group.push(String::from("layer"));
             }
@@ -921,20 +926,29 @@ fn render_to_svg_internal(
 
                         svg.push_str("</a>");
                     }
-                    Actions::Uri(uri) => {
-                        svg.push_str(&format!("<a href=\"{}\" target=\"_blank\">", uri));
+                    Actions::Uri(uri) => match safe_link_target(uri) {
+                        Some(href) => {
+                            svg.push_str(&format!("<a href=\"{}\" target=\"_blank\">", href));
 
-                        svg.push_str(&format!(
-                            "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"none\" \
-                             stroke=\"none\" pointer-events=\"all\"/>",
-                            link.rect.x.0,
-                            height - link.rect.y.0 - link.rect.height.0,
-                            link.rect.width.0,
-                            link.rect.height.0
-                        ));
+                            svg.push_str(&format!(
+                                "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"none\" \
+                                 stroke=\"none\" pointer-events=\"all\"/>",
+                                link.rect.x.0,
+                                height - link.rect.y.0 - link.rect.height.0,
+                                link.rect.width.0,
+                                link.rect.height.0
+                            ));
 
-                        svg.push_str("</a>");
-                    }
+                            svg.push_str("</a>");
+                        }
+                        None => warnings.push(PdfWarnMsg::warning(
+                            0,
+                            0,
+                            "A link whose URI is not http, https, mailto, tel or a relative \
+                             reference is left out of the SVG"
+                                .to_string(),
+                        )),
+                    },
                 }
             }
 
@@ -950,7 +964,10 @@ fn render_to_svg_internal(
             Op::PaintShading { .. } => {}
 
             Op::Unknown { key, value: _ } => {
-                svg.push_str(&format!("<!-- Unknown PDF operator: {} -->", key));
+                svg.push_str(&format!(
+                    "<!-- Unknown PDF operator: {} -->",
+                    comment_text(key)
+                ));
             }
         }
     }
@@ -1000,12 +1017,84 @@ fn color_to_svg(color: &Color) -> String {
     }
 }
 
+/// `text` for XML character data. The five markup characters become entities, and the characters
+/// XML 1.0 does not allow (most control characters) become U+FFFD, so that a string from a PDF
+/// cannot end the text it is written into or make the SVG unreadable.
 fn escape_xml_text(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
+    escape_xml(text, false)
+}
+
+/// `text` for the value of an XML attribute in either kind of quotes. Like [`escape_xml_text`],
+/// and tabs and line breaks become character references, which a parser would turn into spaces.
+fn escape_xml_attr(text: &str) -> String {
+    escape_xml(text, true)
+}
+
+fn escape_xml(text: &str, attribute: bool) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            '\t' | '\n' | '\r' if attribute => out.push_str(&format!("&#{};", u32::from(c))),
+            '\t' | '\n' | '\r' => out.push(c),
+            c if u32::from(c) < 0x20 || c == '\u{FFFE}' || c == '\u{FFFF}' => out.push('\u{FFFD}'),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// The `href` of a link to `uri`, escaped for an attribute, or `None` when a browser could run it
+/// as script or it leaves the web (`javascript:`, `data:`, `vbscript:` and every other scheme).
+///
+/// Only `http`, `https`, `mailto` and `tel` are kept, and a reference without a scheme (a relative
+/// link or a `#fragment`). Browsers ignore leading control characters and spaces and drop tabs and
+/// line breaks inside a URL, so the scheme is read after the same clean-up.
+fn safe_link_target(uri: &str) -> Option<String> {
+    let cleaned: String = uri
+        .trim_start_matches(|c: char| c.is_ascii_control() || c == ' ')
+        .chars()
+        .filter(|c| !matches!(c, '\t' | '\n' | '\r'))
+        .collect();
+    // A scheme is a letter followed by letters, digits, `+`, `-` and `.` (RFC 3986, 3.1).
+    let scheme = cleaned.split_once(':').and_then(|(before, _)| {
+        let mut chars = before.chars();
+        let is_scheme = chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+            && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
+        is_scheme.then(|| before.to_ascii_lowercase())
+    });
+    match scheme.as_deref() {
+        None | Some("http" | "https" | "mailto" | "tel") => Some(escape_xml_attr(&cleaned)),
+        Some(_) => None,
+    }
+}
+
+/// The CSS family name for the external font `name`: ASCII letters and digits, `.`, `-`, `+` and
+/// `_` stay, every other character becomes `_` and its code point in hexadecimal. The result is
+/// safe in an XML attribute, in XML text and in a CSS string, and two different names stay
+/// different.
+fn svg_font_family(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for c in name.chars() {
+        if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+' | '_') {
+            out.push(c);
+        } else {
+            out.push_str(&format!("_{:x}", u32::from(c)));
+        }
+    }
+    out
+}
+
+/// `text` for an XML comment: letters, digits and the characters of PDF operators stay, every
+/// other character becomes `_`, so the comment cannot contain `--` or end early.
+fn comment_text(text: &str) -> String {
+    text.chars()
+        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '*' | '\'' | '"') { c } else { '_' })
+        .collect()
 }
 
 /// SVG path data for `points` (PDF user space, y up) with the y axis
@@ -1382,9 +1471,11 @@ fn render_text_items_to_svg(
 
     // Get font family name
     let font_family = match font_id {
-        BuiltinOrExternalFontId::Builtin(builtin_font) => builtin_font.get_svg_font_family(),
-        BuiltinOrExternalFontId::External(font_id) => &font_id.0, /* Use external font ID as
-                                                                   * family name */
+        BuiltinOrExternalFontId::Builtin(builtin_font) => {
+            builtin_font.get_svg_font_family().to_string()
+        }
+        // The id of an external font is its family name (see the `@font-face` rule).
+        BuiltinOrExternalFontId::External(font_id) => svg_font_family(&font_id.0),
     };
 
     let text_transform = text_space_to_svg(gst, page_height);
