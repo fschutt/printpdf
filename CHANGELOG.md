@@ -1,771 +1,727 @@
 # Changelog
 
+All notable changes to printpdf are documented in this file. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
 ## Unreleased
-
-## `0.12.14`
-
-**A face over shared font bytes.** `ParsedFont::from_shared_bytes(bytes:
-Arc<[u8]>, font_index, warnings)` builds the same face as `from_bytes`
-without copying the font file: the face's source bytes are the caller's
-allocation, and glyph outlines are decoded when asked for instead of up
-front. For callers that keep their fonts as shared bytes (one allocation
-for the application, the face and the embedded font). Nothing changes for
-`from_bytes`.
-
-## `0.12.13`
-
-**azul 0.0.20.** The azul-css / azul-core / azul-layout pins move to 0.0.20.
-
-**Footnotes at the foot of the page (azul 0.0.20).** `from_html` now honours
-`float: footnote` (CSS Generated Content for Paged Media): an element with
-it is taken out of the text and printed at the bottom of the page on which
-its place in the text lands; the text of that page ends above its notes; a
-note that fits no page continues on the next. The call in the text and the
-marker of the note are generated from the `footnote` counter (`content: none`
-on `::footnote-call` and `::footnote-marker` turns them off), and
-`@page { @footnote { ... } }` styles the area: `border-top`, `padding`,
-`margin-top`, `max-height`. Test: `tests/html_footnotes.rs`.
-
-**Margin notes (azul 0.0.20).** An absolutely positioned box with
-`--azul-margin-note: outside` inside a multi-column block is placed outside
-the block, on the side of the column its place is in, at the height of its
-line. This is an extension of the layout engine, not CSS.
-
-**Repeated table heads are drawn on continuation pages (azul 0.0.20).** Their
-text was missing from the PDF: it reached the page in a form the PDF writer
-skipped.
-
-## `0.12.12`
-
-**azul 0.0.19.** The azul-css / azul-core / azul-layout pins move to 0.0.19.
-
-**A justified line that `<br>` ends is not spread (azul 0.0.19).** With
-`text-align: justify`, every line of a paragraph but the last was pulled out to
-both edges of its box, also a line that ended in a forced break. Verses written
-as one paragraph with a `<br>` after each line came out with two or three words
-spread across the page. Such a line is now set from the start edge, as CSS Text
-3 says. Test: `tests/html_justify_forced_break.rs`.
-
-## `0.12.11`
-
-**`from_html` writes each page as the layout cuts it.** It used to collect the
-display list of every page and convert them afterwards, so a second copy of
-the whole document's display list stayed alive during the conversion. It now
-uses azul-layout's `layout_document_paged_streaming`: a page's display list is
-converted to PDF operations and dropped before the next page is cut. The pages
-are the same. Peak memory for a 227-page text document went from 599 MB to
-437 MB in a debug build.
-
-## `0.12.10`
-
-**azul 0.0.18.** The azul-css / azul-core / azul-layout pins move to 0.0.18.
-
-**AcroForm fields, text box details and render fixes, from the branch azul
-built against.** `forms` reads a PDF's AcroForm fields, fills or flattens
-them and stamps drawings onto pages. A word of `text_boxes` records its
-standard-14 font, its fill colour and whether it is invisible. The SVG
-renderer draws cubic curves as cubics and puts a shape under a `cm` transform
-where the PDF puts it; `re` appends a closed rectangle to the current path
-when a PDF is read; a run in synthetic bold is filled and stroked.
-
-**SVG shapes in HTML are drawn as paths (azul 0.0.18).** A `<path>` in an
-`<svg>` passed to `from_html` printed as a solid box when it was filled and
-was missing when it was stroked. The stroke arrives from azul-layout as a
-`StrokedPath` item with its geometry, which the bridge now writes as a PDF
-stroke: width, caps, joins, miter limit and dashes scaled from the view box.
-The fill arrives as its colour (or gradient) under a mask clip; with azul
-0.0.18 that clip carries the path it was made from, and the bridge clips to
-it with the shape's fill rule. A mask that is only an image still needs a
-soft mask and is painted unclipped. The azul-css / azul-core / azul-layout
-pins move to 0.0.18 for this. Tests: the `stroke` and `svg_fill` tests of the
-bridge.
-
-**`show_placed_glyphs`: glyphs drawn where a text layout put them.** An app
-that lays text out itself (with azul's text3, or any other shaper) had to
-build the `TJ` array on its own, measuring every kern against the `/W` width
-printpdf would write for the glyph - a rounding rule it could only copy.
-`show_placed_glyphs(fonts, size, glyphs, actual_text)` takes the glyphs with
-their places on the baseline (`PlacedGlyph`: font, glyph id, x, y, text) and
-returns the operations: one `TJ` per stretch of a font, kerned against the
-widths printpdf writes (`glyph_pdf_width`, the same function the `/W` array
-and the glyph-run merger use), a mark above or below the baseline shown with
-the text rise, which is 0 again at the end. It works in a rotated text matrix.
-Tests: `tests/placed_glyphs.rs`.
-
-**Text that copies as it reads: a public `/ActualText` span.**
-`actual_text_span(text)` is the `BDC /Span << /ActualText >>` the HTML
-renderer wraps its glyph runs in; `show_placed_glyphs` wraps its glyphs in
-it when given a text. Two letters drawn with one glyph (Arabic letters on a
-shared body, told apart only by their dots) read as one and the same letter
-from the font's `/ToUnicode`; with the span they copy and search as written.
-Saving with `optimize` drops the span where the glyphs read as it anyway.
-
-**A glyph shown without text keeps the text it was shown with.** A glyph
-shown as part of a cluster whose text another glyph carries (`Codepoint`
-with an empty `cid`: a mark, a dot drawn apart from its letter) replaced the
-glyph's earlier text in the `/ToUnicode` map with nothing; an empty text now
-only fills a glyph that has none.
-
-## `0.12.9`
-
-**azul 0.0.17 (azul#476).** The azul-css / azul-core / azul-layout pins move to
-0.0.17: the HTML components use azul-core's `ComponentCodegen`, `FontHash`
-carries `synthetic_bold`, and paged layout fixes azul#478 (a table that
-overflows a page now fills every non-final page; the regression tests from
-#291 run by default). Also in this release: pictures decoded per page and
-written with 1 bit where possible (#290), from_html errors (#294), Arabic
-shaping in the SVG preview (#293), text color alpha (#287), same-page bookmark
-order (#282) and the multiple-fonts example (#283).
-
-**`from_html` no longer answers `Ok` with an empty document.** When the HTML
-loader could not read the page (for example a character XML 1.0 excludes,
-such as U+FFFE or a C0 control, reaching azul's strict loader), the
-conversion returned `Ok(PdfDocument)` with no pages and the reason only in
-`warnings`, so callers rendered blank output without noticing (pdfocr #11).
-`from_html`, `from_html_with_cache` and `from_html_debug_with_cache` now
-return `Err` with the loader's messages joined; `warnings` still gets the
-details. Test: `tests/html_errors.rs`.
-
-**The SVG preview shows shaped text the way the PDF does (Arabic joins).**
-`PdfPage::to_svg`, which the web demo's page view uses, wrote every shaped
-glyph back out as its Unicode text, one `<text>` per glyph, and the browser
-shaped each character again on its own: Arabic came out as isolated,
-unjoined letters (and ligatures and Indic conjuncts fell apart), and a
-parsed PDF's visual-order line was bidi-reversed a second time. The PDF
-itself was always shaped correctly. Glyph-id runs are now painted from the
-glyph outlines (`<defs>` + `<use>`), pen-advanced by the same `/W` widths a
-PDF viewer uses; the `<text>` stays as an unpainted layer for selection and
-search. Text written as `TextItem::Text` and the builtin fonts render as
-before. Tests: `tests/arabic_shaping.rs`.
-
-**A CID-keyed CFF font read from a PDF keeps its glyph widths.** The
-synthesized `hmtx` of a bare CFF program took a glyph's first stem
-coordinate as its width when the first hint operator sat in a subroutine
-and had no width operand (NotoSansJP's 語: advance 0, so the rest of a
-parsed line was drawn on top of it). Test: `tests/parsed_cff_widths.rs`.
-
-**HTML: a page decodes only the pictures it shows.** `PdfDocument::from_html*`
-copied (and base64-decoded) every entry of the `images` map, and the bridge
-decoded every one of them, on every call, whether the page's HTML used it or
-not; every decoded picture was also embedded. Rendering a 1053-page book page
-by page with its 57 pictures in the map took 22 minutes (1.26 s a page);
-handing each page only the pictures its `<img src>` names took 3.5 (0.24 s a
-page). After layout, the renderer now collects the `<img src>` values the pages
-draw and looks up, decodes and embeds only those, once each
-(`bridge::referenced_image_srcs`). The same holds for `xml_to_pdf_pages`,
-`add_xml_to_document` and `from_html_debug*` (which also no longer decodes
-every picture twice). `bridge::resolve_html_images` still decodes a whole map.
-
-- An entry no page shows can no longer fail the call: a bad base64 string
-  there used to make `from_html*` return `Err("Base64 decode error: …")`.
-- A picture a page shows that has no entry, or whose entry cannot be
-  base64-decoded or decoded, is now a warning in `from_html*`'s `warnings`
-  naming its `src` (the `<img>` draws nothing, as before). A bad base64 string
-  for a shown picture used to fail the whole call.
-
-Tests: `tests/html_images_on_demand.rs`, and the decode count in
-`src/html/mod.rs` (`an_image_the_page_does_not_reference_is_not_decoded`).
-
-**HTML text now honours color alpha.** The HTML bridge emitted text fill
-colors from the RGB channels only, so `color: transparent` painted opaque
-black glyphs and `color: rgba(…, 0.5)` painted fully opaque ones. Each text
-run whose color is not opaque now gets its own `q … Q` scope:
-
-- alpha 0 (`transparent`) uses text rendering mode 3 (`3 Tr`, invisible). The
-  glyphs stay selectable, searchable and extractable, which is how OCR text
-  layers over a page scan work.
-- partial alpha loads an `ExtGState` with the fill/stroke alpha, the same way
-  translucent rects already did.
-
-Inline `background-color` behind glyph runs had the same bug (translucent
-backgrounds were painted opaque) and now gets the same `ExtGState`. Opaque text
-emits exactly the same ops as before. Tests: `tests/html_text_alpha.rs`.
-
-**Smaller text: one text object per line instead of one per word (#288).**
-A page of HTML text in a base-14 family wrote two text objects per word
-(`Tf BT /Span <</ActualText …>> BDC Tm TJ EMC ET` for the word, again for
-the space). On a 1000-word book page the Flate-compressed content stream
-goes from 45 KB to 17 KB with positioned words, and from 32 KB to 12 KB with
-flowing paragraphs. Rendering and extracted text are unchanged.
-
-- **The bundled base-14 subsets have a space.** None of the 14 fonts in
-  `defaultfonts/` had a glyph for U+0020 or U+00A0, so every space fell back
-  to a system font (HelveticaNeue on macOS): a font switch, and a new glyph
-  run, at every word, plus a second, machine-dependent font in the PDF. Each
-  subset now has an empty `space` glyph with the standard base-14 advance,
-  appended so existing glyph ids are unchanged (`scripts/add_space_glyphs.py`).
-  `!`, `”` and a few others are still missing (see #288).
-- **`optimize` merges text objects** (`src/text_merge.rs`): consecutive text
-  objects with only text state between them become one, a font or fill colour
-  that is already set is not set again, and `/ActualText` spans that follow
-  each other on one baseline become one span with the joined text.
-- **Glyph runs: whole-unit kerns, one string per unkerned sequence.** The
-  same-baseline merger wrote a kern after almost every glyph for the
-  fraction-of-a-unit difference between the layout's positions and the integer
-  `/W` widths (`[<0030> -0.16767642<0041> …]`). Kerns are now rounded to whole
-  thousandths of an em, with the exact pen position carried along so the error
-  stays below half a unit, and glyphs without a kern between them share one
-  hex string.
-
-**Regression test for azul#478 — multi-page tables broke about a third early.**
-`tests/html_table_page_breaks.rs` renders the reporter's fixture (one `<table>` of
-identical single-line rows, default A4, no `break-*` CSS), finds the single-page
-capacity by bisection, and asserts that once the table overflows every non-final
-page is still filled. Against azul-layout 0.0.16 a table of capacity + 1 rows
-paginates as 32 + 18 (the reporter saw 29 + 17), so both tests are `#[ignore]`d
-until the azul pins move past the fix; run them with `--ignored` to check a
-patched azul-layout, and drop the attribute on the bump.
-
-For the record, this is not the 0.12.6 policy switch: 0.12.6 already ran
-break-aware pagination against azul 0.0.14 and paginated the same fixture as
-45 + 1. Two azul-layout defects combine in 0.0.16. The trigger: the display
-list widens an overflow-visible node's text clip to its "scroll content size",
-which is floored at the node's BORDER box, from the content-box origin, so each
-cell's text clip runs `padding-top` pixels into the next row and the rows'
-avoid-ranges overlap. The amplifier, latent since the break-aware paginator was
-written:
-`page_breaks::snap_break_up` took every containing range as nesting, so after
-snapping to a row's top the break was "inside" the previous row, snapped again,
-and climbed row by row until the `max_push_distance` budget (0.33 × page) was
-spent. The azul fix lets only a range that ENCLOSES the range the break just
-left pull it further up (true nesting: a line inside a `break-inside: avoid`
-box), never a sibling that merely overlaps its top edge; a second azul fix
-stops the clip widening for a box whose only "overflow" is its own padding.
-The snap fix alone makes this test pass; with both, the break lands exactly at
-the top of the first row that no longer fits.
-
-## `0.12.8`
-
-**rust-fontconfig 5 + azul 0.0.16.** Font fallback in HTML→PDF now runs on
-rust-fontconfig 5's tiered `FontFallbackChain` (CSS families with per-script
-faces, script fallbacks, an explicit last resort) and its `FcFallbackConfig`
-generic-family model, through azul-layout 0.0.16. printpdf only uses the
-stable surface (`FcFontCache`, `FcPattern`/`FcFont`, `FcParseFontBytes`,
-`FontBytes`, `UnicodeRange`), so no printpdf code changed; the dependency
-range moved from `>=4.4.9, <5` to `>=5.0, <6`, intersecting azul-layout's
-`>=5.0, <5.1` on ONE rust-fontconfig (two copies would be two independent
-font caches: layout resolving a font the renderer cannot find). Verified
-against azul#457 at 041e20eb6 (branch `feat/rust-fontconfig-5`, the rebase of
-the auto-closed #455): 199 tests over 33 binaries green, `html_font_resolution`
-and the ligature/subset canaries included, with ONE rust-fontconfig (5.0.0),
-one allsorts and one azul-core in the graph.
-
-**Font coverage is now exact, which changes fallback for the better.** No
-printpdf code changed, but rust-fontconfig 5 reads cmap segments directly
-instead of probing blocks, and that fixes two real defects in how the
-embedded base-14 fonts participated in per-character fallback:
-
-- **Symbol and ZapfDingbats reported NO coverage at all under rfc 4.** The
-  block probe could not read their cmap, so both declared empty
-  `unicode_ranges` — and azul skips empty-coverage faces during fallback, so
-  neither font could ever be chosen for any codepoint. They now declare the
-  43 and 10 codepoints they really map.
-- **Everyone else over-claimed.** Coverage was rounded up to the enclosing
-  block: Helvetica claimed all 256 of U+0000..=U+00FF against 213 real
-  glyphs, and Times-Italic claimed the whole Cyrillic block on the strength
-  of a handful of glyphs. Over-claiming is the harmful direction — the
-  resolver stops at the first font whose ranges contain the codepoint, so a
-  bogus claim wins the character and renders .notdef instead of falling
-  through to a font that has the glyph. Verified against the cmap tables:
-  all fourteen subsets now report exactly the codepoints that map to a
-  non-.notdef glyph.
-
-`build_font_pool(fonts, Some(&["monospace"]))` and friends also scan a wider
-superset than before (generic expansion now includes the per-script fallback
-candidates: 13 -> 27 fonts for `monospace`, 24 -> 63 for `sans-serif` on a
-typical macOS box). The filter is documented as a superset selector, not the
-final resolution, so this only means more fonts are available to fall back
-to; `Some(&[])` still scans nothing.
-
-The azul pin is 0.0.16, not 0.0.15. Building printpdf against the published
-0.0.15 surfaced two azul-layout defects that only printpdf's feature matrix
-reaches (it is the only consumer that builds azul-layout without `cpurender`
-and without `xml`, across all three wasm targets): `uuid` was pulled into
-every wasm build and refused to compile on `wasm32-unknown-unknown`, and
-`DocumentChangeset::apply_to_dom` called into the `xml`-gated `document_edit`
-from an ungated impl block, breaking `--no-default-features --features
-text_layout`. Both are fixed in azul-layout 0.0.16 (azul#465).
-
-## `0.12.7`
-
-**PDF streams are actually compressed when `optimize` is on (#284).** The save
-option advertised compression but the `Document::compress()` call was disabled
-and font programs were excluded outright. Page content and embedded font
-streams now go out Flate-compressed; `/Length1` keeps the DECODED TrueType
-program size per ISO 32000 (lopdf rewrites `/Length` when it compresses), so
-readers still load the fonts. Verified against poppler: `pdffonts` accepts the
-output and `pdftotext` round-trips the text of compressed documents.
-
-**Reduced-feature builds are warning-free (#285).** `--no-default-features
---features gif` (and the other reduced combinations) compiled helpers whose
-consumers were feature-gated away; the helpers now carry matching gates and
-intentionally-unused parameters are underscore-prefixed. No behavior change.
-
-Admits rust-fontconfig 4.6 (the `FcScanConfig` injection release) through the
-existing `>=4.4.9, <5` range — printpdf uses none of the affected APIs.
-
-## `0.12.6`
-
-**Break-aware pagination is ON.** HTML→PDF now goes through azul's
-`layout_document_paged_v2` with the full `BreakPolicy` enabled: `break-inside: avoid`
-pushes boxes below the page break intact, `widows`/`orphans` act on paragraph line
-counts, line boxes are never torn mid-line across pages, table rows stay whole, and
-`<thead>` repeats on continuation pages (with its height reserved in the break
-calculation). Documents that never hit a break constraint paginate exactly as
-before; ones that do will see breaks land earlier (pushed up, bounded to a third of
-the page height per break). The old fixed-interval slicing is what you get from azul
-directly with a default `BreakPolicy` — printpdf no longer uses it.
-
-The azul dependency moved from the git pin (`aaa700097`, the rev that shipped the
-pagination and changeset refactor) to the published azul `0.0.14` crates.
-
-## `0.12.0`
-
-The release where OTF fonts display correctly in Acrobat again (#280), the parser grew
-up, the wasm demo came back from the dead, and the whole thing is verified end-to-end
-in a headless browser on every push.
-
-**CID-keyed CFF fonts render correctly in Acrobat and Preview (#280).** Fonts like
-NotoSansJP carry a CID-keyed CFF whose charset does NOT map glyph ids 1:1 to CIDs
-(they diverge from glyph 365 on). printpdf wrote glyph ids as the Identity-H codes -
-but a spec-following viewer resolves every code as a CID *through that charset*
-(ISO 32000-1, 9.7.4.2), so Acrobat and Preview drew wrong CJK glyphs and nothing at
-all for the fullwidth brackets, while Chrome's PDFium (which falls back to
-code == GID) looked fine and copy-paste worked (ToUnicode was keyed by the written
-code). Both embed paths were wrong - the subsetter preserves the *original* CIDs in
-the subset charset while the content stream emitted renumbered sequential gids. The
-content stream, `/W` widths and `/ToUnicode` are now all keyed by the embedded
-charset's CIDs; parsing resolves codes back CID→GID (through `/CIDToGIDMap` streams
-and CFF charsets - foreign Adobe/dvipdfmx CJK PDFs re-render correctly now too, and
-legacy code==GID files are detected and kept stable). Guarded three ways: a
-deterministic mock-font suite (generated TTF/CFF/CID-CFF faces with distinct defined
-widths, so glyph identity is checked as arithmetic), a hard-coded-CID canary, and a
-fontTools CI job that re-resolves every code with Acrobat's semantics, independent of
-printpdf, allsorts and poppler alike. Related font-dictionary fixes: the `XXXXXX+`
-subset tag only appears when the font was actually subset, `/FontName` matches
-`/BaseFont`, CIDFontType2 carries an explicit `/CIDToGIDMap /Identity`, `.ttc`
-sources embed the single selected face instead of the whole collection, and
-ToUnicode synthesis covers supplementary planes. Text-showing ops outside
-`StartTextSection`/`EndTextSection` - the classic "my PDF is blank" mistake (#254) -
-now warn loudly at save time. Type0 fonts with non-Identity-H encodings warn on
-parse instead of silently scrambling.
-
-**Requires `rust-fontconfig 4.4.6`**; ships against the published `azul-layout
-0.0.10` (the `agg-rust-azul` rasterizer under its svg path is pinned `<1.0.3`, whose
-API break made fresh `svg`-feature builds fail to compile - the #279 failure shape,
-one dependency over). The azul master improvements - including the wasm
-`Instant::now()` clock fix on the font LRU path (rust-fontconfig's half of that fix
-is in 4.4.6) - arrive with the azul-layout 0.0.11 bump in a follow-up release.
-
-**PDF parsing / round-trip, rewritten where it lied.** Text decoding no longer guesses
-code width from string byte-parity - it is resolved per font at `Tf` (builtin/simple
-fonts decode per byte through ToUnicode-else-WinAnsi; Type0 through 2-byte gids with
-per-glyph Unicode carried from the ToUnicode CMap, synthesized from the font's own cmap
-when the PDF has none). Form XObjects, undecodable images and printpdf's own
-FlateDecode raw bitmaps (with `/SMask` alpha) survive parsing instead of being dropped;
-MediaBox inherits through the page tree; `'`/`"` operators, link annotations
-(`/Rect` was misread), layers (`/Properties` names now correlate - no more "Marked
-Content unknown"), and `/Shading` resources + `sh` ops (axial/radial with
-exponential/stitching functions) all round-trip. Embedded fonts named `F1`–`F14` are no
-longer mistaken for the builtin standard-14 on either parse or save (that was instant
-mojibake for foreign PDFs). The ToUnicode CMap parser is a real tokenizer now:
-single-line CMaps, multi-codepoint bfchar targets, surrogate pairs - a ligature no
-longer kills the whole CMap, and regenerated CMaps keep full multi-char targets
-("Configure" copy-pastes with its "fi" intact). Ten corpus PDFs round-trip
-visually identical with text surviving `pdftotext`, twice.
-
-**Font subsetting fixed at the root.** The original→subset glyph renumbering comes from
-the subsetter's own input-order mapping instead of being "recovered" through the subset
-cmap - shaper-substituted glyphs (ligatures, digit alternates) have no cmap entry, so
-list markers and page numbers rendered as ☒ tofu and ligatures fell back to their first
-letter. Inline-span backgrounds also no longer paint over their own text (the bridge
-now flushes text at azul's own paint position).
-
-**SVG conversion is self-contained and Acrobat-clean.** The svg2pdf page's full
-`/Resources` subtree (ColorSpace dictionaries, ExtGState, Pattern, Shading, Fonts) is
-carried into the Form XObject with every indirect reference inlined and streams hoisted
-back to indirect objects at write time; the content stream is byte-preserved instead of
-lossily re-parsed (`/p0 scn` used to come back as `0 g` - solid black). Gradients,
-tiling patterns, transparency groups and clip paths render correctly (poppler error
-count on the tiger: ~600 → 0), and `<text>` without a resolvable font-family is a loud
-warning instead of a silent drop.
-
-**The wasm demo is rebuilt and continuously tested.** New endpoints:
-`Pdf_RegisterFonts` (register default fonts once instead of resending ~10 MB of base64
-per keystroke) and `Pdf_DecodeImage` (images/signatures decode to the document's
-`RawImage` JSON - the sign tab was impossible without it). Pixel data serializes as
-base64 (`{"u8b64": …}`) instead of JSON number arrays - a 1024×1024 RGBA signature went
-from ~16 MB of JSON to ~5.6 MB, and the old array format stays readable forever. The
-API returns a structured error envelope even when the *response* fails to serialize
-(it used to return an empty string). The demo page itself is new (tabs, live preview,
-minimap, warnings drawer, dark mode) with every JS↔wasm wire-format mismatch fixed,
-and `tests/e2e/` drives the real UI in headless Chrome - boot, render with fonts,
-image embedding, download, re-upload of our own PDF, signature stamping, save - on
-every push (`demo-e2e.yml`), with poppler validating the downloaded files. Pages
-deploys (`static.yml`) now ship the exact build the e2e suite tested, automatically on
-release tags.
-
-**`PdfPage::to_svg` (the page preview) renders text again.** It had three compounding
-bugs: the glyph position was applied twice (once as `<text>` attributes, once in the
-transform) with a wrong Y-flip that threw every glyph ~800 pt off the top of the page;
-the current font was never recorded so all text used the Times builtin; and the
-`@font-face` embedded the PDF *subset* (which drops `OS/2`/`name`/`post`), which
-browsers reject. Text now renders upright, on-page, in the embedded font, and stays
-selectable. (A re-parsed document whose only font is a subset still falls back in the
-browser preview, since a subset is not a valid webfont; the PDF itself is unaffected.)
-The demo also gained a browser HTML reference view, in-browser font/image extraction
-from a parsed PDF, and image optimization on save (a one-photo document dropped from
-~6 MB to ~150 KB).
-
-Housekeeping: `Op::UseXobject` transforms grew `no_auto_scale` (parsed content already
-carries its placement; the parser previously had to emit a reciprocal scale to cancel
-the automatic one), saving a document containing images without any image-format
-feature writes raw FlateDecode pixels instead of panicking, and `get_external_font_ids`
-returns real ids instead of a stub (page previews finally receive their fonts).
-
-## `0.11.2`
-
-0.11.0 and 0.11.1 could be **impossible to install**, depending entirely on the
-consumer's dependency resolution (#279). printpdf asked for lopdf's `time` feature, and
-lopdf 0.43/0.44's `time` code only compiles against `time` >= 0.3.48, where
-`FormatItem::StringLiteral` first exists (J-F-Liu/lopdf#518). A fresh resolution on a
-current toolchain lands on `time` 0.3.53 and works - which is exactly why CI and the
-release builds stayed green - but any workspace whose lockfile predates `time` 0.3.48
-(June 2026), or whose MSRV-aware resolver walks below it, got a compile error inside
-lopdf. printpdf never used anything the feature gates (PDF dates are formatted and
-parsed in printpdf itself), so the feature is simply dropped. If you need lopdf's
-`Object <-> time` conversions, enable lopdf's `time` feature from your own manifest
-once a lopdf ships in which it compiles.
-
-Three more "the declared floor admits versions that cannot build" bugs of the same
-class: `time` is now `>= 0.3.36` (0.3.25–0.3.35 fail type inference on rustc >= 1.80),
-`image` is `>= 0.25.2` (`image::ImageReader` first exists there), and
-`rust-version = "1.88"` is declared (it was already the effective floor via lopdf 0.44,
-just invisible to MSRV-aware resolvers). weezl moved to 0.2 so consumer graphs stop
-linking two copies of the LZW coder, and a vestigial getrandom 0.3 dependency - whose
-only remaining dependent was printpdf itself - is gone from wasm builds.
-
-The reason this bug class kept shipping is that every CI job proved only "today's
-freshest resolution on this runner compiles". Two new guards close that gap. In
-ci.yaml, `consumer-resolution` builds the tree the way a consumer resolves it (fresh
-project, fresh lockfile, path dependency on the checkout) and then re-pins the
-known-bad lines - `time` 0.3.47, `image` 0.25.2 - so every breakage that ever shipped
-stays red forever. And the new `post-release.yml` verifies the **published artifact**:
-on every master push it `cargo add printpdf@=<Cargo.toml version>`s into a pristine
-project (no checkout, no lockfile) across Linux/Windows/macOS/wasm32 and the feature
-matrix; pushes whose commit message starts with "release" wait up to 20 minutes for
-crates.io and then **fail if the version never appears**. A daily cron re-checks the
-newest published version, so a dependency release that breaks resolution within our
-semver ranges turns CI red the next morning instead of waiting for an issue report.
-publish-safety also now fails if the .crate approaches crates.io's 10 MiB cap, which
-the package sits at ~87% of (the examples/assets tree is include_bytes!'d by tests and
-examples, so it must ship).
-
-Fonts can now be passed in from the outside on every path that needs them.
-`Svg::parse_with_fonts` feeds caller-supplied fonts into SVG `<text>` conversion -
-previously that path only ever saw system fonts, and on wasm (where there is no system
-database to scan) no fonts at all. For the HTML/text-layout path,
-`build_font_pool_with_memory_fonts` registers pre-patterned `rust_fontconfig` memory
-fonts with their metadata intact instead of re-deriving patterns from the bytes, and
-`printpdf::html` re-exports `rust_fontconfig` so the pattern types are constructible
-without version-matching the crate yourself. Related wasm/dependency cleanups: the
-js-sys browser fast paths (canvas decode/encode) are compiled out on wasi targets,
-whose binaries otherwise carried `window`/canvas imports no wasi runtime can satisfy;
-`time`'s unused serde features are dropped; `rust-fontconfig` is bounded `< 4.5`
-(4.4.4 was the double-allsorts release); and CI now builds `text_layout` alone,
-`js-sys` on wasip2, `svg` on wasm, and runs the svg test suite - configurations that
-previously had zero coverage.
-
-Hostile PDFs are also harder to crash now. A `/CreationDate` containing any non-ASCII
-byte panicked `PdfDocument::parse` (string slicing at byte offsets asserts char
-boundaries); parsing works on raw bytes now. A `/ToUnicode` bfrange with `end < start`
-panicked under overflow checks, and a single `<00000000> <FFFFFFFF> <0041>` line
-expanded to 2^32 map entries - an OOM from a few bytes of input; both now error, which
-costs the hostile font its ToUnicode map and nothing else. PDF/A / PDF/X XMP metadata
-wrote single-digit months (`D:2018-9-19T...` - veraPDF rejects it) because the `Month`
-enum's `Display` ignored the `{:02}` width. And `unix_timestamp` /
-`from_unix_timestamp` are now the same pure calendar arithmetic on every target: the
-old wasm implementations went through the JS `Date`, which interpreted the fields in
-the browser's local timezone, ignored the stored offset, and rejected pre-1970 dates
-(wasi builds just returned 0).
-
-## `0.11.1`
-
-printpdf linked **two copies of allsorts** - `0.17` directly, and `0.16` again underneath
-`rust-fontconfig`. Two font parsers means two incompatible `ParsedFont` / `CmapTarget` /
-`FontData`, so a type from one cannot cross into the other, and the binary carries the whole
-parser twice. `rust-fontconfig 4.4.5` moves to allsorts 0.17, and printpdf now requires it,
-so exactly one copy is linked. `only_one_allsorts_is_linked` keeps it that way.
-
-The subset-cmap panic reported in 0.11.0's notes was fixed upstream rather than worked
-around: it only ever existed in `allsorts-azul` ≤ 0.16.5
-(`CmapSubtableFormat4::from_mappings` did `mappings.iter().next().unwrap()` under a "safe as
-mappings is non-empty" comment - it isn't). 0.17 handles an empty mapping set correctly,
-emitting just the mandatory `0xFFFF` sentinel segment. printpdf still declines to subset a
-font whose used glyphs are all unreachable from its cmap, but for a different reason: the
-glyph renumbering is recovered *from the subset's own cmap*, so an empty one would leave the
-content stream emitting original glyph ids against a renumbered font.
-
-Upstream, `azul` no longer patches `allsorts-azul` to a vendored tree - the drift between
-that tree and the published crate, while both claimed version 0.17.0, is what shipped
-azul-layout 0.0.9 broken. It is consumed from the registry now, and azul CI fails if a
-`[patch]` is placed on anything its published crates depend on.
-
-## `0.11.0`
-
-The headline is that **printpdf no longer carries a `[patch.crates-io]` section**. It builds
-against exactly the crates it publishes. `cargo publish` silently strips `[patch]`, so a
-crate released while one exists is compiled against dependencies nobody ever tested - the
-local checkout and the published artifact are different programs. That is precisely how
-0.10.0 shipped with every embedded font empty (#277), and the trap bit azul twice more on
-the way out. It is now a CI failure for a `[patch]` section to exist at all.
-
-That required releasing the dependencies for real: **azul-css 0.0.9**, **azul-core 0.0.9**,
-**azul-layout 0.0.10** and **allsorts-azul 0.17.1**. The published `azul-layout 0.0.9`
-SIGSEGVs on any hosted OS - it carried 48 ungated
-`core::ptr::write_volatile(0x400EC as *mut u32, …)` calls (web-lift diagnostic markers
-writing to a hardcoded absolute address, unmapped on native targets). 0.0.10 routes them
-through a no-op unless the `web_lift` feature is on, so the HTML/layout path works again.
-
-### Breaking
-
-- `LineDashPattern` is now `{ offset: f32, pattern: SmallVec<[f32; 8]> }` - an
-  arbitrary-length array of reals - rather than three fixed `Option<i64>` dash/gap pairs.
-  The PDF spec always allowed this (#262, PR #263 by @tower120). Build one with
-  `LineDashPattern::new(offset, &[dash, gap, …])` or `LineDashPattern::solid()`; you do not
-  need a `smallvec` dependency of your own.
-- `printpdf::ParsedFont` is a printpdf type (a newtype over `azul_layout::ParsedFont`, with
-  `Deref`), which guarantees the source bytes stay attached. Field access and method calls
-  are unchanged; `into_inner()` / `as_azul()` reach the azul face.
-- Without `text_layout`, `FontParseWarning` is a struct rather than a `String` alias, so
-  `ParsedFont::from_bytes` has the same signature with and without the feature (#260).
-- `lopdf` 0.39 → 0.44, and `allsorts-azul` 0.16 → 0.17. Both appear in printpdf's public
-  API, so pinning either yourself means bumping in step.
-
-### Fixed
-
-- **RUSTSEC-2026-0187** (unbounded-recursion DoS) - lopdf is on 0.44 (#272, PR #275 by
-  @Zynora-fr).
-- **The HTML renderer could take the process down.** `allsorts::subset()` builds the
-  subset's cmap from the original font's cmap restricted to the kept glyphs, and *panics*
-  - not errors - when that comes out empty (`mappings.iter().next().unwrap()`, under a
-  "safe as mappings is non-empty" comment). Shaping emits glyph ids directly, and ligatures
-  have no character of their own, so a page whose glyphs were all unreachable from the cmap
-  aborted. printpdf now declines to subset in that case and embeds the full font.
-- **External fonts did nothing without `text_layout`** (#258). The fallback
-  `ParsedFont::from_bytes` never parsed the cmap, so every glyph resolved to `.notdef` and
-  pages came out blank - while the font embedded perfectly, which is why it looked so
-  baffling. And `PdfDocument::parse`'s `Type0` branch was feature-gated, so it could not
-  read an external font back either. The fallback now parses cmap/hmtx/head/hhea/OS-2 with
-  allsorts, which is a non-optional dependency and was there all along.
-- **FontDescriptor `/ItalicAngle`, `/Flags` and `/StemV`** were hardcoded to `0 / 32 / 80`
-  for every font - "upright, non-symbolic, medium weight", whatever you embedded. Readers
-  use these to synthesise or substitute a face. They are derived from the hhea caret slope
-  and OS/2 `usWeightClass` now (#271, residual).
-- wasm builds broke on the lopdf bump: `getrandom` must have `wasm_js` enabled per major
-  version, and lopdf pulls 0.4 alongside the 0.3 other deps use.
-
-### Changed
-
-- CI runs the full suite on Linux again. It had been commented out as "fails because of
-  SIMD issues, test on Windows only", so the suite only ever ran on Windows - which is why
-  a Linux-only font-resolution panic sat undetected. The no-default-features job runs the
-  whole suite too, not just `--lib`, which is why the blank-page bug above went unnoticed.
-- `tests/no_text_layout.rs` covers the fallback font path; `tests/external_tools.rs` checks
-  the output with poppler (`pdffonts`, `pdftotext`), which shares no code with printpdf.
-
-## `0.10.1` - font embedding hotfix
-
-**If you are on `0.10.0`, upgrade.** In 0.10.0 every external font embedded as an *empty*
-`/FontFile2`: readers reported "Cannot extract the embedded font", `pdffonts` reported
-"Embedded font file may be invalid", and no glyph rendered. A PDF that should have been
-165 KB came out at 2.7 KB. Nothing warned and nothing failed.
-
-0.10.0 cannot be repaired by releasing a fixed `azul-layout`. Cargo reads
-`azul-layout = "0.0.9"` as `^0.0.9` := `>=0.0.9, <0.0.10`, so for `0.0.z` versions *only*
-`0.0.9` ever satisfies it - 0.10.0 is permanently pinned to the broken dependency. The fix
-had to come from printpdf, and it does: printpdf now retains font bytes itself and no
-longer depends on azul's retention policy at all.
-
-### Fixed
-
-- **External fonts embed as an empty `/FontFile2`.** `azul_layout::ParsedFont::from_bytes`
-  does not retain the source bytes (a deliberate perf change - layout and rasterization
-  never read them, and retaining them duplicated a 4.27 MiB `.ttc` once per face).
-  printpdf read them straight off the struct and `.unwrap_or_default()`'d the `None` into
-  an empty `Vec`. `printpdf::ParsedFont` is now its own type, which attaches the source
-  bytes explicitly, so embedding is correct against any `azul-layout`.
-- **Subset fonts had no `.notdef`.** allsorts requires glyph 0 to be present and first in
-  the subset glyph list; printpdf passed only the used glyphs, so the first *real* glyph
-  was renumbered into slot 0. Subsetting "Roboto" produced `R→0, b→1, o→2, t→3`, and the
-  `R` was drawn as `.notdef`.
-- **CFF/OpenType fonts were mislabelled.** An `OTTO` font was written as `CIDFontType2` +
-  `/FontFile2`, both of which mean "TrueType `glyf` outlines". The descendant subtype is
-  now taken from the sfnt magic of the program actually being embedded, and a full `OTTO`
-  sfnt is written to `/FontFile3` as `/Subtype /OpenType`.
-- **Built-in fonts emitted UTF-8 into a `WinAnsiEncoding` stream** (#273). "Grüße aus Köln"
-  extracted as "GrÃ¼ÃŸe aus KÃ¶ln" - the text was not copy-able or searchable. printpdf now
-  owns the WinAnsi encoding table.
-- **The `'` and `"` operators ignored the selected font**, emitting raw UTF-8 - wrong for a
-  WinAnsi built-in font *and* for an Identity-H external font, where the bytes must be
-  glyph ids. The used-glyph collector also ignored them, so a page that drew text only via
-  `'`/`"` registered no glyphs, its font was skipped as unused, and the text disappeared
-  from the PDF entirely.
-- A font that cannot be embedded now raises a `PdfWarnMsg::error` and omits `/FontFile`
-  rather than writing a zero-length one. A missing font is a legal font that readers
-  substitute for; an empty font program is a corrupt one they reject.
-
-### Changed
-
-- `printpdf::ParsedFont` is now a printpdf type (a newtype over `azul_layout::ParsedFont`,
-  with `Deref`, so the existing API is unchanged). It guarantees the source bytes are
-  retained. `ParsedFont::from_bytes`, field access and method calls all work as before;
-  `into_inner()` / `as_azul()` reach the underlying azul face, and
-  `printpdf::font::AzulParsedFont` re-exports it.
-- `text_layout` now pulls in `rust-fontconfig`, which is needed to name the type that
-  carries the retained bytes.
 
 ### Added
 
-- `tests/font_embedding.rs` - opens the produced PDF with `lopdf` (deliberately *not*
-  printpdf's own parser, where a symmetric writer/reader bug would cancel itself out) and
-  asserts on the bytes a real reader sees: the font program is a parseable sfnt, every
-  content-stream glyph id exists in it, and `/W` and `/ToUnicode` are keyed by those same
-  ids and round-trip the exact source text.
-- `tests/external_tools.rs` - verifies against poppler, which shares no code with printpdf:
-  `pdffonts` must accept the embedded program, and `pdftotext` must round-trip the source
-  text exactly (this is literally what copy/paste and search do).
-- CI job `published-deps` - rebuilds the *published* dependency graph by stripping
-  `[patch.crates-io]`, then runs the font tests against it. `cargo publish` strips that
-  section, so without this the local checkout and the published crate are different
-  programs. This is the gate that 0.10.0 needed and did not have.
+- `ppdf`, a command-line tool in `ppdf/` (its own crate, not part of the printpdf package). It converts a PDF to JSON and back so the document can be edited with `jq`, prints text, text boxes, SVG pages, fonts and images, and renders HTML to PDF. See `ppdf/README.md`.
+- `docs/HTML.md` documents the HTML and CSS that `from_html` supports. It replaces `SYNTAX.md`, which described an API that no longer exists.
 
-## `0.5.2`
+### Changed
 
-- enable all features on docs.rs
+- Pin every GitHub Action to a commit SHA, give workflow tokens no default permissions, and lint the workflows with zizmor. Dependabot keeps the pins up to date (#296).
+- Dependabot opens one pull request for all GitHub Actions updates and one for the minor and patch updates of each crate, instead of one per dependency. Major crate updates stay separate.
+- Move the web demo sources to `web/`, the documentation to `docs/` and `gen.sh` to `scripts/gen-examples.sh`. `scripts/build-demo.sh` assembles the demo in `_site/`.
+- The crates.io package excludes `web/`, `docs/` and `ppdf/`.
+- `docs/API.md` now documents all seven functions of the wasm API. It listed five, used wrong option names (`subsetFonts` instead of `subset_fonts`, `pageWidth` instead of `page_width`) and a `title` input that does not exist.
+- The README example no longer shows `<head><header>` and `{builtin:pagenum}`, which the layout engine does not implement.
+- Write this changelog in one format for every release, and add the releases that had no entry.
 
-## `0.5.0`
+### Removed
 
-- added `Svg` class to directly add SVG files to the PDF and instantiate them on the page
-- remove `embedded_images` feature from default features
-- change default PDF conformance to not embed an entire ICC color profile in the PDF (save on file size)
+- Unused files: the working notes of the image decoding change, `subset.ttf`, `build.sh`, a disabled shape test and two example files that were never registered. `CHANGELOG2.md` is merged into this file.
 
-## `0.4.1`
+### Fixed
 
-- added `PdfDocument::save_to_bytes()` to save the PDF document directly to a `Vec<u8>` (see #101)
+- Saving a document no longer panics when every bookmark points at a page that does not exist, for example after the pages were removed from a parsed document. The outline `/Count` now counts only the bookmarks that are written.
+- Reading a CMap (`/ToUnicode` or a Type0 `/Encoding`) no longer panics on a multi-byte character inside a hex token such as `<000é000>`; the token is an error and only costs that font its map.
+- A `begincidrange` whose destination runs past `u32::MAX` maps the affected codes to CID 0 (notdef) instead of overflowing.
 
-## `0.4.0`
+## 0.12.14 - 2026-11-21
 
-- no actual changes, just a re-release of 0.3.4 to fix semver breakage
+### Added
 
-## `0.3.4`
+- Add `ParsedFont::from_shared_bytes(bytes: Arc<[u8]>, font_index, warnings)`. It builds the same face as `from_bytes` without copying the font file and decodes glyph outlines on demand.
 
-- Added bookmarks and clipping path support
-- *Breaking*: PDFConformance default changed to not require XMP Metadata and embedded ICC profile by default
+## 0.12.13 - 2026-11-19
 
-## `0.3.1`
+### Added
 
-- Fix issue with Fonts on iOS and macOS
-- Updated dependencies
+- `from_html` supports `float: footnote`. A footnote is printed at the bottom of the page where its call appears and continues on the next page if it does not fit.
+- Footnote calls and markers come from the `footnote` counter (`content: none` on `::footnote-call` and `::footnote-marker` turns them off). `@page { @footnote { ... } }` styles the area with `border-top`, `padding`, `margin-top` and `max-height`.
+- Add `--azul-margin-note: outside` for absolutely positioned boxes inside multi-column blocks. The box is placed outside the block at the height of its line. This is a layout extension, not CSS.
 
-## `0.3.0`
+### Changed
 
-- Upgrade `rusttype` to `0.8.2` (breaks semver for non-`edition = "2019"` compilers, hence the new version)
-- Upgrade `time` to `0.2.1`
-- Added `PdfDocument::empty`
+- Update azul-css, azul-core and azul-layout to 0.0.20.
 
-## `0.2.12`
+### Fixed
 
-- Upgrade `image` to `0.22`
+- Fix repeated table heads missing their text on continuation pages.
 
-## `0.2.11`
+## 0.12.12 - 2026-11-19
 
-- Update `lopdf`, fixes #27
+### Changed
 
-## `0.2.10`
+- Update azul-css, azul-core and azul-layout to 0.0.19.
 
-- Upgraded image to `0.20`
-- Added `ColorType::Palette` for indexed colors
-- Creating an image from a Dynamic image can't fail, so no Result is returned
+### Fixed
 
-## `0.2.9`
+- Fix `text-align: justify` stretching a line that ends in a forced break such as `<br>`. The line is now set from the start edge (CSS Text 3).
 
-- Upgraded `lopdf` to 0.17, getting rid of large `chrono` dependency
-- Removed unnecessary `rand` dependency
-- Made `image` dependency optional
-- Added function to create images from an `image::DynamicImage`
-- **WARNING**: Image crate has now certain lesser-used image types disabled by default:
-  - .ico (ICO format)
-  - .tga (Targa Image File)
-  - .hdr (High Dynamic Range Image)
-  - .dxt (S3 Texture Compression)
-  - .webp (WEBP format)
-  **If you don't re-enable these features, image decoding might fail at runtime!**
-  The reason they were removed was because of compile-time performance. For extra speed
-  when JPEG decoding, please also turn on `jpeg_rayon`
-- No other API removals or large API changes
-- Notable: `cargo build --no-default-features` has now "only" 33 dependencies and
-  `printpdf` has a debug build time of roughly 20 seconds
+## 0.12.11 - 2026-11-18
 
-## `0.2.8`
+### Changed
 
-- Firefox PDF viewer now works correctly due to a bugfix regarding the embedded TTF font type
-- No API changes
+- `from_html` now converts each page to PDF operations as the layout cuts it (azul-layout `layout_document_paged_streaming`) instead of keeping every page's display list. Output is unchanged. Peak memory for a 227-page document drops from 599 MB to 437 MB (debug build).
 
-## `0.2.7`
+## 0.12.10 - 2026-11-18
 
-- Fixed a bug (https://github.com/fschutt/printpdf/issues/20#issuecomment-409988462)
-  regarding incorrect generation of character map files for embedding fonts
-- No API changes
+### Added
 
-## `0.2.6`
+- Add the `forms` module: `parse_form_fields` reads a PDF's AcroForm fields, `fill_form` fills or flattens them and stamps drawings onto pages, `fields_svg` draws field values as SVG.
+- `text_boxes` words now record their standard-14 font, fill colour and whether they are invisible (`Tr 3`).
+- Add `show_placed_glyphs(fonts, size, glyphs, actual_text)` and `PlacedGlyph` to write glyphs where an external text layout placed them. It emits one `TJ` per font stretch, kerned against the `/W` widths from `glyph_pdf_width`, and uses text rise for marks. Rotated text matrices work.
+- Add `actual_text_span(text)`, the `/ActualText` span the HTML renderer wraps glyph runs in. `show_placed_glyphs` uses it when given text, so letters that share one glyph copy and search as written. Saving with `optimize` drops the span where the glyphs already read the same.
 
-- Updated `image` dependency to 0.19.0
-- Updated `rand` dependency to 0.5.0
-- Removed `error-chain`-generated errors in favor of simpler error enums (slight code-breaking change)
-- Removed `FontError`, since it wasn't used anywhere
-- Publicly re-exported `rusttype::Error` because that prevented error handling in applications that use `printpdf`
+### Changed
 
-## `0.2.5`
+- Update azul-css, azul-core and azul-layout to 0.0.18.
 
-- Fixed important word-spacing bug. In any version from 0.2.3 to this release there was a bug
-  where the spacing between words wasn't adjusted correctly, because the horizontal advance width
-  wasn't been taken into account. This has been fixed
-- `Pt` and `Mm` can now be multiplied and divided by `f64`, mostly to ease the use of using them with
-  projections
-- New `utils::calculate_points_for_rect` and `utils::calculate_points_for_circle` functions make
-  it easier to create circles and squares in a PDF. They are only convenience functions, mostly
-  because PDF has no built-in notation for circles or squares.
+### Fixed
 
-## `0.2.4`
+- Fix SVG `<path>` in `from_html`: strokes were missing and fills printed as solid boxes. Strokes are now written as PDF strokes (width, caps, joins, miter limit, dashes) and fills are clipped to the path with its fill rule. A mask that is only an image is still painted unclipped.
+- Fix the SVG renderer drawing cubic curves as quadratics and placing shapes under a `cm` transform in the wrong place.
+- Fix `re` when reading a PDF: it now appends a closed rectangle to the current path, so `re f` no longer draws nothing and `re W n` no longer paints a box.
+- Fix runs in synthetic bold, which are now filled and stroked.
+- Fix `/ToUnicode` losing the text of a glyph that was later shown without text, such as a mark in a cluster. An empty text now only fills a glyph that has none.
 
-- Nothing changed, just a dependency update, because `rusttype` was yanked, so `printpdf 0.2.3`
-  doesn't build anymore
+## 0.12.9 - 2026-11-11
 
-## `0.2.3`
+### Added
 
-- printpdf now uses rusttype and does not require freetype anymore! There was an ugly
-  character-spacing hack that was fixed. You should now be able to build printpdf on windows
-  without further setup.
-- Millimeters and points are now strongly typed - instead of `f64`, you now must denote the
-  scale with `Pt(f64)`, `Mm(f64)` or `Px(f64)`. The `mm_to_pt!` and `pt_to_mm!` macros have
-  been dropped since you can now do true conversions between these types. The reason for this
-  change was because this raw `f64`-based conversion bit me hard while using the library.
-- The `Line` now has a different API and no `new()` function anymore. This is because
-  `Line::new(true, false, true)` is less expressive than `Line { has_stroke: true, ... }`.
+- Add `optimize_images(pdf, options, warnings)` to re-encode the pictures of a finished PDF in place, and `optimize_text(pdf, warnings)` to drop redundant `/ActualText` spans. Add the `optimize_images` example.
+- Add `bridge::referenced_image_srcs`, which lists the `<img src>` values the laid out pages draw.
+- Add the `multiple_fonts` example, which switches between faces of a CJK font collection (#283).
 
-## `0.2.2`
+### Changed
 
-- SVG functionality was removed (commented out), because it didn't work in the first place
-  and only increased build times. So there's no point in keeping functionality that nobody
-  ever used, because it didn't work.
-- Removed dependency on `num`
-- `PdfDocument::save()` now only has a `T: Write` bound instead of `T: Write + Seek`.
+- Update azul-css, azul-core and azul-layout to 0.0.17 (azul#476). The HTML components use azul-core's `ComponentCodegen`.
+- `from_html*`, `xml_to_pdf_pages` and `add_xml_to_document` decode and embed only the pictures the pages draw, once each (#290). Rendering a 1053-page book page by page with 57 pictures drops from 22 to 3.5 minutes. `from_html_debug*` no longer decodes pictures twice. `bridge::resolve_html_images` still decodes a whole map.
+- A shown picture with a missing or undecodable entry is now a warning naming its `src` instead of an error. An unused entry can no longer fail the call.
+- Write black-and-white pictures with 1 bit per pixel (#290). They are Flate-compressed even when JPEG is requested.
+- Write one text object per line instead of one per word (#288). On a 1000-word page the content stream drops from 45 KB to 17 KB with positioned words and from 32 KB to 12 KB with flowing paragraphs.
+- `optimize` merges consecutive text objects, skips font and colour settings that are already set, and joins adjacent `/ActualText` spans on one baseline.
+- Glyph runs round kerns to whole thousandths of an em and put glyphs without a kern between them in one hex string.
 
-## `0.2.1`
+### Fixed
 
-- The `document.save()` method now needs a `BufWriter`, to enforce buffered output (breaking change).
-- The `PdfDocument` now implements `Clone`, so you can write one document to multiple outputs.
-- You can disable the automatic embedding of an ICC profile by using a `CustomPdfConformance`.
-  See `examples/no_icc.rs` for usage information.
-- `set_outline_thickness` now accepts floating-point units
+- Fix `from_html`, `from_html_with_cache` and `from_html_debug_with_cache` returning `Ok` with an empty document when the HTML loader could not read the page, for example on U+FFFE or a C0 control character. They now return `Err` with the loader's messages (#294, pdfocr #11).
+- Fix `PdfPage::to_svg` re-shaping glyphs in the browser. Shaped runs are now painted from glyph outlines with the PDF's `/W` advances, so Arabic joins, ligatures and Indic conjuncts render as in the PDF (#293).
+- Fix CID-keyed CFF fonts read from a PDF losing glyph widths when the first hint operator sits in a subroutine.
+- Fix HTML text ignoring colour alpha (#287). `color: transparent` is now invisible text (`3 Tr`) that stays selectable and searchable, and `rgba()` text uses an `ExtGState` alpha. Translucent inline `background-color` is fixed the same way.
+- Fix `RawImage::optimize` dithering before scaling down, which turned a flat grey all white. Dithering is now the last step.
+- Fix bookmarks on the same page losing their insertion order (#282).
+- Fix the bundled base-14 subsets having no space glyph, so every space fell back to a system font. Each of the 14 subsets now has an empty `space` glyph. `!`, `”` and a few others are still missing (#288).
+- Fix azul#478: a table that overflows a page now fills every non-final page. The page-break regression tests (#291) run by default.
+
+## 0.12.8 - 2026-09-04
+
+### Changed
+
+- Update rust-fontconfig to 5 (`>=5.0, <6`) and azul to 0.0.16. HTML to PDF font fallback now uses rust-fontconfig 5's tiered fallback chain, with per-script faces and an explicit last resort.
+- Use azul 0.0.16 instead of 0.0.15, which pulled `uuid` into every wasm build and broke `--no-default-features --features text_layout` (azul#465).
+- `build_font_pool(fonts, Some(&["monospace"]))` and similar calls scan more fonts than before, because generic families now expand to their per-script fallbacks (13 to 27 fonts for `monospace` on macOS). `Some(&[])` still scans nothing.
+
+### Fixed
+
+- The embedded Symbol and ZapfDingbats fonts reported no Unicode coverage, so font fallback never chose them. They now report the 43 and 10 codepoints they map.
+- The other embedded standard fonts claimed whole Unicode blocks (Helvetica all 256 of U+0000..U+00FF, against 213 real glyphs), which drew .notdef instead of falling through to a font with the glyph. Coverage now matches each font's cmap.
+
+## 0.12.7 - 2026-08-29
+
+### Changed
+
+- Allow rust-fontconfig 4.6 within the existing `>=4.4.9, <5` range.
+
+### Fixed
+
+- The `optimize` save option now compresses page content and embedded font streams with Flate (#284). `/Length1` keeps the decoded TrueType program size, so readers still load the fonts.
+- Remove compiler warnings in reduced-feature builds such as `--no-default-features --features gif` (#285).
+
+## 0.12.6 - 2026-08-17
+
+### Changed
+
+- HTML to PDF now paginates with azul's `layout_document_paged_v2` and the full `BreakPolicy`: `break-inside: avoid`, `widows` and `orphans`, whole line boxes and table rows across pages, and `<thead>` repeated on continuation pages.
+- Pages that hit a break constraint now break earlier than before, by at most a third of the page height per break. Documents without such constraints paginate as before.
+- Use the published azul 0.0.14 crates instead of a git pin.
+- Allow rust-fontconfig 4.5 and later 4.x releases (`>=4.4.9, <5`).
+
+## 0.12.5 - 2026-07-29
+
+### Changed
+
+- Use the published azul-css, azul-core and azul-layout 0.0.13 instead of the azul git branch, and require rust-fontconfig 4.4.9, which can parse the embedded standard PDF fonts.
+
+### Fixed
+
+- HTML rendering resolves `font-family: Helvetica` and the other standard PDF fonts (Arial, Times New Roman, Times, Courier New, Courier, Symbol, Zapf Dingbats and the PDF base-14 names) to the embedded fonts instead of logging an unresolved family and substituting another face.
+- The generic families `serif`, `sans-serif` and `monospace` use the embedded fonts only as a fallback behind installed fonts (on wasm they are all that is available). Fonts you pass in win over a built-in of the same name.
+- The embedded Helvetica-Bold and Helvetica-BoldOblique subsets lacked the bold bit, so `font-weight: bold` rendered the regular face.
+
+## 0.12.4 - 2026-07-23
+
+### Fixed
+
+- Text selection in Chrome and Edge (PDFium) now spans the whole line for text from the HTML and layout pipelines. The serializer merges per-glyph `Tm` and `TJ` pairs on one baseline into a single kerned `TJ`. Rendering is unchanged.
+
+## 0.12.3 - 2026-07-23
+
+### Fixed
+
+- CID-keyed CFF fonts (such as NotoSansJP) drew wrong glyphs in Chrome (PDFium) and poppler after the #280 change in 0.12.0 (#281). They are now embedded as a bare CFF table (`/FontFile3`, `/Subtype /CIDFontType0C`) instead of the whole OpenType file, which renders correctly everywhere.
+- `ParsedFont::from_bytes` reads these bare CFF embeddings back, taking units per em from the FontMatrix and glyph widths from the Type 2 charstrings.
+
+## 0.12.2 - 2026-07-23
+
+### Changed
+
+- Update azul-css, azul-core and azul-layout to 0.0.12 and require rust-fontconfig 4.4.7.
+- Remove the `agg-rust-azul` `<1.0.3` pin from the `svg` feature. azul-layout 0.0.11 and later need agg-rust-azul 1.0.3.
+
+### Fixed
+
+- Regular Latin body text in HTML rendering no longer resolves to a CJK font (NotoSansJP). The fix comes with the azul 0.0.12 and rust-fontconfig 4.4.7 updates.
+
+## 0.12.1 - 2026-07-18
+
+### Added
+
+- `CidCMap`, a parser for the code to CID CMaps in a Type0 font's `/Encoding`: variable-width codespace ranges, `cidrange` and `cidchar` tables, `usecmap` for the identity bases and `/WMode`. Identity-H and Identity-V can be built without parsing.
+- `PdfPage::extract_text_boxes` and `PdfDocument::extract_text_boxes` return hOCR-style page, line, word and glyph bounding boxes with the decoded text, as serde JSON. Boxes are in pt with a top-left origin, the same space as `to_svg`.
+
+### Changed
+
+- `PdfDocument::parse` decodes Type0 text through the font's `/Encoding` CMap, including embedded CMap streams, variable-width codes and Identity-V. Predefined CJK CMaps and vertical writing mode still warn.
+- Update azul-css and azul-core to 0.0.10 and azul-layout to 0.0.11, which no longer reads the clock in a way that aborts on browser wasm.
+
+## 0.12.0 - 2026-07-18 [YANKED]
+
+Yanked from crates.io because the version bump was not warranted. Its changes are included in later
+0.12.x releases, so use the latest 0.12.x instead.
+
+### Added
+
+- Warn at save time when text-showing operations appear outside `Op::StartTextSection` and `Op::EndTextSection`, the usual cause of a blank PDF (#254).
+- Warn when parsing a Type0 font with a non-Identity-H `/Encoding`, instead of silently scrambling its text.
+- `no_auto_scale` on `Op::UseXobject` transforms, so parsed content keeps its own placement.
+- WASM API: `Pdf_RegisterFonts` registers the default fonts once instead of resending them on every call, and `Pdf_DecodeImage` decodes an image or signature into the document's `RawImage` JSON.
+- Rebuilt wasm demo: tabs, live preview, minimap, warnings drawer, dark mode, a browser HTML reference view, JSON tree editing and save/load of the document, font and image extraction from a parsed PDF, and image optimization on save.
+
+### Changed
+
+- Raw pixel data serializes as base64 (`{"u8b64": ...}`) instead of JSON number arrays, which takes a 1024x1024 RGBA image from about 16 MB to 5.6 MB. The array form still parses.
+- The wasm API returns a structured error envelope when the response itself cannot be serialized (it returned an empty string).
+- SVG `<text>` without a resolvable font-family now logs a warning instead of being dropped silently.
+- Use the published azul-layout 0.0.10, and pin `agg-rust-azul` below 1.0.3 for the `svg` feature, because 1.0.3 broke fresh `svg` builds.
+
+### Fixed
+
+- CID-keyed CFF fonts (such as NotoSansJP) drew wrong glyphs in Acrobat and Preview (#280). The content stream, `/W` widths and `/ToUnicode` are now keyed by the embedded CFF charset's CIDs, as ISO 32000-1 9.7.4.2 requires, on both the subset and the full-embed path.
+- Parsing resolves Identity-H codes from CID to glyph through `/CIDToGIDMap` streams and CFF charsets, so PDFs from Adobe, dvipdfmx and similar tools re-render correctly. Legacy files that use code equal to glyph id still decode as before.
+- Font dictionaries: the `XXXXXX+` subset tag appears only when the font was subset, `/FontName` matches `/BaseFont`, CIDFontType2 has an explicit `/CIDToGIDMap /Identity`, `.ttc` sources embed only the selected face, and ToUnicode synthesis covers supplementary planes.
+- Subset glyph renumbering now uses the subsetter's own mapping, so shaper-substituted glyphs (ligatures, digit alternates) no longer render as tofu or fall back to their first letter.
+- HTML: inline-span backgrounds no longer paint over their own text, and custom `font-family` names, including quoted multi-word names, resolve.
+- Embedded fonts named `F1` to `F14` are no longer mistaken for the standard 14 fonts on parse or save.
+- Text decoding resolves the code width per font at `Tf` instead of guessing from string byte parity. Simple fonts decode per byte through ToUnicode or WinAnsi, Type0 fonts use 2-byte codes with per-glyph Unicode from ToUnicode, synthesized from the font's cmap when the PDF has none.
+- Parsing keeps Form XObjects, undecodable images and printpdf's own FlateDecode raw bitmaps (with `/SMask`), and inherits MediaBox through the page tree.
+- Parsing round-trips the `'` and `"` operators, link annotations (`/Rect` was misread), layers (`/Properties` names) and `/Shading` resources with `sh` ops.
+- Relative `Td` and `TD` operators are accumulated into an absolute text cursor instead of being parsed as absolute positions.
+- The ToUnicode CMap parser is now a tokenizer. Single-line CMaps, multi-codepoint `bfchar` targets and surrogate pairs work, a ligature no longer discards the whole CMap, and regenerated CMaps keep multi-character targets.
+- `PdfPage::to_svg` renders text again, upright, on the page, in the embedded font and selectable. A re-parsed document whose only font is a subset still falls back in the browser preview, since a subset is not a valid webfont.
+- The SVG preview no longer drops text positioned with a text cursor (`Td`) to the page bottom, and `T*` line breaks keep the line-start x.
+- SVG conversion carries the svg2pdf page's full `/Resources` into a self-contained Form XObject and keeps the content stream byte for byte. Gradients, tiling patterns, transparency groups and clip paths now render, where `/p0 scn` used to come back as `0 g` (solid black).
+- `get_external_font_ids` returns real ids instead of a stub, so page previews receive their fonts.
+- Saving a document with images without any image-format feature writes raw FlateDecode pixels instead of panicking.
+
+## 0.11.3 - 2026-07-18
+
+### Changed
+
+- Update azul-css and azul-core to 0.0.10 and azul-layout to 0.0.11, which no longer reads the clock in a way that aborts on browser wasm.
+
+## 0.11.2 - 2026-07-17
+
+### Added
+
+- `Svg::parse_with_fonts` passes caller-supplied fonts to SVG `<text>` conversion. Before, only system fonts were used, and none at all on wasm.
+- `build_font_pool_with_memory_fonts` registers pre-patterned `rust_fontconfig` memory fonts, with their metadata intact, for the HTML and text-layout path. `printpdf::html` re-exports `rust_fontconfig` so the pattern types can be built without matching the crate version yourself.
+
+### Changed
+
+- Raise dependency floors that admitted versions that cannot build: `time` >= 0.3.36 and `image` >= 0.25.2. Declare `rust-version = "1.88"`, which lopdf 0.44 already required.
+- Use weezl 0.2 so dependency graphs link one LZW coder, bound `rust-fontconfig` to `< 4.5` (4.4.4 linked two copies of allsorts), and drop `time`'s unused serde features and a leftover getrandom 0.3 dependency from wasm builds.
+- `unix_timestamp` and `from_unix_timestamp` are now the same calendar arithmetic on every target. The old wasm versions used the browser's local timezone, ignored the stored offset and rejected dates before 1970, and wasi returned 0.
+
+### Fixed
+
+- 0.11.0 and 0.11.1 could not be installed in workspaces whose lockfile resolved `time` below 0.3.48 (#279). printpdf no longer enables lopdf's `time` feature, which only gates `Object <-> time` conversions printpdf never used. To get them, enable that feature from your own manifest.
+- `PdfDocument::parse` panicked on a `/CreationDate` containing a non-ASCII byte. Dates are now parsed from bytes.
+- A `/ToUnicode` bfrange with `end < start` panicked, and a single `<00000000> <FFFFFFFF> <0041>` line expanded to 2^32 entries (out of memory). Both now return an error that only costs that font its ToUnicode map.
+- PDF/A and PDF/X XMP metadata wrote single-digit months (`D:2018-9-19T...`), which veraPDF rejects. Months are now zero-padded.
+- The js-sys browser canvas paths are compiled out on wasi targets, whose binaries otherwise carried `window` and canvas imports no wasi runtime can satisfy.
+
+## 0.11.1 - 2026-07-14
+
+### Changed
+
+- Require rust-fontconfig 4.4.5, which uses allsorts 0.17. printpdf previously linked two copies of allsorts (0.17 directly, 0.16 through rust-fontconfig), which gave two incompatible `ParsedFont`, `CmapTarget` and `FontData` types and carried the parser twice. It now links one.
+- The empty subset-cmap panic noted in 0.11.0 is fixed in allsorts 0.17. printpdf still embeds the full font when none of the used glyphs are reachable from its cmap.
+
+## 0.11.0 - 2026-07-14
+
+### Changed
+
+- **Breaking:** `LineDashPattern` is now `{ offset: f32, pattern: SmallVec<[f32; 8]> }`, an arbitrary-length dash array, instead of three fixed `Option<i64>` dash and gap pairs (#262, PR #263 by @tower120). Build one with `LineDashPattern::new(offset, &[dash, gap, ...])` or `LineDashPattern::solid()`.
+- **Breaking:** without `text_layout`, `FontParseWarning` is a struct instead of a `String` alias, so `ParsedFont::from_bytes` has the same signature with and without the feature (#260).
+- **Breaking:** update lopdf 0.39 to 0.44 and allsorts-azul 0.16 to 0.17. Both appear in the public API, so pinning either yourself means bumping in step.
+- Remove the `[patch.crates-io]` section. printpdf now builds against the crates it publishes, using azul-css 0.0.9, azul-core 0.0.9, azul-layout 0.0.10 and allsorts-azul 0.17.1. The `[patch]` section is why 0.10.0 shipped with empty embedded fonts (#277).
+
+### Fixed
+
+- The HTML renderer no longer crashes on native targets. It uses azul-layout 0.0.10, because the published 0.0.9 wrote to a hardcoded absolute address and segfaulted.
+- The HTML renderer no longer aborts when a subset's cmap would be empty, for example when every glyph is a ligature. printpdf embeds the full font in that case.
+- External fonts rendered nothing without `text_layout` (#258). The fallback `ParsedFont::from_bytes` now parses cmap, hmtx, head, hhea and OS/2 with allsorts, and `PdfDocument::parse` can read external Type0 fonts back without the feature.
+- FontDescriptor `/ItalicAngle`, `/Flags` and `/StemV` were hardcoded to 0, 32 and 80 for every font. They are now derived from the hhea caret slope and OS/2 `usWeightClass` (#271).
+- wasm builds broke on the lopdf update. `getrandom` needs `wasm_js` enabled for each major version in the graph (0.3 and 0.4).
+
+### Security
+
+- Update lopdf to 0.44, which fixes RUSTSEC-2026-0187 (unbounded recursion DoS) (#272, PR #275 by @Zynora-fr).
+
+## 0.10.1 - 2026-07-14
+
+If you are on 0.10.0, upgrade: in that release every external font embeds as an empty `/FontFile2`.
+
+### Added
+
+- `printpdf::font::AzulParsedFont` re-exports `azul_layout::ParsedFont`.
+
+### Changed
+
+- `printpdf::ParsedFont` is now a printpdf type, a newtype over `azul_layout::ParsedFont` with `Deref`, that keeps the source font bytes. Field access and method calls are unchanged; `into_inner()` and `as_azul()` return the azul face.
+- `text_layout` now pulls in `rust-fontconfig`.
+
+### Fixed
+
+- External fonts embedded as an empty `/FontFile2` because azul-layout's `ParsedFont::from_bytes` no longer keeps the source bytes. printpdf now retains them itself.
+- Subset fonts had no `.notdef` glyph, so the first used glyph was renumbered to glyph 0 and drawn as `.notdef`.
+- CFF/OpenType (`OTTO`) fonts were written as `CIDFontType2` with `/FontFile2`. The subtype now follows the font program, and a full `OTTO` font is written to `/FontFile3` as `/Subtype /OpenType`.
+- Built-in fonts wrote UTF-8 into a `WinAnsiEncoding` stream, so non-ASCII text did not copy or search correctly (#273). printpdf now owns the WinAnsi table.
+- The `'` and `"` text operators ignored the selected font, and text drawn only with them was missing from the PDF.
+- A font that cannot be embedded now raises a `PdfWarnMsg::error` and omits `/FontFile` instead of writing an empty one.
+
+## 0.10.0 - 2026-07-06
+
+External fonts embed as an empty `/FontFile2` in this release; use 0.10.1 or later.
+
+### Added
+
+- `PdfDocument::add_shading`, `Op::PaintShading` and the `Shading`, `ShadingGeometry` (axial or radial), `GradientStop` and `ShadingId` types for gradient fills.
+- HTML: `<img src>` images are embedded as PDF image XObjects.
+- HTML: CSS linear and radial gradients are written as PDF shadings.
+- HTML: opacity and alpha colours are applied through ExtGState.
+- HTML: text runs are wrapped in `/ActualText` marked content, so copy and paste and accessibility use the real run text.
+
+### Changed
+
+- The HTML layer is ported to azul-css and azul-core 0.0.8 and azul-layout 0.0.9. **Breaking:** the trait-based XML component system is replaced by azul's `ComponentDef` and `ComponentMap`; the `<component>` element is ported to it (#268).
+- `PdfDocument::with_pages` now replaces the existing pages, as its documentation says, instead of appending (#224). Use `append_document` to merge documents.
+- Without `text_layout`, `ParsedFont::from_bytes` takes the font index as `usize` (#260).
+- Requires rust-fontconfig 4.4.4. The `kuchiki` dependency of the `html` feature is removed.
+
+### Fixed
+
+- Font subsetting was disabled by a leftover guard and runs again (#250).
+- Subset fonts drew scrambled text because the content stream used original glyph ids.
+- Rectangles ignored their `PaintMode` and were invisible (#259).
+- FontDescriptor `Ascent`, `Descent` and `FontBBox` are scaled to 1000 units per em, and `CapHeight` comes from the OS/2 table (#271).
+- A font was not embedded when a glyph's character could not be looked up (#261).
+- `Rect::to_array` rounded to integers, which distorted media, trim and crop boxes (#253).
+- Parsing a PDF failed on XObject references that point at stream objects (#216).
+- ExtGState `ca` and `CA` were swapped when writing and when parsing. `ca` is the fill alpha and `CA` the stroke alpha.
+- HTML: border widths and radii were about 1.33 times too large because CSS pixels were mixed with points, clip regions were not written, and borders on a single side or on opposite sides got round caps.
+
+## 0.9.1 - 2026-02-17
+
+### Added
+
+- `PdfDocument::append_document`, `insert_document` and `page_count` for merging PDFs. Resources and bookmark page numbers are merged and adjusted.
+- `PdfDocument::from_html_with_cache`, `from_html_debug` and `from_html_debug_with_cache`, and a public `SharedFontPool` that reuses parsed fonts across render calls.
+- `html_multithreaded` feature: multithreaded font loading (not available on WASM).
+- HTML: underline, strikethrough and overline are drawn.
+
+### Changed
+
+- HTML: `xml_to_pdf_pages` and its debug variant convert dimensions from PDF points to CSS pixels.
+- Depends on azul 0.0.7 and rust-fontconfig 2.0.0 from crates.io. rust-fontconfig's `multithreading` feature is no longer enabled by default; use `html_multithreaded`.
+- `Instant::now()` calls are removed from the HTML path so it runs on WASM.
+
+### Fixed
+
+- Without `text_layout`, external fonts did not show in PDF readers because a simple TrueType font dictionary was written for CID-encoded text. A Type0/CID font dictionary is written now (#258).
+- HTML: pages that only contained backgrounds and no text were emitted as blank pages and are now skipped.
+- The SVG renderer printed `[N glyphs]` for glyph-id text and now outputs the text.
+
+## 0.9.0 - 2026-01-29
+
+### Added
+
+- OpenType (CFF) fonts can be embedded and subsetted (`otf-font` example).
+- `PdfDocument::extract_text` and `PdfDocument::to_lopdf_document`, which returns the lopdf `Document`.
+- `Op::SetFont`, `Op::ShowText`, `Op::DrawRectangle`, `Op::BeginOptionalContent`, `Op::EndOptionalContent` and `Op::EndMarkedContentWithProperties`, plus `PdfFontHandle` (builtin or external font) and `TextItem::GlyphIds` with the `Codepoint` type (glyph id, offset, source text).
+- `Rect` has optional `mode` and `winding_order` fields and `Rect::from_xywh`.
+- `PdfFont`, `PrintpdfFontMeta` and `FontEmbeddingMode` keep font embedding metadata next to the parsed font.
+- Features `images`, `svg` and `text_layout_hyphenation`.
+- Parsing: BMC/BDC marked content, embedded Type1 fonts, the CMYK `k` and `K` operators.
+
+### Changed
+
+- **Breaking:** text operations map 1:1 to PDF. `Op::WriteText`, `WriteTextBuiltinFont`, `WriteCodepoints`, `WriteCodepointsWithKerning`, `SetFontSize` and `SetFontSizeBuiltinFont` are replaced by `Op::SetFont` and `Op::ShowText`.
+- **Breaking:** `Op::EndLayer` no longer has a `layer_id`, and `Op::BeginMarkedContentWithProperties` takes one `DictItem` instead of a `Vec`.
+- **Breaking:** `PdfResources` fonts are `PdfFont` values, which hold the `ParsedFont` in `parsed_font`.
+- **Breaking:** the `image` and `svg2pdf` dependencies are optional. `RawImage::decode_from_bytes` needs the `images` feature, and the `svg` module needs the new `svg` feature, which is not a default.
+- HTML to PDF now runs on azul-layout's text3 layout and display list, with new border, pagination, text clipping and hyphenation handling. The `html` feature enables hyphenation.
+- Font internals moved to azul-layout (see Removed). With `text_layout`, `ParsedFont`, `OwnedGlyph`, `FontType`, `FontMetrics` (azul's `PdfFontMetrics`) and `PdfFontParseWarning` are azul-layout's types, re-exported by printpdf. `ParsedFont` implements `Serialize`, `Deserialize`, `PartialEq` and `Debug` there and has its own `from_bytes`.
+- Without `text_layout`, printpdf provides a stand-in `ParsedFont`, `FontMetrics` and `FontType`.
+- Dependencies: lopdf 0.35 to 0.39, `allsorts` 0.16 instead of `allsorts-subset-browser`, and azul 0.0.6 from crates.io.
+
+### Removed
+
+- **Breaking:** `PdfDocument::from_html_async`, `PdfDocument::shape_text` and `PdfResources::shape_text`. Text shaping is available through the new `text_shaping` module (`text_layout` feature).
+- The `PrepFont` trait and printpdf's own `GlyphOutline`, `GlyphOutlineOperation`, `OutlineMoveTo`, `OutlineLineTo`, `OutlineQuadTo`, `OutlineCubicTo` and `OwnedGlyphBoundingBox` types. They now come from azul-layout.
+
+### Fixed
+
+- Document info strings (title, author, creator, producer, subject, keywords) are written as UTF-16BE with a BOM.
+- The `/ToUnicode` map used CIDs instead of Unicode.
+- `Rect::to_polygon` treated `y` as the top edge; it is the bottom edge (#233).
+- Bookmark serialization, the PDF version header (back to 1.3) and the default image optimisation quality value.
+- Parsing: Type0 `/BaseFont` detection, and `re` no longer fills by default.
+
+## 0.8.2 - 2025-03-20
+
+### Added
+
+- Text shaping: `TextShapingOptions`, `TextAlign`, `ShapedText`, `ShapedLine`, `ShapedWord`, `PdfDocument::shape_text` and `ShapedText::get_ops`.
+
+### Changed
+
+- lopdf is back on 0.35 after 0.8.1 moved to 0.36.
+
+### Removed
+
+- **Breaking:** `TextMatrix::Rotate`. Use `TextMatrix::TranslateRotate` (#152).
+
+### Fixed
+
+- Unicode bookmark titles (#188).
+- The date parsing module.
+- A glyph width was written even when parsing the glyph failed.
+
+## 0.8.1 - 2025-03-18
+
+### Changed
+
+- Update lopdf to 0.36.
+
+## 0.8.0 - 2025-03-17
+
+The API was rewritten; code written against 0.7.x needs porting.
+
+### Added
+
+- Reading PDFs: `PdfDocument::parse` and `parse_async`, and `PdfPage::extract_text`.
+- `PdfDocument::from_html` and `from_html_async`: HTML to PDF through azul-layout (`html` feature, experimental).
+- `PdfDocument::page_to_svg`, `page_to_svg_async` and `PdfPage::to_svg` render a page to SVG.
+- `PdfDocument::save`, `save_async` and `save_writer`, which writes to any `io::Write` without building the bytes in memory first.
+- `PdfSaveOptions` with `optimize`, `subset_fonts`, `secure` (skip unknown operations) and `image_optimization` (`ImageOptimizationOptions`).
+- A WASM API and web demo. The document types derive serde `Serialize` and `Deserialize`.
+- CMap generation and parsing for `/ToUnicode` and font decoding.
+
+### Changed
+
+- **Breaking:** a new API built on `PdfDocument::new(title)`, `PdfPage::new(width, height, ops)` and `Op` values. `PdfDocumentReference`, `PdfLayerReference` and the other reference types are gone.
+- **Breaking:** features `embedded_images`, `font_subsetting`, `annotations`, `logging`, `less-optimization`, `svg`, `jpeg_rayon` and `dxt` are removed. The default feature is `html` instead of `js-sys`.
+- Dependencies: lopdf 0.31 to 0.35, image 0.24 to 0.25, svg2pdf 0.8 to 0.13. `owned_ttf_parser` is dropped and `allsorts-subset-browser` 0.16 is added.
+
+## 0.7.0 - 2024-01-24
+
+### Added
+
+- `PdfLayerReference::add_rect`. A `Rect` has a paint mode and winding order (`Rect::with_mode`), so it can also clip.
+- `WindingOrder::get_fill_stroke_op`.
+- Images with an alpha channel (RGBA8) are written with a soft mask.
+- `js-sys` feature, enabled by default, so WASM builds can opt out of js-sys.
+
+### Changed
+
+- **Breaking:** `PolygonMode` is renamed `PaintMode`, and `PaintMode` and `WindingOrder` moved to the `printpdf::path` module.
+- **Breaking:** `Rect` has new public fields `mode` and `winding`.
+- Dependencies: owned_ttf_parser 0.19, svg2pdf 0.8, usvg 0.35, pdf-writer 0.9.
+
+### Fixed
+
+- PDF timestamps used the month name instead of its number and ignored the date's UTC offset.
+
+## 0.6.0 - 2023-09-13
+
+### Added
+
+- Link annotations (hyperlinks): `LinkAnnotation` and `PdfLayerReference::add_link_annotation`.
+- `PdfPageReference::extend_with` adds raw lopdf dictionary entries to a page, for example annotations.
+- Font subsetting from the glyphs actually used, behind the `font_subsetting` feature. It can be turned on per font with `add_external_font_with_subsetting` and `add_external_font_data_with_subsetting`.
+- `Ord` and `Eq` for `Pt` and `Mm`, and `Clone` for `Svg`.
+
+### Changed
+
+- **Breaking:** `Mm`, `Pt`, colour components and the numeric parameters of the drawing API (font sizes, line widths, spacing) use `f32` instead of `f64`.
+- **Breaking:** `Line` no longer has `has_fill`, `has_stroke`, `is_clipping_path` or their setters, and `PdfLayerReference::add_shape` is replaced by `add_line`. Filled and clipping shapes, with holes, use the new `Polygon` (`rings`, `PolygonMode`, `WindingOrder`) and `add_polygon`.
+- Edition 2021. lopdf 0.27 to 0.31 and time 0.2 to 0.3.25, which drops the stdweb dependency.
+
+### Fixed
+
+- Embedded fonts: not all glyphs were on the width table, subsetting failed for fonts without `€`, and unused fonts are omitted.
+- Subsetting errors are handled instead of panicking.
+- The WASM build failed because `js_sys::Date` was moved more than once.
+
+## 0.5.3 - 2022-08-20
+
+### Added
+
+- `PdfMetadata`, the document info dictionary and XMP metadata have `author`, `creator`, `producer`, `keywords`, `subject` and `identifier`. `PdfDocumentReference` has matching `with_author`, `with_creator`, `with_producer`, `with_keywords`, `with_subject` and `with_identifier` methods.
+
+### Changed
+
+- `PdfDocumentReference::with_title` returns `Self` instead of `()`.
+- image 0.24.3 (#124).
+
+## 0.5.2 - 2022-03-10
+
+### Changed
+
+- Enable all features on docs.rs.
+
+## 0.5.1 - 2022-02-13
+
+### Changed
+
+- **Breaking:** `SvgParseError::Svg2PdfConversionError` carries the underlying error message as a `String`, so `SvgParseError` is no longer `Copy`. `SvgParseError` implements `Display` and `Error`.
+- **Breaking:** `SvgTransform` translations and `SvgRotation` centre coordinates are `Pt` instead of `Mm` and `Px`.
+
+### Fixed
+
+- `Svg::parse` used the width as both width and height of the bounding box, and failed on fractional bounding boxes, which are now rounded up.
+
+## 0.5.0 - 2021-12-18
+
+### Added
+
+- `Svg` type to add SVG files to the PDF and place them on the page.
+
+### Changed
+
+- `embedded_images` is no longer a default feature.
+- The default PDF conformance no longer embeds an entire ICC colour profile, which saves file size.
+
+## 0.4.1 - 2021-09-19
+
+### Added
+
+- `PdfDocument::save_to_bytes()` saves the document to a `Vec<u8>` (#101).
+
+## 0.4.0 - 2021-06-24
+
+### Changed
+
+- Re-release of 0.3.4 to fix semver breakage. No other changes.
+
+## 0.3.4 - 2020-12-16
+
+### Added
+
+- Bookmarks and clipping paths.
+- `PdfDocumentReference::with_creation_date` (#71).
+- `FontData` trait for custom font backends, with `add_external_font_data` and `ExternalFont::with_font_data`.
+
+### Changed
+
+- **Breaking:** the default `PdfConformance` no longer requires XMP metadata or an embedded ICC profile.
+- **Breaking:** text state operators take `f64` instead of `i64`, for fine-grained character and word spacing.
+- Fonts are stored in a `BTreeMap`, so output is reproducible.
+
+### Removed
+
+- The `Error::description` implementations.
+
+## 0.3.3 - 2020-10-17
+
+### Added
+
+- `write_codepoints` and `write_positioned_codepoints` on `PdfLayerReference`.
+- `less-optimization` feature, which turns off some compression and optimization in release builds.
+- `wasm32-unknown-unknown` support: a `date` module provides `OffsetDateTime` through js-sys.
+- `Div` for `Mm`, `Pt` and `Px`, and `From` conversions for `Pt` and `Mm` instead of `Into`.
+- JPEG images are written with the `DCTDecode` filter.
+
+### Changed
+
+- `PdfDocument::new` accepts different string types for the title and the initial layer name.
+- lopdf 0.24 to 0.26.
+
+### Fixed
+
+- Built-in fonts encoded text as UTF-8 instead of `WinAnsiEncoding`, which broke non-ASCII characters (#30).
+
+## 0.3.2 - 2020-02-28
+
+### Fixed
+
+- The width list in the font descriptor.
+
+## 0.3.1 - 2020-02-26
+
+### Changed
+
+- Update dependencies.
+
+### Fixed
+
+- Fonts on iOS and macOS.
+
+## 0.3.0 - 2020-01-03
+
+### Added
+
+- `PdfDocument::empty`.
+
+### Changed
+
+- Upgrade `rusttype` to 0.8.2. This breaks semver for non-`edition = "2019"` compilers, hence the new version.
+- Upgrade `time` to 0.2.1.
+
+## 0.2.12 - 2019-09-12
+
+### Changed
+
+- Upgrade `image` to 0.22.
+
+## 0.2.11 - 2019-08-14
+
+### Changed
+
+- Update `lopdf` (fixes #27).
+
+## 0.2.10 - 2018-10-06
+
+### Added
+
+- `ColorType::Palette` for indexed colours.
+
+### Changed
+
+- **Breaking:** creating an image from a `DynamicImage` can no longer fail, so it does not return a `Result`.
+- Upgrade `image` to 0.20.
+
+## 0.2.9 - 2018-09-19
+
+### Added
+
+- Function to create images from an `image::DynamicImage`.
+
+### Changed
+
+- **Breaking:** the `image` crate has the lesser-used formats ico, tga, hdr, dxt and webp disabled by default, so image decoding can fail at runtime unless you re-enable them. Enable `jpeg_rayon` for faster JPEG decoding.
+- The `image` dependency is optional.
+- Upgrade `lopdf` to 0.17, which drops the large `chrono` dependency. `cargo build --no-default-features` has 33 dependencies and a debug build takes roughly 20 seconds.
+
+### Removed
+
+- The unnecessary `rand` dependency.
+
+## 0.2.8 - 2018-08-03
+
+### Fixed
+
+- The Firefox PDF viewer works correctly, after a fix to the embedded TTF font type.
+
+## 0.2.7 - 2018-08-03
+
+### Fixed
+
+- Incorrect generation of character map files when embedding fonts (https://github.com/fschutt/printpdf/issues/20#issuecomment-409988462).
+
+## 0.2.6 - 2018-04-29
+
+### Added
+
+- `rusttype::Error` is publicly re-exported, so applications can handle it.
+
+### Changed
+
+- **Breaking:** the `error-chain` generated errors are replaced by simpler error enums.
+- Update `image` to 0.19.0 and `rand` to 0.5.0.
+
+### Removed
+
+- `FontError`, which was unused.
+
+## 0.2.5 - 2018-03-22
+
+### Added
+
+- `Pt` and `Mm` can be multiplied and divided by `f64`.
+- `utils::calculate_points_for_rect` and `utils::calculate_points_for_circle`.
+
+### Fixed
+
+- Word spacing in 0.2.3 and 0.2.4: the horizontal advance width was not taken into account.
+
+## 0.2.4 - 2018-02-13
+
+### Changed
+
+- Update dependencies, because `rusttype` was yanked and 0.2.3 no longer builds.
+
+## 0.2.3 - 2018-02-12
+
+### Changed
+
+- Use `rusttype`; freetype is no longer required, and printpdf builds on Windows without further setup.
+- **Breaking:** units are typed. Use `Pt(f64)`, `Mm(f64)` or `Px(f64)` instead of `f64`.
+- **Breaking:** `Line` has no `new()` function. Build it with `Line { has_stroke: true, ... }`.
+
+### Removed
+
+- **Breaking:** the `mm_to_pt!` and `pt_to_mm!` macros. Convert between the unit types instead.
+
+### Fixed
+
+- An ugly character-spacing hack.
+
+## 0.2.2 - 2018-02-05
+
+### Changed
+
+- `PdfDocument::save()` needs only `T: Write` instead of `T: Write + Seek`.
+
+### Removed
+
+- SVG functionality, which did not work.
+- The `num` dependency.
+
+## 0.2.1 - 2017-11-27
+
+### Added
+
+- `PdfDocument` implements `Clone`, so one document can be written to several outputs.
+- `CustomPdfConformance` can disable the automatic ICC profile embedding (see `examples/no_icc.rs`).
+
+### Changed
+
+- **Breaking:** `document.save()` needs a `BufWriter`.
+- `set_outline_thickness` accepts floating-point units.
