@@ -33,7 +33,7 @@ use crate::IccProfileId;
 
 /// Layout of the pixels of an image, with the PDF color space name it maps to.
 ///
-/// Used by [`crate::RawImageFormat::get_color_bits_and_space`]. It is not used for the colors of
+/// Used by `RawImageFormat::get_color_bits_and_space`. It is not used for the colors of
 /// vector graphics, see [`Color`] for those.
 #[derive(Debug, Copy, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]

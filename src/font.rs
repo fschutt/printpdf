@@ -30,9 +30,9 @@
 //! - [`ParsedFont`] is one parsed face. It always keeps the font file bytes it was parsed from,
 //!   because embedding writes those bytes (after subsetting) into the PDF.
 //! - [`PdfFont`] is a [`ParsedFont`] plus embedding settings ([`PrintpdfFontMeta`]). A document
-//!   stores them in its resources, keyed by [`FontId`](crate::FontId).
+//!   stores them in its resources, keyed by [`FontId`].
 //! - [`PdfDocument::add_font`](crate::PdfDocument::add_font) registers a font and returns its
-//!   [`FontId`](crate::FontId).
+//!   [`FontId`].
 //! - [`PdfFontHandle`](crate::PdfFontHandle) names the font of an
 //!   [`Op::SetFont`](crate::Op::SetFont): a [`BuiltinFont`] or an external `FontId`.
 //!

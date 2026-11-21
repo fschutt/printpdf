@@ -436,6 +436,25 @@ jobs:
           toolchain: stable
       - run: cargo test --manifest-path ppdf/Cargo.toml --verbose
 
+  # The documentation docs.rs builds (`all-features`). A broken link, an unclosed tag or an
+  # undocumented public item (`#![warn(missing_docs)]`) fails the build.
+  docs:
+    name: Documentation (rustdoc, no warnings)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
+      - run: cargo doc --no-deps --all-features
+        env:
+          RUSTDOCFLAGS: -D warnings
+      - run: cargo rustc --lib --all-features -- -D missing_docs
+
   # Static analysis of the workflows themselves (https://docs.zizmor.sh/, configured by .github/zizmor.yml):
   # every `uses:` is pinned to a full commit SHA, a pin is a commit of the action's own repository (not of a
   # fork) and its version comment names a tag that points at it (the online audits), and the usual checks for

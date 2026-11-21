@@ -1,5 +1,5 @@
 //! Shrinks a finished PDF (the bytes of a file, not a [`PdfDocument`](crate::PdfDocument)):
-//! its bitmaps are encoded again ([`optimize_images`]) and redundant `/ActualText` entries are
+//! its bitmaps are encoded again (`optimize_images`) and redundant `/ActualText` entries are
 //! dropped ([`optimize_text`]). Pages, fonts and the text a reader extracts stay as they are.
 //!
 //! Use them on PDFs from other programs, or on your own output when size matters. A document
@@ -8,7 +8,7 @@
 //!
 //! | Function | Needs | Lossy |
 //! | --- | --- | --- |
-//! | [`optimize_images`] | `images` feature | depends on the options: JPEG, scaling and greyscale are, Flate is not |
+//! | `optimize_images` | `images` feature | depends on the options: JPEG, scaling and greyscale are, Flate is not |
 //! | [`optimize_text`] | nothing | no |
 //!
 //! # Examples

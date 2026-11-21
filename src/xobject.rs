@@ -18,8 +18,8 @@
 //! # Using one
 //!
 //! Register the object with [`PdfDocument::add_image`](crate::PdfDocument::add_image) or
-//! [`PdfDocument::add_xobject`](crate::PdfDocument::add_xobject). Both return an [`XObjectId`].
-//! Paint it with [`Op::UseXobject`](crate::Op::UseXobject) and an [`XObjectTransform`] that says
+//! [`PdfDocument::add_xobject`](crate::PdfDocument::add_xobject). Both return an [`XObjectId`](crate::XObjectId).
+//! Paint it with [`Op::UseXobject`] and an [`XObjectTransform`] that says
 //! where it goes. A complete example is on [`RawImage`].
 //!
 //! # Size and units

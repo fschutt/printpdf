@@ -20,6 +20,10 @@ All notable changes to printpdf are documented in this file. The format follows
 - The README example no longer shows `<head><header>` and `{builtin:pagenum}`, which the layout engine does not implement.
 - Write this changelog in one format for every release, and add the releases that had no entry.
 
+### Documentation
+
+- Rewrite the documentation of the public API in plain language for readers who are new to PDF. The crate root has a guide with a first program, and every module explains the part of PDF it covers. All 620 public items that had no documentation now have one, and `#![warn(missing_docs)]` keeps it that way. Remove history, issue numbers, pasted spec text and examples that did not compile; the 34 doctests all run.
+
 ### Removed
 
 - Unused files: the working notes of the image decoding change, `subset.ttf`, `build.sh`, a disabled shape test and two example files that were never registered. `CHANGELOG2.md` is merged into this file.

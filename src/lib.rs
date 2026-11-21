@@ -189,7 +189,7 @@
 //! | `html_multithreaded` | no | `html`, with fonts loaded on several threads. Not for WASM. |
 //! | `text_layout` | via `html` | Text shaping and font parsing with `azul-layout` ([`shape`], `text_shaping`, [`ParsedFont`] with full font metrics). |
 //! | `text_layout_hyphenation` | via `html` | `text_layout` with hyphenation dictionaries. |
-//! | `svg` | no | [`Svg::parse`] turns an SVG string into an XObject (via `svg2pdf`) and SVG inside HTML. Implies `html`. |
+//! | `svg` | no | `Svg::parse` turns an SVG string into an XObject (via `svg2pdf`) and SVG inside HTML. Implies `html`. |
 //! | `images` | no | Image decoding with the `image` crate ([`RawImage::decode_from_bytes`]); JPEG is always included. |
 //! | `png`, `gif`, `jpeg`, `bmp`, `tiff`, `webp`, `pnm`, `ico`, `tga`, `hdr`, `dds` | no | Enable that decoder of the `image` crate. Each implies `images`. |
 //! | `rayon` | no | Multithreaded image decoding. |
@@ -206,73 +206,55 @@
 //!
 //! The repository's `examples/` folder has runnable programs for most of these.
 
+#![warn(missing_docs)]
+
 use std::collections::BTreeMap;
 
 use serde_derive::{Deserialize, Serialize};
 
-/// Bookmarks, page and link annotation handling
 pub mod annotation;
 pub use annotation::*;
-/// /ToUnicode map serialization / parsing
 pub mod cmap;
 pub use cmap::*;
-/// Text encoding and decoding functions
 pub mod text;
 pub use text::*;
-/// WASM API functions
 pub mod wasm;
 pub use wasm::*;
-/// PDF conformance / PDF standards handling and validation
 pub mod conformance;
 pub use conformance::*;
-/// Transformation and text matrices
 pub mod matrix;
 pub use matrix::*;
-/// Typed PDF units (Pt, Mm, Px, etc.)
 pub mod units;
 pub use units::*;
-/// Date parsing and serializiation
 pub mod date;
 pub use date::*;
-/// Font and codepoint handling
 pub mod font;
 pub use font::*;
-/// Text shaping, to position text manually
 pub mod shape;
 pub use shape::*;
-/// Point / line / polygon handling
 pub mod graphics;
 pub use graphics::*;
-/// Axial / radial shadings (gradients)
 pub mod shading;
 pub use shading::*;
-/// Page operations
 pub mod ops;
 pub mod text_boxes;
 pub use ops::*;
-/// Color handling
 pub mod color;
 pub use color::*;
-/// XObject handling
 pub mod xobject;
 pub use xobject::*;
-/// Image types (always available)
 pub mod image_types;
 pub use image_types::*;
-/// SVG handling
 #[cfg(feature = "svg")]
 pub mod svg;
 #[cfg(feature = "svg")]
 pub use svg::*;
-/// Image decoding (requires 'images' feature)
 #[cfg(feature = "images")]
 pub mod image;
 #[cfg(feature = "images")]
 pub use image::*;
-/// Shrinking a finished PDF: its pictures (requires 'images' feature) and its /ActualText
 pub mod optimize;
 pub use optimize::*;
-/// HTML handling (using azul solver3 and DisplayList)
 #[cfg(feature = "html")]
 pub mod html;
 #[cfg(feature = "html")]
@@ -288,23 +270,17 @@ pub mod text_shaping {
     #[cfg(feature = "html")]
     pub use crate::html::bridge::render_unified_layout_public;
 }
-/// HTML component definitions
 #[cfg(feature = "html")]
 pub mod components;
 #[cfg(feature = "html")]
 pub use components::*;
-/// Utility functions (random strings, numbers, timestamp formatting)
 pub mod utils;
 use utils::*;
-/// Core utils for writing PDF
 pub mod serialize;
 /// Op clean-up the serializer runs with `PdfSaveOptions::optimize`
 mod text_merge;
 pub use serialize::*;
-/// Interactive forms (AcroForm): read the fields, fill / flatten them, stamp
-/// drawings (signatures) onto pages - on the PDF's own bytes
 pub mod forms;
-/// Core utils for parsing PDF
 pub mod deserialize;
 pub use deserialize::*;
 /// Rendering PDF to SVG (always available)

@@ -29,7 +29,7 @@
 //! [`PdfSaveOptions::image_optimization`](crate::PdfSaveOptions::image_optimization)
 //! ([`ImageOptimizationOptions`]) chooses the filter and whether the image is shrunk. Without
 //! the `images` feature, pixels are written as 8-bit samples with `FlateDecode`.
-//! [`optimize_images`](crate::optimize_images) applies the same encoding to a finished PDF.
+//! `optimize_images` applies the same encoding to a finished PDF.
 
 use serde_derive::{Deserialize, Serialize};
 

@@ -1,13 +1,13 @@
 //! Component definitions that printpdf adds to azul's HTML component map.
 //!
 //! When printpdf turns HTML into a PDF, azul parses the markup into a DOM and looks up each tag
-//! in a [`ComponentMap`]. azul's builtin library already covers the standard HTML tags
+//! in a `ComponentMap`. azul's builtin library already covers the standard HTML tags
 //! (`html`, `body`, `div`, `h1` to `h6`, `p`, `span`, `table`, `a`, `ul`, `li` and so on), so this
 //! module only defines two extra components, `<img>` and `<component>`, in a `"printpdf"`
 //! library. [`printpdf_default_components`] returns the builtin map with that library appended.
 //!
 //! The definitions are descriptive: azul's `str_to_dom` maps tags to node types directly and does
-//! not call [`ComponentDef::render_fn`], so the render functions here only produce an empty
+//! not call `ComponentDef::render_fn`, so the render functions here only produce an empty
 //! `<div>`. Images are drawn later, when the [`crate::html::bridge`] walks the display list.
 
 use azul_core::{
@@ -151,7 +151,7 @@ pub fn printpdf_component_library() -> ComponentLibrary {
     }
 }
 
-/// Returns azul's builtin [`ComponentMap`] with [`printpdf_component_library`] appended.
+/// Returns azul's builtin `ComponentMap` with [`printpdf_component_library`] appended.
 ///
 /// The HTML renderer passes this map to azul when it parses a document.
 pub fn printpdf_default_components() -> ComponentMap {
