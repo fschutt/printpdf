@@ -425,11 +425,10 @@ pub fn to_lopdf_doc(
         let first = bookmark_ids.first().map(|s| s.3);
         let last = bookmark_ids.last().map(|s| s.3);
         for (i, (_id, name, pageid, self_id)) in bookmark_ids.iter().enumerate() {
-            let prev = if i == 0 {
-                None
-            } else {
-                bookmark_ids.get(i - 1).map(|s| s.3)
-            };
+            let prev = i
+                .checked_sub(1)
+                .and_then(|prev| bookmark_ids.get(prev))
+                .map(|s| s.3);
             let next = bookmark_ids.get(i + 1).map(|s| s.3);
             let dest = Array(vec![Reference(*(*pageid)), "XYZ".into(), Null, Null, Null]);
             let mut dict = LoDictionary::from_iter(vec![
@@ -643,16 +642,15 @@ pub(crate) fn translate_operations(
 
                     match pending_tm.take() {
                         Some(m) => {
-                            let extends = glyph_run.as_ref().is_some_and(|r| {
+                            let extending = glyph_run.as_mut().filter(|r| {
                                 r.matrix[5] == m[5]
                                     && r.font_res == font_res
                                     && r.font_size == fs
                             });
-                            if extends {
+                            if let Some(r) = extending {
                                 // Same baseline: a kern number moves the pen from
                                 // wherever the previous glyph left it to this op's
                                 // absolute x (TJ numbers translate by -n/1000 em).
-                                let r = glyph_run.as_mut().unwrap();
                                 let dx_em = (m[4] as f64 - r.matrix[4] as f64) * 1000.0
                                     / fs as f64;
                                 // Whole thousandths of an em: the layout's positions and
@@ -689,7 +687,10 @@ pub(crate) fn translate_operations(
                         }
                     }
 
-                    let r = glyph_run.as_mut().unwrap();
+                    // Set by the match above in every branch that gets here.
+                    let Some(r) = glyph_run.as_mut() else {
+                        break 'merge false;
+                    };
                     for item in items {
                         match item {
                             TextItem::Offset(o) => {
@@ -712,7 +713,8 @@ pub(crate) fn translate_operations(
                                     }
                                 }
                             }
-                            TextItem::Text(_) => unreachable!("filtered by glyphs_only"),
+                            // `glyphs_only` excluded text items above.
+                            TextItem::Text(_) => {}
                         }
                     }
                     true
@@ -1359,69 +1361,44 @@ fn line_to_stream_ops(line: &Line) -> Vec<LoOp> {
     pub const OP_PATH_CLOSE: &str = "h";
 
     let mut operations = Vec::new();
-    let points = &line.points;
 
-    if points.is_empty() {
+    let Some((first, mut rest)) = line.points.split_first() else {
         return operations;
-    }
+    };
 
     // Start with a move to the first point
     operations.push(LoOp::new(
         OP_PATH_CONST_MOVE_TO,
-        vec![points[0].p.x.into(), points[0].p.y.into()],
+        vec![first.p.x.into(), first.p.y.into()],
     ));
 
     // Process remaining points
-    let mut i = 1;
-    while i < points.len() {
-        let current = &points[i];
-
-        if current.bezier {
-            // Current point is a bezier handle
-            // For a cubic bezier, we need two control points and an end point
-            if i + 2 < points.len() {
-                let control1 = current;
-                let control2 = &points[i + 1];
-                let end_point = &points[i + 2];
-
-                // Check if second control point is also a bezier handle
-                if control2.bezier {
-                    // Two bezier handles followed by an end point
-                    operations.push(LoOp::new(
-                        OP_PATH_CONST_4BEZIER,
-                        vec![
-                            control1.p.x.into(),
-                            control1.p.y.into(),
-                            control2.p.x.into(),
-                            control2.p.y.into(),
-                            end_point.p.x.into(),
-                            end_point.p.y.into(),
-                        ],
-                    ));
-                    i += 3; // Skip past the control points and end point
-                } else {
-                    // Only one bezier handle - treat as a line to be safe
-                    operations.push(LoOp::new(
-                        OP_PATH_CONST_LINE_TO,
-                        vec![current.p.x.into(), current.p.y.into()],
-                    ));
-                    i += 1;
-                }
-            } else {
-                // Not enough points left for a bezier curve
+    while let Some((current, tail)) = rest.split_first() {
+        match tail {
+            // A bezier handle followed by a second handle and an end point is a cubic curve
+            [control2, end_point, after @ ..] if current.bezier && control2.bezier => {
+                operations.push(LoOp::new(
+                    OP_PATH_CONST_4BEZIER,
+                    vec![
+                        current.p.x.into(),
+                        current.p.y.into(),
+                        control2.p.x.into(),
+                        control2.p.y.into(),
+                        end_point.p.x.into(),
+                        end_point.p.y.into(),
+                    ],
+                ));
+                rest = after;
+            }
+            // A regular point, or a handle that has no second handle and end point after it:
+            // a straight line
+            _ => {
                 operations.push(LoOp::new(
                     OP_PATH_CONST_LINE_TO,
                     vec![current.p.x.into(), current.p.y.into()],
                 ));
-                i += 1;
+                rest = tail;
             }
-        } else {
-            // Regular point - draw a straight line
-            operations.push(LoOp::new(
-                OP_PATH_CONST_LINE_TO,
-                vec![current.p.x.into(), current.p.y.into()],
-            ));
-            i += 1;
         }
     }
 
@@ -1455,69 +1432,43 @@ fn polygon_to_stream_ops(poly: &Polygon) -> Vec<LoOp> {
     }
 
     for ring in &poly.rings {
-        let points = &ring.points;
-
-        if points.is_empty() {
+        let Some((first, mut rest)) = ring.points.split_first() else {
             continue;
-        }
+        };
 
         // Start with a move to the first point
         operations.push(LoOp::new(
             OP_PATH_CONST_MOVE_TO,
-            vec![points[0].p.x.into(), points[0].p.y.into()],
+            vec![first.p.x.into(), first.p.y.into()],
         ));
 
         // Process remaining points
-        let mut i = 1;
-        while i < points.len() {
-            let current = &points[i];
-
-            if current.bezier {
-                // Current point is a bezier handle
-                // For a cubic bezier, we need two control points and an end point
-                if i + 2 < points.len() {
-                    let control1 = current;
-                    let control2 = &points[i + 1];
-                    let end_point = &points[i + 2];
-
-                    // Check if second control point is also a bezier handle
-                    if control2.bezier {
-                        // Two bezier handles followed by an end point
-                        operations.push(LoOp::new(
-                            OP_PATH_CONST_4BEZIER,
-                            vec![
-                                control1.p.x.into(),
-                                control1.p.y.into(),
-                                control2.p.x.into(),
-                                control2.p.y.into(),
-                                end_point.p.x.into(),
-                                end_point.p.y.into(),
-                            ],
-                        ));
-                        i += 3; // Skip past the control points and end point
-                    } else {
-                        // Only one bezier handle - treat as a line to be safe
-                        operations.push(LoOp::new(
-                            OP_PATH_CONST_LINE_TO,
-                            vec![current.p.x.into(), current.p.y.into()],
-                        ));
-                        i += 1;
-                    }
-                } else {
-                    // Not enough points left for a bezier curve
+        while let Some((current, tail)) = rest.split_first() {
+            match tail {
+                // A bezier handle followed by a second handle and an end point is a cubic curve
+                [control2, end_point, after @ ..] if current.bezier && control2.bezier => {
+                    operations.push(LoOp::new(
+                        OP_PATH_CONST_4BEZIER,
+                        vec![
+                            current.p.x.into(),
+                            current.p.y.into(),
+                            control2.p.x.into(),
+                            control2.p.y.into(),
+                            end_point.p.x.into(),
+                            end_point.p.y.into(),
+                        ],
+                    ));
+                    rest = after;
+                }
+                // A regular point, or a handle that has no second handle and end point after
+                // it: a straight line
+                _ => {
                     operations.push(LoOp::new(
                         OP_PATH_CONST_LINE_TO,
                         vec![current.p.x.into(), current.p.y.into()],
                     ));
-                    i += 1;
+                    rest = tail;
                 }
-            } else {
-                // Regular point - draw a straight line
-                operations.push(LoOp::new(
-                    OP_PATH_CONST_LINE_TO,
-                    vec![current.p.x.into(), current.p.y.into()],
-                ));
-                i += 1;
             }
         }
     }
@@ -1901,7 +1852,7 @@ fn get_normalized_widths(
             current_low_code = code;
             current_high_code = code;
             current_width_vec.push(glyph_width);
-        } else if code == current_high_code + 1 {
+        } else if current_high_code.checked_add(1) == Some(code) {
             current_high_code = code;
             current_width_vec.push(glyph_width);
         } else {

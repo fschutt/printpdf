@@ -113,16 +113,17 @@ fn merge_text_objects(ops: &[Op]) -> Vec<Op> {
     let mut font = None;
     let mut fill = None;
     let mut i = 0;
-    while i < ops.len() {
-        let op = &ops[i];
+    while let Some(op) = ops.get(i) {
         if let Op::EndTextSection = op {
             let mut j = i + 1;
-            while j < ops.len() && is_text_state(&ops[j]) {
+            while ops.get(j).is_some_and(is_text_state) {
                 j += 1;
             }
-            if matches!(ops.get(j), Some(Op::StartTextSection)) && positions_first(&ops[j + 1..]) {
+            if matches!(ops.get(j), Some(Op::StartTextSection))
+                && ops.get(j + 1..).is_some_and(positions_first)
+            {
                 // keep the text object open: the state ops stay, ET and BT go
-                for state in &ops[i + 1..j] {
+                for state in ops.get(i + 1..j).unwrap_or_default() {
                     push_state(state, &mut out, &mut font, &mut fill);
                 }
                 i = j + 1;
@@ -176,13 +177,21 @@ fn merge_actual_text_spans(ops: Vec<Op>) -> Vec<Op> {
     // the last closed /ActualText span, while only text state has followed its EMC
     let mut previous: Option<(usize, usize, Option<f32>)> = None; // (BDC index, EMC index, baseline)
     for (k, op) in ops.iter().enumerate() {
+        let span_text = actual_text(op);
         match op {
-            Op::BeginMarkedContentWithProperties { .. } if actual_text(op).is_some() => {
-                let baseline = span_baseline(&ops[k + 1..]);
+            Op::BeginMarkedContentWithProperties { .. } if span_text.is_some() => {
+                let baseline = span_baseline(ops.get(k + 1..).unwrap_or_default());
                 if let Some((bdc, emc, prev_baseline)) = previous.take() {
                     if baseline.is_some() && baseline == prev_baseline {
-                        out.remove(emc);
-                        append_actual_text(&mut out[bdc], &actual_text(op).unwrap()[2..]);
+                        // `actual_text` only accepts text that starts with the byte order mark.
+                        let more = span_text.and_then(|text| text.get(2..)).unwrap_or_default();
+                        // `bdc` and `emc` were taken from `out`, which only grew since.
+                        if emc < out.len() {
+                            out.remove(emc);
+                        }
+                        if let Some(span_start) = out.get_mut(bdc) {
+                            append_actual_text(span_start, more);
+                        }
                         open.push(Some((bdc, baseline)));
                         continue;
                     }
@@ -198,7 +207,9 @@ fn merge_actual_text_spans(ops: Vec<Op>) -> Vec<Op> {
             Op::EndMarkedContent | Op::EndMarkedContentWithProperties => {
                 out.push(op.clone());
                 previous = match open.pop() {
-                    Some(Some((bdc, baseline))) => Some((bdc, out.len() - 1, baseline)),
+                    Some(Some((bdc, baseline))) => {
+                        Some((bdc, out.len().saturating_sub(1), baseline))
+                    }
                     _ => None,
                 };
             }
