@@ -51,7 +51,13 @@
 //! and operator the message is about are in [`PdfWarnMsg::page`] and [`PdfWarnMsg::op_id`].
 //! Parsing returns `Err` only when the document cannot be walked at all: lopdf cannot load the
 //! file, the trailer has no `/Root`, the catalog or its `/Pages` entry is missing or has the
-//! wrong type, a page-tree node has no `/Kids`, or a page object cannot be resolved.
+//! wrong type, or a page-tree node has no `/Kids`. A page object that cannot be read leaves an
+//! empty page.
+//!
+//! Input that asks for unreasonable amounts of memory is skipped with a warning: a stream that
+//! decodes to more than 256 MiB, and the references inside preserved XObjects once copying them
+//! has produced more than a fixed number of objects or bytes for the document (the rest become
+//! `null`).
 //!
 //! # Examples
 //!
@@ -368,13 +374,33 @@ fn parse_pdf_from_bytes_end(
         .collect();
 
     for (i, page_ref) in page_refs.into_iter().enumerate() {
-        let page_obj = doc
+        let parsed = doc
             .get_object(page_ref)
-            .map_err(|e| format!("Failed to get page object: {}", e))?
-            .as_dict()
-            .map_err(|e| format!("Page object is not a dictionary: {}", e))?;
+            .map_err(|e| format!("Failed to get page object: {}", e))
+            .and_then(|obj| {
+                obj.as_dict()
+                    .map_err(|e| format!("Page object is not a dictionary: {}", e))
+            })
+            .and_then(|page_obj| parse_page(i, page_obj, &doc, &xobjects, &font_decode, warnings));
 
-        let pdf_page = parse_page(i, page_obj, &doc, &xobjects, &font_decode, warnings)?;
+        // A page that cannot be read stays in the list as an empty page: the page numbers of
+        // the bookmarks and links refer to the position in the list.
+        let pdf_page = match parsed {
+            Ok(page) => page,
+            Err(e) => {
+                warnings.push(PdfWarnMsg::error(
+                    i,
+                    0,
+                    format!("Page {} could not be read, it is left empty: {e}", i + 1),
+                ));
+                PdfPage {
+                    media_box: default_media_box(),
+                    trim_box: default_media_box(),
+                    crop_box: default_media_box(),
+                    ops: Vec::new(),
+                }
+            }
+        };
 
         pages.push(pdf_page);
     }
@@ -391,7 +417,7 @@ fn parse_pdf_from_bytes_end(
         }
     }
 
-    let bookmarks = links_and_bookmarks::extract_bookmarks(&doc);
+    let bookmarks = links_and_bookmarks::extract_bookmarks(&doc, warnings);
     let layers = layers::extract_layers(&doc);
     // `BDC /OC /Name` refers to a layer by its resource name under the page's /Properties, so the
     // layer map is keyed by those names. A layer without one gets `layer_<index>`.
@@ -639,32 +665,42 @@ fn apply_smask_to_rawimage(mut img: RawImage, smask: SMaskData) -> RawImage {
     if smask.width != img.width || smask.height != img.height {
         return img;
     }
-    let expected = img.width * img.height;
+    let Some(expected) = img.width.checked_mul(img.height) else {
+        return img;
+    };
     if smask.gray.len() < expected {
         return img;
     }
     match (&img.data_format, &img.pixels) {
         (RawImageFormat::RGB8, RawImageData::U8(rgb)) => {
-            if rgb.len() < expected * 3 {
+            let (Some(rgb_len), Some(rgba_len)) =
+                (expected.checked_mul(3), expected.checked_mul(4))
+            else {
+                return img;
+            };
+            if rgb.len() < rgb_len {
                 return img;
             }
-            let mut rgba = Vec::with_capacity(expected * 4);
-            for i in 0..expected {
-                rgba.extend_from_slice(&rgb[i * 3..i * 3 + 3]);
-                rgba.push(smask.gray[i]);
+            let mut rgba = Vec::with_capacity(rgba_len);
+            for (pixel, alpha) in rgb.chunks_exact(3).zip(&smask.gray).take(expected) {
+                rgba.extend_from_slice(pixel);
+                rgba.push(*alpha);
             }
             img.pixels = RawImageData::U8(rgba);
             img.data_format = RawImageFormat::RGBA8;
             img
         }
         (RawImageFormat::R8, RawImageData::U8(gray)) => {
+            let Some(ga_len) = expected.checked_mul(2) else {
+                return img;
+            };
             if gray.len() < expected {
                 return img;
             }
-            let mut ga = Vec::with_capacity(expected * 2);
-            for i in 0..expected {
-                ga.push(gray[i]);
-                ga.push(smask.gray[i]);
+            let mut ga = Vec::with_capacity(ga_len);
+            for (value, alpha) in gray.iter().zip(&smask.gray).take(expected) {
+                ga.push(*value);
+                ga.push(*alpha);
             }
             img.pixels = RawImageData::U8(ga);
             img.data_format = RawImageFormat::RG8;
@@ -805,19 +841,19 @@ fn parse_shading_dict(
             _ => None,
         }
     }
-    fn num_array(doc: &LopdfDocument, o: &LopdfObject, n: usize) -> Option<Vec<f32>> {
+    fn num_array<const N: usize>(doc: &LopdfDocument, o: &LopdfObject) -> Option<[f32; N]> {
         let o = match o {
             LopdfObject::Reference(r) => doc.get_object(*r).ok()?,
             other => other,
         };
         let arr = o.as_array().ok()?;
         let v: Vec<f32> = arr.iter().filter_map(as_f32).collect();
-        (v.len() == n).then_some(v)
+        <[f32; N]>::try_from(v).ok()
     }
     fn rgb(v: &[f32]) -> [f32; 3] {
-        match v.len() {
-            1 => [v[0], v[0], v[0]], // DeviceGray
-            3 => [v[0], v[1], v[2]],
+        match *v {
+            [gray] => [gray, gray, gray], // DeviceGray
+            [r, g, b] => [r, g, b],
             _ => [0.0, 0.0, 0.0],
         }
     }
@@ -843,24 +879,20 @@ fn parse_shading_dict(
 
     let geometry = match shading_type {
         2 => {
-            let c = dict
+            let coords = dict
                 .get(b"Coords")
                 .ok()
-                .and_then(|o| num_array(doc, o, 4))
+                .and_then(|o| num_array::<4>(doc, o))
                 .ok_or("axial shading without 4-element Coords")?;
-            crate::ShadingGeometry::Axial {
-                coords: [c[0], c[1], c[2], c[3]],
-            }
+            crate::ShadingGeometry::Axial { coords }
         }
         3 => {
-            let c = dict
+            let coords = dict
                 .get(b"Coords")
                 .ok()
-                .and_then(|o| num_array(doc, o, 6))
+                .and_then(|o| num_array::<6>(doc, o))
                 .ok_or("radial shading without 6-element Coords")?;
-            crate::ShadingGeometry::Radial {
-                coords: [c[0], c[1], c[2], c[3], c[4], c[5]],
-            }
+            crate::ShadingGeometry::Radial { coords }
         }
         other => return Err(format!("unsupported ShadingType {other}")),
     };
@@ -1086,6 +1118,53 @@ async fn process_xobjects_async(
 /// reference path stack, not the depth cap.
 const MAX_RESOLVE_DEPTH: usize = 96;
 
+/// Most objects that inlining references into the preserved XObjects of one document may copy.
+const MAX_INLINED_NODES: usize = 2_000_000;
+
+/// Most bytes of nested streams and strings that the same inlining may copy for one document.
+const MAX_INLINED_BYTES: usize = 256 * 1024 * 1024;
+
+/// What is left of the inlining budget of one document.
+///
+/// Inlining copies an object every time it is reached, so objects that are shared at many
+/// levels (each level refers to the next one twice) multiply: a few kilobytes of input can
+/// stand for more copies than fit in memory. Once the budget is spent, the rest becomes `null`.
+struct InlineBudget {
+    nodes: usize,
+    bytes: usize,
+    /// Something was replaced by `null` because the budget ran out.
+    exhausted: bool,
+    /// The warning about it has been written.
+    reported: bool,
+}
+
+impl InlineBudget {
+    fn new() -> Self {
+        InlineBudget {
+            nodes: MAX_INLINED_NODES,
+            bytes: MAX_INLINED_BYTES,
+            exhausted: false,
+            reported: false,
+        }
+    }
+
+    /// Takes one object that holds `bytes` bytes of data. Returns `false` when the budget does
+    /// not cover it.
+    fn take(&mut self, bytes: usize) -> bool {
+        match (self.nodes.checked_sub(1), self.bytes.checked_sub(bytes)) {
+            (Some(nodes), Some(left)) => {
+                self.nodes = nodes;
+                self.bytes = left;
+                true
+            }
+            _ => {
+                self.exhausted = true;
+                false
+            }
+        }
+    }
+}
+
 /// Convert a lopdf object into a [`DictItem`], resolving indirect references
 /// by *inlining* the referenced objects.
 ///
@@ -1099,14 +1178,25 @@ const MAX_RESOLVE_DEPTH: usize = 96;
 ///
 /// `ref_path` holds the reference ids currently being resolved (the *path*,
 /// not all visited ids — legitimate documents share objects diamond-style);
-/// re-entering an id on the same path is a cycle and yields `Null`.
+/// re-entering an id on the same path is a cycle and yields `Null`. Every object copied is
+/// taken from `budget`; when it is spent the rest yields `Null` as well.
 fn dictitem_from_lopdf_resolved(
     doc: &LopdfDocument,
     obj: &LopdfObject,
     depth: usize,
     ref_path: &mut Vec<ObjectId>,
+    budget: &mut InlineBudget,
 ) -> DictItem {
     if depth > MAX_RESOLVE_DEPTH {
+        return DictItem::Null;
+    }
+    let bytes = match obj {
+        Object::String(s, _) => s.len(),
+        Object::Name(n) => n.len(),
+        Object::Stream(s) => s.content.len(),
+        _ => 0,
+    };
+    if !budget.take(bytes) {
         return DictItem::Null;
     }
     match obj {
@@ -1118,7 +1208,8 @@ fn dictitem_from_lopdf_resolved(
             match doc.get_object(*r) {
                 Ok(target) => {
                     ref_path.push(*r);
-                    let item = dictitem_from_lopdf_resolved(doc, target, depth + 1, ref_path);
+                    let item =
+                        dictitem_from_lopdf_resolved(doc, target, depth + 1, ref_path, budget);
                     ref_path.pop();
                     item
                 }
@@ -1128,7 +1219,7 @@ fn dictitem_from_lopdf_resolved(
         Object::Array(objects) => DictItem::Array(
             objects
                 .iter()
-                .map(|o| dictitem_from_lopdf_resolved(doc, o, depth + 1, ref_path))
+                .map(|o| dictitem_from_lopdf_resolved(doc, o, depth + 1, ref_path, budget))
                 .collect(),
         ),
         Object::Dictionary(dict) => DictItem::Dict {
@@ -1137,13 +1228,13 @@ fn dictitem_from_lopdf_resolved(
                 .map(|(k, v)| {
                     (
                         String::from_utf8_lossy(k).to_string(),
-                        dictitem_from_lopdf_resolved(doc, v, depth + 1, ref_path),
+                        dictitem_from_lopdf_resolved(doc, v, depth + 1, ref_path, budget),
                     )
                 })
                 .collect(),
         },
         Object::Stream(stream) => DictItem::Stream {
-            stream: external_stream_preserved(doc, stream, depth + 1, ref_path),
+            stream: external_stream_preserved(doc, stream, depth + 1, ref_path, budget),
         },
         other => DictItem::from_lopdf(other),
     }
@@ -1158,6 +1249,7 @@ fn external_stream_preserved(
     stream: &LopdfStream,
     depth: usize,
     ref_path: &mut Vec<ObjectId>,
+    budget: &mut InlineBudget,
 ) -> ExternalStream {
     let dict = stream
         .dict
@@ -1166,7 +1258,7 @@ fn external_stream_preserved(
         .map(|(k, v)| {
             (
                 String::from_utf8_lossy(k).to_string(),
-                dictitem_from_lopdf_resolved(doc, v, depth, ref_path),
+                dictitem_from_lopdf_resolved(doc, v, depth, ref_path, budget),
             )
         })
         .collect();
@@ -1179,10 +1271,32 @@ fn external_stream_preserved(
     }
 }
 
-/// Preserve an XObject stream verbatim for the round trip.
-fn preserve_xobject_stream(doc: &LopdfDocument, stream: &LopdfStream) -> ExternalXObject {
+/// Preserve an XObject stream verbatim for the round trip. Pushes a warning, once per document,
+/// when `budget` ran out while copying the references of the stream.
+fn preserve_xobject_stream(
+    doc: &LopdfDocument,
+    stream: &LopdfStream,
+    xobject_id: &XObjectId,
+    page: usize,
+    budget: &mut InlineBudget,
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> ExternalXObject {
+    let stream = external_stream_preserved(doc, stream, 0, &mut Vec::new(), budget);
+    if budget.exhausted && !budget.reported {
+        budget.reported = true;
+        warnings.push(PdfWarnMsg::warning(
+            page,
+            0,
+            format!(
+                "XObject {}: the references inside it exceed the limit for one document \
+                 ({MAX_INLINED_NODES} objects or {MAX_INLINED_BYTES} bytes); the rest are \
+                 replaced by null",
+                xobject_id.0
+            ),
+        ));
+    }
     ExternalXObject {
-        stream: external_stream_preserved(doc, stream, 0, &mut Vec::new()),
+        stream,
         // Leave width/height/dpi unset: placement comes from the content
         // stream's own `cm` + the preserved `/BBox`/`/Matrix`, and a `Some`
         // width/height would make the serializer inject an extra scale.
@@ -1253,8 +1367,61 @@ fn stream_filters(stream: &LopdfStream) -> Vec<Vec<u8>> {
     }
 }
 
+/// Most bytes one stream of the input document may decode to. A few kilobytes of Flate data can
+/// stand for gigabytes, so every stream that is decoded here is bounded.
+const MAX_STREAM_BYTES: usize = 256 * 1024 * 1024;
+
+/// How [`decode_limited`] ended.
+enum Decoded {
+    Data(Vec<u8>),
+    /// A filter of the stream cannot be undone, or its data is damaged.
+    Undecodable,
+    /// The decoded data would be larger than the limit.
+    TooLarge,
+}
+
+/// Decodes the filters of `stream` into at most `limit` bytes.
+fn decode_limited(stream: &LopdfStream, limit: usize) -> Decoded {
+    match stream.decompressed_content_with_limit(limit) {
+        Ok(data) => Decoded::Data(data),
+        Err(lopdf::Error::Decompress(lopdf::DecompressError::MemoryLimitExceeded { .. })) => {
+            Decoded::TooLarge
+        }
+        Err(_) => Decoded::Undecodable,
+    }
+}
+
+/// The decoded bytes of `stream`, or its stored bytes when a filter cannot be undone. Pushes a
+/// warning that names `what` and returns `None` when the decoded data is larger than `limit`
+/// bytes.
+fn decode_stream(
+    stream: &LopdfStream,
+    limit: usize,
+    what: &str,
+    page: usize,
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> Option<Vec<u8>> {
+    match decode_limited(stream, limit) {
+        Decoded::Data(data) => Some(data),
+        Decoded::Undecodable => Some(stream.content.clone()),
+        Decoded::TooLarge => {
+            warnings.push(PdfWarnMsg::error(
+                page,
+                0,
+                format!("{what}: the decoded stream is larger than {limit} bytes; skipped"),
+            ));
+            None
+        }
+    }
+}
+
 /// Resolve and decode the `/SMask` of an image stream to 8-bit gray alpha.
-fn extract_smask(doc: &LopdfDocument, stream: &LopdfStream) -> Option<SMaskData> {
+fn extract_smask(
+    doc: &LopdfDocument,
+    stream: &LopdfStream,
+    page_num: usize,
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> Option<SMaskData> {
     let smask_obj = stream.dict.get(b"SMask").ok()?;
     let smask_stream = match smask_obj {
         Object::Reference(r) => match doc.get_object(*r).ok()? {
@@ -1264,8 +1431,8 @@ fn extract_smask(doc: &LopdfDocument, stream: &LopdfStream) -> Option<SMaskData>
         Object::Stream(s) => s,
         _ => return None,
     };
-    let width = smask_stream.dict.get(b"Width").ok()?.as_i64().ok()? as usize;
-    let height = smask_stream.dict.get(b"Height").ok()?.as_i64().ok()? as usize;
+    let width = usize::try_from(smask_stream.dict.get(b"Width").ok()?.as_i64().ok()?).ok()?;
+    let height = usize::try_from(smask_stream.dict.get(b"Height").ok()?.as_i64().ok()?).ok()?;
     let bpc = smask_stream
         .dict
         .get(b"BitsPerComponent")
@@ -1275,10 +1442,14 @@ fn extract_smask(doc: &LopdfDocument, stream: &LopdfStream) -> Option<SMaskData>
     if bpc != 8 {
         return None;
     }
-    let gray = smask_stream
-        .decompressed_content()
-        .unwrap_or_else(|_| smask_stream.content.clone());
-    if gray.len() < width * height {
+    // The data cannot be larger than a stream may decode to, so a mask that declares more is
+    // incomplete.
+    let size = width.checked_mul(height)?;
+    if size > MAX_STREAM_BYTES {
+        return None;
+    }
+    let gray = decode_stream(smask_stream, MAX_STREAM_BYTES, "SMask", page_num, warnings)?;
+    if gray.len() < size {
         return None;
     }
     Some(SMaskData {
@@ -1294,15 +1465,26 @@ fn extract_smask(doc: &LopdfDocument, stream: &LopdfStream) -> Option<SMaskData>
 /// path is what makes printpdf's own output round-trippable: the pixel data
 /// carries no container magic bytes, so `RawImage::decode_from_bytes` (which
 /// sniffs PNG/JPEG/... signatures) can never decode it.
+#[cfg(feature = "images")]
 pub(crate) fn raw_bitmap_from_stream(
     doc: &LopdfDocument,
     stream: &LopdfStream,
 ) -> Option<RawImage> {
+    raw_bitmap_from_stream_in(doc, stream, 0, &mut Vec::new())
+}
+
+/// [`raw_bitmap_from_stream`], with the page and the warnings of the parse that reads the image.
+fn raw_bitmap_from_stream_in(
+    doc: &LopdfDocument,
+    stream: &LopdfStream,
+    page_num: usize,
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> Option<RawImage> {
     use crate::image_types::{RawImageData, RawImageFormat};
 
-    let width = stream.dict.get(b"Width").ok()?.as_i64().ok()? as usize;
-    let height = stream.dict.get(b"Height").ok()?.as_i64().ok()? as usize;
-    if width == 0 || height == 0 || width.checked_mul(height).is_none() {
+    let width = usize::try_from(stream.dict.get(b"Width").ok()?.as_i64().ok()?).ok()?;
+    let height = usize::try_from(stream.dict.get(b"Height").ok()?.as_i64().ok()?).ok()?;
+    if width == 0 || height == 0 {
         return None;
     }
     let bpc = stream
@@ -1311,6 +1493,12 @@ pub(crate) fn raw_bitmap_from_stream(
         .ok()
         .and_then(|o| o.as_i64().ok())
         .unwrap_or(8);
+    // Samples of 8 and 16 bits are read; other depths are kept as they are.
+    let bytes_per_sample: usize = match bpc {
+        8 => 1,
+        16 => 2,
+        _ => return None,
+    };
     let components = colorspace_components(doc, stream.dict.get(b"ColorSpace").ok()?, 0)?;
     // /ImageMask stencils and predictor-encoded data have extra semantics the
     // raw path does not model; preserve those streams instead.
@@ -1330,8 +1518,20 @@ pub(crate) fn raw_bitmap_from_stream(
         }
     }
 
-    let data = stream.decompressed_content().ok()?;
-    let expected = width * height * components * (bpc as usize / 8).max(1);
+    // The data cannot be larger than a stream may decode to, so a bitmap that declares more is
+    // incomplete.
+    let expected = width
+        .checked_mul(height)?
+        .checked_mul(components)?
+        .checked_mul(bytes_per_sample)?;
+    if expected > MAX_STREAM_BYTES {
+        return None;
+    }
+    // A stream that cannot be decoded, or that is too large, is left to the caller, which tries it
+    // as a container file and otherwise keeps it as it is (saying so when it is too large).
+    let Decoded::Data(data) = decode_limited(stream, MAX_STREAM_BYTES) else {
+        return None;
+    };
 
     match (bpc, components) {
         (8, 3) | (8, 1) => {
@@ -1352,25 +1552,23 @@ pub(crate) fn raw_bitmap_from_stream(
                 data_format: format,
                 tag: Vec::new(),
             };
-            if let Some(smask) = extract_smask(doc, stream) {
+            if let Some(smask) = extract_smask(doc, stream, page_num, warnings) {
                 img = apply_smask_to_rawimage(img, smask);
             }
             Some(img)
         }
         (16, 3) | (16, 1) => {
-            if data.len() < expected {
-                return None;
-            }
             let format = if components == 3 {
                 RawImageFormat::RGB16
             } else {
                 RawImageFormat::R16
             };
-            let pixels: Vec<u16> = data[..expected]
+            let pixels: Vec<u16> = data
+                .get(..expected)?
                 .as_chunks::<2>()
                 .0
                 .iter()
-                .map(|c| u16::from_be_bytes([c[0], c[1]]))
+                .map(|c| u16::from_be_bytes(*c))
                 .collect();
             Some(RawImage {
                 pixels: RawImageData::U16(pixels),
@@ -1384,21 +1582,22 @@ pub(crate) fn raw_bitmap_from_stream(
     }
 }
 
-/// Parses all XObjects of a Resources dictionary. Images are decoded (or queued for decoding);
-/// everything else, such as Form XObjects, or images with an unsupported filter or color space,
-/// is kept verbatim so that a parse and save never drops page content.
+/// Parses all XObjects of a Resources dictionary into `xobj_map`. Images are decoded (or queued
+/// for decoding); everything else, such as Form XObjects, or images with an unsupported filter or
+/// color space, is kept verbatim so that a parse and save never drops page content. A name that
+/// `xobj_map` has already is skipped: the first definition of a name wins.
 fn parse_xobjects_internal(
     doc: &LopdfDocument,
     resources: &LopdfDictionary,
     warnings: &mut Vec<PdfWarnMsg>,
     page: Option<usize>,
-) -> BTreeMap<XObjectId, PendingXObject> {
-    let mut xobj_map = BTreeMap::new();
-
+    xobj_map: &mut BTreeMap<XObjectId, PendingXObject>,
+    budget: &mut InlineBudget,
+) {
     let page_num = page.unwrap_or_default();
     let xobj_obj = match resources.get(b"XObject") {
         Ok(s) => s,
-        Err(_) => return xobj_map,
+        Err(_) => return,
     };
 
     // The XObject entry may be a dictionary or a reference.
@@ -1410,11 +1609,14 @@ fn parse_xobjects_internal(
         page,
     ) {
         Some(s) => s,
-        None => return xobj_map,
+        None => return,
     };
 
     for (key, value) in xobj_dict.iter() {
         let xobject_id = XObjectId(String::from_utf8_lossy(key).to_string());
+        if xobj_map.contains_key(&xobject_id) {
+            continue;
+        }
 
         // Every XObject is a stream object.
         let stream = match get_stream_or_resolve_ref(doc, value, warnings, page) {
@@ -1437,11 +1639,11 @@ fn parse_xobjects_internal(
                             xobject_id.0
                         ),
                     ));
+                    let preserved =
+                        preserve_xobject_stream(doc, stream, &xobject_id, page_num, budget, warnings);
                     xobj_map.insert(
                         xobject_id,
-                        PendingXObject::Ready(XObject::External(preserve_xobject_stream(
-                            doc, stream,
-                        ))),
+                        PendingXObject::Ready(XObject::External(preserved)),
                     );
                     continue;
                 }
@@ -1454,64 +1656,74 @@ fn parse_xobjects_internal(
                 let has_container_format = filters
                     .iter()
                     .any(|f| f == b"DCTDecode" || f == b"JPXDecode");
+                let what = format!("XObject {}", xobject_id.0);
 
-                if has_container_format {
+                let entry = if has_container_format {
                     // JPEG / JPEG2000: the (possibly Flate-wrapped) stream
                     // content *is* the container file.
                     let bytes = if filters.len() == 1 {
-                        stream.content.clone()
+                        Some(stream.content.clone())
                     } else {
-                        stream
-                            .decompressed_content()
-                            .unwrap_or_else(|_| stream.content.clone())
+                        decode_stream(stream, MAX_STREAM_BYTES, &what, page_num, warnings)
                     };
-                    xobj_map.insert(
-                        xobject_id,
-                        PendingXObject::DecodeImage {
+                    match bytes {
+                        Some(bytes) => PendingXObject::DecodeImage {
                             bytes,
-                            smask: extract_smask(doc, stream),
-                            fallback: preserve_xobject_stream(doc, stream),
+                            smask: extract_smask(doc, stream, page_num, warnings),
+                            fallback: preserve_xobject_stream(
+                                doc, stream, &xobject_id, page_num, budget, warnings,
+                            ),
                         },
-                    );
-                } else if let Some(img) = raw_bitmap_from_stream(doc, stream) {
+                        // Too large to decode: the stream stays as it is.
+                        None => PendingXObject::Ready(XObject::External(
+                            preserve_xobject_stream(
+                                doc, stream, &xobject_id, page_num, budget, warnings,
+                            ),
+                        )),
+                    }
+                } else if let Some(img) = raw_bitmap_from_stream_in(doc, stream, page_num, warnings)
+                {
                     // Without the `images` feature the bitmap stream is kept verbatim as an
                     // external XObject instead of a decoded image.
-                    let entry = if cfg!(feature = "images") {
+                    if cfg!(feature = "images") {
                         PendingXObject::Ready(XObject::Image(img))
                     } else {
                         PendingXObject::Ready(XObject::External(preserve_xobject_stream(
-                            doc, stream,
+                            doc, stream, &xobject_id, page_num, budget, warnings,
                         )))
-                    };
-                    xobj_map.insert(xobject_id, entry);
+                    }
                 } else {
                     // Could still be an embedded container file without a
                     // filter entry (rare), or something we cannot model —
                     // try the decoder, fall back to byte-level preservation.
-                    let bytes = stream
-                        .decompressed_content()
-                        .unwrap_or_else(|_| stream.content.clone());
-                    xobj_map.insert(
-                        xobject_id,
-                        PendingXObject::DecodeImage {
+                    match decode_stream(stream, MAX_STREAM_BYTES, &what, page_num, warnings) {
+                        Some(bytes) => PendingXObject::DecodeImage {
                             bytes,
-                            smask: extract_smask(doc, stream),
-                            fallback: preserve_xobject_stream(doc, stream),
+                            smask: extract_smask(doc, stream, page_num, warnings),
+                            fallback: preserve_xobject_stream(
+                                doc, stream, &xobject_id, page_num, budget, warnings,
+                            ),
                         },
-                    );
-                }
+                        None => PendingXObject::Ready(XObject::External(
+                            preserve_xobject_stream(
+                                doc, stream, &xobject_id, page_num, budget, warnings,
+                            ),
+                        )),
+                    }
+                };
+                xobj_map.insert(xobject_id, entry);
             }
             _other => {
                 // Form XObjects and any other subtype are kept verbatim, references inlined.
+                let preserved =
+                    preserve_xobject_stream(doc, stream, &xobject_id, page_num, budget, warnings);
                 xobj_map.insert(
                     xobject_id,
-                    PendingXObject::Ready(XObject::External(preserve_xobject_stream(doc, stream))),
+                    PendingXObject::Ready(XObject::External(preserved)),
                 );
             }
         }
     }
-
-    xobj_map
 }
 
 fn parse_fonts_from_entire_pdf(
@@ -1519,38 +1731,6 @@ fn parse_fonts_from_entire_pdf(
     objs_to_search_for_resources: &[(LopdfObject, Option<usize>)],
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> BTreeMap<BuiltinOrExternalFontId, ParsedOrBuiltinFont> {
-    let obj = objs_to_search_for_resources
-        .iter()
-        .filter_map(|(obj, page_idx)| {
-            let page_num = page_idx.unwrap_or(0);
-            let dict = match obj {
-                LopdfObject::Dictionary(d) => Some(d),
-                LopdfObject::Reference(r) => doc.get_dictionary(*r).ok(),
-                _ => None,
-            }?;
-            let resources_obj = dict.get(b"Resources").ok()?;
-            let resources_dict = get_dict_or_resolve_ref(
-                &format!("parse_fonts_from_entire_pdf 1 page {page_num}"),
-                doc,
-                resources_obj,
-                warnings,
-                Some(page_num),
-            )?;
-            Some(parsefont::parse_fonts_enhanced(
-                doc,
-                resources_dict,
-                warnings,
-                Some(page_num),
-            ))
-        })
-        .fold(BTreeMap::new(), |mut acc, fonts| {
-            fonts.into_iter().for_each(|(font_id, parsed_font)| {
-                acc.entry(BuiltinOrExternalFontId::External(font_id))
-                    .or_insert(parsed_font);
-            });
-            acc
-        });
-
     let mut map = BuiltinFont::all_ids()
         .iter()
         .map(|b| {
@@ -1561,7 +1741,35 @@ fn parse_fonts_from_entire_pdf(
         })
         .collect::<BTreeMap<_, _>>();
 
-    map.extend(obj);
+    for (obj, page_idx) in objs_to_search_for_resources {
+        let page_num = page_idx.unwrap_or(0);
+        let dict = match obj {
+            LopdfObject::Dictionary(d) => Some(d),
+            LopdfObject::Reference(r) => doc.get_dictionary(*r).ok(),
+            _ => None,
+        };
+        let Some(dict) = dict else { continue };
+        let Ok(resources_obj) = dict.get(b"Resources") else {
+            continue;
+        };
+        let Some(resources_dict) = get_dict_or_resolve_ref(
+            &format!("parse_fonts_from_entire_pdf 1 page {page_num}"),
+            doc,
+            resources_obj,
+            warnings,
+            Some(page_num),
+        ) else {
+            continue;
+        };
+        // The first definition of a font name wins, so names that are already in `map` are not
+        // read again.
+        let fonts =
+            parsefont::parse_fonts_enhanced(doc, resources_dict, warnings, Some(page_num), &map);
+        for (font_id, parsed_font) in fonts {
+            map.entry(BuiltinOrExternalFontId::External(font_id))
+                .or_insert(parsed_font);
+        }
+    }
     map
 }
 
@@ -1570,38 +1778,38 @@ fn parse_xobjects_from_entire_pdf(
     objs_to_search_for_resources: &[(LopdfObject, Option<usize>)],
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> BTreeMap<XObjectId, PendingXObject> {
-    objs_to_search_for_resources
-        .iter()
-        .filter_map(|(obj, page_idx)| {
-            let page_num = page_idx.unwrap_or(0);
-            let dict = match obj {
-                LopdfObject::Dictionary(d) => Some(d),
-                LopdfObject::Reference(r) => doc.get_dictionary(*r).ok(),
-                _ => None,
-            }?;
-            let resources_obj = dict.get(b"Resources").ok()?;
-            let resources_dict = get_dict_or_resolve_ref(
-                &format!("parse_xobjects_from_entire_pdf 1 page {page_num}"),
-                doc,
-                resources_obj,
-                warnings,
-                Some(page_num),
-            )?;
-            Some(parse_xobjects_internal(
-                doc,
-                resources_dict,
-                warnings,
-                Some(page_num),
-            ))
-        })
-        .fold(BTreeMap::new(), |mut acc, xobjs| {
-            xobjs.into_iter().for_each(|(xobj_id, xobj)| {
-                acc.entry(xobj_id).or_insert(xobj);
-            });
-            acc
-        })
-        .into_iter()
-        .collect()
+    let mut xobjects = BTreeMap::new();
+    let mut budget = InlineBudget::new();
+    for (obj, page_idx) in objs_to_search_for_resources {
+        let page_num = page_idx.unwrap_or(0);
+        let dict = match obj {
+            LopdfObject::Dictionary(d) => Some(d),
+            LopdfObject::Reference(r) => doc.get_dictionary(*r).ok(),
+            _ => None,
+        };
+        let Some(dict) = dict else { continue };
+        let Ok(resources_obj) = dict.get(b"Resources") else {
+            continue;
+        };
+        let Some(resources_dict) = get_dict_or_resolve_ref(
+            &format!("parse_xobjects_from_entire_pdf 1 page {page_num}"),
+            doc,
+            resources_obj,
+            warnings,
+            Some(page_num),
+        ) else {
+            continue;
+        };
+        parse_xobjects_internal(
+            doc,
+            resources_dict,
+            warnings,
+            Some(page_num),
+            &mut xobjects,
+            &mut budget,
+        );
+    }
+    xobjects
 }
 
 /// Recursively collects page object references from a Pages tree dictionary.
@@ -1772,9 +1980,11 @@ fn append_content_stream(
             return;
         }
     };
-    let data = stream
-        .decompressed_content()
-        .unwrap_or_else(|_| stream.content.clone());
+    // The streams of one page share the limit of a stream.
+    let limit = MAX_STREAM_BYTES.saturating_sub(content_data.len());
+    let Some(data) = decode_stream(stream, limit, "Page content", page_num, warnings) else {
+        return;
+    };
     content_data.extend(data);
     // PDF 32000-1, 7.8.2: when /Contents is an array, the division between
     // streams can fall in the middle of a token; the streams must be parsed
@@ -3890,7 +4100,7 @@ pub fn parse_op(
 
 /// Unix epoch, used when a date is missing or unreadable.
 fn default_date() -> OffsetDateTime {
-    OffsetDateTime::from_unix_timestamp(0).unwrap()
+    OffsetDateTime::epoch()
 }
 
 /// Reads the document information dictionary (`/Info` of the trailer).
@@ -4031,23 +4241,19 @@ pub fn parse_document_info(dict: &LopdfDictionary) -> PdfDocumentInfo {
 /// Parses a PDF rectangle from an Object (an array of four numbers).
 fn parse_rect(obj: &Object) -> Result<crate::graphics::Rect, String> {
     if let Object::Array(arr) = obj {
-        if arr.len() != 4 {
+        let [llx, lly, urx, ury] = arr.as_slice() else {
             return Err("Rectangle array does not have 4 elements".to_string());
-        }
-        let nums: Result<Vec<f32>, String> = arr
-            .iter()
-            .map(|o| match o {
-                Object::Integer(i) => Ok(*i as f32),
-                Object::Real(r) => Ok(*r),
-                _ => Err("Rectangle element is not a number".to_string()),
-            })
-            .collect();
-        let nums = nums?;
+        };
+        let number = |o: &Object| match o {
+            Object::Integer(i) => Ok(*i as f32),
+            Object::Real(r) => Ok(*r),
+            _ => Err("Rectangle element is not a number".to_string()),
+        };
         // In PDF the rectangle is given as [llx, lly, urx, ury].
-        let x = nums[0];
-        let y = nums[1];
-        let urx = nums[2];
-        let ury = nums[3];
+        let x = number(llx)?;
+        let y = number(lly)?;
+        let urx = number(urx)?;
+        let ury = number(ury)?;
         let width = urx - x;
         let height = ury - y;
         Ok(crate::graphics::Rect::from_xywh(
@@ -4079,8 +4285,21 @@ fn as_name(obj: &Object) -> Option<String> {
     }
 }
 
+/// The pages of the document in page-tree order, each with its page number (starting at 1).
+///
+/// This is the list [`LopdfDocument::get_pages`] gives, read one page at a time: `get_pages`
+/// collects the pages into a map first, and that reserves memory for the number of pages the
+/// `/Count` entries of the page tree announce, which a file can set to any number.
+fn numbered_pages(doc: &LopdfDocument) -> Vec<(usize, ObjectId)> {
+    let mut pages = Vec::new();
+    for (index, id) in doc.page_iter().enumerate() {
+        pages.push((index.saturating_add(1), id));
+    }
+    pages
+}
+
 mod links_and_bookmarks {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use lopdf::{Dictionary, Document, Object, ObjectId};
 
@@ -4090,17 +4309,21 @@ mod links_and_bookmarks {
             LinkAnnotation, PageAnnotation,
         },
         graphics::Rect,
-        Pt,
+        PdfWarnMsg, Pt,
     };
 
     /// Reads the top level of the outline (`/First` and `/Next` links; children are not
     /// followed) as bookmarks with a title and a page number. Entries without a title or a
-    /// `/Dest` array are skipped. Returns an empty vector if the catalog has no outline.
-    pub fn extract_bookmarks(doc: &Document) -> Vec<PageAnnotation> {
-        try_extract_bookmarks(doc).unwrap_or_default()
+    /// `/Dest` array are skipped. Returns an empty vector if the catalog has no outline. A
+    /// `/Next` chain that returns to an entry it has read ends there, with a warning.
+    pub fn extract_bookmarks(doc: &Document, warnings: &mut Vec<PdfWarnMsg>) -> Vec<PageAnnotation> {
+        try_extract_bookmarks(doc, warnings).unwrap_or_default()
     }
 
-    fn try_extract_bookmarks(doc: &Document) -> Option<Vec<PageAnnotation>> {
+    fn try_extract_bookmarks(
+        doc: &Document,
+        warnings: &mut Vec<PdfWarnMsg>,
+    ) -> Option<Vec<PageAnnotation>> {
         let catalog_id = match doc.trailer.get(b"Root").ok()? {
             Object::Reference(id) => *id,
             _ => return None,
@@ -4119,14 +4342,28 @@ mod links_and_bookmarks {
         };
 
         // Build a mapping from page object id to page number.
-        let page_map: BTreeMap<ObjectId, usize> = doc
-            .get_pages()
-            .iter()
-            .map(|(num, id)| (*id, *num as usize))
+        let page_map: BTreeMap<ObjectId, usize> = super::numbered_pages(doc)
+            .into_iter()
+            .map(|(num, id)| (id, num))
             .collect();
 
         let mut bookmarks = Vec::new();
+        let mut visited = BTreeSet::new();
         while let Some(bm_ref) = current_ref {
+            if !visited.insert(bm_ref) {
+                warnings.push(PdfWarnMsg::warning(
+                    0,
+                    0,
+                    format!(
+                        "Bookmarks: the /Next chain returns to object {} {} after {} entries; \
+                         the rest is ignored",
+                        bm_ref.0,
+                        bm_ref.1,
+                        visited.len()
+                    ),
+                ));
+                break;
+            }
             let bm_dict = doc.get_object(bm_ref).ok()?.as_dict().ok()?;
             let title = match bm_dict.get(b"Title").ok()? {
                 Object::String(s, _) => s.clone(),
@@ -4163,26 +4400,17 @@ mod links_and_bookmarks {
     /// Returns a String regardless of the input encoding.
     fn decode_possible_utf16be(bytes: &[u8]) -> String {
         // Early return if not UTF-16BE BOM
-        if bytes.len() < 2 || bytes[0] != 0xFE || bytes[1] != 0xFF {
+        let Some(body) = bytes.strip_prefix(&[0xFE, 0xFF]) else {
             return String::from_utf8_lossy(bytes).to_string();
-        }
+        };
 
-        // Skip BOM (first 2 bytes) and decode as UTF-16BE
-        let mut chars = Vec::with_capacity((bytes.len() - 2) / 2);
-        let mut i = 2;
-
-        while i + 1 < bytes.len() {
-            let high = bytes[i] as u16;
-            let low = bytes[i + 1] as u16;
-            let code_point = (high << 8) | low;
-            chars.push(code_point);
-            i += 2;
-        }
+        // Decode as UTF-16BE after the BOM
+        let (pairs, rest) = body.as_chunks::<2>();
+        let mut chars: Vec<u16> = pairs.iter().map(|p| u16::from_be_bytes(*p)).collect();
 
         // Handle odd length (shouldn't happen in well-formed UTF-16)
-        if i < bytes.len() {
-            let high = bytes[i] as u16;
-            chars.push(high << 8);
+        if let [high] = rest {
+            chars.push(u16::from(*high) << 8);
         }
 
         String::from_utf16_lossy(&chars)
@@ -4199,16 +4427,14 @@ mod links_and_bookmarks {
     /// can put them back on the page as `Op::LinkAnnotation`. Only `/Subtype /Link` annotations
     /// with a `/Rect` and a GoTo or URI action in `/A` are read.
     pub fn extract_link_annotations(doc: &Document) -> Vec<(usize, LinkAnnotation)> {
-        let page_map: BTreeMap<ObjectId, usize> = doc
-            .get_pages()
-            .iter()
-            .map(|(num, id)| (*id, *num as usize))
-            .collect();
+        let pages = super::numbered_pages(doc);
+        let page_map: BTreeMap<ObjectId, usize> =
+            pages.iter().map(|&(num, id)| (id, num)).collect();
 
-        doc.get_pages()
+        pages
             .iter()
-            .flat_map(|(page_num, &page_id)| {
-                let page_idx = (*page_num as usize).saturating_sub(1);
+            .flat_map(|&(page_num, page_id)| {
+                let page_idx = page_num.saturating_sub(1);
                 let page_dict = doc.get_object(page_id).ok()?.as_dict().ok()?;
                 let annots = page_dict.get(b"Annots").ok()?.as_array().ok()?;
                 Some(
@@ -4239,17 +4465,13 @@ mod links_and_bookmarks {
                                     _ => None,
                                 })
                                 .collect();
-                            if coords.len() != 4 {
+                            let &[llx, lly, urx, ury] = coords.as_slice() else {
                                 return None;
-                            }
+                            };
                             // /Rect is [llx lly urx ury]; from_xywh wants
                             // x, y, width, height.
-                            let rect = Rect::from_xywh(
-                                Pt(coords[0]),
-                                Pt(coords[1]),
-                                Pt(coords[2] - coords[0]),
-                                Pt(coords[3] - coords[1]),
-                            );
+                            let rect =
+                                Rect::from_xywh(Pt(llx), Pt(lly), Pt(urx - llx), Pt(ury - lly));
 
                             let action_dict = annot_dict.get(b"A").ok()?.as_dict().ok()?;
                             let actions = extract_action(action_dict, &page_map)?;
@@ -4308,18 +4530,16 @@ mod links_and_bookmarks {
                 _ => None,
             })
             .collect();
-        if nums.len() == 3 {
-            BorderArray::Solid([nums[0], nums[1], nums[2]])
-        } else if nums.len() == 4 {
-            BorderArray::Dashed(
-                [nums[0], nums[1], nums[2]],
+        match *nums.as_slice() {
+            [a, b, c] => BorderArray::Solid([a, b, c]),
+            [a, b, c, phase] => BorderArray::Dashed(
+                [a, b, c],
                 DashPhase {
                     dash_array: vec![],
-                    phase: nums[3],
+                    phase,
                 },
-            )
-        } else {
-            BorderArray::default()
+            ),
+            _ => BorderArray::default(),
         }
     }
 
@@ -4334,11 +4554,11 @@ mod links_and_bookmarks {
             })
             .collect();
 
-        match nums.len() {
-            0 => ColorArray::Transparent,
-            1 => ColorArray::Gray([nums[0]]),
-            3 => ColorArray::Rgb([nums[0], nums[1], nums[2]]),
-            4 => ColorArray::Cmyk([nums[0], nums[1], nums[2], nums[3]]),
+        match *nums.as_slice() {
+            [] => ColorArray::Transparent,
+            [gray] => ColorArray::Gray([gray]),
+            [r, g, b] => ColorArray::Rgb([r, g, b]),
+            [c, m, y, k] => ColorArray::Cmyk([c, m, y, k]),
             _ => ColorArray::default(),
         }
     }
@@ -4419,7 +4639,7 @@ mod layers {
     pub fn extract_layers(doc: &Document) -> Vec<(Option<String>, Layer)> {
         // OCG object id -> resource name (first one wins across pages).
         let mut ocg_names: BTreeMap<ObjectId, String> = BTreeMap::new();
-        for (_page_num, page_id) in doc.get_pages() {
+        for (_page_num, page_id) in super::numbered_pages(doc) {
             let Ok(page_dict) = doc.get_dictionary(page_id) else {
                 continue;
             };
@@ -4809,7 +5029,7 @@ mod parsefont {
 
     use lopdf::{Dictionary, Document, Object};
 
-    use super::{ParsedExternalFont, ParsedOrBuiltinFont};
+    use super::{decode_stream, ParsedExternalFont, ParsedOrBuiltinFont, MAX_STREAM_BYTES};
     use crate::{
         cmap::ToUnicodeCMap,
         deserialize::{get_dict_or_resolve_ref, PdfWarnMsg},
@@ -4879,10 +5099,13 @@ mod parsefont {
             warnings: &mut Vec<PdfWarnMsg>,
             page_num: usize,
         ) -> Option<CidCMap> {
-            let data = s
-                .decompressed_content()
-                .ok()
-                .or_else(|| Some(s.content.clone()))?;
+            let data = decode_stream(
+                s,
+                MAX_STREAM_BYTES,
+                &format!("Type0 font {} /Encoding CMap", font_id.0),
+                page_num,
+                warnings,
+            )?;
             match CidCMap::parse(&String::from_utf8_lossy(&data)) {
                 Ok((cmap, unresolved_usecmap)) => {
                     if let Some(base) = unresolved_usecmap {
@@ -4990,20 +5213,26 @@ mod parsefont {
     ) -> Option<BTreeMap<u16, u16>> {
         let descendant = get_descendant_font_dict(doc, font_dict, font_id, warnings, page_num)?;
 
-        let stream_to_map = |s: &lopdf::Stream| -> Option<BTreeMap<u16, u16>> {
-            let data = s.decompressed_content().ok().or_else(|| {
-                // Already-plain streams return the content as-is on error paths of
-                // some lopdf versions; fall back to the raw bytes.
-                Some(s.content.clone())
-            })?;
+        let mut stream_to_map = |s: &lopdf::Stream| -> Option<BTreeMap<u16, u16>> {
+            // Already-plain streams return the content as-is on error paths of some lopdf
+            // versions; the raw bytes are the fallback.
+            let data = decode_stream(
+                s,
+                MAX_STREAM_BYTES,
+                &format!("font {} /CIDToGIDMap", font_id.0),
+                page_num,
+                warnings,
+            )?;
             Some(
                 data.as_chunks::<2>()
                     .0
                     .iter()
                     .enumerate()
+                    // A CID is 16 bits wide.
+                    .take(1 << 16)
                     .filter_map(|(cid, b)| {
                         let cid = u16::try_from(cid).ok()?;
-                        let gid = u16::from_be_bytes([b[0], b[1]]);
+                        let gid = u16::from_be_bytes(*b);
                         (gid != cid).then_some((cid, gid))
                     })
                     .collect(),
@@ -5079,11 +5308,14 @@ mod parsefont {
     }
 
     /// Parses the `/Font` resources of one resource dictionary, keyed by resource name.
+    ///
+    /// A font whose name is a key of `known` is skipped: the first definition of a name wins.
     pub(crate) fn parse_fonts_enhanced(
         doc: &Document,
         resources: &Dictionary,
         warnings: &mut Vec<PdfWarnMsg>,
         page: Option<usize>,
+        known: &BTreeMap<crate::BuiltinOrExternalFontId, ParsedOrBuiltinFont>,
     ) -> BTreeMap<FontId, ParsedOrBuiltinFont> {
         let mut fonts_map = BTreeMap::new();
         let page_num = page.unwrap_or_default();
@@ -5095,6 +5327,9 @@ mod parsefont {
 
         for (key, value) in fonts_dict.iter() {
             let font_id = FontId(String::from_utf8_lossy(key).to_string());
+            if known.contains_key(&crate::BuiltinOrExternalFontId::External(font_id.clone())) {
+                continue;
+            }
 
             let font_dict = match get_dict_or_resolve_ref(
                 &format!("parse_fonts font_dict page {page_num}"),
@@ -5218,10 +5453,13 @@ mod parsefont {
             };
 
             if let Some(stream) = to_unicode_stream {
-                let content = match stream.decompressed_content() {
-                    Ok(data) => data,
-                    Err(_) => stream.content.clone(),
-                };
+                let content = decode_stream(
+                    stream,
+                    MAX_STREAM_BYTES,
+                    "ToUnicode CMap",
+                    page_num,
+                    warnings,
+                )?;
 
                 if let Ok(cmap_str) = String::from_utf8(content) {
                     match ToUnicodeCMap::parse(&cmap_str) {
@@ -5311,12 +5549,11 @@ mod parsefont {
     ) -> Option<&'a Dictionary> {
         match font_dict.get(b"DescendantFonts") {
             Ok(Object::Array(arr)) if !arr.is_empty() => {
-                match arr[0].as_dict().ok().or_else(|| {
-                    if let Ok(id) = arr[0].as_reference() {
-                        doc.get_dictionary(id).ok()
-                    } else {
-                        None
-                    }
+                let first = arr.first();
+                match first.and_then(|f| f.as_dict().ok()).or_else(|| {
+                    first
+                        .and_then(|f| f.as_reference().ok())
+                        .and_then(|id| doc.get_dictionary(id).ok())
                 }) {
                     Some(d) => Some(d),
                     None => {
@@ -5384,7 +5621,7 @@ mod parsefont {
     ) -> Option<ParsedFont> {
         for font_file_key in &[b"FontFile", b"FontFile2" as &[u8], b"FontFile3"] {
             if let Ok(font_file_ref) = font_descriptor.get(font_file_key) {
-                let font_data = get_font_data(doc, font_file_ref, warnings)?;
+                let font_data = get_font_data(doc, font_file_ref, font_id, warnings, page_num)?;
 
                 warnings.push(PdfWarnMsg::info(
                     page_num,
@@ -5419,7 +5656,9 @@ mod parsefont {
     fn get_font_data(
         doc: &Document,
         font_file_ref: &Object,
-        _warnings: &mut Vec<PdfWarnMsg>,
+        font_id: &FontId,
+        warnings: &mut Vec<PdfWarnMsg>,
+        page_num: usize,
     ) -> Option<Vec<u8>> {
         let font_stream = match font_file_ref {
             Object::Stream(s) => s,
@@ -5430,10 +5669,13 @@ mod parsefont {
             _ => return None,
         };
 
-        match font_stream.decompressed_content() {
-            Ok(data) => Some(data),
-            Err(_) => Some(font_stream.content.clone()),
-        }
+        decode_stream(
+            font_stream,
+            MAX_STREAM_BYTES,
+            &format!("Font {} font file", font_id.0),
+            page_num,
+            warnings,
+        )
     }
 
     /// Process a Type1 font
@@ -5561,17 +5803,12 @@ mod parsefont {
 /// Decodes a PDF text string: UTF-16BE when it starts with the byte order mark `FE FF`,
 /// otherwise UTF-8 (lossy).
 fn decode_text_from_utf16be(bytes: &[u8]) -> String {
-    if bytes.len() < 2 {
+    let Some(body) = bytes.strip_prefix(&[0xFE, 0xFF]) else {
         // not UTF-16BE encoded, use UTF-8
         return String::from_utf8_lossy(bytes).into_owned();
-    }
+    };
 
-    if bytes[0] != 0xFE || bytes[1] != 0xFF {
-        // not UTF-16BE encoded, use UTF-8
-        return String::from_utf8_lossy(bytes).into_owned();
-    }
-
-    let (chunks, remainder) = bytes[2..].as_chunks::<2>();
+    let (chunks, remainder) = body.as_chunks::<2>();
     let string = char::decode_utf16(chunks.iter().copied().map(u16::from_be_bytes))
         .map(|r| r.unwrap_or(char::REPLACEMENT_CHARACTER))
         .collect();
