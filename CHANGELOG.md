@@ -10,6 +10,8 @@ All notable changes to printpdf are documented in this file. The format follows
 - `ppdf`, a command-line tool in `ppdf/` (its own crate, not part of the printpdf package). It converts a PDF to JSON and back so the document can be edited with `jq`, prints text, text boxes, SVG pages, fonts and images, and renders HTML to PDF. See `ppdf/README.md`.
 - `web/minimal.html`: a single HTML file that makes a PDF in the browser with two wasm calls. It imports the package of the latest release from the demo site, and is deployed with it. Described in `docs/API.md`.
 - `docs/HTML.md` documents the HTML and CSS that `from_html` supports. It replaces `SYNTAX.md`, which described an API that no longer exists.
+- The library denies `unwrap`, `expect`, `panic!`, `unreachable!`, `todo!`, indexing and string slicing outside tests (`clippy::unwrap_used` and its relatives, set in `src/lib.rs`). A CI job runs clippy with `--all-features`, `--no-default-features` and `--no-default-features --features text_layout`. On `wasm32-unknown-unknown` a panic traps and cannot be caught, so a failure has to come back as an `Err`, a warning or a skipped item.
+- More than 180 regression tests for hostile input in `tests/no_panic_*.rs`: crafted and mutated PDFs, fonts, images, dates, form values, CSS sizes and JSON of the wasm API.
 
 ### Changed
 
@@ -20,6 +22,10 @@ All notable changes to printpdf are documented in this file. The format follows
 - `docs/API.md` now documents all seven functions of the wasm API. It listed five, used wrong option names (`subsetFonts` instead of `subset_fonts`, `pageWidth` instead of `page_width`) and a `title` input that does not exist.
 - The README example no longer shows `<head><header>` and `{builtin:pagenum}`, which the layout engine does not implement.
 - Write this changelog in one format for every release, and add the releases that had no entry.
+- `RawImage::encode_to_bytes`, `apply_dithering` and `resize_to_fit_size` return `Err` when the pixel buffer is not exactly `width * height * channels` samples, and `encode_to_bytes` also for an image of size 0. They used to panic or abort inside the encoder.
+- `xml_to_pdf_pages` and `xml_to_pdf_pages_debug` return `Err` when the page, or the area inside the margins, is NaN or outside 1 to 1,000,000 pt.
+- A page of a parsed document that cannot be read becomes an empty page with a warning instead of failing the whole document.
+- `Pt` and `Mm` order by `f32::total_cmp` (-0.0 sorts before 0.0, NaN last), so `==` and `cmp` can differ within the 0.0005 tolerance of `==`. `Px` addition and subtraction saturate. `PageState` has two more public fields, `untracked_saves` and `untracked_marked_content`.
 
 ### Documentation
 
@@ -36,6 +42,12 @@ All notable changes to printpdf are documented in this file. The format follows
 - Saving a document no longer panics when every bookmark points at a page that does not exist, for example after the pages were removed from a parsed document. The outline `/Count` now counts only the bookmarks that are written.
 - Reading a CMap (`/ToUnicode` or a Type0 `/Encoding`) no longer panics on a multi-byte character inside a hex token such as `<000é000>`; the token is an error and only costs that font its map.
 - A `begincidrange` whose destination runs past `u32::MAX` maps the affected codes to CID 0 (notdef) instead of overflowing.
+- Hostile files no longer make the parser loop, run out of memory or overflow the stack. A bookmark `/Next` cycle stops with a warning. References that fan out (a 2 KB file took 1.6 GB) are inlined within a budget of 2 million objects and 256 MiB per document. A page tree whose `/Count` is huge no longer panics with `capacity overflow` (the parser, `optimize_text` and the form reader read the page list page by page). Image and soft-mask sizes that overflow are rejected. A form field value that refers to itself overflowed the stack: values are read to a depth of 8 and 4096 objects.
+- Every stream read from a document inflates to at most 256 MiB (CMaps 16 MiB), and `RawImage::decode_from_bytes` sets limits of 512 MiB and 2^20 pixels per side.
+- `q`, `BMC` and `BDC` nest at most 256 levels deep (deeper ones are counted and warned about once), and a repeated `W` or `W*` on a path that is already clipped is skipped: 28 KB of them produced 4 million points. The SVG output caps `q` the same way.
+- ToUnicode and CID CMaps are limited to 2^20 entries and 1024 codespace ranges, a `usecmap` chain no longer takes quadratic time, and the CFF width scan stops after 10,000 steps per glyph (subroutine fan-out hung it). `/W` runs and the synthetic sfnt of a CFF font no longer overflow.
+- A multi-byte first character of a timezone offset, and offset parts that overflow, no longer panic in the date parser.
+- The arc of a rounded corner is cut into at most 256 segments (a radius of 1e5 made a million points).
 
 ## 0.12.14 - 2026-11-21
 

@@ -151,6 +151,12 @@
 //! # assert_eq!(text_per_page.len(), doc.page_count());
 //! ```
 //!
+//! The parser does not trust the file. What it cannot read (a page, a font, an image, a stream
+//! that inflates past 256 MiB) is dropped with an entry in `warnings`, and a file it cannot load
+//! at all returns `Err`. The code of this crate does not panic on bad input: CI runs clippy with
+//! `unwrap`, `expect`, indexing and string slicing denied. That check does not cover the
+//! dependencies (`lopdf`, `allsorts`, `image`, `azul-layout`).
+//!
 //! Merge documents with [`PdfDocument::append_document`] and [`PdfDocument::insert_document`].
 //! The [`forms`] module reads and fills form fields, [`optimize`] shrinks finished files.
 //!
