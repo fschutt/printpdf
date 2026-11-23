@@ -620,6 +620,170 @@ fn a_form_cannot_pop_the_state_of_the_page() {
     assert_eq!(opened, svg.matches("</g>").count(), "{svg}");
 }
 
+fn draft_ops() -> Vec<Op> {
+    vec![
+        Op::StartTextSection,
+        Op::SetFont {
+            font: PdfFontHandle::Builtin(BuiltinFont::HelveticaBold),
+            size: Pt(36.0),
+        },
+        Op::SetTextCursor { pos: Point { x: Pt(0.0), y: Pt(8.0) } },
+        Op::ShowText { items: vec![TextItem::Text("DRAFT".to_string())] },
+        Op::EndTextSection,
+    ]
+}
+
+fn place(id: &XObjectId, x: f32, y: f32) -> Op {
+    Op::UseXobject {
+        id: id.clone(),
+        transform: XObjectTransform {
+            translate_x: Some(Pt(x)),
+            translate_y: Some(Pt(y)),
+            ..Default::default()
+        },
+    }
+}
+
+/// A form made in code is painted where the placement puts it, and saved.
+#[test]
+fn a_form_made_in_code_is_painted_and_saved() {
+    let mut doc = PdfDocument::new("watermark");
+    let id = doc.add_form(&FormXObject::new(Rect::from_wh(Pt(200.0), Pt(40.0)), draft_ops()));
+    doc.pages.push(PdfPage::new(
+        Mm(210.0),
+        Mm(297.0),
+        vec![place(&id, 100.0, 400.0), place(&id, 100.0, 100.0)],
+    ));
+
+    assert_eq!(text(&doc), vec!["DRAFT".to_string(), "DRAFT".to_string()]);
+    let boxes = words(&doc);
+    assert_eq!(boxes.len(), 2);
+    // The placement moves the form 300 pt, and y grows downwards in the boxes.
+    assert_close(boxes[1].bbox[1] - boxes[0].bbox[1], 300.0, "distance of the two");
+    assert_close(boxes[0].bbox[0], 100.0, "left edge");
+    let (svg, _) = svg(&doc);
+    assert_eq!(svg.matches("DRAFT").count(), 2);
+
+    let saved = save(&doc);
+    let again = parse(&saved).0;
+    assert_eq!(text(&again), text(&doc));
+    let Some(XObject::Form(form)) = again.resources.xobjects.map.values().next() else {
+        panic!("no form after the save");
+    };
+    assert_eq!(form.bbox, Rect::from_wh(Pt(200.0), Pt(40.0)));
+
+    // The saved file has the form with its /BBox.
+    let lopdf_doc = Document::load_mem(&saved).unwrap();
+    let bbox: Vec<f32> = lopdf_doc
+        .objects
+        .values()
+        .filter_map(|o| match o {
+            Object::Stream(s) if s.dict.get(b"Subtype").and_then(|n| n.as_name()).ok() == Some(b"Form") => {
+                s.dict.get(b"BBox").ok()?.as_array().ok().map(|a| {
+                    a.iter().map(|n| n.as_float().unwrap_or(f32::NAN)).collect()
+                })
+            }
+            _ => None,
+        })
+        .next()
+        .expect("a form with a /BBox");
+    assert_eq!(bbox, vec![0.0, 0.0, 200.0, 40.0]);
+}
+
+#[test]
+fn the_matrix_of_a_form_made_in_code_scales_its_text() {
+    let mut doc = PdfDocument::new("scaled");
+    let plain = doc.add_form(&FormXObject::new(Rect::from_wh(Pt(200.0), Pt(40.0)), draft_ops()));
+    let scaled = doc.add_form(
+        &FormXObject::new(Rect::from_wh(Pt(200.0), Pt(40.0)), draft_ops())
+            .with_matrix(CurTransMat::Raw([2.0, 0.0, 0.0, 2.0, 0.0, 0.0])),
+    );
+    doc.pages.push(PdfPage::new(
+        Mm(210.0),
+        Mm(297.0),
+        vec![place(&plain, 0.0, 0.0), place(&scaled, 0.0, 0.0)],
+    ));
+    let boxes = words(&doc);
+    assert_eq!(boxes.len(), 2);
+    let width = |w: &printpdf::text_boxes::TextWord| w.bbox[2] - w.bbox[0];
+    assert_close(width(&boxes[1]) / width(&boxes[0]), 2.0, "scale of the text");
+}
+
+/// A form without resources of its own uses the fonts of the document, and the glyphs it uses are
+/// part of the font that is written.
+#[test]
+fn a_form_made_in_code_uses_a_font_of_the_document() {
+    let bytes = include_bytes!("../examples/assets/fonts/Courier.ttf");
+    let font = ParsedFont::from_bytes(bytes, 0, &mut Vec::new()).expect("a font");
+    let mut doc = PdfDocument::new("font of the document");
+    let font_id = doc.add_font(&font);
+    let ops = vec![
+        Op::StartTextSection,
+        Op::SetFont { font: PdfFontHandle::External(font_id), size: Pt(14.0) },
+        Op::SetTextCursor { pos: Point { x: Pt(10.0), y: Pt(10.0) } },
+        Op::ShowText { items: vec![TextItem::Text("Courier text".to_string())] },
+        Op::EndTextSection,
+    ];
+    let form = doc.add_form(&FormXObject::new(Rect::from_wh(Pt(300.0), Pt(40.0)), ops));
+    doc.pages.push(PdfPage::new(Mm(210.0), Mm(297.0), vec![place(&form, 50.0, 700.0)]));
+
+    assert_eq!(text(&doc), vec!["Courier text".to_string()]);
+    let again = parse(&save(&doc)).0;
+    assert_eq!(text(&again), vec!["Courier text".to_string()]);
+}
+
+/// A form with resources of its own carries its font, and the document has none.
+#[test]
+fn a_form_made_in_code_can_have_a_font_of_its_own() {
+    let bytes = include_bytes!("../examples/assets/fonts/Helvetica.ttf");
+    let font = ParsedFont::from_bytes(bytes, 0, &mut Vec::new()).expect("a font");
+    let mut resources = PdfResources::default();
+    resources
+        .fonts
+        .map
+        .insert(FontId("Own".to_string()), PdfFont::new(font));
+    let ops = vec![
+        Op::StartTextSection,
+        Op::SetFont { font: PdfFontHandle::External(FontId("Own".to_string())), size: Pt(14.0) },
+        Op::SetTextCursor { pos: Point { x: Pt(10.0), y: Pt(10.0) } },
+        Op::ShowText { items: vec![TextItem::Text("Own font".to_string())] },
+        Op::EndTextSection,
+    ];
+    let mut doc = PdfDocument::new("own font");
+    let form = doc.add_form(
+        &FormXObject::new(Rect::from_wh(Pt(300.0), Pt(40.0)), ops).with_resources(resources),
+    );
+    doc.pages.push(PdfPage::new(Mm(210.0), Mm(297.0), vec![place(&form, 50.0, 700.0)]));
+    assert!(doc.resources.fonts.map.is_empty());
+
+    assert_eq!(text(&doc), vec!["Own font".to_string()]);
+    let again = parse(&save(&doc)).0;
+    assert_eq!(text(&again), vec!["Own font".to_string()]);
+    assert!(again.resources.fonts.map.is_empty(), "the font is the form's");
+    let Some(XObject::Form(form)) = again.resources.xobjects.map.values().next() else {
+        panic!("no form after the save");
+    };
+    assert_eq!(form.resources.as_ref().unwrap().fonts.map.len(), 1);
+}
+
+#[test]
+fn a_form_from_the_bytes_of_a_content_stream() {
+    let form = FormXObject::from_content_stream(
+        Rect::from_wh(Pt(100.0), Pt(100.0)),
+        b"0 0 1 rg 10 10 50 50 re f",
+    )
+    .expect("a content stream");
+    assert!(matches!(form.ops.first(), Some(Op::SetFillColor { .. })), "{:?}", form.ops);
+    let mut doc = PdfDocument::new("raw");
+    let id = doc.add_form(&form);
+    doc.pages.push(PdfPage::new(Mm(210.0), Mm(297.0), vec![place(&id, 0.0, 0.0)]));
+    assert!(svg(&doc).0.contains("rgb(0, 0, 255)"));
+    // A document with such a form is JSON.
+    let json = serde_json::to_string(&doc).expect("to json");
+    let back: PdfDocument = serde_json::from_str(&json).expect("from json");
+    assert_eq!(back, doc);
+}
+
 /// The words of `pdftotext -layout`, with everything but letters and digits dropped.
 fn pdftotext_words(path: &str) -> Option<Vec<String>> {
     let out = std::process::Command::new("pdftotext")

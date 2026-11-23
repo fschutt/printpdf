@@ -370,11 +370,51 @@ pub enum ImageFilter {
 /// form's own [`resources`](FormXObject::resources), so a name in a form never clashes with a
 /// name on a page or in another form.
 ///
-/// Reading a PDF turns every form it can model into a `FormXObject`. Pages that macOS (Quartz),
-/// Word or a print driver write put the whole page into one form. A form that cannot be
-/// modelled without loss stays an [`ExternalXObject`], byte for byte.
+/// Reading a PDF turns every form it can model into a `FormXObject`, so
+/// [`PdfDocument::extract_text`](crate::PdfDocument::extract_text),
+/// [`PdfPage::extract_text_boxes`](crate::PdfPage::extract_text_boxes) and
+/// [`PdfPage::to_svg`](crate::PdfPage::to_svg) see the text and drawings inside it. Pages that
+/// macOS (Quartz), Word or a print driver write put the whole page into one form. A form that
+/// cannot be modelled without loss stays an [`ExternalXObject`], byte for byte.
+///
+/// To make one in code, use [`FormXObject::new`] and register it with
+/// [`PdfDocument::add_form`](crate::PdfDocument::add_form).
 ///
 /// This is not an interactive PDF form (AcroForm).
+///
+/// # Examples
+///
+/// A watermark that is painted twice:
+///
+/// ```
+/// # use printpdf::*;
+/// let mut doc = PdfDocument::new("Watermark");
+///
+/// // The content, in the form's own coordinate system (200 x 40 pt).
+/// let ops = vec![
+///     Op::StartTextSection,
+///     Op::SetFont { font: PdfFontHandle::Builtin(BuiltinFont::HelveticaBold), size: Pt(36.0) },
+///     Op::SetTextCursor { pos: Point { x: Pt(0.0), y: Pt(8.0) } },
+///     Op::ShowText { items: vec![TextItem::Text("DRAFT".to_string())] },
+///     Op::EndTextSection,
+/// ];
+/// let id = doc.add_form(&FormXObject::new(Rect::from_wh(Pt(200.0), Pt(40.0)), ops));
+///
+/// let at = |x: f32, y: f32| Op::UseXobject {
+///     id: id.clone(),
+///     transform: XObjectTransform {
+///         translate_x: Some(Pt(x)),
+///         translate_y: Some(Pt(y)),
+///         ..Default::default()
+///     },
+/// };
+/// doc.pages.push(PdfPage::new(Mm(210.0), Mm(297.0), vec![at(100.0, 400.0), at(100.0, 100.0)]));
+///
+/// // The text of the form is part of the page.
+/// assert_eq!(doc.extract_text()[0], vec!["DRAFT", "DRAFT"]);
+/// let bytes = doc.save(&PdfSaveOptions::default(), &mut Vec::new());
+/// assert!(bytes.starts_with(b"%PDF"));
+/// ```
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FormXObject {
@@ -445,6 +485,69 @@ pub struct FormXObject {
 
 fn empty_bbox() -> Rect {
     Rect::from_wh(Pt(0.0), Pt(0.0))
+}
+
+impl FormXObject {
+    /// A form that paints `ops` inside `bbox`, in its own coordinate system, with no matrix,
+    /// no resources of its own and no group.
+    ///
+    /// Without resources the names in `ops` are looked up in the resources of the document,
+    /// so a font registered with [`PdfDocument::add_font`](crate::PdfDocument::add_font) can be
+    /// selected. The standard fonts need no resource at all. To keep the form independent of the
+    /// document, give it [`resources`](FormXObject::with_resources).
+    pub fn new(bbox: Rect, ops: Vec<Op>) -> Self {
+        FormXObject {
+            form_type: FormType::Type1,
+            size: None,
+            bbox,
+            matrix: None,
+            ops,
+            resources: None,
+            group: None,
+            ref_dict: None,
+            metadata: None,
+            piece_info: None,
+            last_modified: None,
+            struct_parent: None,
+            struct_parents: None,
+            opi: None,
+            oc: None,
+            name: None,
+            extra: BTreeMap::new(),
+        }
+    }
+
+    /// A form from the bytes of a content stream, such as `0 0 1 rg 10 10 50 50 re f`.
+    ///
+    /// The operators become [`Op`]s the way they do when a page is read: text is decoded with
+    /// no font information, so use [`FormXObject::new`] for text in an embedded font.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when `content` is not a valid content stream.
+    pub fn from_content_stream(bbox: Rect, content: &[u8]) -> Result<Self, String> {
+        let ops = ExternalStream::get_ops_internal(content)?;
+        Ok(FormXObject::new(bbox, ops))
+    }
+
+    /// Sets [`matrix`](FormXObject::matrix) and returns the form.
+    pub fn with_matrix(mut self, matrix: CurTransMat) -> Self {
+        self.matrix = Some(matrix);
+        self
+    }
+
+    /// Sets [`resources`](FormXObject::resources) to a scope of the form's own and returns the
+    /// form.
+    pub fn with_resources(mut self, resources: PdfResources) -> Self {
+        self.resources = Some(resources);
+        self
+    }
+
+    /// Sets [`group`](FormXObject::group) and returns the form.
+    pub fn with_group(mut self, group: GroupXObject) -> Self {
+        self.group = Some(group);
+        self
+    }
 }
 
 /// Converts a map of [`DictItem`]s to a [`lopdf::Dictionary`]. Nested streams stay inline.

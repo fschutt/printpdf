@@ -706,6 +706,17 @@ impl PdfDocument {
         id
     }
 
+    /// Registers a form (content that pages draw any number of times, such as a watermark or a
+    /// letterhead) and returns the id for `Op::UseXobject`. See [`FormXObject`] for an example.
+    pub fn add_form(&mut self, form: &FormXObject) -> XObjectId {
+        let id = XObjectId::new();
+        self.resources
+            .xobjects
+            .map
+            .insert(id.clone(), XObject::Form(form.clone()));
+        id
+    }
+
     /// Adds a bookmark that jumps to `page` (counted from 1) and returns its id.
     ///
     /// A bookmark whose page does not exist is left out when saving.
