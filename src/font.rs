@@ -1217,7 +1217,94 @@ pub(crate) fn wrap_bare_cff_as_sfnt(bytes: &[u8]) -> Option<Vec<u8>> {
         .collect();
     let units_per_em = cff_units_per_em(font);
 
-    Some(build_minimal_sfnt(bytes, num_glyphs, &widths, units_per_em))
+    let unicode_to_gid = cff_name_cmap(&cff, font, num_glyphs);
+
+    Some(build_minimal_sfnt(bytes, num_glyphs, &widths, units_per_em, &unicode_to_gid))
+}
+
+/// Character to glyph id (Basic Multilingual Plane only) for a name-keyed CFF font, from its glyph
+/// names through the Adobe Glyph List. Empty for a CID-keyed font, whose glyphs have no names.
+/// A bare CFF has no `cmap`; this is the one [`wrap_bare_cff_as_sfnt`] writes.
+#[cfg(feature = "text_layout")]
+fn cff_name_cmap(
+    cff: &allsorts::cff::CFF<'_>,
+    font: &allsorts::cff::Font<'_>,
+    num_glyphs: u16,
+) -> std::collections::BTreeMap<u16, u16> {
+    let mut map = std::collections::BTreeMap::new();
+    if matches!(font.data, allsorts::cff::CFFVariant::CID(_)) {
+        return map;
+    }
+    for gid in 1..num_glyphs {
+        let Some(sid) = font.charset.id_for_glyph(gid) else {
+            continue;
+        };
+        let Ok(name) = cff.read_string(sid) else {
+            continue;
+        };
+        let Some(text) = crate::encoding::glyph_name_to_string(name) else {
+            continue;
+        };
+        let mut chars = text.chars();
+        if let (Some(c), None) = (chars.next(), chars.next()) {
+            if let Ok(unicode) = u16::try_from(u32::from(c)) {
+                map.entry(unicode).or_insert(gid);
+            }
+        }
+    }
+    map
+}
+
+/// The glyph name that the built-in encoding of a bare name-keyed CFF font gives to each code,
+/// for the codes where the font's own encoding is a custom one. Empty for the standard encoding
+/// (which [`crate::encoding::BaseEncoding::Standard`] describes), for a CID-keyed font and for
+/// bytes that are not a bare CFF.
+#[cfg(feature = "text_layout")]
+pub(crate) fn cff_builtin_encoding(bytes: &[u8]) -> std::collections::BTreeMap<u8, String> {
+    use allsorts::binary::read::ReadScope;
+    use allsorts::cff::{CFFVariant, CustomEncoding, Encoding, CFF};
+
+    let mut names = std::collections::BTreeMap::new();
+    let Ok(cff) = ReadScope::new(bytes).read::<CFF<'_>>() else {
+        return names;
+    };
+    let Some(font) = cff.fonts.first() else {
+        return names;
+    };
+    let CFFVariant::Type1(t1) = &font.data else {
+        return names;
+    };
+    let Encoding::Custom(custom) = &t1.encoding else {
+        return names;
+    };
+    let mut assign = |code: u8, gid: u16| {
+        if let Some(sid) = font.charset.id_for_glyph(gid) {
+            if let Ok(name) = cff.read_string(sid) {
+                names.insert(code, name.to_string());
+            }
+        }
+    };
+    match custom {
+        CustomEncoding::Format0 { codes } => {
+            for (index, code) in codes.iter().enumerate() {
+                if let Ok(gid) = u16::try_from(index + 1) {
+                    assign(code, gid);
+                }
+            }
+        }
+        CustomEncoding::Format1 { ranges } => {
+            let mut gid: u16 = 1;
+            for range in ranges.iter() {
+                for step in 0..=range.n_left {
+                    if let Some(code) = range.first.checked_add(step) {
+                        assign(code, gid);
+                    }
+                    gid = gid.saturating_add(1);
+                }
+            }
+        }
+    }
+    names
 }
 
 /// Units per em implied by the CFF top dict `FontMatrix`, `round(1/m[0])`; 1000 for the
@@ -1592,6 +1679,7 @@ fn build_minimal_sfnt(
     num_glyphs: u16,
     widths: &[u16],
     units_per_em: u16,
+    unicode_to_gid: &std::collections::BTreeMap<u16, u16>,
 ) -> Vec<u8> {
     let mut head = Vec::with_capacity(54);
     head.extend_from_slice(&1u16.to_be_bytes()); // majorVersion
@@ -1648,14 +1736,20 @@ fn build_minimal_sfnt(
     }
 
     // allsorts requires a `cmap` with a recognised Windows/Unicode subtable. A bare CFF has no
-    // character mapping, so this is an empty format 6 table: every lookup returns `None`,
-    // where a zero-filled format 0 table would return a bogus `Some(0)`.
-    let mut cmap_subtable = Vec::with_capacity(10);
-    cmap_subtable.extend_from_slice(&6u16.to_be_bytes()); // format 6
-    cmap_subtable.extend_from_slice(&10u16.to_be_bytes()); // length
-    cmap_subtable.extend_from_slice(&0u16.to_be_bytes()); // language
-    cmap_subtable.extend_from_slice(&0u16.to_be_bytes()); // firstCode
-    cmap_subtable.extend_from_slice(&0u16.to_be_bytes()); // entryCount
+    // character mapping of its own; the one written here comes from the glyph names. Without
+    // any, it is an empty format 6 table: every lookup returns `None`, where a zero-filled
+    // format 0 table would return a bogus `Some(0)`.
+    let cmap_subtable = if unicode_to_gid.is_empty() {
+        let mut t = Vec::with_capacity(10);
+        t.extend_from_slice(&6u16.to_be_bytes()); // format 6
+        t.extend_from_slice(&10u16.to_be_bytes()); // length
+        t.extend_from_slice(&0u16.to_be_bytes()); // language
+        t.extend_from_slice(&0u16.to_be_bytes()); // firstCode
+        t.extend_from_slice(&0u16.to_be_bytes()); // entryCount
+        t
+    } else {
+        cmap_format4(unicode_to_gid)
+    };
 
     let mut cmap = Vec::with_capacity(12 + cmap_subtable.len());
     cmap.extend_from_slice(&0u16.to_be_bytes()); // version
@@ -1673,6 +1767,56 @@ fn build_minimal_sfnt(
         (*b"hmtx", &hmtx),
         (*b"maxp", &maxp),
     ])
+}
+
+/// A `cmap` subtable of format 4 for the BMP characters in `map`, one segment for each run of
+/// consecutive characters with consecutive glyph ids.
+#[cfg(feature = "text_layout")]
+fn cmap_format4(map: &std::collections::BTreeMap<u16, u16>) -> Vec<u8> {
+    // (start, end, delta) of each segment
+    let mut segments: Vec<(u16, u16, u16)> = Vec::new();
+    for (&code, &gid) in map {
+        let delta = gid.wrapping_sub(code);
+        match segments.last_mut() {
+            Some((_, end, d)) if end.checked_add(1) == Some(code) && *d == delta => *end = code,
+            _ => segments.push((code, code, delta)),
+        }
+    }
+    // The subtable length is a `u16`: 8000 segments are 64016 bytes.
+    segments.truncate(8000);
+    if segments.last().map(|s| s.1) != Some(0xFFFF) {
+        segments.push((0xFFFF, 0xFFFF, 1));
+    }
+    let seg_count = segments.len() as u16;
+    let mut entry_selector = 0u16;
+    while 1u32 << (entry_selector + 1) <= u32::from(seg_count) {
+        entry_selector += 1;
+    }
+    let search_range = 2 * (1u16 << entry_selector);
+    let length = 16 + 8 * usize::from(seg_count);
+
+    let mut t = Vec::with_capacity(length);
+    t.extend_from_slice(&4u16.to_be_bytes()); // format
+    t.extend_from_slice(&(length as u16).to_be_bytes());
+    t.extend_from_slice(&0u16.to_be_bytes()); // language
+    t.extend_from_slice(&(seg_count * 2).to_be_bytes());
+    t.extend_from_slice(&search_range.to_be_bytes());
+    t.extend_from_slice(&entry_selector.to_be_bytes());
+    t.extend_from_slice(&(seg_count * 2 - search_range).to_be_bytes());
+    for s in &segments {
+        t.extend_from_slice(&s.1.to_be_bytes()); // endCode
+    }
+    t.extend_from_slice(&0u16.to_be_bytes()); // reservedPad
+    for s in &segments {
+        t.extend_from_slice(&s.0.to_be_bytes()); // startCode
+    }
+    for s in &segments {
+        t.extend_from_slice(&s.2.to_be_bytes()); // idDelta
+    }
+    for _ in &segments {
+        t.extend_from_slice(&0u16.to_be_bytes()); // idRangeOffset
+    }
+    t
 }
 
 /// Assembles an `OTTO` font from `(tag, data)` tables given in ascending tag order, as the

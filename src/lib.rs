@@ -312,6 +312,7 @@ use utils::*;
 pub mod serialize;
 /// Op clean-up the serializer runs with `PdfSaveOptions::optimize`
 mod text_merge;
+pub(crate) mod encoding;
 pub use serialize::*;
 pub mod forms;
 pub mod deserialize;

@@ -25,6 +25,7 @@ All notable changes to printpdf are documented in this file. The format follows
 - `RawImage::encode_to_bytes`, `apply_dithering` and `resize_to_fit_size` return `Err` when the pixel buffer is not exactly `width * height * channels` samples, and `encode_to_bytes` also for an image of size 0. They used to panic or abort inside the encoder.
 - `xml_to_pdf_pages` and `xml_to_pdf_pages_debug` return `Err` when the page, or the area inside the margins, is NaN or outside 1 to 1,000,000 pt.
 - A page of a parsed document that cannot be read becomes an empty page with a warning instead of failing the whole document.
+- printpdf depends on `glyph-names` and `encoding_rs` directly (both were in the tree through allsorts).
 - `Pt` and `Mm` order by `f32::total_cmp` (-0.0 sorts before 0.0, NaN last), so `==` and `cmp` can differ within the 0.0005 tolerance of `==`. `Px` addition and subtraction saturate. `PageState` has two more public fields, `untracked_saves` and `untracked_marked_content`.
 
 ### Documentation
@@ -48,6 +49,8 @@ All notable changes to printpdf are documented in this file. The format follows
 - ToUnicode and CID CMaps are limited to 2^20 entries and 1024 codespace ranges, a `usecmap` chain no longer takes quadratic time, and the CFF width scan stops after 10,000 steps per glyph (subroutine fan-out hung it). `/W` runs and the synthetic sfnt of a CFF font no longer overflow.
 - A multi-byte first character of a timezone offset, and offset parts that overflow, no longer panic in the date parser.
 - The arc of a rounded corner is cut into at most 256 segments (a radius of 1e5 made a million points).
+- A simple font with an embedded CFF program (`/Subtype /Type1` with `/FontFile3 /Type1C`, as Quartz, Distiller and ps2pdf write it) survives parse and save. A bare CFF font had no character map, so no character found a glyph on save and the font was dropped, with the text unreadable. The font now gets a map from its glyph names (Adobe Glyph List).
+- The text of a simple font follows its `/Encoding` (`StandardEncoding`, `MacRomanEncoding`, `WinAnsiEncoding` and `/Differences`) and the built-in encoding of its CFF program, where it used to read every code as WinAnsi (`ƒtats-Unis` for `États-Unis`). With poppler as the reference, parse, save and parse again keeps 100% of the words of an Apple CFF PDF and about 80% of two TeX PDFs; it was 0%, 7% and 5%.
 - The SVG output (`PdfPage::to_svg`, `PdfDocument::page_to_svg`, the wasm `Pdf_PageToSvg`) escapes every string it takes from a PDF: the tags of marked content, marker ids, layer ids and names, link targets, font names and the names of unknown operators. A crafted PDF could add an `onmouseover` attribute or a `<script>` element through them, which runs wherever the SVG is inlined into a page, as the web demo does. A link other than `http`, `https`, `mailto`, `tel` or a relative reference (`javascript:`, `data:`) is left out with a warning. Font names in the `@font-face` rule and the `<text>` elements keep only letters, digits and `.`, `-`, `+`, `_`.
 
 ## 0.12.14 - 2026-11-21

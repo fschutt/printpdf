@@ -5418,12 +5418,15 @@ mod parsefont {
                         fonts_map.insert(font_id, ParsedOrBuiltinFont::B(builtin));
                     }
                     Some(ParsedOrBuiltinFont::P(p)) => {
+                        // Without a ToUnicode CMap the text of a simple font follows its
+                        // `/Encoding` (base encoding, `/Differences`) and, for a CFF program,
+                        // the program's own encoding.
+                        let to_unicode = to_unicode_cmap
+                            .or_else(|| simple_font_encoding_cmap(doc, font_dict))
+                            .map(Arc::new);
                         fonts_map.insert(
                             font_id,
-                            ParsedOrBuiltinFont::P(ParsedExternalFont {
-                                to_unicode: to_unicode_cmap.map(Arc::new),
-                                ..p
-                            }),
+                            ParsedOrBuiltinFont::P(ParsedExternalFont { to_unicode, ..p }),
                         );
                     }
                     Some(ParsedOrBuiltinFont::CidStub(..)) | None => {}
@@ -5432,6 +5435,30 @@ mod parsefont {
         }
 
         fonts_map
+    }
+
+    /// The characters of the codes of a simple font from its `/Encoding` and the built-in encoding
+    /// of its CFF program, as a CMap. `None` when the font names no encoding at all.
+    fn simple_font_encoding_cmap(doc: &Document, font_dict: &Dictionary) -> Option<ToUnicodeCMap> {
+        let resolve = |o: &Object| match o {
+            Object::Reference(r) => doc.get_object(*r).ok().cloned(),
+            other => Some(other.clone()),
+        };
+        let encoding = crate::encoding::SimpleEncoding::from_font_dict(font_dict, resolve);
+        #[cfg(feature = "text_layout")]
+        let builtin = {
+            let mut ignored = Vec::new();
+            let program = get_font_descriptor(doc, font_dict, &FontId(String::new()), &mut ignored, 0)
+                .and_then(|descriptor| descriptor.get(b"FontFile3").ok())
+                .and_then(|file| get_font_data(doc, file, &FontId(String::new()), &mut ignored, 0));
+            program.map(|bytes| crate::font::cff_builtin_encoding(&bytes)).unwrap_or_default()
+        };
+        #[cfg(not(feature = "text_layout"))]
+        let builtin = BTreeMap::new();
+        if encoding.is_empty() && builtin.is_empty() {
+            return None;
+        }
+        Some(encoding.to_unicode(&builtin))
     }
 
     /// Parses the `/ToUnicode` CMap stream of a font dictionary. Warns and returns `None` when

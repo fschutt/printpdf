@@ -61,6 +61,10 @@ image = { version = "0.25.2", default-features = false, optional = true, feature
 ] }
 svg2pdf = { version = "0.13.0", optional = true }
 base64 = "0.23.1"
+# Glyph names to characters (the Adobe Glyph List), for the encodings of simple fonts. Allsorts depends on it already.
+glyph-names = "0.2"
+# The `macintosh` (Mac OS Roman) table, for the encodings of simple fonts. Allsorts depends on it already.
+encoding_rs = "0.8"
 # 0.2, not 0.1: lopdf 0.44 pulls weezl ^0.2, so a 0.1 pin here linked a second copy of
 # the LZW coder into every consumer graph. The API printpdf uses is identical in 0.2.
 weezl = "0.2"
