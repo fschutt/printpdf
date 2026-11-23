@@ -1255,6 +1255,55 @@ fn cff_name_cmap(
     map
 }
 
+/// The glyph of each one-byte code of a simple font whose program has no Unicode `cmap` subtable,
+/// read from its symbol (3,0) or Macintosh (1,0) subtable, for the codes 0 to 255 (glyph 0 where
+/// the font has none).
+///
+/// The codes of such a font are the keys of its own glyph map, and a lookup by character finds
+/// the wrong glyph or none (a font that Quartz subsets has codes of its own). `None` for a
+/// program with a Unicode subtable, which maps characters, and for bytes that have no `cmap` that
+/// can be read.
+#[cfg(feature = "text_layout")]
+pub(crate) fn code_to_glyph_without_unicode(
+    font_bytes: &[u8],
+    font_index: usize,
+) -> Option<std::collections::BTreeMap<u16, u16>> {
+    use allsorts::{
+        binary::read::ReadScope,
+        font::{find_good_cmap_subtable, Encoding},
+        font_data::FontData,
+        tables::{
+            cmap::{Cmap, CmapSubtable},
+            FontTableProvider,
+        },
+        tag,
+    };
+
+    let font_file = ReadScope::new(font_bytes).read::<FontData<'_>>().ok()?;
+    let provider = font_file.table_provider(font_index).ok()?;
+    let data = provider.read_table_data(tag::CMAP).ok()?;
+    let cmap = ReadScope::new(&data).read::<Cmap<'_>>().ok()?;
+    let (encoding, record) = find_good_cmap_subtable(&cmap)?;
+    if !matches!(encoding, Encoding::Symbol | Encoding::AppleRoman) {
+        return None;
+    }
+    let subtable = cmap
+        .scope
+        .offset(usize::try_from(record.offset).ok()?)
+        .read::<CmapSubtable<'_>>()
+        .ok()?;
+    let mut glyphs = std::collections::BTreeMap::new();
+    for code in 0u16..=255 {
+        let mut glyph = subtable.map_glyph(u32::from(code)).ok().flatten();
+        if glyph.is_none() && encoding == Encoding::Symbol {
+            // A symbol font puts its codes at 0xF000 (ISO 32000-1, 9.6.6.4).
+            glyph = subtable.map_glyph(0xF000 + u32::from(code)).ok().flatten();
+        }
+        glyphs.insert(code, glyph.unwrap_or(0));
+    }
+    Some(glyphs)
+}
+
 /// The glyph name that the built-in encoding of a bare name-keyed CFF font gives to each code,
 /// for the codes where the font's own encoding is a custom one. Empty for the standard encoding
 /// (which [`crate::encoding::BaseEncoding::Standard`] describes), for a CID-keyed font and for

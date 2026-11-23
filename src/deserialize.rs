@@ -487,16 +487,19 @@ pub struct ParsedExternalFont {
     /// fonts.
     pub to_unicode: Option<Arc<ToUnicodeCMap>>,
     /// `true` for a composite font (`/Subtype /Type0`), whose text-showing operators carry
-    /// big-endian codes of one or more bytes; `false` for a simple (TrueType or Type1) font with
+    /// big-endian codes of one or more bytes, and for a simple TrueType font without a Unicode
+    /// `cmap`, which is read by code; `false` for any other simple (TrueType or Type1) font, with
     /// one byte per code.
     pub is_cid: bool,
     /// CID to glyph id, for composite fonts where the two differ: a `/CIDToGIDMap` stream
     /// (CIDFontType2) or the CFF charset of a CID-keyed CIDFontType0 program (ISO 32000-1,
-    /// 9.7.4.2). `None` means CID == glyph id (Identity). Glyph ids are looked up through this
-    /// map so that outlines and widths stay correct.
+    /// 9.7.4.2). For a simple font read by code it is the glyph of each code. `None` means
+    /// CID == glyph id (Identity). Glyph ids are looked up through this map so that outlines and
+    /// widths stay correct.
     pub cid_to_gid: Option<Arc<BTreeMap<u16, u16>>>,
     /// The Type0 `/Encoding` CMap when it is not Identity-H: an embedded CMap stream or
-    /// Identity-V. `None` means Identity-H (2-byte codes, code == CID).
+    /// Identity-V. A simple font read by code has a CMap of one-byte codes. `None` means
+    /// Identity-H (2-byte codes, code == CID).
     pub encoding_cmap: Option<Arc<crate::cmap::CidCMap>>,
 }
 
@@ -573,7 +576,8 @@ pub enum FontTextDecodeKind {
         /// ToUnicode CMap of the font, if it has one.
         to_unicode: Option<Arc<ToUnicodeCMap>>,
     },
-    /// Composite (Type0) font. Content stream bytes become codes (through the codespace ranges of
+    /// Composite (Type0) font, or a simple TrueType font without a Unicode `cmap` that is read
+    /// by code. Content stream bytes become codes (through the codespace ranges of
     /// the `/Encoding` CMap; codes are 1 to 4 bytes wide), codes become CIDs (cidrange and
     /// cidchar entries), and CIDs become glyph ids (`cid_to_gid`: the `/CIDToGIDMap` stream of a
     /// CIDFontType2 or the CFF charset of a CID-keyed CIDFontType0). `encoding_cmap: None` is
@@ -5550,7 +5554,10 @@ mod parsefont {
                             .map(Arc::new);
                         fonts_map.insert(
                             font_id,
-                            ParsedOrBuiltinFont::P(ParsedExternalFont { to_unicode, ..p }),
+                            ParsedOrBuiltinFont::P(keep_glyph_codes(ParsedExternalFont {
+                                to_unicode,
+                                ..p
+                            })),
                         );
                     }
                     Some(ParsedOrBuiltinFont::CidStub(..)) | None => {}
@@ -5559,6 +5566,62 @@ mod parsefont {
         }
 
         fonts_map
+    }
+
+    /// A CMap of one-byte codes, every code its own CID.
+    #[cfg(feature = "text_layout")]
+    const ONE_BYTE_CMAP: &str = "/CIDInit /ProcSet findresource begin 12 dict begin begincmap \
+        /CMapName /OneByte def /CMapType 1 def \
+        1 begincodespacerange <00> <FF> endcodespacerange \
+        1 begincidrange <00> <FF> 0 endcidrange endcmap end end";
+
+    /// Reads a simple font whose program has no Unicode `cmap` as a font of one-byte codes, with
+    /// the glyph of each code taken from the program's own map. A lookup by character finds the
+    /// wrong glyph or none in such a font, so its text keeps the glyph ids. The characters come
+    /// from the ToUnicode CMap or the `/Encoding`, and from WinAnsi for a font that has neither.
+    /// A font without such a map is returned as it is.
+    #[cfg(feature = "text_layout")]
+    fn keep_glyph_codes(font: ParsedExternalFont) -> ParsedExternalFont {
+        if font.is_cid {
+            return font;
+        }
+        let Some(glyphs) = font.font.source_bytes().and_then(|bytes| {
+            crate::font::code_to_glyph_without_unicode(bytes.as_slice(), font.font.original_index)
+        }) else {
+            return font;
+        };
+        let Ok((codes, _)) = crate::cmap::CidCMap::parse(ONE_BYTE_CMAP) else {
+            return font;
+        };
+        let to_unicode = font
+            .to_unicode
+            .clone()
+            .unwrap_or_else(|| Arc::new(win_ansi_cmap()));
+        ParsedExternalFont {
+            is_cid: true,
+            to_unicode: Some(to_unicode),
+            cid_to_gid: Some(Arc::new(glyphs)),
+            encoding_cmap: Some(Arc::new(codes)),
+            ..font
+        }
+    }
+
+    /// The characters of the codes 0x20 to 0xFF in WinAnsi.
+    #[cfg(feature = "text_layout")]
+    fn win_ansi_cmap() -> ToUnicodeCMap {
+        let mappings = (0x20u8..=0xFF)
+            .filter_map(|code| {
+                let c = crate::text::win_ansi_char(code);
+                (c != '\u{FFFD}').then(|| (u32::from(code), vec![u32::from(c)]))
+            })
+            .collect();
+        ToUnicodeCMap { mappings }
+    }
+
+    /// Without `text_layout` a simple font has no font program to read.
+    #[cfg(not(feature = "text_layout"))]
+    fn keep_glyph_codes(font: ParsedExternalFont) -> ParsedExternalFont {
+        font
     }
 
     /// The characters of the codes of a simple font from its `/Encoding` and the built-in encoding

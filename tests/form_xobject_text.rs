@@ -850,5 +850,10 @@ fn quartz_pages_have_the_words_poppler_finds() {
             "{name}: only {before} of {} words found",
             words.len()
         );
+        assert!(
+            after * 10 >= words.len() * 8,
+            "{name}: only {after} of {} words found after a save",
+            words.len()
+        );
     }
 }
