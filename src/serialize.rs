@@ -266,48 +266,21 @@ pub fn to_lopdf_doc(
     };
 
     // Embedded fonts (subset if enabled) first, then the standard fonts that the pages use.
-    let mut global_font_dict = LoDictionary::new();
     let (font_infos, subset_fonts) = prepare_fonts_for_serialization(&pdf.resources, &pdf.pages, opts.subset_fonts, warnings);
-    for (font_id, subset_info) in subset_fonts.iter() {
-        let font_dict = add_subset_font_to_pdf(&mut doc, font_id, subset_info);
-        let font_dict_id = doc.add_object(font_dict);
-        global_font_dict.set(font_id.0.clone(), Reference(font_dict_id));
-    }
-
-    for internal_font in get_used_internal_fonts(&pdf.pages) {
-        // An embedded font that has the same resource name (F1..F14 is common in parsed PDFs)
-        // wins over the standard font, or the page ops would point at the wrong font.
-        // `resolve_current_font` applies the same rule per op.
-        if global_font_dict.has(internal_font.get_pdf_id().as_bytes()) {
-            warnings.push(PdfWarnMsg::warning(
-                0,
-                0,
-                format!(
-                    "builtin font {} not emitted: an embedded font already uses that resource name",
-                    internal_font.get_pdf_id()
-                ),
-            ));
-            continue;
-        }
-        let font_dict = builtin_font_to_dict(&internal_font);
-        let font_dict_id = doc.add_object(font_dict);
-        global_font_dict.set(internal_font.get_pdf_id(), Reference(font_dict_id));
-    }
+    let page_streams: Vec<&[Op]> = pdf.pages.iter().map(|page| page.ops.as_slice()).collect();
+    let global_font_dict = write_font_dict(
+        &mut doc,
+        &subset_fonts,
+        used_builtin_fonts(&page_streams),
+        warnings,
+    );
     let global_font_dict_id = doc.add_object(global_font_dict);
 
     let global_xobject_dict_id = doc.add_object(global_xobject_dict);
 
-    let mut global_extgstate_dict = LoDictionary::new();
-    for (k, v) in pdf.resources.extgstates.map.iter() {
-        global_extgstate_dict.set(k.0.clone(), crate::graphics::extgstate_to_dict(v));
-    }
-    let global_extgstate_dict_id = doc.add_object(global_extgstate_dict);
+    let global_extgstate_dict_id = doc.add_object(extgstate_dict(&pdf.resources));
 
-    let mut global_shading_dict = LoDictionary::new();
-    for (k, v) in pdf.resources.shadings.map.iter() {
-        global_shading_dict.set(k.0.clone(), v.to_dict());
-    }
-    let global_shading_dict_id = doc.add_object(global_shading_dict);
+    let global_shading_dict_id = doc.add_object(shading_dict(&pdf.resources));
 
     let page_ids_reserved = pdf
         .pages
@@ -501,21 +474,79 @@ pub fn serialize_pdf_into_bytes(
     std::mem::drop(writer);
     bytes
 }
-fn get_used_internal_fonts(pages: &[PdfPage]) -> BTreeSet<BuiltinFont> {
-    // Standard fonts are selected by `SetFont` ops; collect the ones in use.
+/// The standard fonts that the content streams (the ops of pages or of forms) select with
+/// `SetFont`.
+fn used_builtin_fonts(streams: &[&[Op]]) -> BTreeSet<BuiltinFont> {
     let mut fonts = BTreeSet::new();
-    
-    for page in pages {
-        for op in &page.ops {
-            if let Op::SetFont { font, .. } = op {
-                if let crate::ops::PdfFontHandle::Builtin(builtin_font) = font {
-                    fonts.insert(*builtin_font);
-                }
+
+    for ops in streams {
+        for op in ops.iter() {
+            if let Op::SetFont {
+                font: crate::ops::PdfFontHandle::Builtin(builtin_font),
+                ..
+            } = op
+            {
+                fonts.insert(*builtin_font);
             }
         }
     }
-    
+
     fonts
+}
+
+/// The `/ExtGState` dictionary of a resource scope.
+fn extgstate_dict(resources: &PdfResources) -> LoDictionary {
+    let mut dict = LoDictionary::new();
+    for (k, v) in resources.extgstates.map.iter() {
+        dict.set(k.0.clone(), crate::graphics::extgstate_to_dict(v));
+    }
+    dict
+}
+
+/// The `/Shading` dictionary of a resource scope.
+fn shading_dict(resources: &PdfResources) -> LoDictionary {
+    let mut dict = LoDictionary::new();
+    for (k, v) in resources.shadings.map.iter() {
+        dict.set(k.0.clone(), v.to_dict());
+    }
+    dict
+}
+
+/// The `/Font` dictionary of a resource scope: the embedded fonts, written as objects of `doc`,
+/// and the standard fonts that the scope's content streams select.
+fn write_font_dict(
+    doc: &mut lopdf::Document,
+    subset_fonts: &BTreeMap<FontId, RuntimeSubsetInfo>,
+    builtin_fonts: BTreeSet<BuiltinFont>,
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> LoDictionary {
+    let mut font_dict = LoDictionary::new();
+    for (font_id, subset_info) in subset_fonts.iter() {
+        let dict = add_subset_font_to_pdf(doc, font_id, subset_info);
+        let dict_id = doc.add_object(dict);
+        font_dict.set(font_id.0.clone(), Reference(dict_id));
+    }
+
+    for internal_font in builtin_fonts {
+        // An embedded font that has the same resource name (F1..F14 is common in parsed PDFs)
+        // wins over the standard font, or the page ops would point at the wrong font.
+        // `resolve_current_font` applies the same rule per op.
+        if font_dict.has(internal_font.get_pdf_id().as_bytes()) {
+            warnings.push(PdfWarnMsg::warning(
+                0,
+                0,
+                format!(
+                    "builtin font {} not emitted: an embedded font already uses that resource name",
+                    internal_font.get_pdf_id()
+                ),
+            ));
+            continue;
+        }
+        let dict = builtin_font_to_dict(&internal_font);
+        let dict_id = doc.add_object(dict);
+        font_dict.set(internal_font.get_pdf_id(), Reference(dict_id));
+    }
+    font_dict
 }
 
 fn builtin_font_to_dict(font: &BuiltinFont) -> LoDictionary {
@@ -1243,18 +1274,18 @@ pub(crate) struct RuntimeSubsetInfo {
     pub was_subset: bool,
 }
 
-/// Collects the glyphs that each font uses on the pages (glyph id to its text), for subsetting
-/// and for the ToUnicode CMaps.
-fn collect_used_glyphs_from_pages(
-    pages: &[PdfPage],
+/// Collects the glyphs that each font uses in the content streams (glyph id to its text), for
+/// subsetting and for the ToUnicode CMaps. A content stream is the ops of a page or of a form.
+fn collect_used_glyphs(
+    streams: &[&[Op]],
     fonts: &BTreeMap<FontId, crate::font::PdfFont>,
 ) -> BTreeMap<FontId, BTreeMap<u16, String>> {
     let mut used_glyphs: BTreeMap<FontId, BTreeMap<u16, String>> = BTreeMap::new();
     
-    for page in pages {
+    for ops in streams {
         let mut current_font_id: Option<FontId> = None;
         
-        for op in &page.ops {
+        for op in ops.iter() {
             match op {
                 Op::SetFont { font, .. } => {
                     // Track the current font for subsequent text operations
@@ -1556,6 +1587,19 @@ fn rectangle_to_stream_ops(rectangle: &crate::Rect) -> Vec<LoOp> {
 pub(crate) fn prepare_fonts_for_serialization(
     resources: &PdfResources,
     pages: &[PdfPage],
+    do_subset: bool,
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> (BTreeMap<FontId, RuntimeFontInfo>, BTreeMap<FontId, RuntimeSubsetInfo>) {
+    let streams: Vec<&[Op]> = pages.iter().map(|page| page.ops.as_slice()).collect();
+    prepare_fonts_for_streams(&resources.fonts.map, &streams, do_subset, warnings)
+}
+
+/// Like [`prepare_fonts_for_serialization`] for the fonts of one resource scope and the content
+/// streams that name them: the pages for the fonts of the document, the form for the fonts of a
+/// form.
+pub(crate) fn prepare_fonts_for_streams(
+    fonts: &BTreeMap<FontId, crate::font::PdfFont>,
+    streams: &[&[Op]],
     _do_subset: bool,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> (BTreeMap<FontId, RuntimeFontInfo>, BTreeMap<FontId, RuntimeSubsetInfo>) {
@@ -1563,10 +1607,10 @@ pub(crate) fn prepare_fonts_for_serialization(
     let mut subset_infos = BTreeMap::new();
     
     // First pass: collect used glyphs for each font
-    let used_glyphs = collect_used_glyphs_from_pages(pages, &resources.fonts.map);
+    let used_glyphs = collect_used_glyphs(streams, fonts);
     
     // Second pass: create info for each font
-    for (font_id, pdf_font) in &resources.fonts.map {
+    for (font_id, pdf_font) in fonts {
         let glyph_usage = used_glyphs.get(font_id).cloned().unwrap_or_default();
         
         if glyph_usage.is_empty() {

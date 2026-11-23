@@ -295,11 +295,12 @@ pub fn parse_pdf_from_bytes(
     let i = parse_pdf_from_bytes_start(bytes, opts, warnings)?;
 
     let fonts = parse_fonts_from_entire_pdf(&i.doc, &i.objs_to_search_for_resources, warnings);
+    let font_decode = font_decode_map(&fonts);
     let xobjects =
         parse_xobjects_from_entire_pdf(&i.doc, &i.objs_to_search_for_resources, warnings);
     let xobjects = process_xobjects(xobjects, warnings);
 
-    parse_pdf_from_bytes_end(i, opts, fonts, xobjects, warnings)
+    parse_pdf_from_bytes_end(i, opts, fonts, font_decode, xobjects, warnings)
 }
 
 /// Like [`parse_pdf_from_bytes`], but decodes images with [`RawImage::decode_from_bytes_async`].
@@ -311,17 +312,35 @@ pub async fn parse_pdf_from_bytes_async(
     let i = parse_pdf_from_bytes_start(bytes, opts, warnings)?;
 
     let fonts = parse_fonts_from_entire_pdf(&i.doc, &i.objs_to_search_for_resources, warnings);
+    let font_decode = font_decode_map(&fonts);
     let xobjects =
         parse_xobjects_from_entire_pdf(&i.doc, &i.objs_to_search_for_resources, warnings);
     let xobjects = process_xobjects_async(xobjects, warnings).await;
 
-    parse_pdf_from_bytes_end(i, opts, fonts, xobjects, warnings)
+    parse_pdf_from_bytes_end(i, opts, fonts, font_decode, xobjects, warnings)
+}
+
+/// How the text of each font resource name decodes; `Tf` operators select by that name.
+///
+/// Builtin entries are keyed by enum, not by resource name; `Tf` falls back to
+/// [`BuiltinFont::from_id`] for the F1-F14 names.
+fn font_decode_map(
+    fonts: &BTreeMap<BuiltinOrExternalFontId, ParsedOrBuiltinFont>,
+) -> BTreeMap<String, FontTextDecodeKind> {
+    fonts
+        .iter()
+        .filter_map(|(id, pf)| match id {
+            BuiltinOrExternalFontId::External(fid) => Some((fid.0.clone(), pf.decode_kind())),
+            BuiltinOrExternalFontId::Builtin(_) => None,
+        })
+        .collect()
 }
 
 fn parse_pdf_from_bytes_end(
     initial_pdf: InitialPdf,
     _opts: &PdfParseOptions,
     fonts: BTreeMap<BuiltinOrExternalFontId, ParsedOrBuiltinFont>,
+    font_decode: BTreeMap<String, FontTextDecodeKind>,
     xobjects: BTreeMap<XObjectId, XObject>,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> Result<PdfDocument, String> {
@@ -334,44 +353,6 @@ fn parse_pdf_from_bytes_end(
         document_info,
         link_annots,
     } = initial_pdf;
-
-    // How the text of each font resource name decodes; `Tf` operators select by that name.
-    let font_decode: BTreeMap<String, FontTextDecodeKind> = fonts
-        .iter()
-        .filter_map(|(id, pf)| {
-            let name = match id {
-                BuiltinOrExternalFontId::External(fid) => fid.0.clone(),
-                // Builtin entries are keyed by enum, not by resource name; `Tf` falls back to
-                // `BuiltinFont::from_id` for the F1-F14 names.
-                BuiltinOrExternalFontId::Builtin(_) => return None,
-            };
-            let kind = match pf {
-                ParsedOrBuiltinFont::B(b) => FontTextDecodeKind::Builtin(*b),
-                ParsedOrBuiltinFont::P(p) => {
-                    if p.is_cid {
-                        FontTextDecodeKind::Cid {
-                            to_unicode: p.to_unicode.clone(),
-                            encoding_cmap: p.encoding_cmap.clone(),
-                            cid_to_gid: p.cid_to_gid.clone(),
-                        }
-                    } else {
-                        FontTextDecodeKind::Simple {
-                            to_unicode: p.to_unicode.clone(),
-                        }
-                    }
-                }
-                ParsedOrBuiltinFont::CidStub(to_unicode, encoding_cmap) => {
-                    FontTextDecodeKind::Cid {
-                        to_unicode: to_unicode.clone(),
-                        encoding_cmap: encoding_cmap.clone(),
-                        // No font program, so no charset or CIDToGIDMap to resolve through.
-                        cid_to_gid: None,
-                    }
-                }
-            };
-            Some((name, kind))
-        })
-        .collect();
 
     for (i, page_ref) in page_refs.into_iter().enumerate() {
         let parsed = doc
@@ -434,14 +415,11 @@ fn parse_pdf_from_bytes_end(
 
     let shadings = extract_shadings(&doc, &objs_to_search_for_resources, warnings);
 
-    let fonts = fonts
-        .into_iter()
-        .filter_map(|(id, pf)| {
-            let parsed_font = pf.as_parsed_font()?;
-            let pdf_font = crate::font::PdfFont::new(parsed_font);
-            Some((FontId(id.get_id().to_string()), pdf_font))
-        })
-        .collect();
+    let fonts = font_resources(
+        fonts
+            .into_iter()
+            .map(|(id, pf)| (FontId(id.get_id().to_string()), pf)),
+    );
 
     let pdf_doc = PdfDocument {
         metadata: PdfMetadata {
@@ -468,6 +446,19 @@ fn parse_pdf_from_bytes_end(
     };
 
     Ok(pdf_doc)
+}
+
+/// The fonts of a scope that the document model keeps: the ones with a font program. A standard
+/// font needs no entry, and a font without a program only decodes text.
+fn font_resources(
+    fonts: impl Iterator<Item = (FontId, ParsedOrBuiltinFont)>,
+) -> BTreeMap<FontId, crate::font::PdfFont> {
+    fonts
+        .filter_map(|(id, pf)| {
+            let parsed_font = pf.as_parsed_font()?;
+            Some((id, crate::font::PdfFont::new(parsed_font)))
+        })
+        .collect()
 }
 
 /// An external font parsed out of the PDF, together with everything the
@@ -514,6 +505,32 @@ impl ParsedOrBuiltinFont {
             ParsedOrBuiltinFont::P(p) => Some(p.font),
             ParsedOrBuiltinFont::B(_) => None,
             ParsedOrBuiltinFont::CidStub(..) => None,
+        }
+    }
+
+    /// How the text-showing operators decode their bytes when this font is selected.
+    fn decode_kind(&self) -> FontTextDecodeKind {
+        match self {
+            ParsedOrBuiltinFont::B(b) => FontTextDecodeKind::Builtin(*b),
+            ParsedOrBuiltinFont::P(p) => {
+                if p.is_cid {
+                    FontTextDecodeKind::Cid {
+                        to_unicode: p.to_unicode.clone(),
+                        encoding_cmap: p.encoding_cmap.clone(),
+                        cid_to_gid: p.cid_to_gid.clone(),
+                    }
+                } else {
+                    FontTextDecodeKind::Simple {
+                        to_unicode: p.to_unicode.clone(),
+                    }
+                }
+            }
+            ParsedOrBuiltinFont::CidStub(to_unicode, encoding_cmap) => FontTextDecodeKind::Cid {
+                to_unicode: to_unicode.clone(),
+                encoding_cmap: encoding_cmap.clone(),
+                // No font program, so no charset or CIDToGIDMap to resolve through.
+                cid_to_gid: None,
+            },
         }
     }
 
@@ -787,45 +804,57 @@ fn extract_shadings(
             Some(dict)
         };
         let Some(resources) = resources else { continue };
-        let Ok(shading_res) = resources.get(b"Shading") else {
+        read_shadings(doc, resources, page_num, &mut map, warnings);
+    }
+    map
+}
+
+/// Adds the `/Shading` resources of one resource dictionary to `map`. A name that `map` has
+/// already is skipped: the first definition wins, consistent with the other resources.
+fn read_shadings(
+    doc: &LopdfDocument,
+    resources: &LopdfDictionary,
+    page_num: usize,
+    map: &mut BTreeMap<crate::ShadingId, crate::Shading>,
+    warnings: &mut Vec<PdfWarnMsg>,
+) {
+    let Ok(shading_res) = resources.get(b"Shading") else {
+        return;
+    };
+    let Some(shading_dict) = get_dict_or_resolve_ref(
+        &format!("extract_shadings Shading page {page_num}"),
+        doc,
+        shading_res,
+        warnings,
+        Some(page_num),
+    ) else {
+        return;
+    };
+    for (key, value) in shading_dict.iter() {
+        let id = crate::ShadingId(String::from_utf8_lossy(key).to_string());
+        if map.contains_key(&id) {
             continue;
-        };
-        let Some(shading_dict) = get_dict_or_resolve_ref(
-            &format!("extract_shadings Shading page {page_num}"),
+        }
+        let Some(sh) = get_dict_or_resolve_ref(
+            &format!("extract_shadings entry page {page_num}"),
             doc,
-            shading_res,
+            value,
             warnings,
             Some(page_num),
         ) else {
             continue;
         };
-        for (key, value) in shading_dict.iter() {
-            let id = crate::ShadingId(String::from_utf8_lossy(key).to_string());
-            if map.contains_key(&id) {
-                continue; // first definition wins, consistent with other resources
+        match parse_shading_dict(doc, sh) {
+            Ok(parsed) => {
+                map.insert(id, parsed);
             }
-            let Some(sh) = get_dict_or_resolve_ref(
-                &format!("extract_shadings entry page {page_num}"),
-                doc,
-                value,
-                warnings,
-                Some(page_num),
-            ) else {
-                continue;
-            };
-            match parse_shading_dict(doc, sh) {
-                Ok(parsed) => {
-                    map.insert(id, parsed);
-                }
-                Err(e) => warnings.push(PdfWarnMsg::warning(
-                    page_num,
-                    0,
-                    format!("shading {:?} not preserved: {e}", id.0),
-                )),
-            }
+            Err(e) => warnings.push(PdfWarnMsg::warning(
+                page_num,
+                0,
+                format!("shading {:?} not preserved: {e}", id.0),
+            )),
         }
     }
-    map
 }
 
 /// Translate a ShadingType 2/3 dictionary (with an exponential or stitching
@@ -1040,37 +1069,47 @@ fn extract_extgstates(
                 Some(dict)
             }?;
 
-            let extgstate = resources.get(b"ExtGState").ok()?;
-            let extgstate_dict = get_dict_or_resolve_ref(
-                &format!("extract_extgstates ExtGState page {page_num}"),
-                doc,
-                extgstate,
-                warnings,
-                Some(page_num),
-            )?;
-
-            let gs_entries = extgstate_dict
-                .iter()
-                .filter_map(|(key, value)| {
-                    let gs_dict = get_dict_or_resolve_ref(
-                        &format!("extract_extgstates GsDict page {page_num}"),
-                        doc,
-                        value,
-                        warnings,
-                        Some(page_num),
-                    )?;
-                    let gs_id = ExtendedGraphicsStateId(String::from_utf8_lossy(key).to_string());
-                    let gs = extgstate::parse_extgstate(gs_dict);
-                    Some((gs_id, gs))
-                })
-                .collect::<BTreeMap<_, _>>();
-
-            Some(gs_entries)
+            read_extgstates(doc, resources, page_num, warnings)
         })
         .fold(BTreeMap::new(), |mut acc, extgstates| {
             acc.extend(extgstates);
             acc
         })
+}
+
+/// The `/ExtGState` resources of one resource dictionary.
+fn read_extgstates(
+    doc: &LopdfDocument,
+    resources: &LopdfDictionary,
+    page_num: usize,
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> Option<BTreeMap<ExtendedGraphicsStateId, ExtendedGraphicsState>> {
+    let extgstate = resources.get(b"ExtGState").ok()?;
+    let extgstate_dict = get_dict_or_resolve_ref(
+        &format!("extract_extgstates ExtGState page {page_num}"),
+        doc,
+        extgstate,
+        warnings,
+        Some(page_num),
+    )?;
+
+    let gs_entries = extgstate_dict
+        .iter()
+        .filter_map(|(key, value)| {
+            let gs_dict = get_dict_or_resolve_ref(
+                &format!("extract_extgstates GsDict page {page_num}"),
+                doc,
+                value,
+                warnings,
+                Some(page_num),
+            )?;
+            let gs_id = ExtendedGraphicsStateId(String::from_utf8_lossy(key).to_string());
+            let gs = extgstate::parse_extgstate(gs_dict);
+            Some((gs_id, gs))
+        })
+        .collect::<BTreeMap<_, _>>();
+
+    Some(gs_entries)
 }
 
 async fn process_xobjects_async(
@@ -2076,37 +2115,51 @@ fn parse_page(
         }
     }
 
-    // Decode the content stream into a vector of lopdf operations.
     // A page whose content stream fails to tokenize becomes an empty page
     // with a warning instead of failing the entire document.
-    let ops = match lopdf::content::Content::decode(&content_data) {
-        Ok(content) => content.operations,
+    let ops = match decode_content(&content_data) {
+        Ok(operations) => convert_operations(num, &operations, xobjects, font_decode, warnings)?,
         Err(e) => {
-            warnings.push(PdfWarnMsg::error(
-                num,
-                0,
-                format!("Failed to decode content stream: {}", e),
-            ));
+            warnings.push(PdfWarnMsg::error(num, 0, e));
             Vec::new()
         }
     };
-
-    let mut page_state = PageState {
-        font_decode: font_decode.clone(),
-        ..PageState::default()
-    };
-    let mut printpdf_ops = Vec::new();
-    for (op_id, op) in ops.iter().enumerate() {
-        let parsed_op = parse_op(num, op_id, op, &mut page_state, xobjects, warnings)?;
-        printpdf_ops.extend(parsed_op);
-    }
 
     Ok(PdfPage {
         media_box,
         trim_box,
         crop_box,
-        ops: printpdf_ops,
+        ops,
     })
+}
+
+/// Splits the bytes of a content stream (a page's or a form's) into operators and operands.
+fn decode_content(bytes: &[u8]) -> Result<Vec<lopdf::content::Operation>, String> {
+    lopdf::content::Content::decode(bytes)
+        .map(|content| content.operations)
+        .map_err(|e| format!("Failed to decode content stream: {}", e))
+}
+
+/// Turns the operators of a content stream into [`Op`]s. `font_decode` says how the text of each
+/// font resource name decodes: it is the scope the content stream names its resources in, the
+/// resources of the document for a page, and the ones of the form for a form. `page` is the page
+/// the warnings are about.
+fn convert_operations(
+    page: usize,
+    operations: &[lopdf::content::Operation],
+    xobjects: &BTreeMap<XObjectId, XObject>,
+    font_decode: &BTreeMap<String, FontTextDecodeKind>,
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> Result<Vec<Op>, String> {
+    let mut state = PageState {
+        font_decode: font_decode.clone(),
+        ..PageState::default()
+    };
+    let mut ops = Vec::new();
+    for (op_id, op) in operations.iter().enumerate() {
+        ops.extend(parse_op(page, op_id, op, &mut state, xobjects, warnings)?);
+    }
+    Ok(ops)
 }
 
 /// A4 portrait in PDF points, the fallback when a document specifies no
