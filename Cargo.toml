@@ -129,13 +129,13 @@ wasm-bindgen-futures = { version = "0.4.50", optional = true, default-features =
 # an exact pin stops matching the moment azul bumps in-tree. That is why the
 # two repos release as a pair — azul-* publish first, printpdf follows, then
 # azul re-pins printpdf. Never paper over it with a [patch] here.
-azul-css = { version = "0.0.20", default-features = false, features = [
+azul-css = { version = "0.0.21", default-features = false, features = [
   "parser",
 ], optional = true }
-azul-core = { version = "0.0.20", default-features = false, features = [
+azul-core = { version = "0.0.21", default-features = false, features = [
   "std",
 ], optional = true }
-azul-layout = { version = "0.0.20", default-features = false, optional = true }
+azul-layout = { version = "0.0.21", default-features = false, optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 wasm-bindgen = { version = "0.2" }
@@ -166,8 +166,10 @@ text_layout = [
   "azul-layout/text_layout",
   "azul-layout/font_loading",
 ]
-# Add hyphenation support
+# Hyphenation for English (US) only: the dictionary is 91 KB. Other languages are not hyphenated.
 text_layout_hyphenation = ["text_layout", "azul-layout/text_layout_hyphenation"]
+# Hyphenation dictionaries of all 82 languages the `hyphenation` crate has (2.9 MB in the binary)
+text_layout_hyphenation_all = ["text_layout_hyphenation", "azul-layout/text_layout_hyphenation_all"]
 # HTML/CSS layout
 html = [
   "text_layout_hyphenation",
@@ -176,6 +178,8 @@ html = [
   "azul-layout/xml",
   "azul-layout/pdf",
 ]
+# HTML with the hyphenation dictionaries of all languages
+html_hyphenation_all = ["html", "text_layout_hyphenation_all"]
 # HTML with multithreaded font loading (faster on desktop, not available on WASM)
 html_multithreaded = [
   "html",

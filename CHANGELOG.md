@@ -7,6 +7,7 @@ All notable changes to printpdf are documented in this file. The format follows
 
 ### Added
 
+- The features `text_layout_hyphenation_all` and `html_hyphenation_all` embed the hyphenation dictionaries of all 82 languages. `text_layout_hyphenation`, and so `html`, hyphenate English (US) only, which makes the binary 2.9 MB smaller (the WebAssembly demo was 13.8 MB).
 - `ppdf`, a command-line tool in `ppdf/` (its own crate, not part of the printpdf package). It converts a PDF to JSON and back so the document can be edited with `jq`, prints text, text boxes, SVG pages, fonts and images, and renders HTML to PDF. See `ppdf/README.md`.
 - `web/minimal.html`: a single HTML file that makes a PDF in the browser with two wasm calls. It imports the package of the latest release from the demo site, and is deployed with it. Described in `docs/API.md`.
 - `docs/HTML.md` documents the HTML and CSS that `from_html` supports. It replaces `SYNTAX.md`, which described an API that no longer exists.

@@ -201,7 +201,8 @@
 //! - **Default**
 //!   - `html`: [`PdfDocument::from_html`] and the [`html`] module, which lay out HTML and CSS
 //!     with `azul-layout`. It switches on these two, so they are on by default as well:
-//!     - `text_layout_hyphenation`: hyphenation dictionaries for the layout.
+//!     - `text_layout_hyphenation`: hyphenation for English (US) in the layout (a 91 KB
+//!       dictionary). Other languages are not hyphenated.
 //!       - `text_layout`: text shaping and font parsing with `azul-layout` ([`shape`],
 //!         `text_shaping`, [`ParsedFont`] with full font metrics).
 //! - **Not default**
@@ -211,6 +212,8 @@
 //!     - `rayon`: decode images on several threads.
 //!   - `svg`: `Svg::parse` turns an SVG string into an XObject (via `svg2pdf`), and SVG works
 //!     inside HTML. Switches on `html`.
+//!   - `html_hyphenation_all`: `html`, with the hyphenation dictionaries of all 82 languages
+//!     (`text_layout_hyphenation_all`, 2.9 MB more in the binary).
 //!   - `html_multithreaded`: `html`, with fonts loaded on several threads. Not for WASM.
 //!   - `text_layout`: the text shaping above, without `html`. Use it if you want
 //!     [`shape`] but not the HTML layout.
