@@ -106,6 +106,10 @@
 //! assert!(bytes.starts_with(b"%PDF"));
 //! ```
 //!
+//! PDF has no variable fonts, so a variable font (one file with weight or width axes) that goes
+//! through `add_font` is embedded at its default instance. [`PdfDocument::add_variable_font`]
+//! bakes the instance you choose first (feature `text_layout`, see [`variable_font`]).
+//!
 //! # Images
 //!
 //! Requires the `images` feature (plus a format feature such as `png` or `bmp`). Decode an
@@ -263,6 +267,10 @@ pub mod date;
 pub use date::*;
 pub mod font;
 pub use font::*;
+#[cfg(feature = "text_layout")]
+pub mod variable_font;
+#[cfg(feature = "text_layout")]
+pub use variable_font::*;
 pub mod shape;
 pub use shape::*;
 pub mod graphics;
