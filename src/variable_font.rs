@@ -3,13 +3,13 @@
 //! A variable font is one file that holds a whole family along continuous *axes*: weight
 //! (`wght`), width (`wdth`), optical size (`opsz`), slant (`slnt`), italic (`ital`) and custom
 //! ones. PDF has no variable fonts: a viewer reads an embedded font program as its default
-//! instance. A variable font therefore has to be *baked* into a static font at chosen axis values
+//! instance. A variable font therefore has to be converted into a static font at chosen axis values
 //! before it is embedded. The HTML layout does that on its own, with one instance per CSS weight.
 //! From Rust code this module does it:
 //!
 //! - [`font_variation_axes`] lists the axes of a font file.
-//! - [`instantiate_variable_font_bytes`] bakes a static font file at given axis values.
-//! - [`PdfDocument::add_variable_font`] bakes an instance and registers it in a document.
+//! - [`instantiate_variable_font_bytes`] creates a static font file at given axis values.
+//! - [`PdfDocument::add_variable_font`] creates an instance and registers it in a document.
 //!
 //! A variable font that goes through [`PdfDocument::add_font`] is embedded at its default
 //! instance, and [`PdfDocument::save`] adds a warning to say so.
@@ -183,7 +183,7 @@ impl FontVariationSettings {
     }
 }
 
-/// Why a variable font could not be read or baked.
+/// Why a variable font could not be read or instantiated.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VariableFontError {
     /// The bytes are not a font file, or a table that is needed is damaged. Holds the reason.
@@ -193,7 +193,7 @@ pub enum VariableFontError {
         /// The index that was asked for.
         index: usize,
     },
-    /// The font has no variation axes, so there is nothing to bake.
+    /// The font has no variation axes, so there is nothing to instantiate.
     NotVariable,
     /// The text is not an axis tag. Holds the text.
     InvalidTag(String),
@@ -206,11 +206,11 @@ pub enum VariableFontError {
     },
     /// The outlines are neither TrueType with `gvar` nor CFF2. Holds the reason.
     UnsupportedOutlineFormat(String),
-    /// The instance could not be baked. Holds the reason.
+    /// The instance could not be created. Holds the reason.
     Instancing(String),
-    /// The baked instance does not parse as a font. Holds the reason.
+    /// The created instance does not parse as a font. Holds the reason.
     StaticFontParse(String),
-    /// The baked instance could not be converted to a font that a PDF can embed (CFF2 to CFF).
+    /// The created instance could not be converted to a font that a PDF can embed (CFF2 to CFF).
     /// Holds the reason.
     PdfConversion(String),
 }
@@ -232,9 +232,9 @@ impl fmt::Display for VariableFontError {
             Self::UnsupportedOutlineFormat(reason) => {
                 write!(f, "unsupported variable font outlines: {reason}")
             }
-            Self::Instancing(reason) => write!(f, "cannot bake the instance: {reason}"),
+            Self::Instancing(reason) => write!(f, "cannot create the instance: {reason}"),
             Self::StaticFontParse(reason) => {
-                write!(f, "the baked instance does not parse as a font: {reason}")
+                write!(f, "the created instance does not parse as a font: {reason}")
             }
             Self::PdfConversion(reason) => {
                 write!(f, "cannot convert the instance for embedding in a PDF: {reason}")
@@ -356,12 +356,12 @@ fn to_fixed(value: f32, min: Fixed, max: Fixed) -> Fixed {
     Fixed::from_raw(raw.max(min.raw_value()).min(max.raw_value()))
 }
 
-/// Bakes a variable font into a static font file at chosen axis values.
+/// Creates a static font file from a variable font at chosen axis values.
 ///
 /// `face_index` selects the face of a font collection; use 0 for a plain `.ttf` or `.otf`. An
 /// axis that `settings` does not name stays at its default. A value outside the range of the axis
 /// is clamped to it, and the values are rounded to the 16.16 fixed point numbers of the font.
-/// The second result holds the value that every axis of the font was baked at, so a clamped value
+/// The second result holds the value that every axis of the font was set to, so a clamped value
 /// shows there.
 ///
 /// The result is a static font without variation tables, so it parses and embeds like any other
@@ -377,7 +377,7 @@ fn to_fixed(value: f32, min: Fixed, max: Fixed) -> Fixed {
 /// - [`VariableFontError::InvalidFont`] and [`VariableFontError::InvalidFaceIndex`] as for
 ///   [`font_variation_axes`].
 /// - [`VariableFontError::UnsupportedOutlineFormat`], [`VariableFontError::Instancing`] and
-///   [`VariableFontError::PdfConversion`] when the font cannot be baked.
+///   [`VariableFontError::PdfConversion`] when the font cannot be instantiated.
 pub fn instantiate_variable_font_bytes(
     bytes: &[u8],
     face_index: usize,
@@ -413,19 +413,19 @@ pub fn instantiate_variable_font_bytes(
         user_instance.push(value);
     }
 
-    let (baked, _) = instance(&provider, &user_instance).map_err(|error| match error {
+    let (static_bytes, _) = instance(&provider, &user_instance).map_err(|error| match error {
         VariationError::NotVariableFont => VariableFontError::NotVariable,
         VariationError::NotImplemented => VariableFontError::UnsupportedOutlineFormat(
             "expected TrueType outlines with a gvar table, or CFF2 outlines".to_string(),
         ),
         other => VariableFontError::Instancing(other.to_string()),
     })?;
-    let baked = if has_cff2_outlines(&baked)? {
-        cff2_to_cff1(&baked)?
+    let static_bytes = if has_cff2_outlines(&static_bytes)? {
+        cff2_to_cff1(&static_bytes)?
     } else {
-        baked
+        static_bytes
     };
-    Ok((baked, resolved))
+    Ok((static_bytes, resolved))
 }
 
 /// Whether a static font has CFF2 outlines, which a PDF cannot embed.
@@ -551,7 +551,7 @@ pub(crate) fn unresolved_variation_warning(font_id: &FontId, font: &ParsedFont) 
 }
 
 impl PdfDocument {
-    /// Bakes one instance of a variable font into a static font and registers it, like
+    /// Creates one instance of a variable font as a static font and registers it, like
     /// [`PdfDocument::add_font`].
     ///
     /// `bytes` is the variable font file, `face_index` selects the face of a font collection (0
@@ -596,9 +596,9 @@ impl PdfDocument {
         face_index: usize,
         settings: &FontVariationSettings,
     ) -> Result<FontId, VariableFontError> {
-        let (baked, _) = instantiate_variable_font_bytes(bytes, face_index, settings)?;
+        let (static_bytes, _) = instantiate_variable_font_bytes(bytes, face_index, settings)?;
         let mut warnings = Vec::new();
-        let font = ParsedFont::from_bytes(&baked, 0, &mut warnings).ok_or_else(|| {
+        let font = ParsedFont::from_bytes(&static_bytes, 0, &mut warnings).ok_or_else(|| {
             let reasons: Vec<&str> = warnings.iter().map(|w| w.message.as_str()).collect();
             VariableFontError::StaticFontParse(reasons.join("; "))
         })?;

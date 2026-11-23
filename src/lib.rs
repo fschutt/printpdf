@@ -108,7 +108,7 @@
 //!
 //! PDF has no variable fonts, so a variable font (one file with weight or width axes) that goes
 //! through `add_font` is embedded at its default instance. [`PdfDocument::add_variable_font`]
-//! bakes the instance you choose first (feature `text_layout`, see [`variable_font`]).
+//! creates the instance you choose first (feature `text_layout`, see [`variable_font`]).
 //!
 //! # Images
 //!

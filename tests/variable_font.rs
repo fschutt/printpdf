@@ -1,7 +1,7 @@
-//! Variable fonts: the axes of a font, baked static instances, and their embedding in a PDF.
+//! Variable fonts: the axes of a font, static instances created from it, and their embedding in a PDF.
 //!
 //! PDF has no variable fonts: a viewer reads an embedded font program as its default instance.
-//! printpdf therefore bakes a static font at chosen axis values before it embeds anything. These
+//! printpdf therefore creates a static font at chosen axis values before it embeds anything. These
 //! tests look at the bytes of the instances and at the font programs inside the saved PDF with
 //! allsorts and lopdf, so that printpdf's own reader does not check printpdf's own writer.
 //!
@@ -360,7 +360,7 @@ fn values_are_clamped_and_the_effective_value_is_reported() {
 
     assert_eq!(effective(450.5).1, 450.5);
 
-    // The font is baked at a 16.16 fixed point value, and that is the value that is reported.
+    // An axis value is stored as 16.16 fixed point, and that is the value that is reported.
     let (_, value) = effective(400.1);
     assert!((value - 400.1).abs() < 1e-4, "{value}");
     assert_eq!(value, (400.1_f64 * 65536.0).round() as f32 / 65536.0);
@@ -372,7 +372,7 @@ fn the_resolved_settings_list_every_axis() {
     let (default, resolved) =
         instantiate_variable_font_bytes(RED_HAT_MONO, 0, &FontVariationSettings::new()).unwrap();
     assert_eq!(resolved, wght(400.0));
-    // The resolved settings are valid input and bake the same font.
+    // The resolved settings are valid input and create the same font.
     let (again, _) = instantiate_variable_font_bytes(RED_HAT_MONO, 0, &resolved).unwrap();
     assert_eq!(default, again);
 }
@@ -391,7 +391,7 @@ fn two_instances_of_one_font_differ_and_are_static() {
         // The tables that shaping reads survive.
         assert!(has_table(bytes, "GSUB") && has_table(bytes, "GPOS") && has_table(bytes, "cmap"));
     }
-    // The baked weight is in the OS/2 weight class (a u16 at offset 4 of the table).
+    // The weight of the instance is in the OS/2 weight class (a u16 at offset 4 of the table).
     let weight_class = |bytes: &[u8]| {
         let font_file = ReadScope::new(bytes).read::<FontData<'_>>().unwrap();
         let provider = font_file.table_provider(0).unwrap();
@@ -576,7 +576,7 @@ fn a_cff2_instance_is_cff1_and_embeds() {
 }
 
 // ---------------------------------------------------------------------------
-// The warning for a variable font that was not baked
+// The warning for a variable font that was not instantiated
 // ---------------------------------------------------------------------------
 
 /// The messages of `save` about a variable font that is embedded at its default instance.
