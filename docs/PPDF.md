@@ -96,10 +96,10 @@ These are gaps in the PDF reader that decide how good the text boxes are, not
 whether OCR is possible:
 
 - Resources are not scoped per page, so `/F1` can collide between pages.
-- Text inside Form XObjects is not read, so it would be recognized twice.
 - Page `/Rotate` is ignored.
 - `/Widths` is not used as the source of glyph advances.
 - MediaBox origins and CropBox are not handled by `to_svg`.
 
-The first two matter most for OCR. They come from an earlier audit of the PDF
-reader and have not been fixed yet.
+The first matters most for OCR. It comes from an earlier audit of the PDF
+reader and has not been fixed yet. Text inside Form XObjects is read, so a page
+that a producer wraps in a form is not recognized twice.

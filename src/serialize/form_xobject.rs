@@ -19,9 +19,9 @@ use super::{
     used_builtin_fonts, write_font_dict, PdfSaveOptions, RuntimeFontInfo,
 };
 use crate::{
-    form_walk::MAX_FORM_DEPTH,
+    form_walk::{inheriting_streams, MAX_FORM_DEPTH},
     xobject::{build_dict, DictItem, FormXObject},
-    FontId, Op, PdfResources, PdfWarnMsg, Rect, XObject, XObjectId,
+    FontId, Op, PdfWarnMsg, Rect, XObject, XObjectId,
 };
 
 /// What the content that names the XObjects of a scope needs to know about that scope.
@@ -32,20 +32,6 @@ pub(crate) struct SaveScope<'a> {
     pub xobjects: &'a BTreeMap<XObjectId, XObject>,
     /// How many forms enclose the content, so that a model nested too deeply is not written.
     pub depth: usize,
-}
-
-/// The ops of the forms in `scope` that have no resources of their own. They name the fonts of
-/// the scope, so the glyphs they use count towards its subsets.
-pub(crate) fn inheriting_streams(scope: &PdfResources) -> Vec<&[Op]> {
-    scope
-        .xobjects
-        .map
-        .values()
-        .filter_map(|xobject| match xobject {
-            XObject::Form(form) if form.resources.is_none() => Some(form.ops.as_slice()),
-            _ => None,
-        })
-        .collect()
 }
 
 /// Writes every XObject of a scope as an object of `doc` and returns the `/XObject` dictionary.

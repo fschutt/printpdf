@@ -54,6 +54,8 @@ pub use crate::text::TextItem;
 use crate::{
     color::Color,
     font::ParsedFont,
+    form_walk::{form_in, scope_of, FormWalk},
+    xobject::FormXObject,
     graphics::{
         Line, LineCapStyle, LineDashPattern, LineJoinStyle, Point, Polygon, Rect, TextRenderingMode,
     },
@@ -198,166 +200,16 @@ impl PdfPage {
     /// glyph, or else with the cmap of the current font from `resources`; unknown glyphs
     /// become U+FFFD. Lines are detected from the vertical text position only, so columns and
     /// tables are not reconstructed.
+    ///
+    /// The text of the forms the page draws ([`Op::UseXobject`] of an
+    /// [`XObject::Form`](crate::XObject::Form)) is part of the page, in the order it is drawn; a
+    /// form looks up its fonts in its own resources. A form that draws itself, forms nested
+    /// deeper than 16 levels, and more than 10 000 forms or 2 000 000 ops of forms on one page
+    /// are skipped.
     pub fn extract_text(&self, resources: &PdfResources) -> Vec<String> {
-        let mut text_chunks = Vec::new();
-        let mut current_chunk = String::new();
-        let mut in_text_section = false;
-        let mut cur_text_cursor = Point {
-            x: Pt(0.0),
-            y: Pt(0.0),
-        };
-        let mut cur_text_matrix_y: Option<f32> = None;
-        let mut current_font: Option<&ParsedFont> = None;
-        let mut cur_font_size: f32 = 12.0;
-        // Where the previously shown run *ended* horizontally (text space).
-        // Lets us tell an intra-word positioning move from a real word gap
-        // when a document places every run with its own Tm.
-        let mut pen_x: Option<f32> = None;
-
-        for op in &self.ops {
-            match op {
-                Op::StartTextSection => {
-                    in_text_section = true;
-                }
-                Op::EndTextSection => {
-                    in_text_section = false;
-                    if !current_chunk.is_empty() {
-                        text_chunks.push(current_chunk.trim().to_string());
-                        current_chunk = String::new();
-                    }
-                }
-                Op::SetFont { font, size } => {
-                    cur_font_size = size.0;
-                    match font {
-                        crate::ops::PdfFontHandle::External(font_id) => {
-                            current_font =
-                                resources.fonts.map.get(font_id).map(|pf| &pf.parsed_font);
-                        }
-                        crate::ops::PdfFontHandle::Builtin(_) => {
-                            // Builtin text is `TextItem::Text`; drop the previous
-                            // external font so it is not used to decode glyph ids.
-                            current_font = None;
-                        }
-                    }
-                }
-                Op::SetTextMatrix { matrix } => {
-                    // Only a vertical move is a line break: documents that position
-                    // every run with its own Tm (common with shaped text) would
-                    // otherwise get one line per glyph run.
-                    let m = matrix.as_array();
-                    let (new_x, new_y) = (m[4], m[5]);
-                    match cur_text_matrix_y {
-                        Some(prev_y) if (prev_y - new_y).abs() > 0.5 => {
-                            current_chunk.push_str("\r\n");
-                        }
-                        Some(_) => {
-                            // Same baseline: a word gap is a move that lands visibly past
-                            // where the previous run ended; per-glyph moves land exactly
-                            // at the pen position.
-                            let gap_threshold = (cur_font_size * 0.15).max(0.1);
-                            let is_gap = match pen_x {
-                                Some(px) => new_x - px > gap_threshold,
-                                None => false,
-                            };
-                            if is_gap
-                                && !current_chunk.is_empty()
-                                && !current_chunk.ends_with(char::is_whitespace)
-                            {
-                                current_chunk.push(' ');
-                            }
-                        }
-                        None => {}
-                    }
-                    cur_text_matrix_y = Some(new_y);
-                    pen_x = Some(new_x);
-                }
-                Op::SetTextCursor { pos } => {
-                    if (cur_text_cursor.y.0.abs() - pos.y.0.abs()).abs() > 3.0 {
-                        current_chunk.push_str("\r\n");
-                    }
-                    cur_text_cursor = *pos;
-                    pen_x = None;
-                }
-                Op::ShowText { items } if in_text_section => {
-                    for item in items {
-                        match item {
-                            TextItem::Offset(o) => {
-                                if *o < -100.0 {
-                                    current_chunk.push(' ');
-                                }
-                                if let Some(px) = pen_x.as_mut() {
-                                    *px -= o / 1000.0 * cur_font_size;
-                                }
-                            }
-                            TextItem::Text(t) => {
-                                current_chunk.push_str(t);
-                                if let Some(px) = pen_x.as_mut() {
-                                    let mut adv_em = 0.0f32;
-                                    for c in t.chars() {
-                                        adv_em += current_font
-                                            .and_then(|f| {
-                                                f.lookup_glyph_index(c as u32)
-                                                    .map(|gid| glyph_advance_em(f, gid))
-                                            })
-                                            .unwrap_or(0.5);
-                                    }
-                                    *px += adv_em * cur_font_size;
-                                }
-                            }
-                            TextItem::GlyphIds(glyphs) => {
-                                // The Unicode attached at parse time (from the font's
-                                // ToUnicode CMap) is preferred: it handles ligatures and
-                                // works without the font resource.
-                                for codepoint in glyphs {
-                                    if let Some(cid) = codepoint.cid.as_ref() {
-                                        current_chunk.push_str(cid);
-                                    } else if let Some(c) = current_font
-                                        .and_then(|font| Self::glyph_id_to_char(font, codepoint.gid))
-                                    {
-                                        current_chunk.push(c);
-                                    } else {
-                                        current_chunk.push('\u{FFFD}');
-                                    }
-                                    if let Some(px) = pen_x.as_mut() {
-                                        let adv_em = current_font
-                                            .map(|f| glyph_advance_em(f, codepoint.gid))
-                                            .unwrap_or(0.5);
-                                        *px += adv_em * cur_font_size
-                                            - codepoint.offset / 1000.0 * cur_font_size;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                Op::AddLineBreak if in_text_section => {
-                    current_chunk.push_str("\r\n");
-                    pen_x = None;
-                }
-                Op::MoveTextCursorAndSetLeading { .. } if in_text_section => {
-                    current_chunk.push_str("\r\n");
-                    pen_x = None;
-                }
-                Op::MoveToNextLineShowText { text } if in_text_section => {
-                    current_chunk.push_str("\r\n");
-                    current_chunk.push_str(text);
-                    current_chunk.push(' ');
-                }
-                Op::SetSpacingMoveAndShowText { text, .. } if in_text_section => {
-                    current_chunk.push_str("\r\n");
-                    current_chunk.push_str(text);
-                    current_chunk.push(' ');
-                }
-                _ => {}
-            }
-        }
-
-        if !current_chunk.is_empty() {
-            text_chunks.push(current_chunk.trim().to_string());
-        }
-
-        text_chunks.retain(|chunk| !chunk.is_empty());
-        text_chunks
+        let mut extraction = TextExtraction::new();
+        extraction.run(&self.ops, resources, &mut FormWalk::new());
+        extraction.finish()
     }
 
     // Reverse lookup through the cmap; only the Basic Multilingual Plane is searched.
@@ -370,6 +222,222 @@ impl PdfPage {
             }
         }
         None
+    }
+}
+
+/// The text of a page while its ops are read: what has been read, and where the pen is.
+struct TextExtraction<'a> {
+    text_chunks: Vec<String>,
+    current_chunk: String,
+    in_text_section: bool,
+    cur_text_cursor: Point,
+    cur_text_matrix_y: Option<f32>,
+    current_font: Option<&'a ParsedFont>,
+    cur_font_size: f32,
+    /// Where the run shown last *ended* horizontally (text space). Tells an intra-word
+    /// positioning move from a real word gap when a document places every run with its own Tm.
+    pen_x: Option<f32>,
+}
+
+impl<'a> TextExtraction<'a> {
+    fn new() -> Self {
+        TextExtraction {
+            text_chunks: Vec::new(),
+            current_chunk: String::new(),
+            in_text_section: false,
+            cur_text_cursor: Point {
+                x: Pt(0.0),
+                y: Pt(0.0),
+            },
+            cur_text_matrix_y: None,
+            current_font: None,
+            cur_font_size: 12.0,
+            pen_x: None,
+        }
+    }
+
+    /// Reads `ops`, which name their fonts and XObjects in `scope`.
+    fn run(&mut self, ops: &[Op], scope: &'a PdfResources, walk: &mut FormWalk) {
+        for op in ops {
+            match op {
+                Op::StartTextSection => {
+                    self.in_text_section = true;
+                }
+                Op::EndTextSection => {
+                    self.in_text_section = false;
+                    if !self.current_chunk.is_empty() {
+                        self.text_chunks.push(self.current_chunk.trim().to_string());
+                        self.current_chunk = String::new();
+                    }
+                }
+                Op::SetFont { font, size } => {
+                    self.cur_font_size = size.0;
+                    match font {
+                        crate::ops::PdfFontHandle::External(font_id) => {
+                            self.current_font =
+                                scope.fonts.map.get(font_id).map(|pf| &pf.parsed_font);
+                        }
+                        crate::ops::PdfFontHandle::Builtin(_) => {
+                            // Builtin text is `TextItem::Text`; drop the previous
+                            // external font so it is not used to decode glyph ids.
+                            self.current_font = None;
+                        }
+                    }
+                }
+                Op::SetTextMatrix { matrix } => {
+                    // Only a vertical move is a line break: documents that position
+                    // every run with its own Tm (common with shaped text) would
+                    // otherwise get one line per glyph run.
+                    let m = matrix.as_array();
+                    let (new_x, new_y) = (m[4], m[5]);
+                    match self.cur_text_matrix_y {
+                        Some(prev_y) if (prev_y - new_y).abs() > 0.5 => {
+                            self.current_chunk.push_str("\r\n");
+                        }
+                        Some(_) => {
+                            // Same baseline: a word gap is a move that lands visibly past
+                            // where the previous run ended; per-glyph moves land exactly
+                            // at the pen position.
+                            let gap_threshold = (self.cur_font_size * 0.15).max(0.1);
+                            let is_gap = match self.pen_x {
+                                Some(px) => new_x - px > gap_threshold,
+                                None => false,
+                            };
+                            if is_gap
+                                && !self.current_chunk.is_empty()
+                                && !self.current_chunk.ends_with(char::is_whitespace)
+                            {
+                                self.current_chunk.push(' ');
+                            }
+                        }
+                        None => {}
+                    }
+                    self.cur_text_matrix_y = Some(new_y);
+                    self.pen_x = Some(new_x);
+                }
+                Op::SetTextCursor { pos } => {
+                    if (self.cur_text_cursor.y.0.abs() - pos.y.0.abs()).abs() > 3.0 {
+                        self.current_chunk.push_str("\r\n");
+                    }
+                    self.cur_text_cursor = *pos;
+                    self.pen_x = None;
+                }
+                Op::ShowText { items } if self.in_text_section => {
+                    for item in items {
+                        match item {
+                            TextItem::Offset(o) => {
+                                if *o < -100.0 {
+                                    self.current_chunk.push(' ');
+                                }
+                                if let Some(px) = self.pen_x.as_mut() {
+                                    *px -= o / 1000.0 * self.cur_font_size;
+                                }
+                            }
+                            TextItem::Text(t) => {
+                                self.current_chunk.push_str(t);
+                                if let Some(px) = self.pen_x.as_mut() {
+                                    let mut adv_em = 0.0f32;
+                                    for c in t.chars() {
+                                        adv_em += self
+                                            .current_font
+                                            .and_then(|f| {
+                                                f.lookup_glyph_index(c as u32)
+                                                    .map(|gid| glyph_advance_em(f, gid))
+                                            })
+                                            .unwrap_or(0.5);
+                                    }
+                                    *px += adv_em * self.cur_font_size;
+                                }
+                            }
+                            TextItem::GlyphIds(glyphs) => {
+                                // The Unicode attached at parse time (from the font's
+                                // ToUnicode CMap) is preferred: it handles ligatures and
+                                // works without the font resource.
+                                for codepoint in glyphs {
+                                    if let Some(cid) = codepoint.cid.as_ref() {
+                                        self.current_chunk.push_str(cid);
+                                    } else if let Some(c) = self.current_font.and_then(|font| {
+                                        PdfPage::glyph_id_to_char(font, codepoint.gid)
+                                    }) {
+                                        self.current_chunk.push(c);
+                                    } else {
+                                        self.current_chunk.push('\u{FFFD}');
+                                    }
+                                    if let Some(px) = self.pen_x.as_mut() {
+                                        let adv_em = self
+                                            .current_font
+                                            .map(|f| glyph_advance_em(f, codepoint.gid))
+                                            .unwrap_or(0.5);
+                                        *px += adv_em * self.cur_font_size
+                                            - codepoint.offset / 1000.0 * self.cur_font_size;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Op::AddLineBreak if self.in_text_section => {
+                    self.current_chunk.push_str("\r\n");
+                    self.pen_x = None;
+                }
+                Op::MoveTextCursorAndSetLeading { .. } if self.in_text_section => {
+                    self.current_chunk.push_str("\r\n");
+                    self.pen_x = None;
+                }
+                Op::MoveToNextLineShowText { text } if self.in_text_section => {
+                    self.current_chunk.push_str("\r\n");
+                    self.current_chunk.push_str(text);
+                    self.current_chunk.push(' ');
+                }
+                Op::SetSpacingMoveAndShowText { text, .. } if self.in_text_section => {
+                    self.current_chunk.push_str("\r\n");
+                    self.current_chunk.push_str(text);
+                    self.current_chunk.push(' ');
+                }
+                Op::UseXobject { id, .. } => {
+                    if let Some(form) = form_in(scope, id) {
+                        if walk.enter(form).is_ok() {
+                            self.run_form(form, scope, walk);
+                            walk.leave();
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Reads the ops of `form`, drawn in `outer`. The text state is the form's own and is
+    /// restored when it ends, as the graphics state is for a `Do`.
+    fn run_form(&mut self, form: &'a FormXObject, outer: &'a PdfResources, walk: &mut FormWalk) {
+        let saved = (
+            self.in_text_section,
+            self.cur_text_cursor,
+            self.cur_text_matrix_y,
+            self.current_font,
+            self.cur_font_size,
+            self.pen_x,
+        );
+        self.in_text_section = false;
+        self.run(&form.ops, scope_of(form, outer), walk);
+        (
+            self.in_text_section,
+            self.cur_text_cursor,
+            self.cur_text_matrix_y,
+            self.current_font,
+            self.cur_font_size,
+            self.pen_x,
+        ) = saved;
+    }
+
+    /// The text of the sections that were read, without the empty ones.
+    fn finish(mut self) -> Vec<String> {
+        if !self.current_chunk.is_empty() {
+            self.text_chunks.push(self.current_chunk.trim().to_string());
+        }
+
+        self.text_chunks.retain(|chunk| !chunk.is_empty());
+        self.text_chunks
     }
 }
 

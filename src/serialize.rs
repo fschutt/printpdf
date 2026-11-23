@@ -12,8 +12,9 @@
 //!   document is shared by all pages. A form XObject ([`XObject::Form`]) is written as a form
 //!   stream of its own, with a `/Resources` dictionary built from its own fonts (subset to the
 //!   glyphs it uses), nested XObjects, graphics states and shadings.
-//! - Each [`PdfPage`] becomes a page object with its boxes, a content stream translated from its
-//!   [`Op`]s, and an `/Annots` array built from its [`Op::LinkAnnotation`]s.
+//! - Each [`PdfPage`](crate::PdfPage) becomes a page object with its boxes, a content stream
+//!   translated from its [`Op`]s, and an `/Annots` array built from its
+//!   [`Op::LinkAnnotation`]s.
 //! - Embedded fonts are written as composite (Type0) fonts with Identity-H encoding, a `/W`
 //!   width array and a ToUnicode CMap, so that the text can be searched and copied. Only fonts
 //!   that a page uses are written, and by default only the glyphs that are used (see
@@ -56,14 +57,15 @@ use lopdf::{
 use serde_derive::{Deserialize, Serialize};
 
 mod form_xobject;
-use form_xobject::{inheriting_streams, write_xobjects, SaveScope};
+use form_xobject::{write_xobjects, SaveScope};
 
 use crate::{
     color::IccProfile,
     font::ParsedFont,
+    form_walk::inheriting_streams,
     Actions, BuiltinFont, Color, ColorArray, Destination, FontId, IccProfileType,
     ImageOptimizationOptions, Line, LinkAnnotation, Op, PaintMode, PdfDocument,
-    PdfDocumentInfo, PdfPage, PdfResources, PdfWarnMsg, Polygon, TextItem, XObject,
+    PdfDocumentInfo, PdfResources, PdfWarnMsg, Polygon, TextItem, XObject,
     XObjectId,
 };
 
@@ -1619,23 +1621,11 @@ fn rectangle_to_stream_ops(rectangle: &crate::Rect) -> Vec<LoOp> {
     operations
 }
 
-/// Prepare fonts for serialization
-/// Returns:
-/// - font_infos: Used by translate_operations for glyph ID lookup
-/// - subset_infos: Used for font dictionary creation (full fonts or subsetted)
-pub(crate) fn prepare_fonts_for_serialization(
-    resources: &PdfResources,
-    pages: &[PdfPage],
-    do_subset: bool,
-    warnings: &mut Vec<PdfWarnMsg>,
-) -> (BTreeMap<FontId, RuntimeFontInfo>, BTreeMap<FontId, RuntimeSubsetInfo>) {
-    let streams: Vec<&[Op]> = pages.iter().map(|page| page.ops.as_slice()).collect();
-    prepare_fonts_for_streams(&resources.fonts.map, &streams, do_subset, warnings)
-}
-
-/// Like [`prepare_fonts_for_serialization`] for the fonts of one resource scope and the content
-/// streams that name them: the pages for the fonts of the document, the form for the fonts of a
-/// form.
+/// Prepares the fonts of one resource scope for serialization, for the content streams that name
+/// them: the pages (and the forms without resources of their own) for the fonts of the document,
+/// the form for the fonts of a form. Returns
+/// - font_infos: used by `translate_operations` for glyph ID lookup,
+/// - subset_infos: used for font dictionary creation (full fonts or subsetted).
 pub(crate) fn prepare_fonts_for_streams(
     fonts: &BTreeMap<FontId, crate::font::PdfFont>,
     streams: &[&[Op]],

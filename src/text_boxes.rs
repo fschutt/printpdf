@@ -58,9 +58,13 @@ use std::collections::BTreeMap;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
+    form_walk::{form_in, scope_of, FormWalk},
+    matrix::CurTransMat,
     ops::{Op, PdfFontHandle},
     text::TextItem,
+    xobject::FormXObject,
     BuiltinFont, Color, FontId, ParsedFont, PdfPage, PdfResources, TextRenderingMode,
+    XObjectTransform,
 };
 
 /// A box `[x0, y0, x1, y1]` in pt: left, top, right, bottom, with the origin at the top left
@@ -254,6 +258,7 @@ fn vertical_extent_em(font: Option<&ParsedFont>) -> (f32, f32) {
 }
 
 /// The walker's text state (ISO 32000-1, 9.3).
+#[derive(Clone)]
 struct TextState {
     font_size: f32,
     char_spacing: f32,      // Tc, pt
@@ -400,70 +405,103 @@ impl PdfPage {
     /// looked up there to measure glyphs. Text in a font that cannot be found is measured with
     /// a fixed advance of 0.5 em per glyph. Boxes are in pt with the origin at the top left of
     /// the page (see the [module docs](crate::text_boxes)); the page size is its media box.
+    ///
+    /// The text of the forms the page draws ([`Op::UseXobject`] of an
+    /// [`XObject::Form`](crate::XObject::Form)) is part of the page: the boxes are placed with the
+    /// matrix of the form and the placement of the `Do`, and the form looks up its fonts in its
+    /// own resources. Forms are not clipped to their `/BBox`. A form that draws itself, forms
+    /// nested deeper than 16 levels, and more than 10 000 forms or 2 000 000 ops of forms on one
+    /// page are skipped.
     pub fn extract_text_boxes(&self, resources: &PdfResources) -> PageTextBoxes {
         let page_width = self.media_box.width.0;
         let page_height = self.media_box.height.0;
 
-        let mut builder = Builder::new();
-        let mut st = TextState::default();
-        let mut ctm = Mat::IDENTITY;
-        let mut ctm_stack: Vec<(Mat, Paint)> = Vec::new();
-        let mut paint = Paint::default();
-        let mut in_text = false;
-        let mut font: FontRef = FontRef::None;
-        let mut builtin_cache: BTreeMap<BuiltinFont, Option<ParsedFont>> = BTreeMap::new();
+        let mut walker = BoxWalker::new(page_height);
+        walker.run(&self.ops, resources, &mut FormWalk::new());
 
-        for op in &self.ops {
+        PageTextBoxes {
+            width: page_width,
+            height: page_height,
+            lines: walker.builder.finish(),
+        }
+    }
+}
+
+/// Reads the ops of a page, and of the forms it draws, into words and lines.
+struct BoxWalker<'a> {
+    builder: Builder,
+    st: TextState,
+    ctm: Mat,
+    ctm_stack: Vec<(Mat, Paint)>,
+    paint: Paint,
+    in_text: bool,
+    font: FontRef<'a>,
+    builtin_cache: BTreeMap<BuiltinFont, Option<ParsedFont>>,
+    page_height: f32,
+}
+
+impl<'a> BoxWalker<'a> {
+    fn new(page_height: f32) -> Self {
+        BoxWalker {
+            builder: Builder::new(),
+            st: TextState::default(),
+            ctm: Mat::IDENTITY,
+            ctm_stack: Vec::new(),
+            paint: Paint::default(),
+            in_text: false,
+            font: FontRef::None,
+            builtin_cache: BTreeMap::new(),
+            page_height,
+        }
+    }
+
+    /// Reads `ops`, which name their fonts and XObjects in `scope`.
+    fn run(&mut self, ops: &[Op], scope: &'a PdfResources, walk: &mut FormWalk) {
+        for op in ops {
             match op {
                 Op::StartTextSection => {
-                    in_text = true;
-                    st = TextState {
-                        font_size: st.font_size,
-                        char_spacing: st.char_spacing,
-                        word_spacing: st.word_spacing,
-                        h_scale: st.h_scale,
-                        leading: st.leading,
+                    self.in_text = true;
+                    self.st = TextState {
+                        font_size: self.st.font_size,
+                        char_spacing: self.st.char_spacing,
+                        word_spacing: self.st.word_spacing,
+                        h_scale: self.st.h_scale,
+                        leading: self.st.leading,
                         ..TextState::default()
                     };
                 }
                 Op::EndTextSection => {
-                    in_text = false;
-                    builder.end_line();
+                    self.in_text = false;
+                    self.builder.end_line();
                 }
-                Op::SaveGraphicsState => ctm_stack.push((ctm, paint.clone())),
-                Op::SetFillColor { col } => paint.fill = Some(col.clone()),
+                Op::SaveGraphicsState => self.ctm_stack.push((self.ctm, self.paint.clone())),
+                Op::SetFillColor { col } => self.paint.fill = Some(col.clone()),
                 Op::SetTextRenderingMode { mode } => {
-                    paint.invisible =
+                    self.paint.invisible =
                         matches!(mode, TextRenderingMode::Invisible | TextRenderingMode::Clip);
                 }
                 Op::RestoreGraphicsState => {
-                    if let Some((m, p)) = ctm_stack.pop() {
-                        ctm = m;
-                        paint = p;
+                    if let Some((m, p)) = self.ctm_stack.pop() {
+                        self.ctm = m;
+                        self.paint = p;
                     }
                 }
                 Op::SetTransformationMatrix { matrix } => {
                     let m = matrix.as_array();
-                    ctm = ctm.mul(Mat([
-                        m[0],
-                        m[1],
-                        m[2],
-                        m[3],
-                        m[4],
-                        m[5],
-                    ]));
+                    self.ctm = self.ctm.mul(Mat([m[0], m[1], m[2], m[3], m[4], m[5]]));
                 }
                 Op::SetFont { font: handle, size } => {
-                    st.font_size = size.0;
-                    font = match handle {
-                        PdfFontHandle::External(id) => match resources.fonts.map.get(id) {
+                    self.st.font_size = size.0;
+                    self.font = match handle {
+                        PdfFontHandle::External(id) => match scope.fonts.map.get(id) {
                             Some(pf) => FontRef::External(id.clone(), &pf.parsed_font),
                             None => FontRef::None,
                         },
                         PdfFontHandle::Builtin(b) => {
                             // The face only measures glyphs: one that does not parse is
                             // measured with the fixed advance, like a font that is missing.
-                            let parsed = builtin_cache
+                            let parsed = self
+                                .builtin_cache
                                 .entry(*b)
                                 .or_insert_with(|| b.get_parsed_font());
                             match parsed {
@@ -473,187 +511,240 @@ impl PdfPage {
                         }
                     };
                 }
-                Op::SetLineHeight { lh } => st.leading = lh.0,
-                Op::SetWordSpacing { pt } => st.word_spacing = pt.0,
-                Op::SetCharacterSpacing { multiplier } => st.char_spacing = *multiplier,
-                Op::SetHorizontalScaling { percent } => st.h_scale = *percent / 100.0,
-                Op::SetLineOffset { multiplier } => st.rise = *multiplier,
+                Op::SetLineHeight { lh } => self.st.leading = lh.0,
+                Op::SetWordSpacing { pt } => self.st.word_spacing = pt.0,
+                Op::SetCharacterSpacing { multiplier } => self.st.char_spacing = *multiplier,
+                Op::SetHorizontalScaling { percent } => self.st.h_scale = *percent / 100.0,
+                Op::SetLineOffset { multiplier } => self.st.rise = *multiplier,
                 Op::SetTextCursor { pos } => {
                     // The parser normalizes Td/TD into absolute cursors.
-                    if (pos.y.0 - st.line_origin.1).abs() > f32::EPSILON || st.pen_x != 0.0 {
-                        builder.end_line();
+                    if (pos.y.0 - self.st.line_origin.1).abs() > f32::EPSILON
+                        || self.st.pen_x != 0.0
+                    {
+                        self.builder.end_line();
                     }
-                    st.line_origin = (pos.x.0, pos.y.0);
-                    st.pen_x = 0.0;
+                    self.st.line_origin = (pos.x.0, pos.y.0);
+                    self.st.pen_x = 0.0;
                 }
                 Op::MoveTextCursorAndSetLeading { tx, ty } => {
-                    builder.end_line();
-                    st.leading = -*ty;
-                    st.line_origin = (st.line_origin.0 + tx, st.line_origin.1 + ty);
-                    st.pen_x = 0.0;
+                    self.builder.end_line();
+                    self.st.leading = -*ty;
+                    self.st.line_origin = (self.st.line_origin.0 + tx, self.st.line_origin.1 + ty);
+                    self.st.pen_x = 0.0;
                 }
                 Op::SetTextMatrix { matrix } => {
                     let m = matrix.as_array();
-                    let new = Mat([
-                        m[0],
-                        m[1],
-                        m[2],
-                        m[3],
-                        m[4],
-                        m[5],
-                    ]);
+                    let new = Mat([m[0], m[1], m[2], m[3], m[4], m[5]]);
                     // A vertical move is a new line; a horizontal one usually a
                     // positioned run on the same baseline.
-                    if (new.0[5] - st.tm.0[5]).abs() > 0.5 {
-                        builder.end_line();
+                    if (new.0[5] - self.st.tm.0[5]).abs() > 0.5 {
+                        self.builder.end_line();
                     }
-                    st.tm = new;
-                    st.line_origin = (0.0, 0.0);
-                    st.pen_x = 0.0;
+                    self.st.tm = new;
+                    self.st.line_origin = (0.0, 0.0);
+                    self.st.pen_x = 0.0;
                 }
                 Op::AddLineBreak => {
-                    builder.end_line();
-                    st.line_origin = (st.line_origin.0, st.line_origin.1 - st.leading);
-                    st.pen_x = 0.0;
+                    self.builder.end_line();
+                    self.st.line_origin = (self.st.line_origin.0, self.st.line_origin.1 - self.st.leading);
+                    self.st.pen_x = 0.0;
                 }
-                Op::ShowText { items } if in_text => {
-                    self.show_items(
+                Op::ShowText { items } if self.in_text => {
+                    show_items(
                         items,
-                        &mut st,
-                        ctm,
-                        &font,
-                        &paint,
-                        &mut builder,
-                        page_height,
+                        &mut self.st,
+                        self.ctm,
+                        &self.font,
+                        &self.paint,
+                        &mut self.builder,
+                        self.page_height,
                     );
                 }
-                Op::MoveToNextLineShowText { text } if in_text => {
-                    builder.end_line();
-                    st.line_origin = (st.line_origin.0, st.line_origin.1 - st.leading);
-                    st.pen_x = 0.0;
+                Op::MoveToNextLineShowText { text } if self.in_text => {
+                    self.builder.end_line();
+                    self.st.line_origin = (self.st.line_origin.0, self.st.line_origin.1 - self.st.leading);
+                    self.st.pen_x = 0.0;
                     let items = [TextItem::Text(text.clone())];
-                    self.show_items(&items, &mut st, ctm, &font, &paint, &mut builder, page_height);
+                    show_items(
+                        &items,
+                        &mut self.st,
+                        self.ctm,
+                        &self.font,
+                        &self.paint,
+                        &mut self.builder,
+                        self.page_height,
+                    );
                 }
                 Op::SetSpacingMoveAndShowText {
                     word_spacing,
                     char_spacing,
                     text,
-                } if in_text => {
-                    st.word_spacing = *word_spacing;
-                    st.char_spacing = *char_spacing;
-                    builder.end_line();
-                    st.line_origin = (st.line_origin.0, st.line_origin.1 - st.leading);
-                    st.pen_x = 0.0;
+                } if self.in_text => {
+                    self.st.word_spacing = *word_spacing;
+                    self.st.char_spacing = *char_spacing;
+                    self.builder.end_line();
+                    self.st.line_origin = (self.st.line_origin.0, self.st.line_origin.1 - self.st.leading);
+                    self.st.pen_x = 0.0;
                     let items = [TextItem::Text(text.clone())];
-                    self.show_items(&items, &mut st, ctm, &font, &paint, &mut builder, page_height);
+                    show_items(
+                        &items,
+                        &mut self.st,
+                        self.ctm,
+                        &self.font,
+                        &self.paint,
+                        &mut self.builder,
+                        self.page_height,
+                    );
+                }
+                Op::UseXobject { id, transform } => {
+                    if let Some(form) = form_in(scope, id) {
+                        if walk.enter(form).is_ok() {
+                            self.run_form(form, id, transform, scope, walk);
+                            walk.leave();
+                        }
+                    }
                 }
                 _ => {}
             }
         }
-
-        PageTextBoxes {
-            width: page_width,
-            height: page_height,
-            lines: builder.finish(),
-        }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn show_items(
-        &self,
-        items: &[TextItem],
-        st: &mut TextState,
-        ctm: Mat,
-        font: &FontRef,
-        paint: &Paint,
-        builder: &mut Builder,
-        page_height: f32,
+    /// Reads the ops of `form`, drawn in `outer` with the placement `transform`. The graphics
+    /// state is the form's own and is restored when it ends, as for a `Do`.
+    fn run_form(
+        &mut self,
+        form: &'a FormXObject,
+        id: &crate::XObjectId,
+        transform: &XObjectTransform,
+        outer: &'a PdfResources,
+        walk: &mut FormWalk,
     ) {
-        let parsed = font.parsed();
-        let font_id = font.id();
-        let builtin = font.builtin();
-        let (asc_em, desc_em) = vertical_extent_em(parsed);
-
-        let emit = |st: &mut TextState,
-                        builder: &mut Builder,
-                        text: &str,
-                        adv_em: f32,
-                        is_space: bool| {
-            // ISO 32000-1 §9.4.4: word spacing applies to single-byte code 32
-            // only — for the simple-font path that is the space char; CID
-            // glyphs never get Tw here (2-byte codes).
-            let adv_pt = (adv_em * st.font_size
-                + st.char_spacing
-                + if is_space { st.word_spacing } else { 0.0 })
-                * st.h_scale;
-
-            if is_space {
-                builder.end_word();
-                st.pen_x += adv_pt;
-                return;
-            }
-
-            let m = st.device_matrix(ctm);
-            let bbox = quad_to_bbox(
-                &m,
-                0.0,
-                desc_em * st.font_size,
-                adv_em * st.font_size * st.h_scale,
-                asc_em * st.font_size,
-                page_height,
-            );
-            let (_, baseline_pdf) = m.apply(0.0, 0.0);
-            builder.push_glyph(
-                text,
-                bbox,
-                page_height - baseline_pdf,
-                st.font_size,
-                font_id.clone(),
-                builtin,
-                paint,
-            );
-            st.pen_x += adv_pt;
+        // Where the form is: its matrix, then the `cm` of the placement, then the page's.
+        let size = if transform.no_auto_scale {
+            None
+        } else {
+            outer.xobjects.map.get(id).and_then(|x| x.get_width_height())
         };
+        let placement = Mat(transform.placement_matrix(size));
+        let matrix = form
+            .matrix
+            .map_or(Mat::IDENTITY, |m| Mat(CurTransMat::as_array(&m)));
 
-        for item in items {
-            match item {
-                TextItem::Text(t) => {
-                    for c in t.chars() {
-                        let adv = parsed
-                            .and_then(|f| {
-                                f.lookup_glyph_index(c as u32)
-                                    .map(|gid| crate::ops::glyph_advance_em(f, gid))
-                            })
-                            .unwrap_or(0.5);
-                        let mut buf = [0u8; 4];
-                        emit(st, builder, c.encode_utf8(&mut buf), adv, c == ' ');
-                    }
+        self.builder.end_line();
+        let saved_st = self.st.clone();
+        let saved_ctm = self.ctm;
+        let saved_stack = std::mem::take(&mut self.ctm_stack);
+        let saved_paint = self.paint.clone();
+        let saved_in_text = self.in_text;
+        let saved_font = std::mem::replace(&mut self.font, FontRef::None);
+
+        self.ctm = self.ctm.mul(placement).mul(matrix);
+        self.in_text = false;
+        self.run(&form.ops, scope_of(form, outer), walk);
+        self.builder.end_line();
+
+        self.st = saved_st;
+        self.ctm = saved_ctm;
+        self.ctm_stack = saved_stack;
+        self.paint = saved_paint;
+        self.in_text = saved_in_text;
+        self.font = saved_font;
+    }
+}
+
+fn show_items(
+    items: &[TextItem],
+    st: &mut TextState,
+    ctm: Mat,
+    font: &FontRef,
+    paint: &Paint,
+    builder: &mut Builder,
+    page_height: f32,
+) {
+    let parsed = font.parsed();
+    let font_id = font.id();
+    let builtin = font.builtin();
+    let (asc_em, desc_em) = vertical_extent_em(parsed);
+
+    let emit = |st: &mut TextState,
+                    builder: &mut Builder,
+                    text: &str,
+                    adv_em: f32,
+                    is_space: bool| {
+        // ISO 32000-1 §9.4.4: word spacing applies to single-byte code 32
+        // only: for the simple-font path that is the space char; CID
+        // glyphs never get Tw here (2-byte codes).
+        let adv_pt = (adv_em * st.font_size
+            + st.char_spacing
+            + if is_space { st.word_spacing } else { 0.0 })
+            * st.h_scale;
+
+        if is_space {
+            builder.end_word();
+            st.pen_x += adv_pt;
+            return;
+        }
+
+        let m = st.device_matrix(ctm);
+        let bbox = quad_to_bbox(
+            &m,
+            0.0,
+            desc_em * st.font_size,
+            adv_em * st.font_size * st.h_scale,
+            asc_em * st.font_size,
+            page_height,
+        );
+        let (_, baseline_pdf) = m.apply(0.0, 0.0);
+        builder.push_glyph(
+            text,
+            bbox,
+            page_height - baseline_pdf,
+            st.font_size,
+            font_id.clone(),
+            builtin,
+            paint,
+        );
+        st.pen_x += adv_pt;
+    };
+
+    for item in items {
+        match item {
+            TextItem::Text(t) => {
+                for c in t.chars() {
+                    let adv = parsed
+                        .and_then(|f| {
+                            f.lookup_glyph_index(c as u32)
+                                .map(|gid| crate::ops::glyph_advance_em(f, gid))
+                        })
+                        .unwrap_or(0.5);
+                    let mut buf = [0u8; 4];
+                    emit(st, builder, c.encode_utf8(&mut buf), adv, c == ' ');
                 }
-                TextItem::GlyphIds(glyphs) => {
-                    for g in glyphs {
-                        if g.offset != 0.0 {
-                            // TJ offset: negative moves right by |o|/1000 em.
-                            let shift = -g.offset / 1000.0 * st.font_size * st.h_scale;
-                            if shift > st.font_size * 0.15 {
-                                builder.end_word();
-                            }
-                            st.pen_x += shift;
+            }
+            TextItem::GlyphIds(glyphs) => {
+                for g in glyphs {
+                    if g.offset != 0.0 {
+                        // TJ offset: negative moves right by |o|/1000 em.
+                        let shift = -g.offset / 1000.0 * st.font_size * st.h_scale;
+                        if shift > st.font_size * 0.15 {
+                            builder.end_word();
                         }
-                        let text = g.cid.clone().unwrap_or_else(|| "\u{FFFD}".to_string());
-                        let adv = advance_em(parsed, g.gid);
-                        let is_space = text == " ";
-                        emit(st, builder, &text, adv, is_space);
+                        st.pen_x += shift;
                     }
+                    let text = g.cid.clone().unwrap_or_else(|| "\u{FFFD}".to_string());
+                    let adv = advance_em(parsed, g.gid);
+                    let is_space = text == " ";
+                    emit(st, builder, &text, adv, is_space);
                 }
-                TextItem::Offset(o) => {
-                    let shift = -o / 1000.0 * st.font_size * st.h_scale;
-                    // A large rightward shift is a word gap (same heuristic as
-                    // extract_text: < -100 thousandths).
-                    if *o < -100.0 {
-                        builder.end_word();
-                    }
-                    st.pen_x += shift;
+            }
+            TextItem::Offset(o) => {
+                let shift = -o / 1000.0 * st.font_size * st.h_scale;
+                // A large rightward shift is a word gap (same heuristic as
+                // extract_text: < -100 thousandths).
+                if *o < -100.0 {
+                    builder.end_word();
                 }
+                st.pen_x += shift;
             }
         }
     }

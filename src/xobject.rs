@@ -623,6 +623,16 @@ impl XObjectTransform {
         transforms
     }
 
+    /// The matrices of [`XObjectTransform::get_ctms`] combined into one `[a b c d e f]`: what the
+    /// `cm` operator before the `Do` of the XObject sets, applied before the CTM of the page.
+    pub(crate) fn placement_matrix(&self, wh: Option<(Px, Px)>) -> [f32; 6] {
+        self.get_ctms(wh)
+            .into_iter()
+            .fold(CurTransMat::Identity.as_array(), |m, q| {
+                CurTransMat::combine_matrix(m, q.as_array())
+            })
+    }
+
     /// The matrices of [`XObjectTransform::get_ctms`] without the size scale, combined into one
     /// SVG `matrix(a b c d e f)` string.
     pub fn as_svg_transform(&self) -> String {

@@ -27,7 +27,10 @@ use base64::Engine;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    ops::PdfPage, Actions, BlackGenerationExtraFunction,
+    form_walk::{form_in, inheriting_streams, scope_of, FormWalk},
+    ops::{Op, PdfPage},
+    xobject::FormXObject,
+    Actions, BlackGenerationExtraFunction,
     BlackGenerationFunction, BlendMode, BuiltinFont, BuiltinOrExternalFontId, ChangedField, Color,
     CurTransMat, Destination, ExtendedGraphicsState, FontId, HalftoneType, Line, LineCapStyle,
     LinePoint,
@@ -150,6 +153,16 @@ struct GraphicsStateVec {
     _internal: Vec<GraphicsState>,
     // `q` operators beyond `MAX_GRAPHICS_STATE_DEPTH`, which pushed nothing; their `Q` pops nothing.
     skipped_saves: usize,
+    // The states below the content that is being rendered. A `Q` that would pop one of them is
+    // ignored: a form cannot restore the state of the content that draws it.
+    floor: usize,
+}
+
+// Where the states of a form start, to drop them when it ends.
+struct FormMark {
+    len: usize,
+    floor: usize,
+    skipped_saves: usize,
 }
 
 impl GraphicsStateVec {
@@ -157,7 +170,42 @@ impl GraphicsStateVec {
         Self {
             _internal: vec![GraphicsState::default()],
             skipped_saves: 0,
+            floor: 0,
         }
+    }
+    // Starts the states of a form: a copy of the current one with the text position reset, and
+    // `form_to_page` (the matrix of the form and the placement of its `Do`) applied before the
+    // current transformation. `None` when the stack is full.
+    pub fn enter_form(&mut self, form_to_page: [f32; 6]) -> Option<FormMark> {
+        if self._internal.len() >= MAX_GRAPHICS_STATE_DEPTH {
+            return None;
+        }
+        let outer = self.get_transform_matrix().as_array();
+        let mark = FormMark {
+            len: self._internal.len(),
+            floor: self.floor,
+            skipped_saves: self.skipped_saves,
+        };
+        self.save_gs()?;
+        let state = self._internal.last_mut()?;
+        state.transform_matrix = Some(CurTransMat::Raw(CurTransMat::combine_matrix(
+            form_to_page,
+            outer,
+        )));
+        state.text_cursor = Point::default();
+        state.text_matrix = None;
+        self.floor = self._internal.len();
+        self.skipped_saves = 0;
+        Some(mark)
+    }
+    // Drops the states of the form that `enter_form` started.
+    pub fn exit_form(&mut self, mark: FormMark) {
+        self._internal.truncate(mark.len);
+        if self._internal.is_empty() {
+            self._internal.push(GraphicsState::default());
+        }
+        self.floor = mark.floor;
+        self.skipped_saves = mark.skipped_saves;
     }
     // `None` when the stack is full and nothing was pushed.
     pub fn save_gs(&mut self) -> Option<()> {
@@ -176,6 +224,9 @@ impl GraphicsStateVec {
     pub fn restore_gs(&mut self) -> Option<()> {
         if self.skipped_saves > 0 {
             self.skipped_saves = self.skipped_saves.saturating_sub(1);
+            return None;
+        }
+        if self._internal.len() <= self.floor {
             return None;
         }
         self._internal.pop();
@@ -297,8 +348,16 @@ impl GraphicsStateVec {
         self._internal.last_mut()?.character_spacing = Some(cs);
         Some(())
     }
+    // `cm` applies before the transformation that is in effect (ISO 32000-1, 8.3.4).
     pub fn set_cur_trans_mat(&mut self, cm: CurTransMat) -> Option<()> {
-        self._internal.last_mut()?.transform_matrix = Some(cm);
+        let last = self._internal.last_mut()?;
+        last.transform_matrix = Some(match last.transform_matrix {
+            None | Some(CurTransMat::Identity) => cm,
+            Some(current) => CurTransMat::Raw(CurTransMat::combine_matrix(
+                cm.as_array(),
+                current.as_array(),
+            )),
+        });
         Some(())
     }
     pub fn set_text_mat(&mut self, tm: TextMatrix) -> Option<()> {
@@ -501,7 +560,7 @@ pub(crate) fn render_to_svg(
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> String {
     let map = encoded_image_data_map(page, resources, opts);
-    render_to_svg_internal(page, resources, map, warnings)
+    render_to_svg_internal(page, resources, map, &opts.image_formats, warnings)
 }
 
 /// Like [`render_to_svg`], but encodes the images with the async encoder, for targets where
@@ -513,7 +572,7 @@ pub(crate) async fn render_to_svg_async(
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> String {
     let map = encoded_image_data_map_async(page, resources, opts).await;
-    render_to_svg_internal(page, resources, map, warnings)
+    render_to_svg_internal(page, resources, map, &opts.image_formats, warnings)
 }
 
 async fn encoded_image_data_map_async(
@@ -572,414 +631,660 @@ fn render_to_svg_internal(
     page: &PdfPage,
     resources: &PdfResources,
     map: BTreeMap<XObjectId, (Vec<u8>, OutputImageFormat)>,
+    image_formats: &[OutputImageFormat],
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> String {
-    use crate::ops::Op;
-
     let width = page.media_box.width.0;
     let height = page.media_box.height.0;
 
-    let mut svg = String::new();
-    svg.push_str(&format!(
+    let mut head = String::new();
+    head.push_str(&format!(
         r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="{w}px" height="{h}px" viewBox="0 0 {w} {h}">"#,
         w = width,
         h = height
     ));
-    svg.push('\n');
+    head.push('\n');
 
-    // Embed the fonts as @font-face rules.
-    let (_, subset_fonts) = crate::serialize::prepare_fonts_for_serialization(resources, std::slice::from_ref(page), true, warnings);
-    if !subset_fonts.is_empty() {
-        svg.push_str("<style>\n");
-        // Use the original font bytes rather than the PDF subset: the subset has no OS/2 table,
-        // so browsers reject it as a webfont and fall back to a default serif. The `<text>`
-        // elements hold real Unicode text, which the original cmap maps directly.
-        for (font_id, font) in subset_fonts.iter() {
-            let original = resources
-                .fonts
-                .map
-                .get(font_id)
-                .and_then(|f| f.parsed_font.source_bytes());
-            let bytes: &[u8] = match &original {
-                Some(b) => b.as_slice(),
-                None => &font.subset_font_bytes,
-            };
-            svg.push_str(&format!(
-                r#"@font-face {{ font-family: "{}"; src: url("data:font/otf;charset=utf-8;base64,{}"); }}"#,
-                svg_font_family(&font_id.0),
-                base64::prelude::BASE64_STANDARD.encode(bytes),
-            ));
-        }
-        svg.push_str("</style>\n");
+    // Embed the fonts as @font-face rules: the fonts of the page, and of the forms that have
+    // no resources of their own and so use the ones of the document.
+    let mut streams: Vec<&[Op]> = vec![page.ops.as_slice()];
+    streams.extend(inheriting_streams(resources));
+    let (_, subset_fonts) = crate::serialize::prepare_fonts_for_streams(
+        &resources.fonts.map,
+        &streams,
+        true,
+        warnings,
+    );
+    let mut font_faces = String::new();
+    // Use the original font bytes rather than the PDF subset: the subset has no OS/2 table,
+    // so browsers reject it as a webfont and fall back to a default serif. The `<text>`
+    // elements hold real Unicode text, which the original cmap maps directly.
+    for (font_id, font) in subset_fonts.iter() {
+        let original = resources
+            .fonts
+            .map
+            .get(font_id)
+            .and_then(|f| f.parsed_font.source_bytes());
+        let bytes: &[u8] = match &original {
+            Some(b) => b.as_slice(),
+            None => &font.subset_font_bytes,
+        };
+        font_faces.push_str(&font_face_rule(&svg_font_family(&font_id.0), bytes));
     }
 
-    let mut gst = GraphicsStateVec::new();
-    let mut in_text_section = false;
-    let mut warned_about_depth = false;
-    let mut current_svg_group = Vec::new(); // open `<g>` elements, innermost last
-    let mut glyph_outlines = GlyphOutlineDefs::default();
+    let mut renderer = SvgRenderer {
+        body: String::new(),
+        fixed_len: head.len() + font_faces.len(),
+        gst: GraphicsStateVec::new(),
+        in_text_section: false,
+        warned_about_depth: false,
+        current_svg_group: Vec::new(), // open `<g>` elements, innermost last
+        glyph_outlines: GlyphOutlineDefs::default(),
+        height,
+        root: resources,
+        image_map: &map,
+        image_formats,
+        form_images: BTreeMap::new(),
+        form_fonts: BTreeMap::new(),
+        form_tags: BTreeMap::new(),
+        walk: FormWalk::new(),
+        full: false,
+    };
+    renderer.render_ops(&page.ops, resources, "", warnings);
+    renderer.finish(head, font_faces)
+}
 
-    for op in &page.ops {
-        if svg.len() > MAX_SVG_BYTES {
-            warnings.push(PdfWarnMsg::warning(
-                0,
-                0,
-                format!(
-                    "the SVG is larger than {MAX_SVG_BYTES} bytes, the rest of the page is left out"
-                ),
-            ));
-            break;
+/// The `@font-face` rule that makes the font program `bytes` available as `family`.
+fn font_face_rule(family: &str, bytes: &[u8]) -> String {
+    format!(
+        r#"@font-face {{ font-family: "{}"; src: url("data:font/otf;charset=utf-8;base64,{}"); }}"#,
+        family,
+        base64::prelude::BASE64_STANDARD.encode(bytes),
+    )
+}
+
+/// The id under which a font of the scope with the tag `tag` is known in the SVG: fonts of
+/// different forms can have the same name, and one SVG holds them all.
+fn qualify(tag: &str, id: &FontId) -> FontId {
+    if tag.is_empty() {
+        id.clone()
+    } else {
+        FontId(format!("{tag}{}", id.0))
+    }
+}
+
+/// An image encoded in one of the formats the SVG embeds.
+type EncodedImage = (Vec<u8>, OutputImageFormat);
+
+/// What rendering a page keeps while it walks through the ops of the page and of the forms it
+/// draws.
+struct SvgRenderer<'a> {
+    /// The SVG elements written so far.
+    body: String,
+    /// The bytes of the header and the font rules, which count against [`MAX_SVG_BYTES`].
+    fixed_len: usize,
+    gst: GraphicsStateVec,
+    in_text_section: bool,
+    warned_about_depth: bool,
+    current_svg_group: Vec<String>,
+    glyph_outlines: GlyphOutlineDefs,
+    height: f32,
+    /// The resources of the document, which hold the layers.
+    root: &'a PdfResources,
+    /// The images the page draws, encoded.
+    image_map: &'a BTreeMap<XObjectId, EncodedImage>,
+    image_formats: &'a [OutputImageFormat],
+    /// The images of forms, encoded when they are first drawn, by the tag of their scope and id.
+    form_images: BTreeMap<(String, XObjectId), Option<EncodedImage>>,
+    /// The fonts of forms with resources of their own, by `qualify`d id.
+    form_fonts: BTreeMap<FontId, &'a crate::font::PdfFont>,
+    /// The tag of each form that has resources of its own, by the address of the form.
+    form_tags: BTreeMap<usize, String>,
+    walk: FormWalk,
+    /// [`MAX_SVG_BYTES`] is reached: nothing more is written.
+    full: bool,
+}
+
+impl<'a> SvgRenderer<'a> {
+    /// Writes the elements for `ops`, which name their fonts, XObjects and graphics states in
+    /// `scope`. `tag` is empty for the page and names the scope of a form otherwise.
+    fn render_ops(
+        &mut self,
+        ops: &[Op],
+        scope: &'a PdfResources,
+        tag: &str,
+        warnings: &mut Vec<PdfWarnMsg>,
+    ) {
+        let height = self.height;
+        for op in ops {
+            if self.full || self.fixed_len + self.body.len() > MAX_SVG_BYTES {
+                if !self.full {
+                    self.full = true;
+                    warnings.push(PdfWarnMsg::warning(
+                        0,
+                        0,
+                        format!(
+                            "the SVG is larger than {MAX_SVG_BYTES} bytes, the rest of the page is left out"
+                        ),
+                    ));
+                }
+                break;
+            }
+            match op {
+                Op::SetColorSpaceFill { .. } => {
+                    // Colorspace changes are ignored.
+                }
+                Op::SetColorSpaceStroke { .. } => {
+                    // Colorspace changes are ignored.
+                }
+                Op::SetRenderingIntent { intent } => {
+                    self.gst.set_rendering_intent(*intent);
+                }
+                Op::SetHorizontalScaling { percent } => {
+                    self.gst.set_horizontal_scaling(*percent);
+                }
+                Op::SetLineOffset { multiplier } => {
+                    self.gst.set_line_offset(*multiplier);
+                }
+                Op::SetLineHeight { lh } => {
+                    self.gst.set_line_height(*lh);
+                }
+                Op::SetTextCursor { pos } => {
+                    self.gst.set_text_cursor(*pos);
+                }
+                Op::SetTransformationMatrix { matrix } => {
+                    self.gst.set_cur_trans_mat(*matrix);
+                }
+                Op::SetTextMatrix { matrix } => {
+                    self.gst.set_text_mat(*matrix);
+                }
+                Op::SetFillColor { col } => {
+                    self.gst.set_fill_color(col.clone());
+                }
+                Op::SetOutlineColor { col } => {
+                    self.gst.set_outline_color(col.clone());
+                }
+                Op::SetOutlineThickness { pt } => {
+                    self.gst.set_stroke_width(*pt);
+                }
+                Op::SetLineDashPattern { dash } => {
+                    self.gst.set_dash_pattern(dash.clone());
+                }
+                Op::SetLineJoinStyle { join } => {
+                    self.gst.set_line_join(*join);
+                }
+                Op::SetLineCapStyle { cap } => {
+                    self.gst.set_line_cap(*cap);
+                }
+                Op::SetMiterLimit { limit } => {
+                    self.gst.set_miter_limit(*limit);
+                }
+                Op::SetTextRenderingMode { mode } => {
+                    self.gst.set_text_rendering_mode(*mode);
+                }
+                Op::SetCharacterSpacing { multiplier } => {
+                    self.gst.set_character_spacing(*multiplier);
+                }
+                Op::SetWordSpacing { pt } => {
+                    self.gst.set_word_spacing(*pt);
+                }
+                Op::SetFont { font, size } => {
+                    match font {
+                        crate::ops::PdfFontHandle::Builtin(builtin) => {
+                            self.gst.set_font_size_builtin(builtin, *size);
+                        }
+                        crate::ops::PdfFontHandle::External(font_id) => {
+                            self.gst.set_font_size(&qualify(tag, font_id), *size);
+                        }
+                    }
+                }
+                Op::ShowText { items } => {
+                    if self.in_text_section {
+                        // No font set: fall back to the default builtin font.
+                        let current_font = self
+                            .gst
+                            .get_current_font()
+                            .unwrap_or(BuiltinOrExternalFontId::Builtin(BuiltinFont::default()));
+                        let program = self.font_program(&current_font);
+                        let text_svg = render_show_text(
+                            items,
+                            &current_font,
+                            program,
+                            &self.gst,
+                            height,
+                            &mut self.glyph_outlines,
+                        );
+                        self.body.push_str(&text_svg);
+                    }
+                }
+
+                Op::BeginMarkedContent { tag } => {
+                    self.body.push_str(&format!(
+                        "<g class=\"marked-content\" data-tag=\"{}\">",
+                        escape_xml_attr(tag)
+                    ));
+                    self.current_svg_group.push(String::from("marked"));
+                }
+                Op::BeginMarkedContentWithProperties { tag, properties: _ } => {
+                    self.body.push_str(&format!(
+                        "<g class=\"marked-content\" data-tag=\"{}\">",
+                        escape_xml_attr(tag)
+                    ));
+                    self.current_svg_group.push(String::from("marked"));
+                }
+                Op::DefineMarkedContentPoint { tag, properties: _ } => {
+                    self.body.push_str(&format!(
+                        "<g class=\"marked-content-point\" data-tag=\"{}\"></g>",
+                        escape_xml_attr(tag)
+                    ));
+                }
+                Op::EndMarkedContent | Op::EndMarkedContentWithProperties => {
+                    if let Some(group_type) = self.current_svg_group.last() {
+                        if group_type == "marked" {
+                            self.current_svg_group.pop();
+                            self.body.push_str("</g>");
+                        }
+                    }
+                }
+                Op::BeginCompatibilitySection => {
+                    self.gst.begin_compatibility_section();
+                }
+                Op::EndCompatibilitySection => {
+                    self.gst.end_compatibility_section();
+                }
+                Op::Marker { id } => {
+                    self.body.push_str(&format!(
+                        "<g class='marker' id='{}' style='display:none;'></g>",
+                        escape_xml_attr(id)
+                    ));
+                }
+                Op::BeginLayer { layer_id } | Op::BeginOptionalContent { layer_id } => {
+                    if let Some(layer) = self.root.layers.map.get(layer_id) {
+                        self.body.push_str(&format!(
+                            "<g class=\"layer\" id=\"{}\" data-name=\"{}\">",
+                            escape_xml_attr(&layer_id.0),
+                            escape_xml_attr(&layer.name)
+                        ));
+                    } else {
+                        self.body.push_str(&format!(
+                            "<g class=\"layer\" id=\"{}\">",
+                            escape_xml_attr(&layer_id.0)
+                        ));
+                    }
+                    self.current_svg_group.push(String::from("layer"));
+                }
+                Op::EndLayer | Op::EndOptionalContent => {
+                    if let Some(group_type) = self.current_svg_group.last() {
+                        if group_type == "layer" {
+                            self.current_svg_group.pop();
+                            self.body.push_str("</g>");
+                        }
+                    }
+                }
+                Op::SaveGraphicsState => {
+                    if self.gst.save_gs().is_some() {
+                        self.body.push_str("<g>"); // Group to isolate graphics state changes
+                        self.current_svg_group.push(String::from("gs"));
+                    } else if !self.warned_about_depth {
+                        self.warned_about_depth = true;
+                        warnings.push(PdfWarnMsg::warning(
+                            0,
+                            0,
+                            format!(
+                                "graphics state nesting is deeper than {MAX_GRAPHICS_STATE_DEPTH}, \
+                                 the `q` operators beyond it and their `Q` are ignored"
+                            ),
+                        ));
+                    }
+                }
+                Op::RestoreGraphicsState => {
+                    if self.gst.restore_gs().is_some() {
+                        if let Some(group_type) = self.current_svg_group.last() {
+                            if group_type == "gs" {
+                                self.current_svg_group.pop();
+                                self.body.push_str("</g>");
+                            }
+                        }
+                    }
+                }
+                Op::LoadGraphicsState { gs } => {
+                    if let Some(graphics_state) = scope.extgstates.map.get(gs) {
+                        self.gst.load_gs(graphics_state);
+                    }
+                }
+
+                Op::StartTextSection => {
+                    self.in_text_section = true;
+                }
+                Op::EndTextSection => {
+                    self.in_text_section = false;
+                }
+                Op::AddLineBreak => {
+                    // `T*` keeps the x of the line start and drops y by the leading.
+                    let leading = self.gst.get_text_leading();
+                    let current_cursor = self.gst.get_text_cursor();
+                    self.gst.set_text_cursor(Point {
+                        x: current_cursor.x,
+                        y: Pt(current_cursor.y.0 - leading.0),
+                    });
+                }
+                Op::MoveTextCursorAndSetLeading { tx, ty } => {
+                    let current_cursor = self.gst.get_text_cursor();
+                    self.gst.set_text_cursor(Point {
+                        x: Pt(current_cursor.x.0 + tx),
+                        y: Pt(current_cursor.y.0 + ty),
+                    });
+                    self.gst.set_line_height(Pt(-ty)); // Leading is -ty
+                }
+                Op::MoveToNextLineShowText { text } => {
+                    if self.in_text_section {
+                        // Next line, as with `T*`.
+                        let leading = self.gst.get_text_leading();
+                        let current_cursor = self.gst.get_text_cursor();
+                        self.gst.set_text_cursor(Point {
+                            x: current_cursor.x,
+                            y: Pt(current_cursor.y.0 - leading.0),
+                        });
+
+                        let items = vec![TextItem::Text(text.clone())];
+
+                        if let Some(font) = self.gst.get_current_font() {
+                            let text_svg = render_text_items_to_svg(
+                                &items,
+                                &font,
+                                &self.gst,
+                                height,
+                                TextLayer::Painted,
+                            );
+                            self.body.push_str(&text_svg);
+                        }
+                    }
+                }
+                Op::SetSpacingMoveAndShowText {
+                    word_spacing,
+                    char_spacing,
+                    text,
+                } => {
+                    if self.in_text_section {
+                        self.gst.set_word_spacing(Pt(*word_spacing));
+                        self.gst.set_character_spacing(*char_spacing);
+
+                        // Next line, as with `T*`.
+                        let leading = self.gst.get_text_leading();
+                        let current_cursor = self.gst.get_text_cursor();
+                        self.gst.set_text_cursor(Point {
+                            x: current_cursor.x,
+                            y: Pt(current_cursor.y.0 - leading.0),
+                        });
+
+                        let items = vec![TextItem::Text(text.clone())];
+
+                        if let Some(font) = self.gst.get_current_font() {
+                            let text_svg = render_text_items_to_svg(
+                                &items,
+                                &font,
+                                &self.gst,
+                                height,
+                                TextLayer::Painted,
+                            );
+                            self.body.push_str(&text_svg);
+                        }
+                    }
+                }
+
+                Op::DrawLine { line } => {
+                    let line_svg = render_line_to_svg(line, &self.gst, height);
+                    self.body.push_str(&line_svg);
+                }
+                Op::DrawPolygon { polygon } => {
+                    let polygon_svg = render_polygon_to_svg(polygon, &self.gst, height);
+                    self.body.push_str(&polygon_svg);
+                }
+                Op::DrawRectangle { rectangle } => {
+                    let polygon_svg =
+                        render_polygon_to_svg(&rectangle.to_polygon(), &self.gst, height);
+                    self.body.push_str(&polygon_svg);
+                }
+                Op::UseXobject { id, transform } => {
+                    if let Some(form) = form_in(scope, id) {
+                        self.render_form(form, id, transform, scope, tag, warnings);
+                    } else {
+                        let xobject_svg = self.render_image(id, transform, scope, tag);
+                        self.body.push_str(&xobject_svg);
+                    }
+                }
+                Op::LinkAnnotation { link } => {
+                    match &link.actions {
+                        Actions::Goto(destination) => {
+                            let page_num = match destination {
+                                Destination::Xyz { page, .. } => page,
+                            };
+
+                            self.body.push_str(&format!("<a href=\"#page{}\">", page_num));
+
+                            self.body.push_str(&format!(
+                                "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"none\" \
+                                 stroke=\"none\" pointer-events=\"all\"/>",
+                                link.rect.x.0,
+                                height - link.rect.y.0 - link.rect.height.0, // PDF y is up, SVG y is down
+                                link.rect.width.0,
+                                link.rect.height.0
+                            ));
+
+                            self.body.push_str("</a>");
+                        }
+                        Actions::Uri(uri) => match safe_link_target(uri) {
+                            Some(href) => {
+                                self.body
+                                    .push_str(&format!("<a href=\"{}\" target=\"_blank\">", href));
+
+                                self.body.push_str(&format!(
+                                    "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"none\" \
+                                     stroke=\"none\" pointer-events=\"all\"/>",
+                                    link.rect.x.0,
+                                    height - link.rect.y.0 - link.rect.height.0,
+                                    link.rect.width.0,
+                                    link.rect.height.0
+                                ));
+
+                                self.body.push_str("</a>");
+                            }
+                            None => warnings.push(PdfWarnMsg::warning(
+                                0,
+                                0,
+                                "A link whose URI is not http, https, mailto, tel or a relative \
+                                 reference is left out of the SVG"
+                                    .to_string(),
+                            )),
+                        },
+                    }
+                }
+
+                Op::BeginInlineImage | Op::BeginInlineImageData | Op::EndInlineImage => {
+                    warnings.push(PdfWarnMsg::info(
+                        0,
+                        0,
+                        "Inline image rendering not fully implemented in SVG output".to_string(),
+                    ));
+                }
+
+                // Gradients (`sh`) are not rendered.
+                Op::PaintShading { .. } => {}
+
+                Op::Unknown { key, value: _ } => {
+                    self.body.push_str(&format!(
+                        "<!-- Unknown PDF operator: {} -->",
+                        comment_text(key)
+                    ));
+                }
+            }
         }
-        match op {
-            Op::SetColorSpaceFill { .. } => {
-                // Colorspace changes are ignored.
-            }
-            Op::SetColorSpaceStroke { .. } => {
-                // Colorspace changes are ignored.
-            }
-            Op::SetRenderingIntent { intent } => {
-                gst.set_rendering_intent(*intent);
-            }
-            Op::SetHorizontalScaling { percent } => {
-                gst.set_horizontal_scaling(*percent);
-            }
-            Op::SetLineOffset { multiplier } => {
-                gst.set_line_offset(*multiplier);
-            }
-            Op::SetLineHeight { lh } => {
-                gst.set_line_height(*lh);
-            }
-            Op::SetTextCursor { pos } => {
-                gst.set_text_cursor(*pos);
-            }
-            Op::SetTransformationMatrix { matrix } => {
-                gst.set_cur_trans_mat(*matrix);
-            }
-            Op::SetTextMatrix { matrix } => {
-                gst.set_text_mat(*matrix);
-            }
-            Op::SetFillColor { col } => {
-                gst.set_fill_color(col.clone());
-            }
-            Op::SetOutlineColor { col } => {
-                gst.set_outline_color(col.clone());
-            }
-            Op::SetOutlineThickness { pt } => {
-                gst.set_stroke_width(*pt);
-            }
-            Op::SetLineDashPattern { dash } => {
-                gst.set_dash_pattern(dash.clone());
-            }
-            Op::SetLineJoinStyle { join } => {
-                gst.set_line_join(*join);
-            }
-            Op::SetLineCapStyle { cap } => {
-                gst.set_line_cap(*cap);
-            }
-            Op::SetMiterLimit { limit } => {
-                gst.set_miter_limit(*limit);
-            }
-            Op::SetTextRenderingMode { mode } => {
-                gst.set_text_rendering_mode(*mode);
-            }
-            Op::SetCharacterSpacing { multiplier } => {
-                gst.set_character_spacing(*multiplier);
-            }
-            Op::SetWordSpacing { pt } => {
-                gst.set_word_spacing(*pt);
-            }
-            Op::SetFont { font, size } => {
-                match font {
-                    crate::ops::PdfFontHandle::Builtin(builtin) => {
-                        gst.set_font_size_builtin(builtin, *size);
-                    }
-                    crate::ops::PdfFontHandle::External(font_id) => {
-                        gst.set_font_size(font_id, *size);
-                    }
-                }
-            }
-            Op::ShowText { items } => {
-                if in_text_section {
-                    // No font set: fall back to the default builtin font.
-                    let current_font = gst
-                        .get_current_font()
-                        .unwrap_or(BuiltinOrExternalFontId::Builtin(BuiltinFont::default()));
-                    let text_svg = render_show_text(
-                        items,
-                        &current_font,
-                        resources,
-                        &gst,
-                        height,
-                        &mut glyph_outlines,
-                    );
-                    svg.push_str(&text_svg);
-                }
-            }
+    }
 
-            Op::BeginMarkedContent { tag } => {
-                svg.push_str(&format!(
-                    "<g class=\"marked-content\" data-tag=\"{}\">",
-                    escape_xml_attr(tag)
+    /// The font program of an external font that is selected, in the page's resources or in
+    /// the resources of the form that selected it.
+    fn font_program(&self, font: &BuiltinOrExternalFontId) -> Option<&'a crate::ParsedFont> {
+        let BuiltinOrExternalFontId::External(id) = font else {
+            return None;
+        };
+        self.form_fonts
+            .get(id)
+            .copied()
+            .or_else(|| self.root.fonts.map.get(id))
+            .map(|font| &font.parsed_font)
+    }
+
+    /// The tag of the scope of `form`, the same for every time the form is drawn.
+    fn tag_of(&mut self, form: &FormXObject) -> String {
+        let address = form as *const FormXObject as usize;
+        let next = self.form_tags.len();
+        self.form_tags
+            .entry(address)
+            .or_insert_with(|| format!("form{next}:"))
+            .clone()
+    }
+
+    /// Writes the elements for the form `form`, drawn in `outer` by the `Do` of `id`.
+    ///
+    /// The form's matrix, then the placement of the `Do`, then the transformation of the content
+    /// that draws it make the transformation of the form. Its graphics state starts as the one
+    /// at the `Do` and is dropped at its end, whatever `q` and `Q` the form leaves unbalanced.
+    /// The form is not clipped to its `/BBox`.
+    fn render_form(
+        &mut self,
+        form: &'a FormXObject,
+        id: &XObjectId,
+        transform: &XObjectTransform,
+        outer: &'a PdfResources,
+        tag: &str,
+        warnings: &mut Vec<PdfWarnMsg>,
+    ) {
+        if let Err(skip) = self.walk.enter(form) {
+            if self.walk.first_report(skip) {
+                warnings.push(PdfWarnMsg::warning(
+                    0,
+                    0,
+                    format!("form {} is not drawn: {}", id.0, skip.describe()),
                 ));
-                current_svg_group.push(String::from("marked"));
             }
-            Op::BeginMarkedContentWithProperties { tag, properties: _ } => {
-                svg.push_str(&format!(
-                    "<g class=\"marked-content\" data-tag=\"{}\">",
-                    escape_xml_attr(tag)
-                ));
-                current_svg_group.push(String::from("marked"));
-            }
-            Op::DefineMarkedContentPoint { tag, properties: _ } => {
-                svg.push_str(&format!(
-                    "<g class=\"marked-content-point\" data-tag=\"{}\"></g>",
-                    escape_xml_attr(tag)
-                ));
-            }
-            Op::EndMarkedContent | Op::EndMarkedContentWithProperties => {
-                if let Some(group_type) = current_svg_group.last() {
-                    if group_type == "marked" {
-                        current_svg_group.pop();
-                        svg.push_str("</g>");
-                    }
-                }
-            }
-            Op::BeginCompatibilitySection => {
-                gst.begin_compatibility_section();
-            }
-            Op::EndCompatibilitySection => {
-                gst.end_compatibility_section();
-            }
-            Op::Marker { id } => {
-                svg.push_str(&format!(
-                    "<g class='marker' id='{}' style='display:none;'></g>",
-                    escape_xml_attr(id)
-                ));
-            }
-            Op::BeginLayer { layer_id } | Op::BeginOptionalContent { layer_id } => {
-                if let Some(layer) = resources.layers.map.get(layer_id) {
-                    svg.push_str(&format!(
-                        "<g class=\"layer\" id=\"{}\" data-name=\"{}\">",
-                        escape_xml_attr(&layer_id.0),
-                        escape_xml_attr(&layer.name)
-                    ));
-                } else {
-                    svg.push_str(&format!(
-                        "<g class=\"layer\" id=\"{}\">",
-                        escape_xml_attr(&layer_id.0)
-                    ));
-                }
-                current_svg_group.push(String::from("layer"));
-            }
-            Op::EndLayer | Op::EndOptionalContent => {
-                if let Some(group_type) = current_svg_group.last() {
-                    if group_type == "layer" {
-                        current_svg_group.pop();
-                        svg.push_str("</g>");
-                    }
-                }
-            }
-            Op::SaveGraphicsState => {
-                if gst.save_gs().is_some() {
-                    svg.push_str("<g>"); // Group to isolate graphics state changes
-                    current_svg_group.push(String::from("gs"));
-                } else if !warned_about_depth {
-                    warned_about_depth = true;
+            return;
+        }
+
+        let size = if transform.no_auto_scale {
+            None
+        } else {
+            outer.xobjects.map.get(id).and_then(|x| x.get_width_height())
+        };
+        let matrix = form
+            .matrix
+            .map_or(CurTransMat::Identity.as_array(), |m| m.as_array());
+        let to_page = CurTransMat::combine_matrix(matrix, transform.placement_matrix(size));
+
+        match self.gst.enter_form(to_page) {
+            None => {
+                if !self.warned_about_depth {
+                    self.warned_about_depth = true;
                     warnings.push(PdfWarnMsg::warning(
                         0,
                         0,
                         format!(
                             "graphics state nesting is deeper than {MAX_GRAPHICS_STATE_DEPTH}, \
-                             the `q` operators beyond it and their `Q` are ignored"
+                             the form {} is not drawn",
+                            id.0
                         ),
                     ));
                 }
             }
-            Op::RestoreGraphicsState => {
-                if gst.restore_gs().is_some() {
-                    if let Some(group_type) = current_svg_group.last() {
-                        if group_type == "gs" {
-                            current_svg_group.pop();
-                            svg.push_str("</g>");
+            Some(mark) => {
+                // The fonts of a form with resources of its own are known by a name of its own.
+                let form_tag = match &form.resources {
+                    Some(local) => {
+                        let form_tag = self.tag_of(form);
+                        for (font_id, font) in local.fonts.map.iter() {
+                            self.form_fonts.insert(qualify(&form_tag, font_id), font);
                         }
+                        form_tag
                     }
-                }
-            }
-            Op::LoadGraphicsState { gs } => {
-                if let Some(graphics_state) = resources.extgstates.map.get(gs) {
-                    gst.load_gs(graphics_state);
-                }
-            }
+                    None => tag.to_string(),
+                };
 
-            Op::StartTextSection => {
-                in_text_section = true;
-            }
-            Op::EndTextSection => {
-                in_text_section = false;
-            }
-            Op::AddLineBreak => {
-                // `T*` keeps the x of the line start and drops y by the leading.
-                let leading = gst.get_text_leading();
-                let current_cursor = gst.get_text_cursor();
-                gst.set_text_cursor(Point {
-                    x: current_cursor.x,
-                    y: Pt(current_cursor.y.0 - leading.0),
-                });
-            }
-            Op::MoveTextCursorAndSetLeading { tx, ty } => {
-                let current_cursor = gst.get_text_cursor();
-                gst.set_text_cursor(Point {
-                    x: Pt(current_cursor.x.0 + tx),
-                    y: Pt(current_cursor.y.0 + ty),
-                });
-                gst.set_line_height(Pt(-ty)); // Leading is -ty
-            }
-            Op::MoveToNextLineShowText { text } => {
-                if in_text_section {
-                    // Next line, as with `T*`.
-                    let leading = gst.get_text_leading();
-                    let current_cursor = gst.get_text_cursor();
-                    gst.set_text_cursor(Point {
-                        x: current_cursor.x,
-                        y: Pt(current_cursor.y.0 - leading.0),
-                    });
-
-                    let items = vec![TextItem::Text(text.clone())];
-
-                    if let Some(font) = gst.get_current_font() {
-                        let text_svg = render_text_items_to_svg(
-                            &items,
-                            &font,
-                            &gst,
-                            height,
-                            TextLayer::Painted,
-                        );
-                        svg.push_str(&text_svg);
-                    }
-                }
-            }
-            Op::SetSpacingMoveAndShowText {
-                word_spacing,
-                char_spacing,
-                text,
-            } => {
-                if in_text_section {
-                    gst.set_word_spacing(Pt(*word_spacing));
-                    gst.set_character_spacing(*char_spacing);
-
-                    // Next line, as with `T*`.
-                    let leading = gst.get_text_leading();
-                    let current_cursor = gst.get_text_cursor();
-                    gst.set_text_cursor(Point {
-                        x: current_cursor.x,
-                        y: Pt(current_cursor.y.0 - leading.0),
-                    });
-
-                    let items = vec![TextItem::Text(text.clone())];
-
-                    if let Some(font) = gst.get_current_font() {
-                        let text_svg = render_text_items_to_svg(
-                            &items,
-                            &font,
-                            &gst,
-                            height,
-                            TextLayer::Painted,
-                        );
-                        svg.push_str(&text_svg);
-                    }
-                }
-            }
-
-            Op::DrawLine { line } => {
-                let line_svg = render_line_to_svg(line, &gst, height);
-                svg.push_str(&line_svg);
-            }
-            Op::DrawPolygon { polygon } => {
-                let polygon_svg = render_polygon_to_svg(polygon, &gst, height);
-                svg.push_str(&polygon_svg);
-            }
-            Op::DrawRectangle { rectangle } => {
-                let polygon_svg = render_polygon_to_svg(&rectangle.to_polygon(), &gst, height);
-                svg.push_str(&polygon_svg);
-            }
-            Op::UseXobject { id, transform } => {
-                let xobject_svg = render_image_to_svg(id, transform, resources, &map, height, &gst);
-                svg.push_str(&xobject_svg);
-            }
-            Op::LinkAnnotation { link } => {
-                match &link.actions {
-                    Actions::Goto(destination) => {
-                        let page_num = match destination {
-                            Destination::Xyz { page, .. } => page,
-                        };
-
-                        svg.push_str(&format!("<a href=\"#page{}\">", page_num));
-
-                        svg.push_str(&format!(
-                            "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"none\" \
-                             stroke=\"none\" pointer-events=\"all\"/>",
-                            link.rect.x.0,
-                            height - link.rect.y.0 - link.rect.height.0, // PDF y is up, SVG y is down
-                            link.rect.width.0,
-                            link.rect.height.0
-                        ));
-
-                        svg.push_str("</a>");
-                    }
-                    Actions::Uri(uri) => match safe_link_target(uri) {
-                        Some(href) => {
-                            svg.push_str(&format!("<a href=\"{}\" target=\"_blank\">", href));
-
-                            svg.push_str(&format!(
-                                "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"none\" \
-                                 stroke=\"none\" pointer-events=\"all\"/>",
-                                link.rect.x.0,
-                                height - link.rect.y.0 - link.rect.height.0,
-                                link.rect.width.0,
-                                link.rect.height.0
-                            ));
-
-                            svg.push_str("</a>");
-                        }
-                        None => warnings.push(PdfWarnMsg::warning(
-                            0,
-                            0,
-                            "A link whose URI is not http, https, mailto, tel or a relative \
-                             reference is left out of the SVG"
-                                .to_string(),
-                        )),
-                    },
-                }
-            }
-
-            Op::BeginInlineImage | Op::BeginInlineImageData | Op::EndInlineImage => {
-                warnings.push(PdfWarnMsg::info(
-                    0,
-                    0,
-                    "Inline image rendering not fully implemented in SVG output".to_string(),
+                let group_base = self.current_svg_group.len();
+                self.body.push_str(&format!(
+                    "<g class=\"form\" data-name=\"{}\">",
+                    escape_xml_attr(&id.0)
                 ));
+                self.current_svg_group.push(String::from("form"));
+                let was_in_text = std::mem::replace(&mut self.in_text_section, false);
+
+                self.render_ops(&form.ops, scope_of(form, outer), &form_tag, warnings);
+
+                self.in_text_section = was_in_text;
+                // Close what the form left open, and the form.
+                while self.current_svg_group.len() > group_base {
+                    self.current_svg_group.pop();
+                    self.body.push_str("</g>");
+                }
+                self.gst.exit_form(mark);
             }
+        }
+        self.walk.leave();
+    }
 
-            // Gradients (`sh`) are not rendered.
-            Op::PaintShading { .. } => {}
+    /// The `<image>` for the image `id` of `scope`, or nothing when it is no image that can be
+    /// shown. The images of the page are encoded already, the ones of forms are encoded here.
+    fn render_image(
+        &mut self,
+        id: &XObjectId,
+        transform: &XObjectTransform,
+        scope: &PdfResources,
+        tag: &str,
+    ) -> String {
+        let xobject = scope.xobjects.map.get(id);
+        if !self.image_map.contains_key(id) {
+            let key = (tag.to_string(), id.clone());
+            if let (false, Some(XObject::Image(image))) =
+                (self.form_images.contains_key(&key), xobject)
+            {
+                let encoded = image.encode_to_bytes(self.image_formats).ok();
+                self.form_images.insert(key, encoded);
+            }
+        }
+        let data = self.image_map.get(id).or_else(|| {
+            self.form_images
+                .get(&(tag.to_string(), id.clone()))
+                .and_then(|encoded| encoded.as_ref())
+        });
+        render_image_to_svg(xobject, data, transform, self.height, &self.gst)
+    }
 
-            Op::Unknown { key, value: _ } => {
-                svg.push_str(&format!(
-                    "<!-- Unknown PDF operator: {} -->",
-                    comment_text(key)
+    /// The SVG: the header, the font rules of the page and of the forms, what was written, the
+    /// groups it left open and the glyph outlines.
+    fn finish(mut self, head: String, mut font_faces: String) -> String {
+        // Close the groups the page left open.
+        for _group_type in self.current_svg_group.iter().rev() {
+            self.body.push_str("</g>");
+        }
+        self.body.push_str(&self.glyph_outlines.to_svg());
+
+        for (font_id, font) in self.form_fonts.iter() {
+            if let Some(bytes) = font.parsed_font.source_bytes() {
+                font_faces.push_str(&font_face_rule(
+                    &svg_font_family(&font_id.0),
+                    bytes.as_slice(),
                 ));
             }
         }
-    }
 
-    // Close the groups the page left open.
-    for _group_type in current_svg_group.iter().rev() {
-        svg.push_str("</g>");
+        let mut svg = head;
+        if !font_faces.is_empty() {
+            svg.push_str("<style>\n");
+            svg.push_str(&font_faces);
+            svg.push_str("</style>\n");
+        }
+        svg.push_str(&self.body);
+        svg.push_str("</svg>");
+        svg
     }
-
-    svg.push_str(&glyph_outlines.to_svg());
-    svg.push_str("</svg>");
-    svg
 }
 
 fn color_to_svg(color: &Color) -> String {
@@ -1221,18 +1526,18 @@ impl GlyphOutlineDefs {
 fn render_show_text(
     items: &[TextItem],
     font: &BuiltinOrExternalFontId,
-    resources: &PdfResources,
+    program: Option<&crate::ParsedFont>,
     gst: &GraphicsStateVec,
     page_height: f32,
     outlines: &mut GlyphOutlineDefs,
 ) -> String {
     #[cfg(feature = "text_layout")]
     if let BuiltinOrExternalFontId::External(font_id) = font {
-        if let Some(pdf_font) = resources.fonts.map.get(font_id) {
+        if let Some(parsed_font) = program {
             if let Some(glyphs) = render_glyph_outlines(
                 items,
                 font_id,
-                &pdf_font.parsed_font,
+                parsed_font,
                 gst,
                 page_height,
                 outlines,
@@ -1249,7 +1554,7 @@ fn render_show_text(
         }
     }
     #[cfg(not(feature = "text_layout"))]
-    let _ = (resources, outlines); // no glyph outlines without azul's font parser
+    let _ = (program, outlines); // no glyph outlines without azul's font parser
 
     render_text_items_to_svg(items, font, gst, page_height, TextLayer::Painted)
 }
@@ -1752,17 +2057,13 @@ fn render_polygon_to_svg(polygon: &Polygon, gst: &GraphicsStateVec, page_height:
 }
 
 fn render_image_to_svg(
-    id: &XObjectId,
+    xobject: Option<&XObject>,
+    image_data: Option<&EncodedImage>,
     transform: &XObjectTransform,
-    resources: &PdfResources,
-    image_map: &BTreeMap<XObjectId, (Vec<u8>, OutputImageFormat)>,
     page_height: f32,
     gst: &GraphicsStateVec,
 ) -> String {
-    let xobject_opt = resources.xobjects.map.get(id);
-    let image_data_opt = image_map.get(id);
-
-    if let (Some(xobject), Some((bytes, fmt))) = (xobject_opt, image_data_opt) {
+    if let (Some(xobject), Some((bytes, fmt))) = (xobject, image_data) {
         if let Some((width, height)) = xobject.get_width_height() {
             let dpi = transform.dpi.unwrap_or(300.0);
             let w_pt = width.into_pt(dpi).0;
