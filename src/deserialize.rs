@@ -31,9 +31,14 @@
 //!   text; neither is kept in `resources.fonts`. Reading the program of an embedded simple
 //!   (TrueType or Type1) font needs the `text_layout` feature.
 //! - **XObjects** (reusable pieces of content, referenced by `Do`): images are decoded to
-//!   [`XObject::Image`], with an `/SMask` merged in as alpha. Form XObjects, and images that
-//!   cannot be decoded (JPEG and JPEG 2000 need the `images` feature), are kept byte for byte as
-//!   [`XObject::External`], so that saving does not lose them.
+//!   [`XObject::Image`], with an `/SMask` merged in as alpha. Form XObjects become
+//!   [`XObject::Form`]: the operators of the form's content stream are read as [`Op`]s, and its
+//!   own `/Resources` (fonts, images, nested forms, graphics states, shadings) become a scope
+//!   of its own, read by the same functions as the resources of the pages. Text that a page
+//!   draws inside a form (macOS Quartz, Word and print drivers do that for the whole page) is
+//!   part of the document model like any other text. A form that cannot be modelled without
+//!   loss, and images that cannot be decoded (JPEG and JPEG 2000 need the `images` feature), are
+//!   kept byte for byte as [`XObject::External`], so that saving does not lose them.
 //! - **Graphics state parameter dictionaries** (ExtGState), **shadings** (axial and radial
 //!   gradients only), **layers** (optional content groups), **bookmarks** (the top level of the
 //!   outline, entries with an explicit destination) and **link annotations** (GoTo and URI
@@ -87,6 +92,9 @@ use lopdf::{
     ObjectId, Stream as LopdfStream,
 };
 use serde_derive::{Deserialize, Serialize};
+
+mod form_xobject;
+use form_xobject::{parse_form, PendingForm, XObjectCtx};
 
 use crate::{
     cmap::ToUnicodeCMap,
@@ -296,8 +304,12 @@ pub fn parse_pdf_from_bytes(
 
     let fonts = parse_fonts_from_entire_pdf(&i.doc, &i.objs_to_search_for_resources, warnings);
     let font_decode = font_decode_map(&fonts);
-    let xobjects =
-        parse_xobjects_from_entire_pdf(&i.doc, &i.objs_to_search_for_resources, warnings);
+    let xobjects = parse_xobjects_from_entire_pdf(
+        &i.doc,
+        &i.objs_to_search_for_resources,
+        &font_decode,
+        warnings,
+    );
     let xobjects = process_xobjects(xobjects, warnings);
 
     parse_pdf_from_bytes_end(i, opts, fonts, font_decode, xobjects, warnings)
@@ -313,8 +325,12 @@ pub async fn parse_pdf_from_bytes_async(
 
     let fonts = parse_fonts_from_entire_pdf(&i.doc, &i.objs_to_search_for_resources, warnings);
     let font_decode = font_decode_map(&fonts);
-    let xobjects =
-        parse_xobjects_from_entire_pdf(&i.doc, &i.objs_to_search_for_resources, warnings);
+    let xobjects = parse_xobjects_from_entire_pdf(
+        &i.doc,
+        &i.objs_to_search_for_resources,
+        &font_decode,
+        warnings,
+    );
     let xobjects = process_xobjects_async(xobjects, warnings).await;
 
     parse_pdf_from_bytes_end(i, opts, fonts, font_decode, xobjects, warnings)
@@ -654,6 +670,7 @@ fn get_stream_or_resolve_ref<'a>(
 
 /// Result of scanning the XObject resources: an image that still has to go through the (possibly
 /// async) decoder, or an XObject that is already complete.
+#[derive(Clone)]
 pub(crate) enum PendingXObject {
     /// An image in a self-describing container format (JPEG via `DCTDecode`, JPEG 2000 via
     /// `JPXDecode`, ...). `fallback` keeps the original stream byte for byte in case the decoder
@@ -663,11 +680,16 @@ pub(crate) enum PendingXObject {
         smask: Option<SMaskData>,
         fallback: ExternalXObject,
     },
-    /// Fully parsed: raw bitmaps, preserved Form XObjects, unknown subtypes kept verbatim.
+    /// Fully parsed: raw bitmaps, forms that cannot be modelled and unknown subtypes kept
+    /// verbatim.
     Ready(XObject),
+    /// A form that is read into the model; the images in its resources may still wait to be
+    /// decoded.
+    Form(Arc<PendingForm>),
 }
 
 /// A decoded (uncompressed) SMask alpha channel: 8-bit gray, `width * height` bytes.
+#[derive(Clone)]
 pub(crate) struct SMaskData {
     pub width: usize,
     pub height: usize,
@@ -737,6 +759,9 @@ fn process_xobjects(
             PendingXObject::Ready(x) => {
                 map.insert(xobject_id, x);
             }
+            PendingXObject::Form(pending) => {
+                map.insert(xobject_id, finish_form(pending, warnings));
+            }
             PendingXObject::DecodeImage {
                 bytes,
                 smask,
@@ -772,6 +797,19 @@ fn process_xobjects(
         }
     }
     map
+}
+
+/// A form read from the PDF, with the images in its resources decoded.
+fn finish_form(pending: Arc<PendingForm>, warnings: &mut Vec<PdfWarnMsg>) -> XObject {
+    // Only a form that more than one place of the document uses is copied.
+    let PendingForm {
+        mut form,
+        xobjects,
+    } = Arc::try_unwrap(pending).unwrap_or_else(|shared| (*shared).clone());
+    if let Some(resources) = form.resources.as_mut() {
+        resources.xobjects.map = process_xobjects(xobjects, warnings);
+    }
+    XObject::Form(form)
 }
 
 /// Collects the `/Shading` resources (axial and radial gradients) into the typed
@@ -1122,6 +1160,10 @@ async fn process_xobjects_async(
             PendingXObject::Ready(x) => {
                 map.insert(xobject_id, x);
             }
+            // The images inside a form are decoded without the async decoder.
+            PendingXObject::Form(pending) => {
+                map.insert(xobject_id, finish_form(pending, warnings));
+            }
             PendingXObject::DecodeImage {
                 bytes,
                 smask,
@@ -1310,17 +1352,14 @@ fn external_stream_preserved(
     }
 }
 
-/// Preserve an XObject stream verbatim for the round trip. Pushes a warning, once per document,
-/// when `budget` ran out while copying the references of the stream.
-fn preserve_xobject_stream(
-    doc: &LopdfDocument,
-    stream: &LopdfStream,
+/// Pushes a warning, once per document, when `budget` ran out while copying the references of
+/// the XObject `xobject_id`.
+fn warn_if_budget_spent(
+    budget: &mut InlineBudget,
     xobject_id: &XObjectId,
     page: usize,
-    budget: &mut InlineBudget,
     warnings: &mut Vec<PdfWarnMsg>,
-) -> ExternalXObject {
-    let stream = external_stream_preserved(doc, stream, 0, &mut Vec::new(), budget);
+) {
     if budget.exhausted && !budget.reported {
         budget.reported = true;
         warnings.push(PdfWarnMsg::warning(
@@ -1334,6 +1373,20 @@ fn preserve_xobject_stream(
             ),
         ));
     }
+}
+
+/// Preserve an XObject stream verbatim for the round trip. Pushes a warning, once per document,
+/// when `budget` ran out while copying the references of the stream.
+fn preserve_xobject_stream(
+    doc: &LopdfDocument,
+    stream: &LopdfStream,
+    xobject_id: &XObjectId,
+    page: usize,
+    budget: &mut InlineBudget,
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> ExternalXObject {
+    let stream = external_stream_preserved(doc, stream, 0, &mut Vec::new(), budget);
+    warn_if_budget_spent(budget, xobject_id, page, warnings);
     ExternalXObject {
         stream,
         // Leave width/height/dpi unset: placement comes from the content
@@ -1631,7 +1684,7 @@ fn parse_xobjects_internal(
     warnings: &mut Vec<PdfWarnMsg>,
     page: Option<usize>,
     xobj_map: &mut BTreeMap<XObjectId, PendingXObject>,
-    budget: &mut InlineBudget,
+    ctx: &mut XObjectCtx<'_>,
 ) {
     let page_num = page.unwrap_or_default();
     let xobj_obj = match resources.get(b"XObject") {
@@ -1679,7 +1732,7 @@ fn parse_xobjects_internal(
                         ),
                     ));
                     let preserved =
-                        preserve_xobject_stream(doc, stream, &xobject_id, page_num, budget, warnings);
+                        preserve_xobject_stream(doc, stream, &xobject_id, page_num, &mut ctx.budget, warnings);
                     xobj_map.insert(
                         xobject_id,
                         PendingXObject::Ready(XObject::External(preserved)),
@@ -1710,13 +1763,13 @@ fn parse_xobjects_internal(
                             bytes,
                             smask: extract_smask(doc, stream, page_num, warnings),
                             fallback: preserve_xobject_stream(
-                                doc, stream, &xobject_id, page_num, budget, warnings,
+                                doc, stream, &xobject_id, page_num, &mut ctx.budget, warnings,
                             ),
                         },
                         // Too large to decode: the stream stays as it is.
                         None => PendingXObject::Ready(XObject::External(
                             preserve_xobject_stream(
-                                doc, stream, &xobject_id, page_num, budget, warnings,
+                                doc, stream, &xobject_id, page_num, &mut ctx.budget, warnings,
                             ),
                         )),
                     }
@@ -1728,7 +1781,7 @@ fn parse_xobjects_internal(
                         PendingXObject::Ready(XObject::Image(img))
                     } else {
                         PendingXObject::Ready(XObject::External(preserve_xobject_stream(
-                            doc, stream, &xobject_id, page_num, budget, warnings,
+                            doc, stream, &xobject_id, page_num, &mut ctx.budget, warnings,
                         )))
                     }
                 } else {
@@ -1740,22 +1793,39 @@ fn parse_xobjects_internal(
                             bytes,
                             smask: extract_smask(doc, stream, page_num, warnings),
                             fallback: preserve_xobject_stream(
-                                doc, stream, &xobject_id, page_num, budget, warnings,
+                                doc, stream, &xobject_id, page_num, &mut ctx.budget, warnings,
                             ),
                         },
                         None => PendingXObject::Ready(XObject::External(
                             preserve_xobject_stream(
-                                doc, stream, &xobject_id, page_num, budget, warnings,
+                                doc, stream, &xobject_id, page_num, &mut ctx.budget, warnings,
                             ),
                         )),
                     }
                 };
                 xobj_map.insert(xobject_id, entry);
             }
+            b"Form" => {
+                // A form that can be modelled becomes a `XObject::Form`; otherwise it is kept
+                // verbatim, references inlined.
+                let entry = match parse_form(doc, value, stream, &xobject_id, page_num, ctx, warnings)
+                {
+                    Some(form) => PendingXObject::Form(form),
+                    None => PendingXObject::Ready(XObject::External(preserve_xobject_stream(
+                        doc,
+                        stream,
+                        &xobject_id,
+                        page_num,
+                        &mut ctx.budget,
+                        warnings,
+                    ))),
+                };
+                xobj_map.insert(xobject_id, entry);
+            }
             _other => {
-                // Form XObjects and any other subtype are kept verbatim, references inlined.
+                // Any other subtype is kept verbatim, references inlined.
                 let preserved =
-                    preserve_xobject_stream(doc, stream, &xobject_id, page_num, budget, warnings);
+                    preserve_xobject_stream(doc, stream, &xobject_id, page_num, &mut ctx.budget, warnings);
                 xobj_map.insert(
                     xobject_id,
                     PendingXObject::Ready(XObject::External(preserved)),
@@ -1815,10 +1885,11 @@ fn parse_fonts_from_entire_pdf(
 fn parse_xobjects_from_entire_pdf(
     doc: &LopdfDocument,
     objs_to_search_for_resources: &[(LopdfObject, Option<usize>)],
+    font_decode: &BTreeMap<String, FontTextDecodeKind>,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> BTreeMap<XObjectId, PendingXObject> {
     let mut xobjects = BTreeMap::new();
-    let mut budget = InlineBudget::new();
+    let mut ctx = XObjectCtx::new(font_decode);
     for (obj, page_idx) in objs_to_search_for_resources {
         let page_num = page_idx.unwrap_or(0);
         let dict = match obj {
@@ -1845,7 +1916,7 @@ fn parse_xobjects_from_entire_pdf(
             warnings,
             Some(page_num),
             &mut xobjects,
-            &mut budget,
+            &mut ctx,
         );
     }
     xobjects

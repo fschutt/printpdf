@@ -487,18 +487,22 @@ type XObject =
 ```
 
 ```typescript
-// Note: not a PDF form! Form `XObject` are just reusable content streams.
+// Note: not a PDF form! Form `XObject` are just reusable content: a list of ops with
+// the resources they name. Reading a PDF produces them for the forms it can model.
 interface FormXObject {
     // Form type (currently only Type1)
     formType: string; // FormType (kebab-case in JSON)
     // Optional width / height, affects instantiation size
     size?: [number, number] | null; // Width, height in pixels
-    // The actual content of this FormXObject
-    bytes: number[]; // Uint8Array in JavaScript
+    // `/BBox`: the area of the form in its own coordinate system
+    bbox: Rect;
     // Optional matrix, maps form to user space
     matrix?: CurTransMat | null;
-    // (Optional, PDF 1.2+) Resources required by this form XObject
-    resources?: { [key: string]: DictItem } | null;
+    // The content of this FormXObject: what it paints, as the ops of a page
+    ops: Op[];
+    // (Optional, PDF 1.2+) Resources the ops name, local to the form. `null`: the form uses
+    // the resources of the page that paints it. `layers` is not used.
+    resources?: PdfResources | null;
     // (Optional; PDF 1.4) Group attributes dictionary
     group?: GroupXObject | null;
     // (Optional; PDF 1.4) Reference dictionary for page import
@@ -519,6 +523,10 @@ interface FormXObject {
     oc?: { [key: string]: DictItem } | null;
     // (Optional; PDF 1.0, obsolescent) Name in XObject subdictionary
     name?: string | null;
+    // What the model has no field for, kept as read and written back: dictionary entries
+    // (`/OC`, `/Metadata`, `/Group` with attributes) and, under `Resources`, the resource
+    // categories without a typed map (`/ColorSpace`, `/Pattern`, `/Properties`, `/ProcSet`)
+    extra: { [key: string]: DictItem };
 }
 ```
 

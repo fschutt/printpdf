@@ -9,11 +9,12 @@
 //!
 //! - [`XObject::Image`]: a bitmap, held as a [`RawImage`] (pixels, width, height, pixel layout).
 //!   See the [`image_types`](crate::image_types) module.
-//! - [`XObject::Form`]: a [`FormXObject`], a content stream of its own that can be painted any
-//!   number of times. It has nothing to do with interactive PDF forms.
+//! - [`XObject::Form`]: a [`FormXObject`], content of its own (a list of [`Op`]s with the fonts,
+//!   images and so on it names) that can be painted any number of times. It has nothing to do
+//!   with interactive PDF forms. Reading a PDF produces these for the forms it can model.
 //! - [`XObject::External`]: an [`ExternalXObject`], any other stream, kept as a plain dictionary
 //!   plus bytes. SVG graphics (`Svg::parse`, `svg` feature) and every XObject read from an
-//!   existing PDF that is not a decodable bitmap end up here.
+//!   existing PDF that is not a decodable bitmap or a form that can be modelled end up here.
 //!
 //! # Using one
 //!
@@ -38,14 +39,15 @@ use serde_derive::{Deserialize, Serialize};
 use crate::{
     date::OffsetDateTime,
     deserialize::PageState,
-    image_types::{RawImage, ImageOptimizationOptions},
+    graphics::Rect,
+    image_types::RawImage,
     matrix::CurTransMat,
     units::{Pt, Px},
-    Op,
+    Op, PdfResources,
 };
 
 /// An object that lives outside the content stream and is painted with `Do`
-/// (ISO 32000-1, 8.8). The document keeps them in [`PdfResources`](crate::PdfResources).
+/// (ISO 32000-1, 8.8). The document keeps them in [`PdfResources`].
 ///
 /// Serialized as `{"type": "image" | "form" | "external", "data": ...}`.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -76,41 +78,6 @@ impl XObject {
 // The most that `ExternalStream::decompressed_content` inflates a stream to: a few bytes of zlib
 // can expand to gigabytes.
 const MAX_DECODED_STREAM_BYTES: usize = 256 * 1024 * 1024;
-
-// Adds the XObject to `doc` as an indirect object and returns its id.
-pub(crate) fn add_xobject_to_document(
-    xobj: &XObject,
-    doc: &mut lopdf::Document,
-    _image_opts: Option<&ImageOptimizationOptions>,
-) -> lopdf::ObjectId {
-    match xobj {
-        XObject::Image(_i) => {
-            #[cfg(feature = "images")]
-            {
-                let stream = crate::image::image_to_stream(_i.clone(), doc, _image_opts);
-                doc.add_object(stream)
-            }
-            #[cfg(not(feature = "images"))]
-            {
-                // Raw pixels with FlateDecode need no image codec.
-                let stream = crate::image_types::raw_image_to_basic_stream(_i, doc);
-                doc.add_object(stream)
-            }
-        }
-        XObject::Form(f) => {
-            let stream = form_xobject_to_stream(f, doc);
-            doc.add_object(stream)
-        }
-        XObject::External(external_xobject) => {
-            // Streams nested in the dictionary (functions, ICC profiles, soft masks, ...)
-            // become indirect objects, as PDF requires (ISO 32000-1, 7.3.8.1).
-            let stream = external_xobject
-                .stream
-                .into_lopdf_with_indirect_streams(doc);
-            doc.add_object(stream)
-        }
-    }
-}
 
 /// An XObject kept as a raw stream: a dictionary plus bytes, painted with `Do`.
 ///
@@ -394,28 +361,51 @@ pub enum ImageFilter {
     JPX,
 }
 
-/// Reusable vector content with its own content stream, resources and coordinate system
+/// Reusable content with its own coordinate system, resources and list of [`Op`]s
 /// (ISO 32000-1, 8.10). Paint it with [`Op::UseXobject`].
 ///
-/// This is not an interactive PDF form (AcroForm). Fields documented as "written" end up in the
-/// stream dictionary when the document is saved.
+/// A form is a small page: its [`ops`](FormXObject::ops) are drawn inside the
+/// [`bbox`](FormXObject::bbox), in the coordinate system that [`matrix`](FormXObject::matrix)
+/// maps onto the page. The fonts, images, graphics states and shadings that the ops name are the
+/// form's own [`resources`](FormXObject::resources), so a name in a form never clashes with a
+/// name on a page or in another form.
+///
+/// Reading a PDF turns every form it can model into a `FormXObject`. Pages that macOS (Quartz),
+/// Word or a print driver write put the whole page into one form. A form that cannot be
+/// modelled without loss stays an [`ExternalXObject`], byte for byte.
+///
+/// This is not an interactive PDF form (AcroForm).
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FormXObject {
     /// `/FormType`. [`FormType::Type1`] is the only form type there is.
     pub form_type: FormType,
     /// Width and height in pixels. Not written: [`XObjectTransform`] uses it to scale the
-    /// unit square to the size of the form (see [`XObject::get_width_height`]).
+    /// unit square to the size of the form (see [`XObject::get_width_height`]). `None` for a
+    /// form read from a PDF, which is painted in its own coordinate system.
     pub size: Option<(Px, Px)>,
-    /// The content stream: PDF operators as bytes, compressed when the document is saved.
-    pub bytes: Vec<u8>,
-    /// `/Matrix`: maps the coordinates of the form into the space it is painted in
-    /// (ISO 32000-1, 8.10.2).
+    /// `/BBox`: the area of the form, in its own coordinate system. What the ops paint outside
+    /// of it is clipped (ISO 32000-1, 8.10.2).
+    #[serde(default = "empty_bbox")]
+    pub bbox: Rect,
+    /// `/Matrix`: maps the coordinate system of the form into the one it is painted in, applied
+    /// before the placement of the [`Op::UseXobject`] (ISO 32000-1, 8.10.2).
     pub matrix: Option<CurTransMat>,
-    /// `/Resources`: the fonts, images, graphics states and so on that `bytes` names.
-    /// Nested streams are written as indirect objects (ISO 32000-1, 7.8.3).
-    pub resources: Option<BTreeMap<String, DictItem>>,
-    /// `/Group`: treats the form as a transparency group (ISO 32000-1, 11.6.6).
+    /// The content: what the form paints, as the ops of a page would. Names in the ops
+    /// (`Op::SetFont`, `Op::UseXobject`, `Op::LoadGraphicsState`, `Op::PaintShading`) are looked
+    /// up in [`resources`](FormXObject::resources).
+    #[serde(default)]
+    pub ops: Vec<Op>,
+    /// `/Resources`: the fonts, images, nested forms, graphics states and shadings the ops
+    /// name. They are local to the form. With `None` the form has no `/Resources` and uses the
+    /// resources of the page that paints it, as forms did before PDF 1.2: its names are looked
+    /// up in the document's [`PdfResources`], or in the scope of the form that paints it.
+    ///
+    /// The `layers` of a form's resources are not used: layers belong to the document.
+    #[serde(default)]
+    pub resources: Option<PdfResources>,
+    /// `/Group`: treats the form as a transparency group (ISO 32000-1, 11.6.6). A group with
+    /// more entries than its type (`/I`, `/K`, `/CS`) is in `extra` instead.
     pub group: Option<GroupXObject>,
     /// `/Ref`: marks the form as a stand-in for a page of another PDF file
     /// (ISO 32000-1, 8.10.4).
@@ -443,88 +433,18 @@ pub struct FormXObject {
     /// `/Name`: the name the form is listed under in the resources. Obsolete since PDF 1.1
     /// (ISO 32000-1, 8.10.2), written as a string.
     pub name: Option<String>,
+    /// What the model has no field for, kept as it was read and written back: entries of the
+    /// form's dictionary (`/OC`, `/Metadata`, `/PieceInfo`, `/Group` with attributes), and under
+    /// the key `Resources` the resource categories that have no typed map
+    /// (`/ColorSpace`, `/Pattern`, `/Properties`, `/ProcSet`) and the graphics states and
+    /// shadings that the typed maps of [`resources`](FormXObject::resources) cannot hold
+    /// without loss. An entry written here wins over the field or typed entry of the same name.
+    #[serde(default)]
+    pub extra: BTreeMap<String, DictItem>,
 }
 
-fn form_xobject_to_stream(f: &FormXObject, doc: &mut lopdf::Document) -> lopdf::Stream {
-    use lopdf::Object::{String as LoString, *};
-
-    let mut dict = lopdf::Dictionary::from_iter(vec![
-        ("Type", Name("XObject".into())),
-        ("Subtype", Name("Form".into())),
-        ("FormType", Name(f.form_type.get_id().into())),
-    ]);
-
-    if let Some(matrix) = f.matrix.as_ref() {
-        dict.set(
-            "Matrix",
-            Array(matrix.as_array().into_iter().map(Real).collect()),
-        );
-    }
-
-    if let Some(res) = f.resources.as_ref() {
-        // Resources may contain streams (patterns, shadings, nested XObjects), which must be
-        // written as indirect objects.
-        let res_dict = lopdf::Dictionary::from_iter(
-            res.iter()
-                .map(|(k, v)| (k.clone(), v.to_lopdf_with_indirect_streams(doc))),
-        );
-        dict.set("Resources", res_dict);
-    }
-
-    if let Some(g) = f.group.as_ref() {
-        let group_dict = lopdf::Dictionary::from_iter(vec![
-            ("Type", Name("Group".into())),
-            ("S", Name(g.group_type.get_id().into())),
-        ]);
-
-        dict.set("Group", Dictionary(group_dict));
-    }
-
-    if let Some(r) = f.ref_dict.as_ref() {
-        dict.set("Ref", build_dict(r));
-    }
-
-    if let Some(r) = f.metadata.as_ref() {
-        dict.set("Metadata", doc.add_object(build_dict(r)));
-    }
-
-    if let Some(r) = f.piece_info.as_ref() {
-        dict.set("PieceInfo", doc.add_object(build_dict(r)));
-    }
-
-    if let Some(r) = f.last_modified.as_ref() {
-        dict.set(
-            "LastModified",
-            LoString(
-                crate::utils::to_pdf_time_stamp_metadata(r).into_bytes(),
-                lopdf::StringFormat::Literal,
-            ),
-        );
-    }
-
-    if let Some(r) = f.opi.as_ref() {
-        dict.set("OPI", build_dict(r));
-    }
-
-    if let Some(r) = f.oc.as_ref() {
-        dict.set("OC", build_dict(r));
-    }
-
-    if let Some(r) = f.name.as_ref() {
-        dict.set(
-            "Name",
-            LoString(r.clone().into(), lopdf::StringFormat::Literal),
-        );
-    }
-
-    if let Some(sp) = &f.struct_parents {
-        dict.set("StructParents", Integer(*sp));
-    } else if let Some(sp) = &f.struct_parent {
-        dict.set("StructParent", Integer(*sp));
-    }
-
-    let stream = lopdf::Stream::new(dict, f.bytes.clone()).with_compression(true);
-    stream
+fn empty_bbox() -> Rect {
+    Rect::from_wh(Pt(0.0), Pt(0.0))
 }
 
 /// Converts a map of [`DictItem`]s to a [`lopdf::Dictionary`]. Nested streams stay inline.
@@ -541,9 +461,10 @@ pub enum FormType {
 }
 
 impl FormType {
-    fn get_id(&self) -> &'static str {
+    /// The number written as `/FormType`.
+    pub(crate) fn number(&self) -> i64 {
         match self {
-            FormType::Type1 => "Type1",
+            FormType::Type1 => 1,
         }
     }
 }

@@ -9,7 +9,9 @@
 //! 1.3, classic cross-reference table):
 //!
 //! - One resource dictionary with the fonts, XObjects, ExtGState dictionaries and shadings of the
-//!   document is shared by all pages.
+//!   document is shared by all pages. A form XObject ([`XObject::Form`]) is written as a form
+//!   stream of its own, with a `/Resources` dictionary built from its own fonts (subset to the
+//!   glyphs it uses), nested XObjects, graphics states and shadings.
 //! - Each [`PdfPage`] becomes a page object with its boxes, a content stream translated from its
 //!   [`Op`]s, and an `/Annots` array built from its [`Op::LinkAnnotation`]s.
 //! - Embedded fonts are written as composite (Type0) fonts with Identity-H encoding, a `/W`
@@ -52,6 +54,9 @@ use lopdf::{
     StringFormat::{Hexadecimal, Literal},
 };
 use serde_derive::{Deserialize, Serialize};
+
+mod form_xobject;
+use form_xobject::{inheriting_streams, write_xobjects, SaveScope};
 
 use crate::{
     color::IccProfile,
@@ -122,16 +127,43 @@ pub fn init_doc_and_resources(
     pdf: &PdfDocument,
     opts: &PdfSaveOptions,
 ) -> (lopdf::Document, lopdf::Dictionary) {
+    let mut warnings = Vec::new();
+    let streams = document_streams(pdf);
+    let (font_infos, _) = prepare_fonts_for_streams(
+        &pdf.resources.fonts.map,
+        &streams,
+        opts.subset_fonts,
+        &mut warnings,
+    );
+    write_document_xobjects(pdf, opts, &font_infos, &mut warnings)
+}
+
+/// The content streams that name the fonts of the document: the pages, and the forms that have
+/// no resources of their own.
+fn document_streams(pdf: &PdfDocument) -> Vec<&[Op]> {
+    let mut streams: Vec<&[Op]> = pdf.pages.iter().map(|page| page.ops.as_slice()).collect();
+    streams.extend(inheriting_streams(&pdf.resources));
+    streams
+}
+
+/// A new lopdf document and the `/XObject` dictionary with every XObject of `pdf` written to it.
+/// A form that has no resources of its own writes its text with `font_infos`.
+fn write_document_xobjects(
+    pdf: &PdfDocument,
+    opts: &PdfSaveOptions,
+    font_infos: &BTreeMap<FontId, RuntimeFontInfo>,
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> (lopdf::Document, lopdf::Dictionary) {
     let mut doc = lopdf::Document::with_version("1.3");
     doc.reference_table.cross_reference_type = lopdf::xref::XrefType::CrossReferenceTable;
 
-    let mut global_xobject_dict = LoDictionary::new();
-    for (k, v) in pdf.resources.xobjects.map.iter() {
-        global_xobject_dict.set(
-            k.0.clone(),
-            crate::xobject::add_xobject_to_document(v, &mut doc, opts.image_optimization.as_ref()),
-        );
-    }
+    let scope = SaveScope {
+        font_infos,
+        xobjects: &pdf.resources.xobjects.map,
+        depth: 0,
+    };
+    let global_xobject_dict =
+        write_xobjects(&mut doc, &pdf.resources.xobjects.map, &scope, opts, warnings);
 
     (doc, global_xobject_dict)
 }
@@ -163,7 +195,16 @@ pub fn to_lopdf_doc(
     opts: &PdfSaveOptions,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> lopdf::Document {
-    let (mut doc, global_xobject_dict) = init_doc_and_resources(pdf, opts);
+    // The fonts are prepared first: a form without resources of its own is written with them.
+    let streams = document_streams(pdf);
+    let (font_infos, subset_fonts) = prepare_fonts_for_streams(
+        &pdf.resources.fonts.map,
+        &streams,
+        opts.subset_fonts,
+        warnings,
+    );
+    let (mut doc, global_xobject_dict) =
+        write_document_xobjects(pdf, opts, &font_infos, warnings);
     let pages_id = doc.new_object_id();
     let mut catalog = LoDictionary::from_iter(vec![
         ("Type", "Catalog".into()),
@@ -266,12 +307,10 @@ pub fn to_lopdf_doc(
     };
 
     // Embedded fonts (subset if enabled) first, then the standard fonts that the pages use.
-    let (font_infos, subset_fonts) = prepare_fonts_for_serialization(&pdf.resources, &pdf.pages, opts.subset_fonts, warnings);
-    let page_streams: Vec<&[Op]> = pdf.pages.iter().map(|page| page.ops.as_slice()).collect();
     let global_font_dict = write_font_dict(
         &mut doc,
         &subset_fonts,
-        used_builtin_fonts(&page_streams),
+        used_builtin_fonts(&streams),
         warnings,
     );
     let global_font_dict_id = doc.add_object(global_font_dict);

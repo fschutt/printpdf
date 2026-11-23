@@ -331,8 +331,8 @@ fn flate_raw_bitmap_image_roundtrips() {
 }
 
 /// Form XObjects used to be dropped with "unknown xobject subtype: Form",
-/// deleting all embedded vector content on re-save. They must be preserved
-/// verbatim across the round trip.
+/// deleting all embedded vector content on re-save. They must survive the
+/// round trip, as a form with the operators of its content stream.
 #[test]
 fn form_xobject_is_preserved_across_roundtrip() {
     let bytes = build_pdf(true, Some(b"q /Fm0 Do Q".to_vec()), |doc, page| {
@@ -362,29 +362,36 @@ fn form_xobject_is_preserved_across_roundtrip() {
         );
     }
     assert_eq!(doc.resources.xobjects.map.len(), 1);
-    let preserved = match doc.resources.xobjects.map.values().next().unwrap() {
-        XObject::External(ext) => ext,
-        other => panic!("expected preserved external xobject, got {other:?}"),
+    let form = match doc.resources.xobjects.map.values().next().unwrap() {
+        XObject::Form(form) => form,
+        other => panic!("expected a form xobject, got {other:?}"),
     };
-    assert_eq!(preserved.stream.content, b"0 0 1 rg 10 10 50 50 re f".to_vec());
+    assert_eq!(form.bbox, Rect::from_xywh(Pt(0.0), Pt(0.0), Pt(100.0), Pt(100.0)));
+    assert_eq!(form.resources, None, "no /Resources: the form uses the page's");
+    assert!(
+        matches!(form.ops.first(), Some(Op::SetFillColor { .. })),
+        "the content stream became ops: {:?}",
+        form.ops
+    );
+    assert!(form.ops.len() >= 2, "the fill is there: {:?}", form.ops);
 
     // Round trip: re-save and re-parse; the form must still exist and keep
-    // its content stream.
+    // its content.
     let bytes2 = doc.save(&PdfSaveOptions::default(), &mut Vec::new());
     let (doc2, _) = parse_ok(&bytes2);
     assert_eq!(doc2.resources.xobjects.map.len(), 1, "form lost on round trip");
     match doc2.resources.xobjects.map.values().next().unwrap() {
-        XObject::External(ext) => {
-            let content = ext.stream.decompressed_content();
-            assert_eq!(content, b"0 0 1 rg 10 10 50 50 re f".to_vec());
+        XObject::Form(again) => {
+            assert_eq!(again.bbox, form.bbox);
+            assert_eq!(again.ops, form.ops);
         }
-        other => panic!("expected preserved form after roundtrip, got {other:?}"),
+        other => panic!("expected a form after roundtrip, got {other:?}"),
     }
 }
 
 /// A Form XObject whose dict references other objects (its /Resources) must
-/// have those references *inlined* when preserved — a verbatim object id
-/// would dangle in the re-saved document.
+/// have those references resolved into the form's own scope: a verbatim
+/// object id would dangle in the re-saved document.
 #[test]
 fn form_xobject_resource_references_are_inlined() {
     let bytes = build_pdf(true, Some(b"q /Fm0 Do Q".to_vec()), |doc, page| {
@@ -411,22 +418,35 @@ fn form_xobject_resource_references_are_inlined() {
     });
 
     let (doc, _) = parse_ok(&bytes);
-    let ext = match doc.resources.xobjects.map.values().next().unwrap() {
-        XObject::External(ext) => ext,
-        other => panic!("expected external, got {other:?}"),
+    let form = match doc.resources.xobjects.map.values().next().unwrap() {
+        XObject::Form(form) => form,
+        other => panic!("expected a form, got {other:?}"),
     };
-    // Resources must be an inlined dict (not a Ref).
-    match ext.stream.dict.get("Resources") {
-        Some(printpdf::DictItem::Dict { map }) => {
-            match map.get("ExtGState") {
-                Some(printpdf::DictItem::Dict { map: gs_map }) => match gs_map.get("G0") {
-                    Some(printpdf::DictItem::Dict { .. }) => {}
-                    other => panic!("nested ref not inlined: {other:?}"),
-                },
-                other => panic!("ExtGState not inlined: {other:?}"),
-            }
+    // The graphics state is in the scope of the form, not a reference to an object of the source file.
+    let resources = form.resources.as_ref().expect("the form has resources of its own");
+    let gs = resources
+        .extgstates
+        .map
+        .get(&ExtendedGraphicsStateId("G0".to_string()))
+        .expect("G0 is in the form's own scope");
+    assert_eq!(gs.current_stroke_alpha(), 0.5);
+    assert!(
+        doc.resources.extgstates.map.is_empty(),
+        "the page's resources do not have the form's names"
+    );
+
+    // And it is still there after a save: the saved form has the dictionary, no dangling reference.
+    let bytes2 = doc.save(&PdfSaveOptions::default(), &mut Vec::new());
+    let (doc2, _) = parse_ok(&bytes2);
+    match doc2.resources.xobjects.map.values().next().unwrap() {
+        XObject::Form(again) => {
+            let again = again.resources.as_ref().expect("resources after the round trip");
+            assert!(again
+                .extgstates
+                .map
+                .contains_key(&ExtendedGraphicsStateId("G0".to_string())));
         }
-        other => panic!("form /Resources not inlined: {other:?}"),
+        other => panic!("expected a form after roundtrip, got {other:?}"),
     }
 }
 

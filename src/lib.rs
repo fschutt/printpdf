@@ -312,6 +312,8 @@ use utils::*;
 pub mod serialize;
 /// Op clean-up the serializer runs with `PdfSaveOptions::optimize`
 mod text_merge;
+/// Limits on how deeply forms nest
+mod form_walk;
 pub(crate) mod encoding;
 pub use serialize::*;
 pub mod forms;
