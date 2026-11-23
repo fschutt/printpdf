@@ -13,7 +13,7 @@ categories = ["command-line-utilities"]
 
 [dependencies]
 # Path for development in this repo; `cargo publish` uses the version.
-printpdf = { version = "0.12.14", path = "..", default-features = false, features = ["html", "images", "png", "jpeg"] }
+printpdf = { version = "0.13.0", path = "..", default-features = false, features = ["html", "images", "png", "jpeg"] }
 clap = { version = "4", features = ["derive"] }
 # preserve_order keeps "$schema" first and the keys of the document in the order
 # printpdf writes them, so `ppdf json` output diffs cleanly.

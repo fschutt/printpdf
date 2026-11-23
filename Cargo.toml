@@ -1,6 +1,6 @@
 [package]
 name = "printpdf"
-version = "0.12.14"
+version = "0.13.0"
 authors = [
   "Felix Schütt <felix.schuett@maps4print.com>",
   "Julien Schminke <julien.schminke@web.de",
