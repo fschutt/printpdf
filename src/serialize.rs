@@ -205,6 +205,10 @@ pub fn to_lopdf_doc(
         opts.subset_fonts,
         warnings,
     );
+    #[cfg(feature = "text_layout")]
+    for (font_id, font_info) in &font_infos {
+        warnings.extend(crate::variable_font::unresolved_variation_warning(font_id, &font_info.parsed_font));
+    }
     let (mut doc, global_xobject_dict) =
         write_document_xobjects(pdf, opts, &font_infos, warnings);
     let pages_id = doc.new_object_id();

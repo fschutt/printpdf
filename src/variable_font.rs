@@ -31,7 +31,7 @@ use allsorts::{
 };
 use serde_derive::{Deserialize, Serialize};
 
-use crate::{FontId, ParsedFont, PdfDocument};
+use crate::{FontId, ParsedFont, PdfDocument, PdfWarnMsg};
 
 /// Four-byte tag of a variation axis, such as `wght` or `opsz`.
 ///
@@ -525,6 +525,29 @@ fn cff2_to_cff1(bytes: &[u8]) -> Result<Vec<u8>, VariableFontError> {
         .table_tags()
         .ok_or_else(|| conversion_error("the list of tables of the font is not available"))?;
     whole_font(&with_cff, &tags).map_err(conversion_error)
+}
+
+/// The warning that `save` adds for a font that is embedded with its variation tables.
+///
+/// A PDF has no variable fonts, so such a font is embedded at its default instance. `None` for a
+/// font without an `fvar` table.
+pub(crate) fn unresolved_variation_warning(font_id: &FontId, font: &ParsedFont) -> Option<PdfWarnMsg> {
+    let bytes = font.source_bytes()?;
+    let font_file = ReadScope::new(bytes.as_slice()).read::<FontData<'_>>().ok()?;
+    let provider = font_file.table_provider(font.original_index).ok()?;
+    if !provider.has_table(tag::FVAR) {
+        return None;
+    }
+    let name = font.font_name.as_deref().unwrap_or(&font_id.0);
+    Some(PdfWarnMsg::warning(
+        0,
+        0,
+        format!(
+            "font {name} is a variable font (it has an fvar table) and is embedded at its default \
+             instance, because a PDF has no variable fonts; PdfDocument::add_variable_font embeds \
+             an instance at chosen axis values"
+        ),
+    ))
 }
 
 impl PdfDocument {

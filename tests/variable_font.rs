@@ -21,8 +21,9 @@ use allsorts::{binary::read::ReadScope, font_data::FontData, tables::FontTablePr
 use lopdf::{Document, Object};
 use printpdf::{
     font_variation_axes, instantiate_variable_font_bytes, FontId, FontVariationSettings,
-    FontVariationTag, Mm, Op, PdfDocument, PdfFontHandle, PdfPage, PdfParseErrorSeverity,
-    PdfParseOptions, PdfSaveOptions, PdfWarnMsg, Point, Pt, TextItem, VariableFontError,
+    FontVariationTag, Mm, Op, ParsedFont, PdfDocument, PdfFontHandle, PdfPage,
+    PdfParseErrorSeverity, PdfParseOptions, PdfSaveOptions, PdfWarnMsg, Point, Pt, TextItem,
+    VariableFontError,
 };
 
 const RED_HAT_MONO: &[u8] = include_bytes!("assets/variable-fonts/RedHatMono-VariableFont_wght.ttf");
@@ -571,5 +572,53 @@ fn a_cff2_instance_is_cff1_and_embeds() {
         let text = extracted_text(&pdf);
         assert_eq!(text.matches(SAMPLE).count(), 2, "both lines extract: {text:?}");
         assert_poppler_accepts(&pdf, "cff2", 2);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The warning for a variable font that was not baked
+// ---------------------------------------------------------------------------
+
+/// The messages of `save` about a variable font that is embedded at its default instance.
+fn unresolved_variable_font_warnings(warnings: &[PdfWarnMsg]) -> Vec<&PdfWarnMsg> {
+    warnings
+        .iter()
+        .filter(|w| w.msg.contains("add_variable_font"))
+        .collect()
+}
+
+#[test]
+fn add_font_with_a_variable_font_warns_on_save() {
+    for (bytes, outlines) in [(RED_HAT_MONO, "glyf and gvar"), (CANTARELL, "CFF2")] {
+        let font = ParsedFont::from_bytes(bytes, 0, &mut Vec::new()).expect("the font parses");
+        let mut doc = PdfDocument::new("unresolved");
+        let id = doc.add_font(&font);
+        doc.pages.push(one_page(&[(&id, SAMPLE)]));
+        for subset in [true, false] {
+            let (pdf, warnings) = save(&doc, subset);
+            let found = unresolved_variable_font_warnings(&warnings);
+            assert_eq!(found.len(), 1, "{outlines}, subset: {subset}: {warnings:#?}");
+            assert_eq!(found[0].severity, PdfParseErrorSeverity::Warning);
+            assert!(found[0].msg.contains("default instance"), "{}", found[0].msg);
+            // It is a warning and not a refusal: the font is still written.
+            assert_eq!(embedded_programs(&pdf).len(), 1, "{outlines}, subset: {subset}");
+        }
+    }
+}
+
+#[test]
+fn a_baked_instance_a_static_font_and_an_unused_font_do_not_warn() {
+    let parse = |bytes: &[u8]| ParsedFont::from_bytes(bytes, 0, &mut Vec::new()).expect("parses");
+    let mut doc = PdfDocument::new("quiet");
+    let glyf = doc.add_variable_font(RED_HAT_MONO, 0, &wght(500.0)).unwrap();
+    let cff2 = doc.add_variable_font(CANTARELL, 0, &wght(500.0)).unwrap();
+    let static_font = doc.add_font(&parse(ROBOTO));
+    // A variable font that no text uses is not embedded, so there is nothing to warn about.
+    let _unused = doc.add_font(&parse(RED_HAT_MONO));
+    doc.pages.push(one_page(&[(&glyf, SAMPLE), (&cff2, SAMPLE), (&static_font, SAMPLE)]));
+    for subset in [true, false] {
+        let (_, warnings) = save(&doc, subset);
+        let found = unresolved_variable_font_warnings(&warnings);
+        assert!(found.is_empty(), "subset: {subset}: {found:#?}");
     }
 }
