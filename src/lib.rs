@@ -259,6 +259,8 @@ pub mod wasm;
 pub use wasm::*;
 pub mod conformance;
 pub use conformance::*;
+pub mod preflight;
+pub use preflight::{preflight_bytes, PreflightProfile, PreflightReport};
 pub mod matrix;
 pub use matrix::*;
 pub mod units;
