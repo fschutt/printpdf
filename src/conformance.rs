@@ -310,11 +310,13 @@ impl PdfConformance {
         }
     }
 
-    /// Whether the standard permits layers (optional content groups): false for PDF/X-1a and
-    /// PDF/X-3, true for the other standards, and the `allows_pdf_layers` field for `Custom`.
+    /// Whether the standard permits layers (optional content groups): false for PDF/A-1, PDF/X-1a
+    /// and PDF/X-3, true for the other standards, and the `allows_pdf_layers` field for `Custom`.
     /// The crate does not check document content against this.
     pub fn is_layering_allowed(&self) -> bool {
         match self {
+            PdfConformance::A1B_2005_PDF_1_4 => false,
+            PdfConformance::A1A_2005_PDF_1_4 => false,
             PdfConformance::X1A_2001_PDF_1_3 => false,
             PdfConformance::X3_2002_PDF_1_3 => false,
             PdfConformance::X1A_2003_PDF_1_4 => false,

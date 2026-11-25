@@ -1363,7 +1363,7 @@ fn color_to_svg(color: &Color) -> String {
 /// `text` for XML character data. The five markup characters become entities, and the characters
 /// XML 1.0 does not allow (most control characters) become U+FFFD, so that a string from a PDF
 /// cannot end the text it is written into or make the SVG unreadable.
-fn escape_xml_text(text: &str) -> String {
+pub(crate) fn escape_xml_text(text: &str) -> String {
     escape_xml(text, false)
 }
 

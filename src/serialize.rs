@@ -252,7 +252,7 @@ pub fn to_lopdf_doc(
             ("OutputConditionIdentifier", icc_profile_short),
             ("RegistryName", registry),
             ("Info", LoString(icc_profile_str.into(), Literal)),
-            ("DestinationOutputProfile", Reference(icc_profile_id)),
+            ("DestOutputProfile", Reference(icc_profile_id)),
         ]);
         catalog.set("OutputIntents", Array(vec![Dictionary(output_intents)]));
     }

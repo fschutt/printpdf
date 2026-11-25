@@ -55,6 +55,9 @@ All notable changes to printpdf are documented in this file. The format follows
 
 ### Fixed
 
+- The output intent that PDF/X-3 and the other standards with an ICC profile write names the profile with `/DestOutputProfile`. It used `/DestinationOutputProfile`, which readers do not look for.
+- The XMP metadata escapes the title, creator, subject, keywords, identifier and producer. A title with `&` or `<` made the XMP packet invalid XML.
+- `PdfConformance::is_layering_allowed` is `false` for PDF/A-1b and PDF/A-1a, which forbid optional content.
 - Saving a document no longer panics when every bookmark points at a page that does not exist, for example after the pages were removed from a parsed document. The outline `/Count` now counts only the bookmarks that are written.
 - Reading a CMap (`/ToUnicode` or a Type0 `/Encoding`) no longer panics on a multi-byte character inside a hex token such as `<000é000>`; the token is an error and only costs that font its map.
 - A `begincidrange` whose destination runs past `u32::MAX` maps the affected codes to CID 0 (notdef) instead of overflowing.

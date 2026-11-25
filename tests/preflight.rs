@@ -149,39 +149,35 @@ fn writer_warnings_become_findings() {
     );
 }
 
-// The two tests below record what the preflight finds in the files that printpdf writes today.
-// Both are problems of the writer. When the writer is fixed, change the assertions.
+// Two problems of the writer that the preflight found in files printpdf wrote. Both are fixed;
+// these tests keep them fixed.
 
 #[test]
-fn x3_2002_output_intent_names_its_profile_with_the_wrong_key() {
-    // The writer stores the ICC profile under /DestinationOutputProfile. The key of an output
-    // intent is /DestOutputProfile, so a reader does not find the profile.
+fn x3_2002_output_intent_names_its_profile_with_the_right_key() {
+    // The key of an output intent's profile is /DestOutputProfile.
     let report = document(PdfConformance::X3_2002_PDF_1_3).preflight(PreflightProfile::PdfX3_2002);
-    let finding = report
-        .findings
-        .iter()
-        .find(|f| f.rule == "output-intent-profile-missing")
-        .expect("the output intent has no /DestOutputProfile");
-    assert_eq!(finding.severity, Severity::Warning);
+    assert!(
+        report
+            .findings
+            .iter()
+            .all(|f| f.rule != "output-intent-profile-missing"),
+        "{:#?}",
+        report.findings
+    );
 }
 
 #[test]
-fn xmp_metadata_is_not_escaped() {
-    // The title and the other text fields are written into the XMP packet as they are, so a
-    // title with an ampersand makes the packet invalid XML.
+fn xmp_metadata_text_is_escaped() {
+    // A title with an ampersand and an angle bracket must not make the XMP packet invalid XML.
     let mut doc = document(PdfConformance::X3_2002_PDF_1_3);
-    assert!(doc
-        .preflight(PreflightProfile::PdfX3_2002)
-        .findings
-        .iter()
-        .all(|f| f.rule != "xmp-not-well-formed"));
-    doc.metadata.info.document_title = "Fish & Chips".to_string();
+    doc.metadata.info.document_title = "Fish & Chips <b>".to_string();
+    doc.metadata.info.creator = "A \"B\" & C".to_string();
     let report = doc.preflight(PreflightProfile::PdfX3_2002);
     assert!(
         report
             .findings
             .iter()
-            .any(|f| f.rule == "xmp-not-well-formed"),
+            .all(|f| f.rule != "xmp-not-well-formed"),
         "{:#?}",
         report.findings
     );

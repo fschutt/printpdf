@@ -1257,23 +1257,24 @@ impl PdfMetadata {
             None => "".to_string(),
         };
 
+        use crate::render::escape_xml_text as esc;
         format!(
             include_str!("./res/catalog_xmp_metadata.txt"),
             create = create_date,
             modify = modification_date,
             mdate = metadata_date,
-            title = self.info.document_title,
-            id = document_id,
+            title = esc(&self.info.document_title),
+            id = esc(&document_id),
             instance = instance_id,
-            class = rendition_class,
-            version = document_version,
-            pdfx = pdf_x_version,
+            class = esc(&rendition_class),
+            version = esc(&document_version),
+            pdfx = esc(&pdf_x_version),
             trapping = trapping,
-            creator = self.info.creator,
-            subject = self.info.subject,
-            keywords = self.info.keywords.join(","),
-            identifier = self.info.identifier,
-            producer = self.info.producer
+            creator = esc(&self.info.creator),
+            subject = esc(&self.info.subject),
+            keywords = esc(&self.info.keywords.join(",")),
+            identifier = esc(&self.info.identifier),
+            producer = esc(&self.info.producer)
         )
     }
 }
