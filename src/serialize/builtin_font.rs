@@ -296,7 +296,7 @@ fn subset_tag(font: &BuiltinFont, used: &BTreeMap<u8, (char, Option<u16>)>) -> S
         .collect()
 }
 
-fn be16(bytes: &[u8], at: usize) -> Option<u16> {
+pub(super) fn be16(bytes: &[u8], at: usize) -> Option<u16> {
     Some(u16::from_be_bytes([*bytes.get(at)?, *bytes.get(at.checked_add(1)?)?]))
 }
 
@@ -310,7 +310,7 @@ fn be32(bytes: &[u8], at: usize) -> Option<u32> {
 }
 
 /// The tables of a TrueType font file, by tag, in the order of the table directory.
-fn read_tables(sfnt: &[u8]) -> Option<Vec<([u8; 4], Vec<u8>)>> {
+pub(super) fn read_tables(sfnt: &[u8]) -> Option<Vec<([u8; 4], Vec<u8>)>> {
     let count = usize::from(be16(sfnt, 4)?);
     let mut tables = Vec::new();
     for i in 0..count {

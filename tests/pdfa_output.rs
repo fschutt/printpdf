@@ -780,3 +780,122 @@ fn qpdf_accepts_the_files() {
         );
     }
 }
+
+/// veraPDF is the reference validator for PDF/A. The test runs it when `verapdf` is on the PATH
+/// (`brew install verapdf`) and skips otherwise. The set `PRINTPDF_VERAPDF=1` makes a missing
+/// validator a failure, for CI jobs that install it.
+fn verapdf_report(flavour: &str, bytes: &[u8], name: &str) -> Option<(bool, String)> {
+    let path = std::env::temp_dir().join(format!("printpdf-verapdf-{}-{name}.pdf", std::process::id()));
+    std::fs::write(&path, bytes).expect("write the temporary PDF");
+    let output = std::process::Command::new("verapdf")
+        .args(["--flavour", flavour, "--format", "text"])
+        .arg(&path)
+        .output();
+    // PRINTPDF_VERAPDF_KEEP=<dir> keeps a copy of each file, to run veraPDF by hand.
+    if let Some(dir) = std::env::var_os("PRINTPDF_VERAPDF_KEEP") {
+        let _ = std::fs::copy(&path, std::path::Path::new(&dir).join(format!("{name}.pdf")));
+    }
+    let _ = std::fs::remove_file(&path);
+    match output {
+        Ok(o) => Some((
+            o.status.success(),
+            format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr)),
+        )),
+        Err(_) => {
+            assert!(
+                std::env::var_os("PRINTPDF_VERAPDF").is_none(),
+                "PRINTPDF_VERAPDF is set but verapdf cannot be run"
+            );
+            eprintln!("verapdf is not installed; skipping");
+            None
+        }
+    }
+}
+
+#[test]
+fn verapdf_accepts_a2b() {
+    let (bytes, _) = save(&document(PdfConformance::A2B_2011_PDF_1_7, true));
+    if let Some((ok, text)) = verapdf_report("2b", &bytes, "a2b") {
+        assert!(ok, "veraPDF rejects the PDF/A-2b file:\n{text}");
+    }
+}
+
+#[test]
+fn verapdf_accepts_a1b() {
+    let (bytes, _) = save(&document(PdfConformance::A1B_2005_PDF_1_4, true));
+    if let Some((ok, text)) = verapdf_report("1b", &bytes, "a1b") {
+        assert!(ok, "veraPDF rejects the PDF/A-1b file:\n{text}");
+    }
+}
+
+fn assert_verapdf(flavour: &str, doc: &PdfDocument, opts: &PdfSaveOptions, name: &str) {
+    let mut warnings = Vec::new();
+    let bytes = doc.save(opts, &mut warnings);
+    if let Some((ok, text)) = verapdf_report(flavour, &bytes, name) {
+        assert!(ok, "veraPDF rejects {name} ({flavour}):\n{text}");
+    }
+}
+
+/// Only built-in fonts, no embedded TrueType font.
+fn builtin_only(conformance: PdfConformance) -> PdfDocument {
+    let mut doc = PdfDocument::new("Built-in only");
+    doc.metadata.info.conformance = conformance;
+    let mut ops = text_at(PdfFontHandle::Builtin(BuiltinFont::Helvetica), 280.0, "Plain Helvetica");
+    ops.extend(text_at(PdfFontHandle::Builtin(BuiltinFont::TimesBoldItalic), 260.0, "Times caf\u{E9}"));
+    ops.extend(rect(50.0, Color::Greyscale(Greyscale::new(0.3, None))));
+    doc.pages.push(PdfPage::new(Mm(210.0), Mm(297.0), ops));
+    doc
+}
+
+#[test]
+fn verapdf_accepts_builtin_fonts_only() {
+    for (flavour, c) in [("1b", PdfConformance::A1B_2005_PDF_1_4), ("2b", PdfConformance::A2B_2011_PDF_1_7)] {
+        assert_verapdf(flavour, &builtin_only(c), &PdfSaveOptions::default(), &format!("builtin-{flavour}"));
+    }
+}
+
+#[test]
+fn verapdf_accepts_subset_and_complete_fonts() {
+    for (flavour, c) in [("1b", PdfConformance::A1B_2005_PDF_1_4), ("2b", PdfConformance::A2B_2011_PDF_1_7)] {
+        for subset in [true, false] {
+            let opts = PdfSaveOptions { subset_fonts: subset, ..Default::default() };
+            assert_verapdf(flavour, &document(c.clone(), true), &opts, &format!("fonts-{flavour}-{subset}"));
+        }
+        let opts = PdfSaveOptions { optimize: false, ..Default::default() };
+        assert_verapdf(flavour, &document(c.clone(), true), &opts, &format!("plain-{flavour}"));
+    }
+}
+
+#[test]
+fn verapdf_accepts_a1b_without_rgb() {
+    let doc = document(PdfConformance::A1B_2005_PDF_1_4, false);
+    assert_verapdf("1b", &doc, &PdfSaveOptions::default(), "a1b-gray");
+}
+
+#[test]
+fn verapdf_accepts_a2b_with_transparency_and_an_alpha_image() {
+    let mut doc = document(PdfConformance::A2B_2011_PDF_1_7, true);
+    let gs = doc.add_graphics_state(ExtendedGraphicsState::default().with_current_fill_alpha(0.5));
+    let rgba = RawImage {
+        pixels: RawImageData::U8(vec![255, 0, 0, 128, 0, 255, 0, 255, 0, 0, 255, 255, 9, 9, 9, 0]),
+        width: 2,
+        height: 2,
+        data_format: RawImageFormat::RGBA8,
+        tag: Vec::new(),
+    };
+    let id = doc.add_image(&rgba);
+    if let Some(page) = doc.pages.first_mut() {
+        page.ops.insert(0, Op::LoadGraphicsState { gs });
+        page.ops.push(Op::UseXobject { id, transform: XObjectTransform::default() });
+    }
+    assert_verapdf("2b", &doc, &PdfSaveOptions::default(), "a2b-alpha");
+}
+
+#[test]
+fn verapdf_accepts_a_cmyk_only_a1b() {
+    let mut doc = document(PdfConformance::A1B_2005_PDF_1_4, false);
+    if let Some(page) = doc.pages.first_mut() {
+        page.ops.extend(rect(300.0, Color::Cmyk(Cmyk::new(0.1, 0.2, 0.3, 0.4, None))));
+    }
+    assert_verapdf("1b", &doc, &PdfSaveOptions::default(), "a1b-cmyk");
+}

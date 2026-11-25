@@ -37,7 +37,8 @@ Experimental features:
   identification, an output intent with a colour profile, the built-in fonts embedded and the
   header version of the standard. Content that the standard forbids (transparency in PDF/A-1,
   layers, mixed RGB and CMYK) is written as it is and the save warns about it. The files pass
-  printpdf's own preflight; they have not been checked with veraPDF.
+  printpdf's own preflight, and the PDF/A-1b and PDF/A-2b test documents pass veraPDF 1.30. The
+  PDF/X files are not checked by veraPDF.
 - XHTML layouting for simple page layout (using `azul-layout` + `xmlparser`)
     - Good enough for basic page layouting, book rendering, reports and forms,
       with automatic page-breaking
@@ -300,9 +301,11 @@ written so that the preflight (`ppdf check`) finds no errors. printpdf
 does not convert colours or remove content that the standard forbids;
 the save warns about it. It writes no tagged structure, so the `a`
 levels of PDF/A claim level b. Other standards (PDF/X-4, PDF/UA, ...)
-get the identification and the output intent only. The preflight checks
-a subset of the rules and is not a certification; a file may still fail
-veraPDF or a printer's preflight.
+get the identification and the output intent only. The PDF/A-1b and
+PDF/A-2b test documents pass veraPDF 1.30; the PDF/X output is checked
+by the preflight only. The preflight checks a subset of the rules and is
+not a certification, and a file with content that the standard forbids
+still fails veraPDF.
 
 The printpdf wiki is live at: https://github.com/fschutt/printpdf/wiki
 

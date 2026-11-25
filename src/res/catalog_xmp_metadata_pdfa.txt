@@ -33,7 +33,6 @@
          </dc:description>
          <pdf:Producer>{producer}</pdf:Producer>
          <pdf:Keywords>{keywords}</pdf:Keywords>
-         <pdf:Trapped>{trapping}</pdf:Trapped>
          <xmpMM:DocumentID>uuid:{id}</xmpMM:DocumentID>
          <xmpMM:InstanceID>uuid:{instance}</xmpMM:InstanceID>{rendition}
          <xmpMM:VersionID>{version}</xmpMM:VersionID>

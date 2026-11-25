@@ -20,8 +20,9 @@
 //!   (`pdfaid:part` and `pdfaid:conformance`) and the title, author, subject, keywords, creator,
 //!   producer and dates of the info dictionary, written as the same values; an output intent
 //!   (`/S /GTS_PDFA1`) with an embedded colour profile; the header version 1.4 (PDF/A-1) or 1.7
-//!   (PDF/A-2 and 3); the trailer `/ID`; the binary comment after the header. No
-//!   `/GTS_PDFXVersion`.
+//!   (PDF/A-2 and 3); the trailer `/ID`; the binary comment after the header; the XMP stream
+//!   without a filter; for PDF/A-1 a `/CIDSet` in the descriptor of every subset TrueType CID
+//!   font. No `/GTS_PDFXVersion`, and no `pdf:Trapped` in the XMP.
 //! * The 14 built-in fonts are embedded for every variant that requires embedded fonts (all
 //!   PDF/A and PDF/X variants, see [`must_embed_fonts`](PdfConformance::must_embed_fonts)), as
 //!   TrueType subsets with the same names, the same encoding (`WinAnsiEncoding`) and the same
@@ -59,10 +60,30 @@
 //! Printpdf never encrypts a file, so the PDF/A ban on encryption holds by construction. Fonts
 //! that you embed yourself are written as they are (subset or complete).
 //!
+//! # Validation
+//!
+//! `tests/pdfa_output.rs` runs veraPDF 1.30 (`--flavour 1b` and `2b`) when it is installed, on
+//! documents with built-in fonts only, an embedded TrueType font (subset and complete, with and
+//! without compression of the streams), grey, RGB and CMYK-only colour, and, for PDF/A-2b,
+//! transparency and an image with an alpha channel. All of them pass. What this does not cover:
+//!
+//! * Link annotations in a CMYK-only PDF/A document lose their RGB `/C` colour (with a warning),
+//!   because PDF/A allows it only with an RGB output intent.
+//! * The PDF/X variants. veraPDF does not check them; only the preflight and `qpdf --check` did.
+//! * Documents that use `Symbol` or `ZapfDingbats` (not embedded), and the characters that the
+//!   bundled fonts lack (the save warns).
+//! * PDF/A-1 with an OpenType font that has CFF outlines: the `/CIDSet` is written for TrueType
+//!   (`CIDFontType2`) subsets only.
+//! * Content that the standard forbids: it is written as it is, and veraPDF will report it.
+//! * The levels `a` and `u`, which are written as `b`.
+//!
+//! PDF/A-1 is based on ICC version 2. For PDF/A-1 the output intent holds an sRGB profile of
+//! version 2.1 that printpdf builds from the sRGB colorants and transfer function; PDF/A-2 and 3
+//! use a version 4 profile.
+//!
 //! To see what a file is still missing, run the [preflight](crate::preflight)
 //! (`PdfDocument::preflight`, `preflight_bytes` or `ppdf check`). It checks a subset of the rules
-//! of PDF/A-1b, PDF/A-2b, PDF/X-1a:2001 and PDF/X-3:2002 and is not a certification. A file that
-//! passes it has not been checked by veraPDF or by a printer's preflight.
+//! of PDF/A-1b, PDF/A-2b, PDF/X-1a:2001 and PDF/X-3:2002 and is not a certification.
 //!
 //! The default is [`PdfConformance::Custom`] with the default [`CustomPdfConformance`]: no
 //! identifier, no XMP metadata and no output intent, which gives the smallest files.

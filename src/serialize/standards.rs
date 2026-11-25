@@ -27,8 +27,9 @@ use crate::{
     color::IccProfile, IccProfileType, PdfConformance, PdfDocument, PdfWarnMsg,
 };
 
-/// The sRGB profile of PDF/A files. A copy of `sRGB-v4.icc` of svg2pdf 0.13.0, licensed CC0 (see
-/// `sRGB-v4.icc.LICENSE.txt` next to it).
+/// The sRGB profile of PDF/A-2 and PDF/A-3 files (ICC version 4.2). A copy of `sRGB-v4.icc` of
+/// svg2pdf 0.13.0, licensed CC0 (see `sRGB-v4.icc.LICENSE.txt` next to it). PDF/A-1 needs a
+/// version 2 profile, which [`srgb_v2_profile`] builds.
 const SRGB_PROFILE: &[u8] = include_bytes!("../res/sRGB-v4.icc");
 /// The CMYK profile "Coated FOGRA39".
 const FOGRA39_PROFILE: &[u8] = include_bytes!("../res/CoatedFOGRA39.icc");
@@ -257,7 +258,7 @@ pub(super) fn apply(
         } else {
             None
         };
-        let intent = output_intent(doc, profile);
+        let intent = output_intent(doc, profile, conformance.pdfa_part());
         catalog.set("OutputIntents", Array(vec![Dictionary(intent)]));
     }
 
@@ -265,20 +266,137 @@ pub(super) fn apply(
         let xmp = Stream(LoStream::new(
             LoDictionary::from_iter(vec![("Type", "Metadata".into()), ("Subtype", "XML".into())]),
             pdf.metadata.xmp_metadata_string().as_bytes().to_vec(),
-        ));
+        )
+        // PDF/A: the metadata stream has no filter.
+        .with_compression(false));
         let metadata_id = doc.add_object(xmp);
         catalog.set("Metadata", Reference(metadata_id));
+    }
+
+    if conformance.pdfa_part() == Some(1) {
+        add_cid_sets(doc);
+    }
+    if pdfa_profile == Some(PdfaProfile::Fogra39) && drop_rgb_annotation_colors(doc) {
+        warnings.push(PdfWarnMsg::warning(
+            0,
+            0,
+            format!(
+                "{}: the output intent is a CMYK profile, so the RGB colour (/C) of link \
+                 annotations is left out; PDF/A allows an annotation colour only with an RGB \
+                 output intent.",
+                conformance.get_identifier_string()
+            ),
+        ));
     }
 
     warn(pdf, conformance, &usage, pdfa_profile, warnings);
 }
 
+/// Adds a `/CIDSet` to the descriptor of every subset TrueType CID font. PDF/A-1 asks for it: a
+/// bitmap with a bit for each CID of the embedded font, and the CIDs are the glyph ids.
+fn add_cid_sets(doc: &mut Document) {
+    // The descriptors of CIDFontType2 fonts, which sit in the `/DescendantFonts` of Type0 fonts.
+    let mut descriptors = Vec::new();
+    for object in doc.objects.values() {
+        let Dictionary(font) = object else {
+            continue;
+        };
+        let Ok(Array(descendants)) = font.get(b"DescendantFonts") else {
+            continue;
+        };
+        for descendant in descendants {
+            let Dictionary(cid_font) = descendant else {
+                continue;
+            };
+            if matches!(cid_font.get(b"Subtype"), Ok(Name(n)) if n == b"CIDFontType2") {
+                if let Ok(Reference(id)) = cid_font.get(b"FontDescriptor") {
+                    descriptors.push(*id);
+                }
+            }
+        }
+    }
+    for id in descriptors {
+        let Some(Dictionary(descriptor)) = doc.objects.get(&id) else {
+            continue;
+        };
+        let subset = matches!(
+            descriptor.get(b"FontName"),
+            Ok(Name(n)) if n.get(6) == Some(&b'+')
+        );
+        if !subset || descriptor.has(b"CIDSet") {
+            continue;
+        }
+        let Ok(Reference(file)) = descriptor.get(b"FontFile2") else {
+            continue;
+        };
+        let glyphs = match doc.objects.get(file) {
+            Some(Stream(program)) => program
+                .decompressed_content()
+                .ok()
+                .and_then(|bytes| glyph_count(&bytes)),
+            _ => None,
+        };
+        let Some(glyphs) = glyphs else {
+            continue;
+        };
+        let mut bits = vec![0u8; glyphs.div_ceil(8)];
+        for cid in 0..glyphs {
+            if let Some(byte) = bits.get_mut(cid / 8) {
+                *byte |= 0x80 >> (cid % 8);
+            }
+        }
+        let set_id = doc.add_object(Stream(LoStream::new(LoDictionary::new(), bits)));
+        if let Some(Dictionary(descriptor)) = doc.objects.get_mut(&id) {
+            descriptor.set("CIDSet", Reference(set_id));
+        }
+    }
+}
+
+/// Removes the `/C` entry of annotations when it holds three numbers (an RGB colour). Returns
+/// whether it removed one.
+fn drop_rgb_annotation_colors(doc: &mut Document) -> bool {
+    let mut removed = false;
+    for object in doc.objects.values_mut() {
+        let Dictionary(page) = object else {
+            continue;
+        };
+        if !matches!(page.get(b"Type"), Ok(Name(n)) if n == b"Page") {
+            continue;
+        }
+        let Ok(Array(annotations)) = page.get_mut(b"Annots") else {
+            continue;
+        };
+        for annotation in annotations.iter_mut() {
+            let Dictionary(annotation) = annotation else {
+                continue;
+            };
+            if matches!(annotation.get(b"C"), Ok(Array(c)) if c.len() == 3) {
+                annotation.remove(b"C");
+                removed = true;
+            }
+        }
+    }
+    removed
+}
+
+/// The number of glyphs of a TrueType font file (`maxp`).
+fn glyph_count(font: &[u8]) -> Option<usize> {
+    let tables = super::builtin_font::read_tables(font)?;
+    let (_, maxp) = tables.iter().find(|(tag, _)| tag == b"maxp")?;
+    super::builtin_font::be16(maxp, 4).map(usize::from)
+}
+
 /// The output intent dictionary: `/GTS_PDFA1` with sRGB or FOGRA39 for PDF/A, `/GTS_PDFX` with
 /// FOGRA39 for the rest. The profile is a new object of `doc`.
-fn output_intent(doc: &mut Document, pdfa: Option<PdfaProfile>) -> LoDictionary {
+fn output_intent(doc: &mut Document, pdfa: Option<PdfaProfile>, part: Option<u8>) -> LoDictionary {
     let registry = LoString("http://www.color.org".into(), Literal);
     if pdfa == Some(PdfaProfile::Srgb) {
-        let profile = IccProfile::new(SRGB_PROFILE.to_vec(), IccProfileType::Rgb)
+        let (bytes, info) = if part == Some(1) {
+            (srgb_v2_profile(), "sRGB (ICC profile version 2)")
+        } else {
+            (SRGB_PROFILE.to_vec(), "sRGB (ICC profile version 4)")
+        };
+        let profile = IccProfile::new(bytes, IccProfileType::Rgb)
             .with_alternate_profile(false)
             .with_range(false);
         let profile_id = doc.add_object(Stream(icc_to_stream(&profile)));
@@ -288,7 +406,7 @@ fn output_intent(doc: &mut Document, pdfa: Option<PdfaProfile>) -> LoDictionary 
             ("OutputConditionIdentifier", LoString("sRGB".into(), Literal)),
             ("OutputCondition", LoString("sRGB".into(), Literal)),
             ("RegistryName", registry),
-            ("Info", LoString("sRGB (ICC profile version 4)".into(), Literal)),
+            ("Info", LoString(info.into(), Literal)),
             ("DestOutputProfile", Reference(profile_id)),
         ]);
     }
@@ -311,6 +429,120 @@ fn output_intent(doc: &mut Document, pdfa: Option<PdfaProfile>) -> LoDictionary 
         ("Info", LoString("Coated FOGRA39 (ISO 12647-2:2004)".into(), Literal)),
         ("DestOutputProfile", Reference(profile_id)),
     ])
+}
+
+/// An sRGB profile of ICC version 2.1 for PDF/A-1, which is based on ICC version 2: a matrix and
+/// tone curve profile with the D50-adapted sRGB colorants and the sRGB transfer function as a
+/// table of 1024 entries. It is written byte by byte here, so there is no file to copy.
+fn srgb_v2_profile() -> Vec<u8> {
+    fn s15(v: f64) -> [u8; 4] {
+        ((v * 65536.0).round() as i32).to_be_bytes()
+    }
+    fn xyz(x: f64, y: f64, z: f64) -> Vec<u8> {
+        let mut t = b"XYZ \0\0\0\0".to_vec();
+        for v in [x, y, z] {
+            t.extend_from_slice(&s15(v));
+        }
+        t
+    }
+    fn text_description(text: &str) -> Vec<u8> {
+        let mut t = b"desc\0\0\0\0".to_vec();
+        t.extend_from_slice(&((text.len() + 1) as u32).to_be_bytes());
+        t.extend_from_slice(text.as_bytes());
+        t.push(0);
+        t.extend_from_slice(&[0; 8]); // no Unicode description
+        t.extend_from_slice(&[0; 3]); // no ScriptCode description
+        t.extend_from_slice(&[0; 67]);
+        t
+    }
+    fn text(value: &str) -> Vec<u8> {
+        let mut t = b"text\0\0\0\0".to_vec();
+        t.extend_from_slice(value.as_bytes());
+        t.push(0);
+        t
+    }
+
+    // The sRGB transfer function, from encoded values to linear light.
+    let mut curve = b"curv\0\0\0\0".to_vec();
+    curve.extend_from_slice(&1024u32.to_be_bytes());
+    for i in 0..1024u32 {
+        let v = f64::from(i) / 1023.0;
+        let linear = if v <= 0.04045 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        };
+        curve.extend_from_slice(&((linear * 65535.0).round() as u16).to_be_bytes());
+    }
+
+    // (signature, data); the three curves share one table. Sorted by signature.
+    let tags: Vec<(&[u8; 4], Vec<u8>)> = vec![
+        (b"bTRC", curve.clone()),
+        (b"bXYZ", xyz(0.1430804, 0.0606169, 0.7141733)),
+        (b"cprt", text("No copyright, use freely")),
+        (b"desc", text_description("sRGB")),
+        (b"gTRC", curve.clone()),
+        (b"gXYZ", xyz(0.3850649, 0.7168786, 0.0971045)),
+        (b"rTRC", curve),
+        (b"rXYZ", xyz(0.4360747, 0.2225045, 0.0139322)),
+        (b"wtpt", xyz(0.9642, 1.0, 0.8249)),
+    ];
+
+    let table_len = 4 + 12 * tags.len();
+    let mut table = Vec::new();
+    let mut body: Vec<u8> = Vec::new();
+    table.extend_from_slice(&(tags.len() as u32).to_be_bytes());
+    // The curve is stored once and the three curve tags point at it.
+    let mut curve_at: Option<(usize, usize)> = None;
+    for (signature, data) in &tags {
+        let is_curve = signature.ends_with(b"TRC");
+        let (at, len) = match (is_curve, curve_at) {
+            (true, Some(known)) => known,
+            _ => {
+                let at = 128 + table_len + body.len();
+                body.extend_from_slice(data);
+                while body.len() & 3 != 0 {
+                    body.push(0);
+                }
+                if is_curve {
+                    curve_at = Some((at, data.len()));
+                }
+                (at, data.len())
+            }
+        };
+        table.extend_from_slice(*signature);
+        table.extend_from_slice(&(at as u32).to_be_bytes());
+        table.extend_from_slice(&(len as u32).to_be_bytes());
+    }
+
+    let total = 128 + table.len() + body.len();
+    let mut header = Vec::with_capacity(128);
+    header.extend_from_slice(&(total as u32).to_be_bytes());
+    header.extend_from_slice(&[0; 4]); // preferred CMM
+    header.extend_from_slice(&[2, 0x10, 0, 0]); // version 2.1.0
+    header.extend_from_slice(b"mntr");
+    header.extend_from_slice(b"RGB ");
+    header.extend_from_slice(b"XYZ ");
+    for part in [2000u16, 1, 1, 0, 0, 0] {
+        header.extend_from_slice(&part.to_be_bytes()); // 2000-01-01 00:00:00
+    }
+    header.extend_from_slice(b"acsp");
+    header.extend_from_slice(&[0; 4]); // platform
+    header.extend_from_slice(&[0; 4]); // flags
+    header.extend_from_slice(&[0; 4]); // device manufacturer
+    header.extend_from_slice(&[0; 4]); // device model
+    header.extend_from_slice(&[0; 8]); // device attributes
+    header.extend_from_slice(&[0; 4]); // rendering intent: perceptual
+    for v in [0.9642, 1.0, 0.8249] {
+        header.extend_from_slice(&s15(v)); // the D50 illuminant
+    }
+    header.extend_from_slice(&[0; 4]); // creator
+    header.resize(128, 0); // profile id (none) and reserved bytes
+
+    let mut out = header;
+    out.extend_from_slice(&table);
+    out.extend_from_slice(&body);
+    out
 }
 
 /// Warnings about what the file uses and the standard does not allow.
