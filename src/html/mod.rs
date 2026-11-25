@@ -1639,8 +1639,9 @@ mod memory_font_tests {
             family: Some("PrintpdfMemoryFontTest".to_string()),
             ..Default::default()
         };
+        // `bytes` is a `Vec<u8>` in rust-fontconfig 5.0 and an `Arc<[u8]>` from 5.1; `into` fits both.
         let font = rust_fontconfig::FcFont {
-            bytes,
+            bytes: bytes.into(),
             font_index: 0,
             id: "printpdf-memory-font-test".to_string(),
         };
