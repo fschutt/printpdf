@@ -15,13 +15,15 @@ use lopdf::{
 };
 
 use super::{
-    extgstate_dict, prepare_fonts_for_streams, shading_dict, translate_operations,
-    used_builtin_fonts, write_font_dict, PdfSaveOptions, RuntimeFontInfo,
+    extgstate_dict,
+    pattern::{pattern_color_space_dict, write_patterns},
+    prepare_fonts_for_streams, shading_dict, translate_operations, used_builtin_fonts,
+    write_font_dict, PdfSaveOptions, RuntimeFontInfo,
 };
 use crate::{
     form_walk::{inheriting_streams, MAX_FORM_DEPTH},
     xobject::{build_dict, DictItem, FormXObject},
-    FontId, Op, PdfWarnMsg, Rect, XObject, XObjectId,
+    FontId, Op, PdfResources, PdfWarnMsg, Rect, XObject, XObjectId,
 };
 
 /// What the content that names the XObjects of a scope needs to know about that scope.
@@ -117,33 +119,25 @@ fn write_form(
     let content = match &form.resources {
         Some(local) => {
             // The glyphs the form uses decide which part of each font is written.
-            let mut streams: Vec<&[Op]> = vec![form.ops.as_slice()];
-            streams.extend(inheriting_streams(local));
-            let (font_infos, subset_fonts) =
-                prepare_fonts_for_streams(&local.fonts.map, &streams, opts.subset_fonts, warnings);
-            let scope = SaveScope {
-                font_infos: &font_infos,
-                xobjects: &local.xobjects.map,
-                depth: parent.depth.saturating_add(1),
-            };
-            let xobject_dict = write_xobjects(doc, &local.xobjects.map, &scope, opts, warnings);
-            let font_dict = write_font_dict(doc, &subset_fonts, used_builtin_fonts(&streams), warnings);
-
-            let mut resources = LoDictionary::new();
-            for (category, entries) in [
-                ("Font", font_dict),
-                ("XObject", xobject_dict),
-                ("ExtGState", extgstate_dict(local)),
-                ("Shading", shading_dict(local)),
-            ] {
-                if !entries.is_empty() {
-                    resources.set(category, Dictionary(entries));
-                }
-            }
+            let local_scope = write_local_scope(
+                doc,
+                local,
+                &form.ops,
+                parent.depth.saturating_add(1),
+                opts,
+                warnings,
+            );
+            let mut resources = local_scope.resources;
             merge_extra_resources(&mut resources, form.extra.get("Resources"), doc);
             dict.set("Resources", Dictionary(resources));
 
-            translate_operations(ops, &font_infos, &local.xobjects.map, opts.secure, warnings)
+            translate_operations(
+                ops,
+                &local_scope.font_infos,
+                &local.xobjects.map,
+                opts.secure,
+                warnings,
+            )
         }
         None => {
             let mut resources = LoDictionary::new();
@@ -161,6 +155,57 @@ fn write_form(
     }
 
     LoStream::new(dict, content).with_compression(true)
+}
+
+/// A resource scope of a form or a pattern, written.
+pub(crate) struct LocalScope {
+    /// The `/Resources` dictionary: the categories of the scope that are not empty.
+    pub resources: LoDictionary,
+    /// The fonts of the scope as they are written, to encode the text of the ops.
+    pub font_infos: BTreeMap<FontId, RuntimeFontInfo>,
+}
+
+/// Writes the resources of `local`, the scope of the content stream `ops` (a form's, or a tiling
+/// pattern's), as objects of `doc`. `depth` is how many forms and patterns enclose the content.
+/// The glyphs of `ops` decide which part of each font is written.
+pub(crate) fn write_local_scope(
+    doc: &mut lopdf::Document,
+    local: &PdfResources,
+    ops: &[Op],
+    depth: usize,
+    opts: &PdfSaveOptions,
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> LocalScope {
+    let mut streams: Vec<&[Op]> = vec![ops];
+    streams.extend(inheriting_streams(local));
+    let (font_infos, subset_fonts) =
+        prepare_fonts_for_streams(&local.fonts.map, &streams, opts.subset_fonts, warnings);
+    let scope = SaveScope {
+        font_infos: &font_infos,
+        xobjects: &local.xobjects.map,
+        depth,
+    };
+    let xobject_dict = write_xobjects(doc, &local.xobjects.map, &scope, opts, warnings);
+    let pattern_dict = write_patterns(doc, &local.patterns.map, &scope, opts, warnings);
+    let font_dict = write_font_dict(doc, &subset_fonts, used_builtin_fonts(&streams), warnings);
+
+    let mut resources = LoDictionary::new();
+    for (category, entries) in [
+        ("Font", font_dict),
+        ("XObject", xobject_dict),
+        ("ExtGState", extgstate_dict(local)),
+        ("Shading", shading_dict(local)),
+        ("Pattern", pattern_dict),
+        ("ColorSpace", pattern_color_space_dict(&streams)),
+    ] {
+        if !entries.is_empty() {
+            resources.set(category, Dictionary(entries));
+        }
+    }
+    LocalScope {
+        resources,
+        font_infos,
+    }
 }
 
 /// The dictionary of a form without `/Resources`.
@@ -235,7 +280,7 @@ fn form_dictionary(f: &FormXObject, doc: &mut lopdf::Document) -> LoDictionary {
 }
 
 /// `[x0 y0 x1 y1]`, the corners of the rectangle.
-fn bbox_array(rect: &Rect) -> Object {
+pub(super) fn bbox_array(rect: &Rect) -> Object {
     Array(vec![
         Real(rect.x.0),
         Real(rect.y.0),

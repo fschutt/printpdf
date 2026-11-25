@@ -322,6 +322,10 @@ name = "variable_font"
 required-features = []
 
 [[example]]
+name = "patterns"
+required-features = []
+
+[[example]]
 name = "otf-font-subset"
 path = "examples/otf-font-subset.rs"
 required-features = []
