@@ -17,6 +17,7 @@ All notable changes to printpdf are documented in this file. The format follows
 
 ### Changed
 
+- `Mm` and `Pt` compare NaN equal to NaN and an infinity equal to itself, so `x == x` holds for every value as `Eq` requires. Before, `Mm(f32::NAN) == Mm(f32::NAN)` was false (#292).
 - Pin every GitHub Action to a commit SHA, give workflow tokens no default permissions, and lint the workflows with zizmor. Dependabot keeps the pins up to date (#296).
 - Dependabot opens one pull request for all GitHub Actions updates and one for the minor and patch updates of each crate, instead of one per dependency. Major crate updates stay separate.
 - Move the web demo sources to `web/`, the documentation to `docs/` and `gen.sh` to `scripts/gen-examples.sh`. `scripts/build-demo.sh` assembles the demo in `_site/`.
