@@ -780,3 +780,50 @@ fn qpdf_accepts_the_files() {
         );
     }
 }
+
+/// veraPDF is the reference validator for PDF/A. The test runs it when `verapdf` is on the PATH
+/// (`brew install verapdf`) and skips otherwise. The set `PRINTPDF_VERAPDF=1` makes a missing
+/// validator a failure, for CI jobs that install it.
+fn verapdf_report(flavour: &str, bytes: &[u8], name: &str) -> Option<(bool, String)> {
+    let path = std::env::temp_dir().join(format!("printpdf-verapdf-{}-{name}.pdf", std::process::id()));
+    std::fs::write(&path, bytes).expect("write the temporary PDF");
+    let output = std::process::Command::new("verapdf")
+        .args(["--flavour", flavour, "--format", "text"])
+        .arg(&path)
+        .output();
+    // PRINTPDF_VERAPDF_KEEP=<dir> keeps a copy of each file, to run veraPDF by hand.
+    if let Some(dir) = std::env::var_os("PRINTPDF_VERAPDF_KEEP") {
+        let _ = std::fs::copy(&path, std::path::Path::new(&dir).join(format!("{name}.pdf")));
+    }
+    let _ = std::fs::remove_file(&path);
+    match output {
+        Ok(o) => Some((
+            o.status.success(),
+            format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr)),
+        )),
+        Err(_) => {
+            assert!(
+                std::env::var_os("PRINTPDF_VERAPDF").is_none(),
+                "PRINTPDF_VERAPDF is set but verapdf cannot be run"
+            );
+            eprintln!("verapdf is not installed; skipping");
+            None
+        }
+    }
+}
+
+#[test]
+fn verapdf_accepts_a2b() {
+    let (bytes, _) = save(&document(PdfConformance::A2B_2011_PDF_1_7, true));
+    if let Some((ok, text)) = verapdf_report("2b", &bytes, "a2b") {
+        assert!(ok, "veraPDF rejects the PDF/A-2b file:\n{text}");
+    }
+}
+
+#[test]
+fn verapdf_accepts_a1b() {
+    let (bytes, _) = save(&document(PdfConformance::A1B_2005_PDF_1_4, true));
+    if let Some((ok, text)) = verapdf_report("1b", &bytes, "a1b") {
+        assert!(ok, "veraPDF rejects the PDF/A-1b file:\n{text}");
+    }
+}
