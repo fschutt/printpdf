@@ -633,7 +633,10 @@ fn a_font_used_in_a_form_is_embedded() {
 fn pdftotext(bytes: &[u8], name: &str) -> Option<String> {
     let path = std::env::temp_dir().join(format!("printpdf-pdfa-output-{}-{name}.pdf", std::process::id()));
     std::fs::write(&path, bytes).ok()?;
+    // `-enc UTF-8`: on Windows pdftotext writes the console code page by default.
     let output = std::process::Command::new("pdftotext")
+        .arg("-enc")
+        .arg("UTF-8")
         .arg(&path)
         .arg("-")
         .output()
