@@ -905,7 +905,10 @@ fn pt_and_mm_keep_the_tolerant_equality() {
     // Ordering is exact; equality still compares to three decimals.
     assert_eq!(Pt(1.0001), Pt(1.0004));
     assert_eq!(Mm(210.0).into_pt(), Pt(595.276));
-    assert_ne!(Pt(f32::NAN), Pt(f32::NAN));
+    // `Eq` needs x == x for every value, so NaN equals NaN (issue #292).
+    assert_eq!(Pt(f32::NAN), Pt(f32::NAN));
+    assert_ne!(Pt(f32::NAN), Pt(1.0));
+    assert_ne!(Pt(f32::INFINITY), Pt(f32::NEG_INFINITY));
 }
 
 #[test]

@@ -39,7 +39,8 @@
 //! - **Paths**: `DrawLine`, `DrawRectangle`, `DrawPolygon`, with the stroke settings
 //!   `SetOutlineThickness`, `SetLineDashPattern`, `SetLineJoinStyle`, `SetLineCapStyle`,
 //!   `SetMiterLimit`, and `PaintShading` for gradients.
-//! - **Color**: `SetFillColor`, `SetOutlineColor`, `SetColorSpaceFill`, `SetColorSpaceStroke`.
+//! - **Color**: `SetFillColor`, `SetOutlineColor`, `SetColorSpaceFill`, `SetColorSpaceStroke`,
+//!   and `SetFillPattern` and `SetOutlinePattern` for patterns.
 //! - **XObjects and images**: `UseXobject` places a registered image or drawing, the
 //!   `*InlineImage` variants delimit an image embedded in the stream.
 //! - **Marked content and layers**: `BeginLayer`/`EndLayer`, `BeginMarkedContent` and
@@ -61,7 +62,7 @@ use crate::{
     },
     matrix::{CurTransMat, TextMatrix},
     units::{Mm, Pt},
-    BuiltinFont, DictItem, ExtendedGraphicsStateId, ShadingId, FontId, LayerInternalId, LinkAnnotation,
+    BuiltinFont, DictItem, ExtendedGraphicsStateId, PatternId, ShadingId, FontId, LayerInternalId, LinkAnnotation,
     PdfResources, PdfToSvgOptions, PdfWarnMsg, RenderingIntent, XObjectId, XObjectTransform,
 };
 
@@ -796,6 +797,28 @@ pub enum Op {
         /// A shading registered with
         /// [`PdfDocument::add_shading`](crate::PdfDocument::add_shading).
         id: ShadingId,
+    },
+    /// `/Pattern cs`, `/Name scn`: makes a pattern the fill color. Text and shapes that are
+    /// filled afterwards are painted with it until the fill color is changed.
+    SetFillPattern {
+        /// A pattern registered with
+        /// [`PdfDocument::add_pattern`](crate::PdfDocument::add_pattern).
+        id: PatternId,
+        /// The color of an uncolored tiling pattern
+        /// ([`PatternPaintType::Uncolored`](crate::PatternPaintType::Uncolored)), which only
+        /// has a shape. `None` for every other pattern.
+        #[serde(default)]
+        color: Option<Color>,
+    },
+    /// `/Pattern CS`, `/Name SCN`: makes a pattern the stroke color. Lines and outlines drawn
+    /// afterwards are painted with it until the stroke color is changed.
+    SetOutlinePattern {
+        /// A pattern registered with
+        /// [`PdfDocument::add_pattern`](crate::PdfDocument::add_pattern).
+        id: PatternId,
+        /// The color of an uncolored tiling pattern, as for [`Op::SetFillPattern`].
+        #[serde(default)]
+        color: Option<Color>,
     },
     /// Any other operator. It is written only when [`PdfSaveOptions::secure`](crate::PdfSaveOptions::secure)
     /// is `false`, and dropped otherwise.

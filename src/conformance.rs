@@ -8,18 +8,82 @@
 //! document stored in the file) or name the color profile it was prepared for (an output intent).
 //!
 //! [`PdfConformance`] is stored in [`PdfDocumentInfo::conformance`](crate::PdfDocumentInfo)
-//! and chooses which of these are added when the document is saved:
+//! and chooses which of these are added when the document is saved.
 //!
-//! * The identifier of the standard (for example `"PDF/X-3:2002"`) is written to the
-//!   `/GTS_PDFXVersion` entry of the document info dictionary and to the XMP metadata.
-//! * If [`must_have_icc_profile`](PdfConformance::must_have_icc_profile) is true, an output
-//!   intent with the embedded CMYK profile "Coated FOGRA39" is added to the catalog.
-//! * If [`must_have_xmp_metadata`](PdfConformance::must_have_xmp_metadata) is true, an XMP
-//!   metadata stream is added to the catalog.
+//! # What saving writes
 //!
-//! The crate does not validate a document against a standard. Choosing a variant does not
-//! embed fonts, convert colors or reject content that the standard forbids; the
-//! `is_*_allowed` methods only report what the standard permits.
+//! * PDF/X variants: the identifier of the standard (for example `"PDF/X-3:2002"`) in the
+//!   `/GTS_PDFXVersion` entry of the document info dictionary and in the XMP metadata, and an
+//!   output intent (`/S /GTS_PDFX`) with the embedded CMYK profile "Coated FOGRA39". PDF/X-1a:2001
+//!   gets the output intent too, because the standard requires one.
+//! * PDF/A variants ([`is_pdfa`](PdfConformance::is_pdfa)): an XMP packet with the identification
+//!   (`pdfaid:part` and `pdfaid:conformance`) and the title, author, subject, keywords, creator,
+//!   producer and dates of the info dictionary, written as the same values; an output intent
+//!   (`/S /GTS_PDFA1`) with an embedded colour profile; the header version 1.4 (PDF/A-1) or 1.7
+//!   (PDF/A-2 and 3); the trailer `/ID`; the binary comment after the header; the XMP stream
+//!   without a filter; for PDF/A-1 a `/CIDSet` in the descriptor of every subset TrueType CID
+//!   font. No `/GTS_PDFXVersion`, and no `pdf:Trapped` in the XMP.
+//! * The 14 built-in fonts are embedded for every variant that requires embedded fonts (all
+//!   PDF/A and PDF/X variants, see [`must_embed_fonts`](PdfConformance::must_embed_fonts)), as
+//!   TrueType subsets with the same names, the same encoding (`WinAnsiEncoding`) and the same
+//!   text in the content stream, so text extraction does not change. `Symbol` and `ZapfDingbats`
+//!   are the exception: the font files that printpdf bundles for them do not have the standard
+//!   glyph set, so they stay unembedded and the save warns.
+//!
+//! # What is not guaranteed
+//!
+//! printpdf does not rewrite your content. When the document uses something that the chosen
+//! standard does not allow, the save adds a warning ([`PdfWarnMsg`](crate::PdfWarnMsg)) and
+//! writes the content as it is:
+//!
+//! * transparency (`/CA` or `/ca` below 1, soft masks, blend modes, transparency groups) in
+//!   PDF/A-1 and PDF/X-1a and X-3 (it is allowed in PDF/A-2 and later);
+//! * layers (optional content) in PDF/A-1, PDF/X-1a and PDF/X-3;
+//! * the LZW filter, and the JPEG 2000 and JBIG2 filters in PDF/A-1;
+//! * JavaScript, launch actions and embedded files (printpdf's own writer produces none of
+//!   them, so this applies to content that came from a parsed file);
+//! * device colour that the output intent does not cover: `DeviceRGB` needs an RGB profile and
+//!   `DeviceCMYK` a CMYK one. printpdf embeds the sRGB profile, or the FOGRA39 profile when the
+//!   document uses CMYK and no RGB. A document that uses both gets the sRGB profile and a
+//!   warning. `DeviceRGB` in PDF/X-1a is reported the same way;
+//!   The bundled sRGB profile is ICC version 4. PDF/A-1 is based on ICC version 2, so a strict
+//!   PDF/A-1 validator can reject that profile; PDF/A-2 accepts it. Use the `A2B` variant when a
+//!   validator must pass. No external validator (veraPDF) was run on printpdf's output;
+//! * symbols that the bundled font of a built-in font has no glyph for.
+//!
+//! Printpdf does not write tagged document structure (`/StructTreeRoot`, `/MarkInfo`), which
+//! level a of PDF/A (1a, 2a) and PDF/UA need. For the `a` variants it writes
+//! `pdfaid:conformance` as `B`, so the file claims level b, and warns on every save. For
+//! [`A2U_2011_PDF_1_7`](PdfConformance::A2U_2011_PDF_1_7) it writes `B` as well, because printpdf
+//! does not check that all text maps to Unicode.
+//!
+//! Printpdf never encrypts a file, so the PDF/A ban on encryption holds by construction. Fonts
+//! that you embed yourself are written as they are (subset or complete).
+//!
+//! # Validation
+//!
+//! `tests/pdfa_output.rs` runs veraPDF 1.30 (`--flavour 1b` and `2b`) when it is installed, on
+//! documents with built-in fonts only, an embedded TrueType font (subset and complete, with and
+//! without compression of the streams), grey, RGB and CMYK-only colour, and, for PDF/A-2b,
+//! transparency and an image with an alpha channel. All of them pass. What this does not cover:
+//!
+//! * Link annotations in a CMYK-only PDF/A document lose their RGB `/C` colour (with a warning),
+//!   because PDF/A allows it only with an RGB output intent.
+//! * The PDF/X variants. veraPDF does not check them; only the preflight and `qpdf --check` did.
+//! * Documents that use `Symbol` or `ZapfDingbats` (not embedded), and the characters that the
+//!   bundled fonts lack (the save warns).
+//! * PDF/A-1 with an OpenType font that has CFF outlines: the `/CIDSet` is written for TrueType
+//!   (`CIDFontType2`) subsets only.
+//! * Content that the standard forbids: it is written as it is, and veraPDF will report it.
+//! * The levels `a` and `u`, which are written as `b`.
+//!
+//! PDF/A-1 is based on ICC version 2. For PDF/A-1 the output intent holds an sRGB profile of
+//! version 2.1 that printpdf builds from the sRGB colorants and transfer function; PDF/A-2 and 3
+//! use a version 4 profile.
+//!
+//! To see what a file is still missing, run the [preflight](crate::preflight)
+//! (`PdfDocument::preflight`, `preflight_bytes` or `ppdf check`). It checks a subset of the rules
+//! of PDF/A-1b, PDF/A-2b, PDF/X-1a:2001 and PDF/X-3:2002 and is not a certification.
 //!
 //! The default is [`PdfConformance::Custom`] with the default [`CustomPdfConformance`]: no
 //! identifier, no XMP metadata and no output intent, which gives the smallest files.
@@ -206,7 +270,9 @@ impl PdfConformance {
     /// Identifier of the standard, such as `"PDF/X-3:2002"`. For `Custom` it is the
     /// `identifier` field.
     ///
-    /// This is the string written to `/GTS_PDFXVersion` and to the XMP metadata.
+    /// This is the string written to `/GTS_PDFXVersion` and to the XMP metadata of the PDF/X and
+    /// the other non-PDF/A variants. The PDF/A variants write `pdfaid:part` and
+    /// `pdfaid:conformance` instead.
     pub fn get_identifier_string(&self) -> String {
         let identifier = match *self {
             PdfConformance::A1B_2005_PDF_1_4 => "PDF/A-1b:2005",
@@ -280,9 +346,9 @@ impl PdfConformance {
         }
     }
 
-    /// Whether saving writes an XMP metadata stream: true for PDF/X-1a, X-3, X-4, X-4p, X-5g
-    /// and X-5pg, and for a `Custom` profile with `requires_xmp_metadata`. The PDF/A, PDF/UA,
-    /// PDF/E, PDF/VT and PDF/X-5n variants return false.
+    /// Whether saving writes an XMP metadata stream: true for all PDF/A variants and for PDF/X-1a,
+    /// X-3, X-4, X-4p, X-5g and X-5pg, and for a `Custom` profile with `requires_xmp_metadata`.
+    /// The PDF/UA, PDF/E, PDF/VT and PDF/X-5n variants return false.
     pub fn must_have_xmp_metadata(&self) -> bool {
         match *self {
             PdfConformance::X1A_2001_PDF_1_3 => true,
@@ -294,25 +360,112 @@ impl PdfConformance {
             PdfConformance::X5G_2010_PDF_1_6 => true,
             PdfConformance::X5PG_2010_PDF_1_6 => true,
             PdfConformance::Custom(ref c) => c.requires_xmp_metadata,
-            _ => false,
+            _ => self.is_pdfa(),
         }
     }
 
     /// Whether saving writes an output intent with an embedded ICC profile: true for every
-    /// standard except PDF/X-1a:2001, and for a `Custom` profile with `requires_icc_profile`.
+    /// standard, and for a `Custom` profile with `requires_icc_profile`.
+    ///
+    /// PDF/X variants get `/S /GTS_PDFX` with the CMYK profile "Coated FOGRA39". PDF/A variants
+    /// get `/S /GTS_PDFA1` with an sRGB profile, or with the FOGRA39 profile when the document
+    /// uses DeviceCMYK and no DeviceRGB. Before this version PDF/X-1a:2001 returned false and
+    /// had no output intent, which the standard requires.
     pub fn must_have_icc_profile(&self) -> bool {
         match *self {
-            PdfConformance::X1A_2001_PDF_1_3 => false,
             PdfConformance::Custom(ref c) => c.requires_icc_profile,
             _ => true,
         }
     }
 
-    /// Whether the standard permits layers (optional content groups): false for PDF/X-1a and
-    /// PDF/X-3, true for the other standards, and the `allows_pdf_layers` field for `Custom`.
-    /// The crate does not check document content against this.
+    /// Whether this is one of the PDF/A variants (`A1B`, `A1A`, `A2`, `A2A`, `A2B`, `A2U`, `A3`).
+    pub fn is_pdfa(&self) -> bool {
+        self.pdfa_part().is_some()
+    }
+
+    /// The part of ISO 19005 that the variant names: 1, 2 or 3. `None` for everything that is not
+    /// PDF/A. This is the number written as `pdfaid:part`.
+    pub fn pdfa_part(&self) -> Option<u8> {
+        match *self {
+            PdfConformance::A1B_2005_PDF_1_4 | PdfConformance::A1A_2005_PDF_1_4 => Some(1),
+            PdfConformance::A2_2011_PDF_1_7
+            | PdfConformance::A2A_2011_PDF_1_7
+            | PdfConformance::A2B_2011_PDF_1_7
+            | PdfConformance::A2U_2011_PDF_1_7 => Some(2),
+            PdfConformance::A3_2012_PDF_1_7 => Some(3),
+            _ => None,
+        }
+    }
+
+    /// The conformance level that the name of the variant asks for: `'A'`, `'B'` or `'U'`. `None`
+    /// for everything that is not PDF/A. `PDF/A-2` and `PDF/A-3` without a level are `'B'`.
+    ///
+    /// What the file claims can be lower: printpdf writes no tagged structure, so it writes
+    /// `pdfaid:conformance` as `B` for `'A'` and `'U'` (see the module docs).
+    pub fn pdfa_level(&self) -> Option<char> {
+        match *self {
+            PdfConformance::A1A_2005_PDF_1_4 | PdfConformance::A2A_2011_PDF_1_7 => Some('A'),
+            PdfConformance::A2U_2011_PDF_1_7 => Some('U'),
+            PdfConformance::A1B_2005_PDF_1_4
+            | PdfConformance::A2_2011_PDF_1_7
+            | PdfConformance::A2B_2011_PDF_1_7
+            | PdfConformance::A3_2012_PDF_1_7 => Some('B'),
+            _ => None,
+        }
+    }
+
+    /// Whether saving embeds the 14 built-in fonts: true for the PDF/A and PDF/X variants (their
+    /// standards require every font to be embedded), false for the other variants and for
+    /// `Custom`.
+    pub fn must_embed_fonts(&self) -> bool {
+        self.is_pdfa()
+            || matches!(
+                *self,
+                PdfConformance::X1A_2001_PDF_1_3
+                    | PdfConformance::X3_2002_PDF_1_3
+                    | PdfConformance::X1A_2003_PDF_1_4
+                    | PdfConformance::X3_2003_PDF_1_4
+                    | PdfConformance::X4_2010_PDF_1_4
+                    | PdfConformance::X4P_2010_PDF_1_6
+                    | PdfConformance::X5G_2010_PDF_1_6
+                    | PdfConformance::X5PG_2010_PDF_1_6
+                    | PdfConformance::X5N_2010_PDF_1_6
+            )
+    }
+
+    /// Whether the standard permits transparency (`/CA` and `/ca` below 1, soft masks, blend
+    /// modes, transparency groups): false for PDF/A-1, PDF/X-1a and PDF/X-3, true for the other
+    /// standards and for `Custom`. Saving warns when the document uses transparency and this is
+    /// false; it does not remove it.
+    pub fn is_transparency_allowed(&self) -> bool {
+        !matches!(
+            *self,
+            PdfConformance::A1B_2005_PDF_1_4
+                | PdfConformance::A1A_2005_PDF_1_4
+                | PdfConformance::X1A_2001_PDF_1_3
+                | PdfConformance::X3_2002_PDF_1_3
+                | PdfConformance::X1A_2003_PDF_1_4
+                | PdfConformance::X3_2003_PDF_1_4
+        )
+    }
+
+    /// The version in the file header: `1.4` for PDF/A-1, `1.7` for PDF/A-2 and PDF/A-3, `1.3`
+    /// for everything else.
+    pub(crate) fn header_version(&self) -> &'static str {
+        match self.pdfa_part() {
+            Some(1) => "1.4",
+            Some(_) => "1.7",
+            None => "1.3",
+        }
+    }
+
+    /// Whether the standard permits layers (optional content groups): false for PDF/A-1, PDF/X-1a
+    /// and PDF/X-3, true for the other standards, and the `allows_pdf_layers` field for `Custom`.
+    /// Saving warns when the document has layers and this is false; it does not remove them.
     pub fn is_layering_allowed(&self) -> bool {
         match self {
+            PdfConformance::A1B_2005_PDF_1_4 => false,
+            PdfConformance::A1A_2005_PDF_1_4 => false,
             PdfConformance::X1A_2001_PDF_1_3 => false,
             PdfConformance::X3_2002_PDF_1_3 => false,
             PdfConformance::X1A_2003_PDF_1_4 => false,
@@ -320,5 +473,53 @@ impl PdfConformance {
             PdfConformance::Custom(c) => c.allows_pdf_layers,
             _ => true,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PdfConformance as C;
+
+    #[test]
+    fn pdfa_part_and_level() {
+        let a1b = C::A1B_2005_PDF_1_4;
+        assert_eq!((a1b.pdfa_part(), a1b.pdfa_level()), (Some(1), Some('B')));
+        let a1a = C::A1A_2005_PDF_1_4;
+        assert_eq!((a1a.pdfa_part(), a1a.pdfa_level()), (Some(1), Some('A')));
+        let a2u = C::A2U_2011_PDF_1_7;
+        assert_eq!((a2u.pdfa_part(), a2u.pdfa_level()), (Some(2), Some('U')));
+        let a3 = C::A3_2012_PDF_1_7;
+        assert_eq!((a3.pdfa_part(), a3.pdfa_level()), (Some(3), Some('B')));
+        assert_eq!(C::X3_2002_PDF_1_3.pdfa_part(), None);
+        assert_eq!(C::default().pdfa_level(), None);
+        assert!(C::A2_2011_PDF_1_7.is_pdfa() && !C::UA_2014_PDF_1_6.is_pdfa());
+    }
+
+    #[test]
+    fn what_each_standard_writes() {
+        // XMP, an output intent and embedded fonts, including PDF/X-1a:2001, which has an output
+        // intent since this version.
+        for c in [
+            C::A1B_2005_PDF_1_4,
+            C::A2B_2011_PDF_1_7,
+            C::X1A_2001_PDF_1_3,
+            C::X3_2002_PDF_1_3,
+        ] {
+            assert!(
+                c.must_have_xmp_metadata() && c.must_have_icc_profile() && c.must_embed_fonts(),
+                "{c:?}"
+            );
+        }
+        assert!(!C::default().must_have_xmp_metadata());
+        assert!(!C::default().must_have_icc_profile());
+        assert!(!C::default().must_embed_fonts());
+        assert!(!C::A1B_2005_PDF_1_4.is_transparency_allowed());
+        assert!(C::A2B_2011_PDF_1_7.is_transparency_allowed());
+        assert!(!C::X1A_2001_PDF_1_3.is_transparency_allowed());
+        assert!(C::X4_2010_PDF_1_4.is_transparency_allowed());
+        assert_eq!(C::A1B_2005_PDF_1_4.header_version(), "1.4");
+        assert_eq!(C::A2B_2011_PDF_1_7.header_version(), "1.7");
+        assert_eq!(C::X1A_2001_PDF_1_3.header_version(), "1.3");
+        assert_eq!(C::default().header_version(), "1.3");
     }
 }

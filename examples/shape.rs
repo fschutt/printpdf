@@ -1,8 +1,14 @@
+//! Shapes text through HTML.
+//!
+//! This example builds a PDF from an HTML document with `PdfDocument::from_html`, which shapes
+//! the text (kerning, joined Arabic, right-to-left order) as part of laying out the page. It
+//! needs the `html` feature. To shape a string without HTML, see `examples/shape_line.rs`.
+
 use printpdf::*;
 use std::collections::BTreeMap;
 
 fn main() {
-    println!("=== Text Shaping Example: ParsedFont → UnifiedLayout → Vec<Op> ===\n");
+    println!("=== Text shaping through HTML ===\n");
 
     // Create a simple HTML example that demonstrates text shaping
     let html = r#"

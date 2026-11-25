@@ -26,9 +26,27 @@ SPACE_WIDTH = {"Helvetica": 278, "Times": 250, "Courier": 600, "Symbol": 250, "Z
 FONTS = Path(__file__).resolve().parent.parent / "defaultfonts"
 
 
+def mac_style(path: Path) -> int:
+    """`head.macStyle` bits from the file name: bit 0 bold, bit 1 italic or oblique. The generator
+    (`subset_test` in src/font.rs) keeps the source font's value, which is 0 for the bundled
+    Helvetica-Bold and Helvetica-BoldOblique; the HTML font resolver tells the four Helvetica
+    faces apart with these bits."""
+    stem = path.name.removesuffix(".subset.ttf")
+    return (1 if "Bold" in stem else 0) | (2 if ("Oblique" in stem or "Italic" in stem) else 0)
+
+
 def add_space(path: Path) -> bool:
     font = TTFont(io.BytesIO(gzip.decompress(path.read_bytes())))
+    style = mac_style(path)
+    style_changed = path.name.startswith("Helvetica") and font["head"].macStyle != style
+    if style_changed:
+        font["head"].macStyle = style
     if "space" in font.getGlyphOrder():
+        if style_changed:
+            out = io.BytesIO()
+            font.save(out)
+            path.write_bytes(gzip.compress(out.getvalue(), mtime=0))
+            return True
         return False
     family = next(k for k in SPACE_WIDTH if path.name.startswith(k))
     advance = round(SPACE_WIDTH[family] * font["head"].unitsPerEm / 1000)

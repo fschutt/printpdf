@@ -57,9 +57,9 @@
 //! - [`PdfDocument`]: metadata ([`PdfMetadata`]), shared [`PdfResources`], bookmarks and pages.
 //! - [`PdfResources`]: things that pages refer to by id and that are stored once per file:
 //!   fonts ([`FontId`]), images and other XObjects ([`XObjectId`]), extended graphics states
-//!   ([`ExtendedGraphicsStateId`]), shadings and layers. Register them with
-//!   [`PdfDocument::add_font`], [`PdfDocument::add_image`] and the other `add_*` methods, which
-//!   return the id to use in an `Op`.
+//!   ([`ExtendedGraphicsStateId`]), shadings, patterns ([`PatternId`]) and layers. Register
+//!   them with [`PdfDocument::add_font`], [`PdfDocument::add_image`] and the other `add_*`
+//!   methods, which return the id to use in an `Op`.
 //! - [`PdfPage`]: a page size and a `Vec<Op>`.
 //! - [`Op`]: one content stream instruction. The documentation of each variant names the PDF
 //!   operator it writes (`q`, `Tf`, `re`, ...).
@@ -216,7 +216,7 @@
 //!     (`text_layout_hyphenation_all`, 2.9 MB more in the binary).
 //!   - `html_multithreaded`: `html`, with fonts loaded on several threads. Not for WASM.
 //!   - `text_layout`: the text shaping above, without `html`. Use it if you want
-//!     [`shape`] but not the HTML layout.
+//!     [`shape`] or [`shape_line`](crate::shape_line()) but not the HTML layout.
 //!   - `js-sys`: in the browser (`wasm32-unknown-unknown`), timestamps from `Date` and image
 //!     decoding by the browser.
 //!
@@ -262,6 +262,8 @@ pub mod wasm;
 pub use wasm::*;
 pub mod conformance;
 pub use conformance::*;
+pub mod preflight;
+pub use preflight::{preflight_bytes, PreflightProfile, PreflightReport};
 pub mod matrix;
 pub use matrix::*;
 pub mod units;
@@ -276,10 +278,16 @@ pub mod variable_font;
 pub use variable_font::*;
 pub mod shape;
 pub use shape::*;
+#[cfg(feature = "text_layout")]
+pub mod shape_line;
+#[cfg(feature = "text_layout")]
+pub use shape_line::*;
 pub mod graphics;
 pub use graphics::*;
 pub mod shading;
 pub use shading::*;
+pub mod pattern;
+pub use pattern::*;
 pub mod ops;
 pub mod text_boxes;
 pub use ops::*;
@@ -598,7 +606,7 @@ impl Default for IccProfileId {
 pub struct PdfDocument {
     /// Title, author, dates and the PDF conformance level.
     pub metadata: PdfMetadata,
-    /// Fonts, XObjects, graphics states, shadings and layers that pages refer to by id.
+    /// Fonts, XObjects, graphics states, shadings, patterns and layers that pages refer to by id.
     pub resources: PdfResources,
     /// Bookmarks (the outline panel of a viewer). Page numbers start at 1.
     pub bookmarks: PageAnnotMap,
@@ -661,6 +669,14 @@ impl PdfDocument {
     pub fn add_shading(&mut self, shading: crate::shading::Shading) -> crate::shading::ShadingId {
         let id = crate::shading::ShadingId::new();
         self.resources.shadings.map.insert(id.clone(), shading);
+        id
+    }
+
+    /// Registers a tiling or shading pattern and returns the id for `Op::SetFillPattern` and
+    /// `Op::SetOutlinePattern`. See the [`pattern`] module for an example.
+    pub fn add_pattern(&mut self, pattern: crate::pattern::Pattern) -> crate::pattern::PatternId {
+        let id = crate::pattern::PatternId::new();
+        self.resources.patterns.map.insert(id.clone(), pattern);
         id
     }
 
@@ -1047,6 +1063,9 @@ impl PdfDocument {
         for (id, sh) in other.shadings.map {
             self.resources.shadings.map.entry(id).or_insert(sh);
         }
+        for (id, pattern) in other.patterns.map {
+            self.resources.patterns.map.entry(id).or_insert(pattern);
+        }
         for (id, layer) in other.layers.map {
             self.resources.layers.map.entry(id).or_insert(layer);
         }
@@ -1120,6 +1139,10 @@ pub struct PdfResources {
     /// Axial and radial shadings (gradients), by the id `Op::PaintShading` uses.
     #[serde(default)]
     pub shadings: ShadingMap,
+    /// Tiling and shading patterns, by the id `Op::SetFillPattern` and `Op::SetOutlinePattern`
+    /// use.
+    #[serde(default)]
+    pub patterns: PatternMap,
     /// Layers (optional content groups), by the id `Op::BeginLayer` uses.
     #[serde(default)]
     pub layers: PdfLayerMap,
@@ -1185,6 +1208,16 @@ pub struct ShadingMap {
     pub map: BTreeMap<ShadingId, crate::shading::Shading>,
 }
 
+/// Patterns by id.
+///
+/// Serialized as the plain map.
+#[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PatternMap {
+    /// The patterns.
+    pub map: BTreeMap<crate::pattern::PatternId, crate::pattern::Pattern>,
+}
+
 /// Document metadata that a PDF stores in two places.
 ///
 /// The "Info" dictionary always has it, and conformance levels that require XMP metadata have it
@@ -1219,23 +1252,59 @@ impl PdfMetadata {
             None => "".to_string(),
         };
 
+        use crate::render::escape_xml_text as esc;
+
+        // PDF/A: the identification, and the same values as the Info dictionary (title, author,
+        // subject, creator, producer, keywords, dates). PDF/X fields do not belong in it, and
+        // neither does pdf:Trapped: veraPDF does not accept it in a PDF/A packet.
+        if let Some(part) = self.info.conformance.pdfa_part() {
+            let pdfa_document_id = random_character_string_32();
+            // Level a (and u) needs tagged structure, which is not written: the file claims b.
+            let rendition = if rendition_class.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "\n         <xmpMM:RenditionClass>{}</xmpMM:RenditionClass>",
+                    esc(&rendition_class)
+                )
+            };
+            return format!(
+                include_str!("./res/catalog_xmp_metadata_pdfa.txt"),
+                part = part,
+                level = "B",
+                create = create_date,
+                modify = modification_date,
+                mdate = metadata_date,
+                title = esc(&self.info.document_title),
+                author = esc(&self.info.author),
+                subject = esc(&self.info.subject),
+                creator = esc(&self.info.creator),
+                producer = esc(&self.info.producer),
+                keywords = esc(&self.info.keywords.join(",")),
+                id = pdfa_document_id,
+                instance = instance_id,
+                rendition = rendition,
+                version = esc(&document_version),
+            );
+        }
+
         format!(
             include_str!("./res/catalog_xmp_metadata.txt"),
             create = create_date,
             modify = modification_date,
             mdate = metadata_date,
-            title = self.info.document_title,
-            id = document_id,
+            title = esc(&self.info.document_title),
+            id = esc(&document_id),
             instance = instance_id,
-            class = rendition_class,
-            version = document_version,
-            pdfx = pdf_x_version,
+            class = esc(&rendition_class),
+            version = esc(&document_version),
+            pdfx = esc(&pdf_x_version),
             trapping = trapping,
-            creator = self.info.creator,
-            subject = self.info.subject,
-            keywords = self.info.keywords.join(","),
-            identifier = self.info.identifier,
-            producer = self.info.producer
+            creator = esc(&self.info.creator),
+            subject = esc(&self.info.subject),
+            keywords = esc(&self.info.keywords.join(",")),
+            identifier = esc(&self.info.identifier),
+            producer = esc(&self.info.producer)
         )
     }
 }

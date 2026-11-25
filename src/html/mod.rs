@@ -1638,8 +1638,9 @@ mod memory_font_tests {
             family: Some("PrintpdfMemoryFontTest".to_string()),
             ..Default::default()
         };
+        // `bytes` is a `Vec<u8>` in rust-fontconfig 5.0 and an `Arc<[u8]>` from 5.1; `into` fits both.
         let font = rust_fontconfig::FcFont {
-            bytes,
+            bytes: bytes.into(),
             font_index: 0,
             id: "printpdf-memory-font-test".to_string(),
         };
@@ -1781,10 +1782,10 @@ mod builtin_font_tests {
             .iter()
             .map(|r| r.end - r.start + 1)
             .sum();
-        // 213 codepoints, plus U+0020 and U+00A0, which map to the empty space glyph.
+        // 214 codepoints, plus U+0020 and U+00A0, which map to the empty space glyph.
         assert_eq!(
-            covered, 215,
-            "expected the 215 codepoints Helvetica.subset.ttf actually maps, got {covered} \
+            covered, 216,
+            "expected the 216 codepoints Helvetica.subset.ttf actually maps, got {covered} \
              (256 means coverage was rounded up to the Latin-1 block again)"
         );
     }

@@ -12,11 +12,11 @@
 //!
 //! - its dictionary or its `/Resources` has an entry that is not in ISO 32000-1,
 //! - its content stream cannot be decoded or split into operators, uses an operator that has no
-//!   [`Op`], or sets a pattern or a special color space,
+//!   [`Op`], or sets a pattern that its own resources do not have,
 //! - it selects a font that has no font program, for example a Type 3 font,
 //! - or it has no `/BBox`.
 //!
-//! What the model has no field for but ISO 32000-1 names (`/ColorSpace`, `/Pattern`,
+//! What the model has no field for but ISO 32000-1 names (`/ColorSpace`,
 //! `/Properties`, `/ProcSet`, `/Group` attributes, `/OC`, `/Metadata`, ...) is kept in
 //! [`FormXObject::extra`] and written back.
 //!
@@ -25,12 +25,16 @@
 //! more than [`MAX_FORMS`] forms or more than [`MAX_FORM_CONTENT_BYTES`] bytes of form content:
 //! the form that is not read stays as it is.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use lopdf::{
     Dictionary as LopdfDictionary, Document as LopdfDocument, Object, ObjectId, Stream as LopdfStream,
 };
 
+use super::pattern::{pattern_space_names, read_scope_patterns, PatternCtx};
 use super::{
     convert_operations, decode_content, decode_limited, dictitem_from_lopdf_resolved, font_resources,
     get_dict_or_resolve_ref, parse_rect, parse_xobjects_internal, parsefont, read_extgstates,
@@ -43,7 +47,8 @@ use crate::{
     ops::PdfFontHandle,
     xobject::{FormType, FormXObject, GroupXObject, GroupXObjectType},
     DictItem, ExtendedGraphicsState, ExtendedGraphicsStateId, ExtendedGraphicsStateMap, FontId, Op,
-    PdfFontMap, PdfLayerMap, PdfResources, Shading, ShadingId, ShadingMap, XObjectId, XObjectMap,
+    Pattern, PatternId, PatternMap, PdfFontMap, PdfLayerMap, PdfResources, Shading, ShadingId,
+    ShadingMap, XObjectId, XObjectMap,
 };
 
 /// Most forms that are read from one document; the others stay as they are.
@@ -104,7 +109,7 @@ const RESOURCE_KEYS: &[&[u8]] = &[
 ];
 
 /// The resource categories that have no typed map, which are kept as they are.
-const RAW_CATEGORIES: &[&str] = &["ColorSpace", "Pattern", "Properties", "ProcSet"];
+const RAW_CATEGORIES: &[&str] = &["ColorSpace", "Properties", "ProcSet"];
 
 /// A form that is read, whose nested XObjects may still wait to be decoded.
 #[derive(Clone)]
@@ -129,6 +134,8 @@ pub(crate) struct XObjectCtx<'a> {
     forms_left: usize,
     bytes_left: usize,
     reported_budget: bool,
+    /// What reading the patterns of the forms keeps from one pattern to the next.
+    patterns: PatternCtx,
 }
 
 impl<'a> XObjectCtx<'a> {
@@ -141,6 +148,7 @@ impl<'a> XObjectCtx<'a> {
             forms_left: MAX_FORMS,
             bytes_left: MAX_FORM_CONTENT_BYTES,
             reported_budget: false,
+            patterns: PatternCtx::new(),
         }
     }
 }
@@ -290,12 +298,26 @@ fn read_form(
         Some(scope) => scope.font_decode(),
         None => ctx.font_decode.clone(),
     };
-    let ops = convert_operations(page, &operations, &BTreeMap::new(), &font_decode, warnings)?;
+    let no_pattern_spaces = BTreeSet::new();
+    let pattern_spaces = scope
+        .as_ref()
+        .map_or(&no_pattern_spaces, |scope| &scope.pattern_spaces);
+    let ops = convert_operations(
+        page,
+        &operations,
+        &BTreeMap::new(),
+        &font_decode,
+        pattern_spaces,
+        warnings,
+    )?;
     let fonts = match scope.as_mut() {
         Some(scope) => font_resources(std::mem::take(&mut scope.fonts).into_iter()),
         None => BTreeMap::new(),
     };
-    check_content(&ops, &operations, scope.as_ref().map(|_| &fonts))?;
+    check_content(
+        &ops,
+        scope.as_ref().map(|scope| (&fonts, &scope.patterns)),
+    )?;
 
     let mut extra = BTreeMap::new();
     let mut group = None;
@@ -339,6 +361,7 @@ fn read_form(
                     map: scope.extgstates,
                 },
                 shadings: ShadingMap { map: scope.shadings },
+                patterns: PatternMap { map: scope.patterns },
                 layers: PdfLayerMap::default(),
             };
             (Some(resources), scope.xobjects)
@@ -375,6 +398,9 @@ struct FormScope {
     xobjects: BTreeMap<XObjectId, PendingXObject>,
     extgstates: BTreeMap<ExtendedGraphicsStateId, ExtendedGraphicsState>,
     shadings: BTreeMap<ShadingId, Shading>,
+    patterns: BTreeMap<PatternId, Pattern>,
+    /// The names of the `[/Pattern ...]` color spaces of the scope.
+    pattern_spaces: BTreeSet<String>,
     /// What the typed maps cannot hold: the categories without one, and the graphics states and
     /// shadings that would lose something.
     raw: BTreeMap<String, DictItem>,
@@ -426,48 +452,54 @@ fn read_scope(
     }
     keep_lossy_extgstates(doc, resources, &extgstates, &mut ctx.budget, &mut raw);
     keep_unmodelled_shadings(doc, resources, &shadings, &mut ctx.budget, &mut raw);
+    let patterns = read_scope_patterns(doc, resources, page, &mut ctx.patterns, warnings)?;
+    let pattern_spaces = pattern_space_names(doc, resources);
 
     Ok(FormScope {
         fonts,
         xobjects,
         extgstates,
         shadings,
+        patterns,
+        pattern_spaces,
         raw,
     })
 }
 
-/// Checks that the form is written again as it was read: no operator without an [`Op`], no color
-/// that is a pattern, no font that has no font program. `fonts` is `None` for a form that uses the
-/// fonts of the document.
-fn check_content(
-    ops: &[Op],
-    operations: &[lopdf::content::Operation],
-    fonts: Option<&BTreeMap<FontId, crate::font::PdfFont>>,
-) -> Result<(), String> {
+/// The fonts that have a font program and the patterns of a form's own scope.
+type ScopeNames<'a> = (
+    &'a BTreeMap<FontId, crate::font::PdfFont>,
+    &'a BTreeMap<PatternId, Pattern>,
+);
+
+/// Checks that the form is written again as it was read: no operator without an [`Op`], no
+/// pattern that the scope does not have, no font that has no font program. `scope` is `None` for
+/// a form that uses the fonts and patterns of the document, and else the fonts and the patterns
+/// of the form.
+fn check_content(ops: &[Op], scope: Option<ScopeNames<'_>>) -> Result<(), String> {
     if ops.iter().any(|op| matches!(op, Op::Unknown { .. })) {
         return Err("its content has an operator that no Op models".to_string());
     }
-    let pattern_color = operations.iter().any(|operation| {
-        matches!(operation.operator.as_str(), "sc" | "scn" | "SC" | "SCN")
-            && operation
-                .operands
-                .iter()
-                .any(|operand| matches!(operand, Object::Name(_)))
-    });
-    if pattern_color {
-        return Err("its content sets a pattern or special color".to_string());
-    }
-    if let Some(fonts) = fonts {
-        for op in ops {
-            if let Op::SetFont {
-                font: PdfFontHandle::External(id),
-                ..
-            } = op
-            {
-                if !fonts.contains_key(id) {
-                    return Err(format!("it selects the font {}, which has no font program", id.0));
+    for op in ops {
+        match op {
+            Op::SetFillPattern { id, .. } | Op::SetOutlinePattern { id, .. } => {
+                // The patterns of the document are read after the forms.
+                match scope {
+                    Some((_, patterns)) if patterns.contains_key(id) => {}
+                    _ => return Err(format!("its content sets the pattern {}, which it has not", id.0)),
                 }
             }
+            Op::SetFont {
+                font: PdfFontHandle::External(id),
+                ..
+            } => {
+                if let Some((fonts, _)) = scope {
+                    if !fonts.contains_key(id) {
+                        return Err(format!("it selects the font {}, which has no font program", id.0));
+                    }
+                }
+            }
+            _ => {}
         }
     }
     Ok(())

@@ -16,9 +16,9 @@
 //! module ([`TextShapingOptions`], [`ShapedText`], ...) are plain data that no function of
 //! printpdf reads or produces.
 //!
-//! To lay out text yourself without azul-layout, see
-//! [`show_placed_glyphs`](crate::show_placed_glyphs), which draws glyphs at positions you
-//! supply.
+//! To shape one line of text without HTML, see [`shape_line`](crate::shape_line()). To lay out
+//! text yourself, see [`show_placed_glyphs`](crate::show_placed_glyphs), which draws glyphs at
+//! positions you supply.
 
 use crate::{Color, FontId, Pt, Rect, Rgb};
 

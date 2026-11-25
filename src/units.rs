@@ -26,7 +26,8 @@ macro_rules! impl_partialeq {
     ($t:ty) => {
         impl PartialEq for $t {
             // Equal when the values agree to three decimals, to absorb floating point
-            // inaccuracy. Non-finite values are never equal.
+            // inaccuracy. Non-finite values are equal when they are the same infinity or both
+            // NaN, so that `x == x` holds for every value (`Eq` requires it).
             fn eq(&self, other: &$t) -> bool {
                 if (self.0.classify() == FpCategory::Zero
                     || self.0.classify() == FpCategory::Normal)
@@ -35,7 +36,7 @@ macro_rules! impl_partialeq {
                 {
                     (self.0 * 1000.0).round() == (other.0 * 1000.0).round()
                 } else {
-                    false
+                    self.0 == other.0 || (self.0.is_nan() && other.0.is_nan())
                 }
             }
         }

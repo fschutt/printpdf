@@ -6,12 +6,16 @@
 //! the drawing operators of the page. [`crate::deserialize`] describes the layout in more detail.
 //!
 //! Saving builds a [`lopdf`] document from the [`PdfDocument`] and lets lopdf write it (version
-//! 1.3, classic cross-reference table):
+//! 1.3, or 1.4 and 1.7 for PDF/A-1 and PDF/A-2; classic cross-reference table):
 //!
-//! - One resource dictionary with the fonts, XObjects, ExtGState dictionaries and shadings of the
+//! - One resource dictionary with the fonts, XObjects, ExtGState dictionaries, shadings and patterns of the
 //!   document is shared by all pages. A form XObject ([`XObject::Form`]) is written as a form
 //!   stream of its own, with a `/Resources` dictionary built from its own fonts (subset to the
-//!   glyphs it uses), nested XObjects, graphics states and shadings.
+//!   glyphs it uses), nested XObjects, graphics states, shadings and patterns.
+//! - A tiling pattern is written as a stream with resources of its own, like a form, and a
+//!   shading pattern as a dictionary. [`Op::SetFillPattern`] becomes `/Pattern cs /Name scn`.
+//!   The color of an uncolored tiling pattern needs a `[/Pattern /DeviceRGB]` color space, which
+//!   is added to the `/ColorSpace` resources of the scope.
 //! - Each [`PdfPage`](crate::PdfPage) becomes a page object with its boxes, a content stream
 //!   translated from its [`Op`]s, and an `/Annots` array built from its
 //!   [`Op::LinkAnnotation`]s.
@@ -19,10 +23,12 @@
 //!   width array and a ToUnicode CMap, so that the text can be searched and copied. Only fonts
 //!   that a page uses are written, and by default only the glyphs that are used (see
 //!   [`PdfSaveOptions::subset_fonts`]). The 14 standard fonts are written as plain Type1 fonts
-//!   with WinAnsi encoding.
+//!   with WinAnsi encoding, or, when the conformance level requires embedded fonts (PDF/A and
+//!   PDF/X), as TrueType fonts with the glyphs embedded and the same encoding.
 //! - Layers become optional content groups, bookmarks become the outline, and the conformance
 //!   level of the metadata decides whether an output intent with an ICC profile and an XMP
-//!   metadata stream are added.
+//!   metadata stream are added. After the pages are written, the save also looks at what the file
+//!   uses and warns when the standard does not allow it (see [`crate::conformance`]).
 //! - The trailer gets the document information and a random file identifier.
 //!
 //! [`PdfSaveOptions`] controls compression, font subsetting and image optimization.
@@ -50,14 +56,18 @@ use std::{
 use lopdf::{
     content::Operation as LoOp,
     Dictionary as LoDictionary,
-    Object::{Array, Dictionary, Integer, Name, Null, Real, Reference, Stream, String as LoString},
+    Object::{Array, Dictionary, Integer, Name, Null, Real, Reference, String as LoString},
     Stream as LoStream,
     StringFormat::{Hexadecimal, Literal},
 };
 use serde_derive::{Deserialize, Serialize};
 
+mod builtin_font;
 mod form_xobject;
+mod pattern;
+mod standards;
 use form_xobject::{write_xobjects, SaveScope};
+use pattern::{pattern_color_space_dict, write_patterns};
 
 use crate::{
     color::IccProfile,
@@ -163,6 +173,7 @@ fn write_document_xobjects(
         font_infos,
         xobjects: &pdf.resources.xobjects.map,
         depth: 0,
+        embed_builtin_fonts: pdf.metadata.info.conformance.must_embed_fonts(),
     };
     let global_xobject_dict =
         write_xobjects(&mut doc, &pdf.resources.xobjects.map, &scope, opts, warnings);
@@ -218,48 +229,6 @@ pub fn to_lopdf_doc(
         ("PageMode", "UseNone".into()),
         ("Pages", Reference(pages_id)),
     ]);
-
-    // Conformance levels that need an ICC profile get an output intent.
-    if pdf.metadata.info.conformance.must_have_icc_profile() {
-        /// Default ICC profile, necessary if `PdfMetadata::must_have_icc_profile()` return true
-        const ICC_PROFILE_ECI_V2: &[u8] = include_bytes!("./res/CoatedFOGRA39.icc");
-        const ICC_PROFILE_LICENSE: &str = include_str!("./res/CoatedFOGRA39.icc.LICENSE.txt");
-
-        let icc_profile_descr = "Commercial and special offset print acccording to ISO \
-                                 12647-2:2004 / Amd 1, paper type 1 or 2 (matte or gloss-coated \
-                                 offset paper, 115 g/m2), screen ruling 60/cm";
-        let icc_profile_str = "Coated FOGRA39 (ISO 12647-2:2004)";
-        let icc_profile_short = LoString("FOGRA39".into(), Literal);
-        let registry = LoString("http://www.color.org".into(), Literal);
-        let icc = IccProfile::new(ICC_PROFILE_ECI_V2.to_vec(), IccProfileType::Cmyk)
-            .with_alternate_profile(false)
-            .with_range(true);
-        let icc_profile_id = doc.add_object(Stream(icc_to_stream(&icc)));
-        let output_intents = LoDictionary::from_iter(vec![
-            ("S", Name("GTS_PDFX".into())),
-            (
-                "OutputCondition",
-                LoString(icc_profile_descr.into(), Literal),
-            ),
-            ("License", LoString(ICC_PROFILE_LICENSE.into(), Literal)),
-            ("Type", Name("OutputIntent".into())),
-            ("OutputConditionIdentifier", icc_profile_short),
-            ("RegistryName", registry),
-            ("Info", LoString(icc_profile_str.into(), Literal)),
-            ("DestinationOutputProfile", Reference(icc_profile_id)),
-        ]);
-        catalog.set("OutputIntents", Array(vec![Dictionary(output_intents)]));
-    }
-
-    // Conformance levels that need XMP metadata get an XMP stream.
-    if pdf.metadata.info.conformance.must_have_xmp_metadata() {
-        let xmp_obj = Stream(LoStream::new(
-            LoDictionary::from_iter(vec![("Type", "Metadata".into()), ("Subtype", "XML".into())]),
-            pdf.metadata.xmp_metadata_string().as_bytes().to_vec(),
-        ));
-        let metadata_id = doc.add_object(xmp_obj);
-        catalog.set("Metadata", Reference(metadata_id));
-    }
 
     // Layers become optional content groups listed in the catalog's /OCProperties; `layer_ids`
     // maps each layer id to its group's object id.
@@ -317,6 +286,7 @@ pub fn to_lopdf_doc(
         &mut doc,
         &subset_fonts,
         used_builtin_fonts(&streams),
+        pdf.metadata.info.conformance.must_embed_fonts(),
         warnings,
     );
     let global_font_dict_id = doc.add_object(global_font_dict);
@@ -326,6 +296,25 @@ pub fn to_lopdf_doc(
     let global_extgstate_dict_id = doc.add_object(extgstate_dict(&pdf.resources));
 
     let global_shading_dict_id = doc.add_object(shading_dict(&pdf.resources));
+
+    // The patterns of the document, written against the fonts of the document.
+    let global_pattern_dict = write_patterns(
+        &mut doc,
+        &pdf.resources.patterns.map,
+        &SaveScope {
+            font_infos: &font_infos,
+            xobjects: &pdf.resources.xobjects.map,
+            depth: 0,
+            embed_builtin_fonts: pdf.metadata.info.conformance.must_embed_fonts(),
+        },
+        opts,
+        warnings,
+    );
+    let global_pattern_dict_id =
+        (!global_pattern_dict.is_empty()).then(|| doc.add_object(global_pattern_dict));
+    let global_color_space_dict = pattern_color_space_dict(&streams);
+    let global_color_space_dict_id =
+        (!global_color_space_dict.is_empty()).then(|| doc.add_object(global_color_space_dict));
 
     let page_ids_reserved = pdf
         .pages
@@ -370,10 +359,13 @@ pub fn to_lopdf_doc(
             let mut links = Vec::new();
             for op in &page.ops {
                 if let Op::LinkAnnotation { link } = op {
-                    links.push(Dictionary(link_annotation_to_dict(
-                        link,
-                        &page_ids_reserved,
-                    )))
+                    let mut annot = link_annotation_to_dict(link, &page_ids_reserved);
+                    if pdf.metadata.info.conformance.is_pdfa() {
+                        // PDF/A: every annotation has the Print flag (bit 3) and no Hidden,
+                        // Invisible or NoView flag.
+                        annot.set("F", Integer(4));
+                    }
+                    links.push(Dictionary(annot))
                 }
             }
 
@@ -381,6 +373,12 @@ pub fn to_lopdf_doc(
             page_resources.set("XObject", Reference(global_xobject_dict_id));
             page_resources.set("ExtGState", Reference(global_extgstate_dict_id));
             page_resources.set("Shading", Reference(global_shading_dict_id));
+            if let Some(id) = global_pattern_dict_id {
+                page_resources.set("Pattern", Reference(id));
+            }
+            if let Some(id) = global_color_space_dict_id {
+                page_resources.set("ColorSpace", Reference(id));
+            }
 
             // one text object per line instead of per glyph run (see text_merge.rs)
             let merged_ops;
@@ -489,6 +487,10 @@ pub fn to_lopdf_doc(
         ]),
     );
 
+    // The output intent, the XMP metadata and the warnings of the conformance level; they
+    // depend on what the objects written so far use.
+    standards::apply(pdf, &mut doc, &mut catalog, warnings);
+
     let catalog_id = doc.add_object(catalog);
     let document_info_id = doc.add_object(Dictionary(docinfo_to_dict(&pdf.metadata.info)));
     let instance_id = crate::utils::random_character_string_32();
@@ -520,23 +522,83 @@ pub fn serialize_pdf_into_bytes(
     bytes
 }
 /// The standard fonts that the content streams (the ops of pages or of forms) select with
-/// `SetFont`.
-fn used_builtin_fonts(streams: &[&[Op]]) -> BTreeSet<BuiltinFont> {
-    let mut fonts = BTreeSet::new();
+/// `SetFont`, each with the WinAnsi codes that the text shown in it uses.
+///
+/// The font is tracked through `q` and `Q`, because the font is part of the graphics state.
+fn used_builtin_fonts(streams: &[&[Op]]) -> BTreeMap<BuiltinFont, BTreeSet<u8>> {
+    let mut fonts: BTreeMap<BuiltinFont, BTreeSet<u8>> = BTreeMap::new();
 
     for ops in streams {
+        let mut current: Option<BuiltinFont> = None;
+        let mut saved: Vec<Option<BuiltinFont>> = Vec::new();
         for op in ops.iter() {
-            if let Op::SetFont {
-                font: crate::ops::PdfFontHandle::Builtin(builtin_font),
-                ..
-            } = op
-            {
-                fonts.insert(*builtin_font);
+            match op {
+                Op::SaveGraphicsState => saved.push(current),
+                Op::RestoreGraphicsState => {
+                    if let Some(font) = saved.pop() {
+                        current = font;
+                    }
+                }
+                Op::SetFont { font, .. } => match font {
+                    crate::ops::PdfFontHandle::Builtin(builtin_font) => {
+                        fonts.entry(*builtin_font).or_default();
+                        current = Some(*builtin_font);
+                    }
+                    crate::ops::PdfFontHandle::External(_) => current = None,
+                },
+                Op::ShowText { items } => {
+                    if let Some(font) = current {
+                        let codes = fonts.entry(font).or_default();
+                        for item in items {
+                            if let TextItem::Text(text) = item {
+                                codes.extend(encode_win_ansi(text));
+                            }
+                        }
+                    }
+                }
+                Op::MoveToNextLineShowText { text }
+                | Op::SetSpacingMoveAndShowText { text, .. } => {
+                    if let Some(font) = current {
+                        fonts.entry(font).or_default().extend(encode_win_ansi(text));
+                    }
+                }
+                _ => {}
             }
         }
     }
 
     fonts
+}
+
+/// `/Pattern cs /Name scn`, or for a pattern that needs an underlying color
+/// `/PdfPatternRgb cs r g b /Name scn`. `space_op` and `color_op` are the stroke or fill pair.
+fn pattern_color_ops(
+    space_op: &str,
+    color_op: &str,
+    id: &crate::PatternId,
+    color: Option<&Color>,
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> Vec<LoOp> {
+    let mut operands: Vec<lopdf::Object> = Vec::new();
+    let space = match color {
+        None => "Pattern",
+        Some(color) => {
+            if color.is_out_of_range() {
+                warnings.push(PdfWarnMsg::error(
+                    0,
+                    0,
+                    format!("PDF color {color:?} is out of range, must be normalized to 0.0 - 1.0"),
+                ));
+            }
+            operands.extend(color.into_vec().into_iter().map(Real));
+            pattern::pattern_space(color).0
+        }
+    };
+    operands.push(Name(id.0.as_bytes().to_vec()));
+    vec![
+        LoOp::new(space_op, vec![Name(space.as_bytes().to_vec())]),
+        LoOp::new(color_op, operands),
+    ]
 }
 
 /// The `/ExtGState` dictionary of a resource scope.
@@ -562,7 +624,8 @@ fn shading_dict(resources: &PdfResources) -> LoDictionary {
 fn write_font_dict(
     doc: &mut lopdf::Document,
     subset_fonts: &BTreeMap<FontId, RuntimeSubsetInfo>,
-    builtin_fonts: BTreeSet<BuiltinFont>,
+    builtin_fonts: BTreeMap<BuiltinFont, BTreeSet<u8>>,
+    embed_builtin_fonts: bool,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> LoDictionary {
     let mut font_dict = LoDictionary::new();
@@ -572,7 +635,7 @@ fn write_font_dict(
         font_dict.set(font_id.0.clone(), Reference(dict_id));
     }
 
-    for internal_font in builtin_fonts {
+    for (internal_font, codes) in builtin_fonts {
         // An embedded font that has the same resource name (F1..F14 is common in parsed PDFs)
         // wins over the standard font, or the page ops would point at the wrong font.
         // `resolve_current_font` applies the same rule per op.
@@ -587,7 +650,13 @@ fn write_font_dict(
             ));
             continue;
         }
-        let dict = builtin_font_to_dict(&internal_font);
+        // The standard requires every font to be embedded: write the bundled font program.
+        let embedded = if embed_builtin_fonts {
+            builtin_font::embedded_font_dict(doc, &internal_font, &codes, warnings)
+        } else {
+            None
+        };
+        let dict = embedded.unwrap_or_else(|| builtin_font_to_dict(&internal_font));
         let dict_id = doc.add_object(dict);
         font_dict.set(internal_font.get_pdf_id(), Reference(dict_id));
     }
@@ -843,6 +912,12 @@ pub(crate) fn translate_operations(
             }
             Op::LoadGraphicsState { gs } => {
                 content.push(LoOp::new("gs", vec![Name(gs.0.as_bytes().to_vec())]));
+            }
+            Op::SetFillPattern { id, color } => {
+                content.append(&mut pattern_color_ops("cs", "scn", id, color.as_ref(), warnings));
+            }
+            Op::SetOutlinePattern { id, color } => {
+                content.append(&mut pattern_color_ops("CS", "SCN", id, color.as_ref(), warnings));
             }
             Op::PaintShading { id } => {
                 // `sh` paints the named shading over the current clip region.
@@ -1243,6 +1318,42 @@ fn win_ansi_byte(c: char) -> Option<u8> {
         '\u{0153}' => 0x9C, // œ oe ligature
         '\u{017E}' => 0x9E, // ž z caron
         '\u{0178}' => 0x9F, // Ÿ Y diaeresis
+        _ => return None,
+    })
+}
+
+/// The character of a `WinAnsiEncoding` code: the inverse of [`win_ansi_byte`]. `None` for the
+/// codes that the encoding leaves undefined (below 0x20, 0x7F, 0x81, 0x8D, 0x8F, 0x90, 0x9D).
+fn win_ansi_char(code: u8) -> Option<char> {
+    Some(match code {
+        0x20..=0x7E | 0xA0..=0xFF => char::from(code),
+        0x80 => '\u{20AC}',
+        0x82 => '\u{201A}',
+        0x83 => '\u{0192}',
+        0x84 => '\u{201E}',
+        0x85 => '\u{2026}',
+        0x86 => '\u{2020}',
+        0x87 => '\u{2021}',
+        0x88 => '\u{02C6}',
+        0x89 => '\u{2030}',
+        0x8A => '\u{0160}',
+        0x8B => '\u{2039}',
+        0x8C => '\u{0152}',
+        0x8E => '\u{017D}',
+        0x91 => '\u{2018}',
+        0x92 => '\u{2019}',
+        0x93 => '\u{201C}',
+        0x94 => '\u{201D}',
+        0x95 => '\u{2022}',
+        0x96 => '\u{2013}',
+        0x97 => '\u{2014}',
+        0x98 => '\u{02DC}',
+        0x99 => '\u{2122}',
+        0x9A => '\u{0161}',
+        0x9B => '\u{203A}',
+        0x9C => '\u{0153}',
+        0x9E => '\u{017E}',
+        0x9F => '\u{0178}',
         _ => return None,
     })
 }
@@ -2187,14 +2298,10 @@ fn docinfo_to_dict(m: &PdfDocumentInfo) -> LoDictionary {
     let creation_date = LoString(info_create_date.into_bytes(), Literal);
     let identifier = LoString(m.identifier.as_bytes().to_vec(), Literal);
 
-    LoDictionary::from_iter(vec![
+    let mut dict = LoDictionary::from_iter(vec![
         ("Trapped", trapping.into()),
         ("CreationDate", creation_date),
         ("ModDate", LoString(info_mod_date.into_bytes(), Literal)),
-        (
-            "GTS_PDFXVersion",
-            LoString(gts_pdfx_version.into(), Literal),
-        ),
         ("Title", encode_text_to_utf16be(&m.document_title)),
         ("Author", encode_text_to_utf16be(&m.author)),
         ("Creator", encode_text_to_utf16be(&m.creator)),
@@ -2202,7 +2309,12 @@ fn docinfo_to_dict(m: &PdfDocumentInfo) -> LoDictionary {
         ("Subject", encode_text_to_utf16be(&m.subject)),
         ("Identifier", identifier),
         ("Keywords", encode_text_to_utf16be(&m.keywords.join(","))),
-    ])
+    ]);
+    // `/GTS_PDFXVersion` names a PDF/X standard; a PDF/A file has no use for it.
+    if !m.conformance.is_pdfa() {
+        dict.set("GTS_PDFXVersion", LoString(gts_pdfx_version.into(), Literal));
+    }
+    dict
 }
 
 fn icc_to_stream(val: &IccProfile) -> LoStream {
@@ -2393,6 +2505,19 @@ mod win_ansi_tests {
     #[test]
     fn ascii_is_unchanged() {
         assert_eq!(encode("Hello, World!"), b"Hello, World!".to_vec());
+    }
+
+    #[test]
+    fn win_ansi_char_is_the_inverse_of_win_ansi_byte() {
+        for code in 0u8..=255 {
+            if let Some(c) = super::win_ansi_char(code) {
+                assert_eq!(super::win_ansi_byte(c), Some(code), "code {code:#04x}");
+            }
+        }
+        // the six undefined codes of the 0x80..=0x9F block, and the control codes
+        for code in [0x7F, 0x81, 0x8D, 0x8F, 0x90, 0x9D, 0x00, 0x1F] {
+            assert_eq!(super::win_ansi_char(code), None);
+        }
     }
 
     #[test]

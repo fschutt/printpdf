@@ -366,9 +366,9 @@ pub enum ImageFilter {
 ///
 /// A form is a small page: its [`ops`](FormXObject::ops) are drawn inside the
 /// [`bbox`](FormXObject::bbox), in the coordinate system that [`matrix`](FormXObject::matrix)
-/// maps onto the page. The fonts, images, graphics states and shadings that the ops name are the
-/// form's own [`resources`](FormXObject::resources), so a name in a form never clashes with a
-/// name on a page or in another form.
+/// maps onto the page. The fonts, images, graphics states, shadings and patterns that the ops
+/// name are the form's own [`resources`](FormXObject::resources), so a name in a form never
+/// clashes with a name on a page or in another form.
 ///
 /// Reading a PDF turns every form it can model into a `FormXObject`, so
 /// [`PdfDocument::extract_text`](crate::PdfDocument::extract_text),
@@ -432,11 +432,11 @@ pub struct FormXObject {
     /// before the placement of the [`Op::UseXobject`] (ISO 32000-1, 8.10.2).
     pub matrix: Option<CurTransMat>,
     /// The content: what the form paints, as the ops of a page would. Names in the ops
-    /// (`Op::SetFont`, `Op::UseXobject`, `Op::LoadGraphicsState`, `Op::PaintShading`) are looked
-    /// up in [`resources`](FormXObject::resources).
+    /// (`Op::SetFont`, `Op::UseXobject`, `Op::LoadGraphicsState`, `Op::PaintShading`,
+    /// `Op::SetFillPattern`) are looked up in [`resources`](FormXObject::resources).
     #[serde(default)]
     pub ops: Vec<Op>,
-    /// `/Resources`: the fonts, images, nested forms, graphics states and shadings the ops
+    /// `/Resources`: the fonts, images, nested forms, graphics states, shadings and patterns the ops
     /// name. They are local to the form. With `None` the form has no `/Resources` and uses the
     /// resources of the page that paints it, as forms did before PDF 1.2: its names are looked
     /// up in the document's [`PdfResources`], or in the scope of the form that paints it.
@@ -476,7 +476,7 @@ pub struct FormXObject {
     /// What the model has no field for, kept as it was read and written back: entries of the
     /// form's dictionary (`/OC`, `/Metadata`, `/PieceInfo`, `/Group` with attributes), and under
     /// the key `Resources` the resource categories that have no typed map
-    /// (`/ColorSpace`, `/Pattern`, `/Properties`, `/ProcSet`) and the graphics states and
+    /// (`/ColorSpace`, `/Properties`, `/ProcSet`) and the graphics states and
     /// shadings that the typed maps of [`resources`](FormXObject::resources) cannot hold
     /// without loss. An entry written here wins over the field or typed entry of the same name.
     #[serde(default)]

@@ -33,12 +33,16 @@
 //! - **XObjects** (reusable pieces of content, referenced by `Do`): images are decoded to
 //!   [`XObject::Image`], with an `/SMask` merged in as alpha. Form XObjects become
 //!   [`XObject::Form`]: the operators of the form's content stream are read as [`Op`]s, and its
-//!   own `/Resources` (fonts, images, nested forms, graphics states, shadings) become a scope
+//!   own `/Resources` (fonts, images, nested forms, graphics states, shadings, patterns) become a scope
 //!   of its own, read by the same functions as the resources of the pages. Text that a page
 //!   draws inside a form (macOS Quartz, Word and print drivers do that for the whole page) is
 //!   part of the document model like any other text. A form that cannot be modelled without
 //!   loss, and images that cannot be decoded (JPEG and JPEG 2000 need the `images` feature), are
 //!   kept byte for byte as [`XObject::External`], so that saving does not lose them.
+//! - **Patterns** (`/Pattern` resources) become [`crate::Pattern`]s: tiling patterns and axial or
+//!   radial shading patterns that the model holds exactly are typed, the others (mesh shadings,
+//!   tiling patterns with nested resources) are kept as they are. `/Pattern cs /P1 scn` becomes
+//!   [`Op::SetFillPattern`]. See the `pattern` module for what is typed.
 //! - **Graphics state parameter dictionaries** (ExtGState), **shadings** (axial and radial
 //!   gradients only), **layers** (optional content groups), **bookmarks** (the top level of the
 //!   outline, entries with an explicit destination) and **link annotations** (GoTo and URI
@@ -84,7 +88,7 @@
 //! assert!(edited.starts_with(b"%PDF-"));
 //! ```
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use lopdf::{
@@ -95,6 +99,7 @@ use serde_derive::{Deserialize, Serialize};
 
 mod form_xobject;
 use form_xobject::{parse_form, PendingForm, XObjectCtx};
+mod pattern;
 
 use crate::{
     cmap::ToUnicodeCMap,
@@ -271,13 +276,19 @@ fn parse_pdf_from_bytes_start(
 
     objs_to_search_for_resources.extend(page_objects);
 
-    let document_info = doc
+    let mut document_info = doc
         .trailer
         .get(b"Info")
         .ok()
         .and_then(|s| get_dict_or_resolve_ref("document_info", &doc, s, warnings, None))
         .map(parse_document_info)
         .unwrap_or_default();
+    // A PDF/A file names its standard in the XMP metadata, not in the info dictionary.
+    if document_info.conformance == PdfConformance::default() {
+        if let Some(conformance) = pdfa_conformance_from_xmp(&doc, catalog) {
+            document_info.conformance = conformance;
+        }
+    }
 
     let link_annots = links_and_bookmarks::extract_link_annotations(&doc);
 
@@ -431,6 +442,8 @@ fn parse_pdf_from_bytes_end(
 
     let shadings = extract_shadings(&doc, &objs_to_search_for_resources, warnings);
 
+    let patterns = pattern::extract_patterns(&doc, &objs_to_search_for_resources, warnings);
+
     let fonts = font_resources(
         fonts
             .into_iter()
@@ -447,6 +460,7 @@ fn parse_pdf_from_bytes_end(
             xobjects: XObjectMap { map: xobjects },
             extgstates: ExtendedGraphicsStateMap { map: extgstates },
             shadings: crate::ShadingMap { map: shadings },
+            patterns: crate::PatternMap { map: patterns },
             layers: PdfLayerMap {
                 map: layers.into_iter().collect(),
             },
@@ -2192,8 +2206,21 @@ fn parse_page(
 
     // A page whose content stream fails to tokenize becomes an empty page
     // with a warning instead of failing the entire document.
+    let pattern_spaces = get_inheritable_page_attr(page, doc, b"Resources")
+        .and_then(|resources| {
+            get_dict_or_resolve_ref("page /Resources", doc, resources, &mut Vec::new(), Some(num))
+        })
+        .map(|resources| pattern::pattern_space_names(doc, resources))
+        .unwrap_or_default();
     let ops = match decode_content(&content_data) {
-        Ok(operations) => convert_operations(num, &operations, xobjects, font_decode, warnings)?,
+        Ok(operations) => convert_operations(
+            num,
+            &operations,
+            xobjects,
+            font_decode,
+            &pattern_spaces,
+            warnings,
+        )?,
         Err(e) => {
             warnings.push(PdfWarnMsg::error(num, 0, e));
             Vec::new()
@@ -2217,17 +2244,20 @@ fn decode_content(bytes: &[u8]) -> Result<Vec<lopdf::content::Operation>, String
 
 /// Turns the operators of a content stream into [`Op`]s. `font_decode` says how the text of each
 /// font resource name decodes: it is the scope the content stream names its resources in, the
-/// resources of the document for a page, and the ones of the form for a form. `page` is the page
-/// the warnings are about.
+/// resources of the document for a page, and the ones of the form for a form. `pattern_spaces`
+/// are the names of the `[/Pattern ...]` color spaces of that scope. `page` is the page the
+/// warnings are about.
 fn convert_operations(
     page: usize,
     operations: &[lopdf::content::Operation],
     xobjects: &BTreeMap<XObjectId, XObject>,
     font_decode: &BTreeMap<String, FontTextDecodeKind>,
+    pattern_spaces: &BTreeSet<String>,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> Result<Vec<Op>, String> {
     let mut state = PageState {
         font_decode: font_decode.clone(),
+        pattern_spaces: pattern_spaces.clone(),
         ..PageState::default()
     };
     let mut ops = Vec::new();
@@ -2265,6 +2295,11 @@ pub struct PageState {
 
     /// The decode kind of the currently selected font (set by `Tf`).
     pub current_font_decode: Option<FontTextDecodeKind>,
+
+    /// The names of the `[/Pattern ...]` color spaces in the resources of the content stream.
+    /// `cs` and `CS` with one of them, or with `Pattern`, selects the pattern color space, which
+    /// [`Op::SetFillPattern`] and [`Op::SetOutlinePattern`] imply.
+    pub pattern_spaces: std::collections::BTreeSet<String>,
 
     /// Current transformation matrix stack. Each entry is a 6-float array [a b c d e f]. The
     /// stack has a depth limit; `q` operators beyond it are counted in
@@ -3075,6 +3110,10 @@ pub fn parse_op(
                 }
             };
 
+            // The pattern color space is implied by `Op::SetOutlinePattern`.
+            if id == "Pattern" || state.pattern_spaces.contains(&id) {
+                return Ok(Vec::new());
+            }
             out_ops.push(Op::SetColorSpaceStroke { id });
         }
         "cs" => {
@@ -3099,6 +3138,10 @@ pub fn parse_op(
                 }
             };
 
+            // The pattern color space is implied by `Op::SetFillPattern`.
+            if id == "Pattern" || state.pattern_spaces.contains(&id) {
+                return Ok(Vec::new());
+            }
             out_ops.push(Op::SetColorSpaceFill { id });
         }
         "ri" => {
@@ -4041,6 +4084,56 @@ pub fn parse_op(
             }
         }
 
+        // A name as the last operand selects a pattern. The operands before it are the color of
+        // an uncolored tiling pattern.
+        "sc" | "scn" | "SC" | "SCN" if matches!(op.operands.last(), Some(Object::Name(_))) => {
+            let stroke = matches!(op.operator.as_str(), "SC" | "SCN");
+            let (name, components) = match op.operands.split_last() {
+                Some((Object::Name(name), components)) => (name, components),
+                _ => return Ok(Vec::new()),
+            };
+            let id = crate::PatternId(String::from_utf8_lossy(name).into_owned());
+            let floats = components.iter().map(to_f32).collect::<Vec<_>>();
+            let color = match floats.as_slice() {
+                [] => None,
+                [gray] => Some(Color::Greyscale(crate::Greyscale {
+                    percent: *gray,
+                    icc_profile: None,
+                })),
+                [r, g, b] => Some(Color::Rgb(crate::Rgb {
+                    r: *r,
+                    g: *g,
+                    b: *b,
+                    icc_profile: None,
+                })),
+                [c, m, y, k] => Some(Color::Cmyk(crate::Cmyk {
+                    c: *c,
+                    m: *m,
+                    y: *y,
+                    k: *k,
+                    icc_profile: None,
+                })),
+                other => {
+                    warnings.push(PdfWarnMsg::warning(
+                        page,
+                        op_id,
+                        format!(
+                            "{} sets a pattern with {} color components, which is not 1, 3 or 4; \
+                             the color is dropped",
+                            op.operator,
+                            other.len()
+                        ),
+                    ));
+                    None
+                }
+            };
+            out_ops.push(if stroke {
+                Op::SetOutlinePattern { id, color }
+            } else {
+                Op::SetFillPattern { id, color }
+            });
+        }
+
         "sc" | "scn" => {
             // The operand count picks the color space: 1 gray, 3 RGB, 4 CMYK.
             let floats = op.operands.iter().map(to_f32).collect::<Vec<_>>();
@@ -4224,6 +4317,31 @@ pub fn parse_op(
     }
 
     Ok(out_ops)
+}
+
+/// The PDF/A variant that the XMP metadata of `catalog` names (`pdfaid:part` and
+/// `pdfaid:conformance`), if it has any.
+fn pdfa_conformance_from_xmp(doc: &LopdfDocument, catalog: &LopdfDictionary) -> Option<PdfConformance> {
+    let metadata = match catalog.get(b"Metadata").ok()? {
+        Object::Reference(id) => doc.get_object(*id).ok()?,
+        other => other,
+    };
+    let Object::Stream(stream) = metadata else {
+        return None;
+    };
+    let bytes = stream.decompressed_content_with_limit(16 * 1024 * 1024).ok()?;
+    let text = String::from_utf8_lossy(&bytes);
+    let (part, level) = crate::preflight::xmp::pdfa_id(&text);
+    let level = level.unwrap_or_default();
+    match (part?.as_str(), level.as_str()) {
+        ("1", "A") => Some(PdfConformance::A1A_2005_PDF_1_4),
+        ("1", _) => Some(PdfConformance::A1B_2005_PDF_1_4),
+        ("2", "A") => Some(PdfConformance::A2A_2011_PDF_1_7),
+        ("2", "U") => Some(PdfConformance::A2U_2011_PDF_1_7),
+        ("2", _) => Some(PdfConformance::A2B_2011_PDF_1_7),
+        ("3", _) => Some(PdfConformance::A3_2012_PDF_1_7),
+        _ => None,
+    }
 }
 
 /// Unix epoch, used when a date is missing or unreadable.

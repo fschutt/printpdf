@@ -314,11 +314,23 @@ name = "shape"
 required-features = ["html"]
 
 [[example]]
+name = "shape_line"
+required-features = ["text_layout"]
+
+[[example]]
 name = "pagination_test"
 required-features = ["html"]
 
 [[example]]
 name = "otf-font"
+required-features = []
+
+[[example]]
+name = "variable_font"
+required-features = ["text_layout"]
+
+[[example]]
+name = "patterns"
 required-features = []
 
 [[example]]
