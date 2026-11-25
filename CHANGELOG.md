@@ -3,7 +3,7 @@
 All notable changes to printpdf are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.13.0 - 2026-11-25
 
 ### Added
 
