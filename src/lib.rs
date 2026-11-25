@@ -213,7 +213,7 @@
 //!     inside HTML. Switches on `html`.
 //!   - `html_multithreaded`: `html`, with fonts loaded on several threads. Not for WASM.
 //!   - `text_layout`: the text shaping above, without `html`. Use it if you want
-//!     [`shape`] but not the HTML layout.
+//!     [`shape`] or [`shape_line`](crate::shape_line()) but not the HTML layout.
 //!   - `js-sys`: in the browser (`wasm32-unknown-unknown`), timestamps from `Date` and image
 //!     decoding by the browser.
 //!
@@ -273,6 +273,10 @@ pub mod variable_font;
 pub use variable_font::*;
 pub mod shape;
 pub use shape::*;
+#[cfg(feature = "text_layout")]
+pub mod shape_line;
+#[cfg(feature = "text_layout")]
+pub use shape_line::*;
 pub mod graphics;
 pub use graphics::*;
 pub mod shading;

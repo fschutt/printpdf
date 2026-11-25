@@ -310,6 +310,10 @@ name = "shape"
 required-features = ["html"]
 
 [[example]]
+name = "shape_line"
+required-features = ["text_layout"]
+
+[[example]]
 name = "pagination_test"
 required-features = ["html"]
 
