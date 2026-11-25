@@ -45,6 +45,9 @@
 //!   `DeviceCMYK` a CMYK one. printpdf embeds the sRGB profile, or the FOGRA39 profile when the
 //!   document uses CMYK and no RGB. A document that uses both gets the sRGB profile and a
 //!   warning. `DeviceRGB` in PDF/X-1a is reported the same way;
+//!   The bundled sRGB profile is ICC version 4. PDF/A-1 is based on ICC version 2, so a strict
+//!   PDF/A-1 validator can reject that profile; PDF/A-2 accepts it. Use the `A2B` variant when a
+//!   validator must pass. No external validator (veraPDF) was run on printpdf's output;
 //! * symbols that the bundled font of a built-in font has no glyph for.
 //!
 //! Printpdf does not write tagged document structure (`/StructTreeRoot`, `/MarkInfo`), which
