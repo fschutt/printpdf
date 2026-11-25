@@ -150,8 +150,7 @@ interface ImageOptimizationOptions { // camelCase
 ```
 
 The result is `{ doc: PdfDocument, warnings: PdfWarnMsg[] }`. See
-[HTML.md](HTML.md) for the HTML and CSS that is supported, and note that the
-header, footer and page number options of `GeneratePdfOptions` do not draw anything yet.
+[HTML.md](HTML.md) for the HTML and CSS that is supported.
 
 ```js
 const result = JSON.parse(await Pdf_HtmlToDocument(JSON.stringify({

@@ -186,14 +186,13 @@ pub struct XmlRenderOptions {
     /// Page margins. Layout uses the page minus the margins as its content area.
     #[serde(default)]
     pub margins: PageMargins,
-    /// Ask layout for page numbers in the footer. Currently nothing is drawn: layout needs a
-    /// font registered in its renderer resources for this text, and printpdf registers none.
+    /// Draw page numbers in the footer of every page.
     #[serde(default)]
     pub show_page_numbers: bool,
-    /// Header text for every page. Currently nothing is drawn, see `show_page_numbers`.
+    /// Header text for every page.
     #[serde(default)]
     pub header_text: Option<String>,
-    /// Footer text for every page. Currently nothing is drawn, see `show_page_numbers`.
+    /// Footer text for every page.
     #[serde(default)]
     pub footer_text: Option<String>,
     /// Leave the header and footer off the first page.

@@ -357,24 +357,16 @@ pub struct GeneratePdfOptions {
     /// Left margin in mm. Default 0.0.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub margin_left: Option<f32>,
-    /// Page numbers ("Page X of Y") in the footer.
-    ///
-    /// Currently has no visible effect: the space is reserved but nothing is drawn.
+    /// Page numbers in the footer, one per page.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub show_page_numbers: Option<bool>,
     /// Text for the header of every page, except the first if `skip_first_page` is set.
-    ///
-    /// Currently has no visible effect: the space is reserved but nothing is drawn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub header_text: Option<String>,
-    /// Text for the footer, in addition to or instead of the page numbers.
-    ///
-    /// Currently has no visible effect: the space is reserved but nothing is drawn.
+    /// Text for the footer, in addition to the page numbers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub footer_text: Option<String>,
     /// Leave header and footer off the first page.
-    ///
-    /// Currently has no visible effect: the space is reserved but nothing is drawn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skip_first_page: Option<bool>,
 }

@@ -48,10 +48,10 @@ Page size and margins come from these options. The CSS `@page` rule is not
 parsed, except for the `@footnote` area described below. `<header>` and
 `<footer>` elements are ordinary blocks in the flow of the page.
 
-Known issue: `show_page_numbers`, `header_text` and `footer_text` are accepted
-but currently draw nothing. azul-layout sets this text in the first font
-registered in its renderer resources, and printpdf registers none, so the text
-is silently dropped. Repeating headers and footers are not available yet.
+`show_page_numbers`, `header_text` and `footer_text` draw a header, a footer
+and page numbers on every page, in the default font of the document.
+`skip_first_page` leaves them off the first page. They need azul-layout 0.0.21
+or later.
 
 ## Images and fonts
 
