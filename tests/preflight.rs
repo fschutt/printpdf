@@ -65,15 +65,10 @@ fn x3_2002_document_with_an_embedded_font_has_no_errors() {
 fn x1a_2001_document_with_an_embedded_font_has_no_errors() {
     let doc = document(PdfConformance::X1A_2001_PDF_1_3);
     let report = doc.preflight(PreflightProfile::PdfX1a_2001);
-    // printpdf writes no output intent for X-1a:2001 (`must_have_icc_profile` is false), but
-    // that standard requires one.
-    let rules: Vec<_> = errors(&report.findings)
-        .into_iter()
-        .map(|(r, _)| r)
-        .collect();
+    // PDF/X-1a:2001 requires an output intent; printpdf writes one for it.
     assert_eq!(
-        rules,
-        vec!["output-intent-missing"],
+        errors(&report.findings),
+        Vec::new(),
         "{:#?}",
         report.findings
     );
@@ -100,8 +95,9 @@ fn the_default_document_has_no_general_errors() {
 
 #[test]
 fn a_builtin_font_is_flagged_by_the_standards_and_not_by_general() {
+    // With the default conformance printpdf writes the standard font as a name only. A foreign
+    // file looks the same, and the standards report it.
     let mut doc = PdfDocument::new("Builtin");
-    doc.metadata.info.conformance = PdfConformance::X3_2002_PDF_1_3;
     doc.pages.push(PdfPage::new(
         Mm(210.0),
         Mm(297.0),
@@ -120,13 +116,57 @@ fn a_builtin_font_is_flagged_by_the_standards_and_not_by_general() {
 }
 
 #[test]
-fn pdfa_conformance_does_not_write_what_pdfa_needs() {
-    // `PdfConformance::A1B_2005_PDF_1_4` writes the identifier in the Info dictionary and an
-    // output intent of the PDF/X kind, but no XMP metadata. The preflight says so.
-    let report = document(PdfConformance::A1B_2005_PDF_1_4).preflight(PreflightProfile::PdfA1b);
+fn a_standard_that_needs_embedded_fonts_embeds_the_builtin_ones() {
+    // Before, `PdfConformance::X3_2002_PDF_1_3` and the PDF/A variants wrote Helvetica as a name
+    // only, and the preflight reported `font-not-embedded`.
+    for (conformance, profile) in [
+        (PdfConformance::X3_2002_PDF_1_3, PreflightProfile::PdfX3_2002),
+        (PdfConformance::A1B_2005_PDF_1_4, PreflightProfile::PdfA1b),
+        (PdfConformance::A2B_2011_PDF_1_7, PreflightProfile::PdfA2b),
+    ] {
+        let mut doc = PdfDocument::new("Builtin");
+        doc.metadata.info.conformance = conformance.clone();
+        doc.pages.push(PdfPage::new(
+            Mm(210.0),
+            Mm(297.0),
+            text_ops(PdfFontHandle::Builtin(BuiltinFont::Helvetica)),
+        ));
+        let report = doc.preflight(profile);
+        assert!(
+            report.findings.iter().all(|f| f.rule != "font-not-embedded"),
+            "{conformance:?}: {:#?}",
+            report.findings
+        );
+    }
+}
+
+#[test]
+fn pdfa_conformance_writes_what_pdfa_needs() {
+    // `PdfConformance::A1B_2005_PDF_1_4` used to write the identifier in the Info dictionary and
+    // an output intent of the PDF/X kind, but no XMP metadata. Now the XMP packet carries the
+    // PDF/A identification and the output intent is a PDF/A one. `tests/pdfa_output.rs` has the
+    // rest.
+    for (conformance, profile) in [
+        (PdfConformance::A1B_2005_PDF_1_4, PreflightProfile::PdfA1b),
+        (PdfConformance::A2B_2011_PDF_1_7, PreflightProfile::PdfA2b),
+    ] {
+        let report = document(conformance.clone()).preflight(profile);
+        let rules: Vec<_> = report.findings.iter().map(|f| f.rule).collect();
+        for gone in ["xmp-missing", "pdfa-id-missing", "output-intent-subtype", "font-not-embedded"] {
+            assert!(!rules.contains(&gone), "{conformance:?}: {gone} in {rules:?}");
+        }
+        assert_eq!(errors(&report.findings), Vec::new(), "{:#?}", report.findings);
+    }
+}
+
+#[test]
+fn a_file_without_the_pdfa_parts_is_still_reported() {
+    // The default conformance writes no XMP metadata and no output intent, so the PDF/A
+    // profiles report both. This is what the rules are for: files that did not come from a
+    // PDF/A variant.
+    let report = document(PdfConformance::default()).preflight(PreflightProfile::PdfA1b);
     let rules: Vec<_> = report.findings.iter().map(|f| f.rule).collect();
     assert!(rules.contains(&"xmp-missing"), "{rules:?}");
-    assert!(rules.contains(&"output-intent-subtype"), "{rules:?}");
 }
 
 #[test]

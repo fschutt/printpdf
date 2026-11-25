@@ -77,19 +77,18 @@ pub(crate) fn to_pdf_time_stamp_metadata(date: &OffsetDateTime) -> String {
     )
 }
 
-/// Formats `date` as an XMP date such as `D:2018-09-19T10:05:05+00'00'`. On wasm the result is the
-/// Unix epoch.
+/// Formats `date` as an XMP date (ISO 8601) such as `2018-09-19T10:05:05+00:00`. On wasm the
+/// result is the Unix epoch. The XMP specification does not allow the `D:` prefix of PDF dates.
 #[cfg(target_family = "wasm")]
 pub(crate) fn to_pdf_xmp_date(_date: &OffsetDateTime) -> String {
-    "D:1970-01-01T00:00:00+00'00'".to_string()
+    "1970-01-01T00:00:00+00:00".to_string()
 }
 
 #[cfg(not(target_family = "wasm"))]
 pub(crate) fn to_pdf_xmp_date(date: &OffsetDateTime) -> String {
-    // Since the time is in UTC, we know that the time zone
-    // difference to UTC is 0 min, 0 sec, hence the 00'00
+    // Since the time is in UTC, the offset is always +00:00.
     format!(
-        "D:{:04}-{:02}-{:02}T{:02}:{:02}:{:02}+00'00'",
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}+00:00",
         date.year(),
         // `u8`, not the `Month` enum: Month's Display ignores the `{:02}` width, so months 1 to 9
         // would have one digit, a date that veraPDF rejects.
@@ -153,6 +152,6 @@ mod tests {
                 milliseconds: 0,
             },
         );
-        assert_eq!(super::to_pdf_xmp_date(&d), "D:2018-09-03T01:02:03+00'00'");
+        assert_eq!(super::to_pdf_xmp_date(&d), "2018-09-03T01:02:03+00:00");
     }
 }

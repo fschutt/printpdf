@@ -280,7 +280,7 @@ fn pdfaid_prefix(text: &str) -> String {
 }
 
 /// `pdfaid:part` and `pdfaid:conformance` of an XMP packet.
-pub(super) fn pdfa_id(text: &str) -> (Option<String>, Option<String>) {
+pub(crate) fn pdfa_id(text: &str) -> (Option<String>, Option<String>) {
     let prefix = pdfaid_prefix(text);
     (
         value_of(text, &format!("{prefix}:part")),

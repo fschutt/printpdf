@@ -276,13 +276,19 @@ fn parse_pdf_from_bytes_start(
 
     objs_to_search_for_resources.extend(page_objects);
 
-    let document_info = doc
+    let mut document_info = doc
         .trailer
         .get(b"Info")
         .ok()
         .and_then(|s| get_dict_or_resolve_ref("document_info", &doc, s, warnings, None))
         .map(parse_document_info)
         .unwrap_or_default();
+    // A PDF/A file names its standard in the XMP metadata, not in the info dictionary.
+    if document_info.conformance == PdfConformance::default() {
+        if let Some(conformance) = pdfa_conformance_from_xmp(&doc, catalog) {
+            document_info.conformance = conformance;
+        }
+    }
 
     let link_annots = links_and_bookmarks::extract_link_annotations(&doc);
 
@@ -4311,6 +4317,31 @@ pub fn parse_op(
     }
 
     Ok(out_ops)
+}
+
+/// The PDF/A variant that the XMP metadata of `catalog` names (`pdfaid:part` and
+/// `pdfaid:conformance`), if it has any.
+fn pdfa_conformance_from_xmp(doc: &LopdfDocument, catalog: &LopdfDictionary) -> Option<PdfConformance> {
+    let metadata = match catalog.get(b"Metadata").ok()? {
+        Object::Reference(id) => doc.get_object(*id).ok()?,
+        other => other,
+    };
+    let Object::Stream(stream) = metadata else {
+        return None;
+    };
+    let bytes = stream.decompressed_content_with_limit(16 * 1024 * 1024).ok()?;
+    let text = String::from_utf8_lossy(&bytes);
+    let (part, level) = crate::preflight::xmp::pdfa_id(&text);
+    let level = level.unwrap_or_default();
+    match (part?.as_str(), level.as_str()) {
+        ("1", "A") => Some(PdfConformance::A1A_2005_PDF_1_4),
+        ("1", _) => Some(PdfConformance::A1B_2005_PDF_1_4),
+        ("2", "A") => Some(PdfConformance::A2A_2011_PDF_1_7),
+        ("2", "U") => Some(PdfConformance::A2U_2011_PDF_1_7),
+        ("2", _) => Some(PdfConformance::A2B_2011_PDF_1_7),
+        ("3", _) => Some(PdfConformance::A3_2012_PDF_1_7),
+        _ => None,
+    }
 }
 
 /// Unix epoch, used when a date is missing or unreadable.

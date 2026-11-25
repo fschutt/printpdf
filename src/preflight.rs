@@ -34,6 +34,14 @@
 //! assert!(report.findings.iter().any(|f| f.rule == "xmp-missing"));
 //! ```
 //!
+//! A document that is saved with `PdfConformance::A1B_2005_PDF_1_4`, `A2B_2011_PDF_1_7` or
+//! `X1A_2001_PDF_1_3` and uses only what that standard allows gives a report without errors for
+//! the profile of the same name (`tests/pdfa_output.rs`). The rules `xmp-missing`,
+//! `pdfa-id-missing`, `output-intent-subtype` and `font-not-embedded` then fire on files from
+//! other writers, or on a document with the default conformance. If a document uses something
+//! that the standard forbids, the save warns, and `PdfDocument::preflight` shows the warning as
+//! a `writer-warning` finding next to the rule of the file.
+//!
 //! # Profiles
 //!
 //! A [`PreflightProfile`] chooses which rules apply and how severe a finding is.
@@ -192,7 +200,7 @@ mod content;
 mod file;
 mod structure;
 mod util;
-mod xmp;
+pub(crate) mod xmp;
 
 #[cfg(test)]
 mod tests;
@@ -365,7 +373,7 @@ impl PreflightProfile {
 
     /// Profiles that forbid optional content (layers).
     ///
-    /// This is not [`PdfConformance::is_layering_allowed`], which answers `true` for PDF/A-1.
+    /// The profiles for which [`PdfConformance::is_layering_allowed`] is `false`.
     pub(crate) fn forbids_layers(self) -> bool {
         self.forbids_transparency()
     }

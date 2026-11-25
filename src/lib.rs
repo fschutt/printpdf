@@ -1258,6 +1258,41 @@ impl PdfMetadata {
         };
 
         use crate::render::escape_xml_text as esc;
+
+        // PDF/A: the identification, and the same values as the Info dictionary (title, author,
+        // subject, creator, producer, keywords, dates). PDF/X fields do not belong in it.
+        if let Some(part) = self.info.conformance.pdfa_part() {
+            let pdfa_document_id = random_character_string_32();
+            // Level a (and u) needs tagged structure, which is not written: the file claims b.
+            let rendition = if rendition_class.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "\n         <xmpMM:RenditionClass>{}</xmpMM:RenditionClass>",
+                    esc(&rendition_class)
+                )
+            };
+            return format!(
+                include_str!("./res/catalog_xmp_metadata_pdfa.txt"),
+                part = part,
+                level = "B",
+                create = create_date,
+                modify = modification_date,
+                mdate = metadata_date,
+                title = esc(&self.info.document_title),
+                author = esc(&self.info.author),
+                subject = esc(&self.info.subject),
+                creator = esc(&self.info.creator),
+                producer = esc(&self.info.producer),
+                keywords = esc(&self.info.keywords.join(",")),
+                trapping = trapping,
+                id = pdfa_document_id,
+                instance = instance_id,
+                rendition = rendition,
+                version = esc(&document_version),
+            );
+        }
+
         format!(
             include_str!("./res/catalog_xmp_metadata.txt"),
             create = create_date,

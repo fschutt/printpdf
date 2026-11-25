@@ -182,7 +182,15 @@ fn write_tiling(
     // A pattern names only resources of its own (ISO 32000-1, 8.7.3.1).
     let empty = PdfResources::default();
     let local = tiling.resources.unwrap_or(&empty);
-    let local_scope = write_local_scope(doc, local, ops, parent.depth.saturating_add(1), opts, warnings);
+    let local_scope = write_local_scope(
+        doc,
+        local,
+        ops,
+        parent.depth.saturating_add(1),
+        parent.embed_builtin_fonts,
+        opts,
+        warnings,
+    );
 
     let mut dict = LoDictionary::new();
     dict.set("Type", Name(b"Pattern".to_vec()));

@@ -21,10 +21,16 @@ All notable changes to printpdf are documented in this file. The format follows
 - Preflight (`printpdf::preflight`): `preflight_bytes`, `PdfDocument::preflight` and `PdfDocument::preflight_with_options` check a PDF and return a `PreflightReport` of findings, each with a severity, a stable rule id (`RULES` lists the 97 ids), a page, an object and, for some PDF/A-1b rules, the clause of the standard. Profiles: `General` (file structure, page tree, resources, colour spaces such as the malformed one behind #211, fonts, content stream balance), `PdfA1b`, `PdfA2b`, `PdfX1a_2001` and `PdfX3_2002` (embedded fonts, output intent, XMP and PDF/A identification, transparency, layers, encryption, JavaScript, LZW, page boxes, Info dictionary). The work and the number of findings are bounded, and hostile files do not panic (`tests/no_panic_preflight.rs`). It is not a certification and does not replace veraPDF or Acrobat Preflight; `NOT_CHECKED` lists what it does not look at.
 - `ppdf check FILE [--profile general|pdfa-1b|pdfa-2b|pdfx-1a|pdfx-3] [--json]` prints the report. Exit code 0: no errors, 1: errors found, 2: the file cannot be read.
 
+- PDF/A-1b and PDF/A-2b files that pass printpdf's own preflight, and PDF/X-1a:2001 with its output intent. Saving a document with `PdfConformance::A1B_2005_PDF_1_4`, `A2B_2011_PDF_1_7` (and the other PDF/A variants) writes: XMP metadata with `pdfaid:part` and `pdfaid:conformance` and the title, author, subject, keywords, creator, producer and dates of the Info dictionary as the same values; an output intent with `/S /GTS_PDFA1`, `/OutputConditionIdentifier` and an embedded sRGB profile (the FOGRA39 profile when the document uses DeviceCMYK and no DeviceRGB); the header version 1.4 (PDF/A-1) or 1.7 (PDF/A-2 and 3); and the `/Print` flag on link annotations. `tests/pdfa_output.rs` checks this against the preflight.
+- The 14 standard fonts are embedded when the conformance level requires embedded fonts (all PDF/A and PDF/X variants, `PdfConformance::must_embed_fonts`). They are written as TrueType subsets with the same resource names, `WinAnsiEncoding` and codes in the content stream, so extracted text does not change. `Symbol` and `ZapfDingbats` stay unembedded because the font files that printpdf bundles for them are not the standard glyph sets; the save warns. The save also warns, naming the characters, when a bundled font has no glyph for a character of the text.
+- Save warnings for content that the chosen standard forbids; the content is written as it is. Transparency (`/CA` and `/ca` below 1, soft masks, blend modes, transparency groups) in PDF/A-1, PDF/X-1a and PDF/X-3; layers in PDF/A-1, PDF/X-1a and PDF/X-3; the LZW filter, JavaScript and launch actions in PDF/A; JPEG 2000 and JBIG2 in PDF/A-1; embedded files in PDF/A-1 and 2; DeviceCMYK together with DeviceRGB in PDF/A (one output intent cannot cover both); DeviceRGB in PDF/X-1a.
+- `PdfConformance::is_pdfa`, `pdfa_part`, `pdfa_level`, `must_embed_fonts` and `is_transparency_allowed`.
+- A saved PDF/A file is read back as the PDF/A variant that its XMP names. It was `Custom` before, because the variant was only in `/GTS_PDFXVersion`.
+
 ### Changed
 
 - Reading `/Pattern cs /P1 scn` gives `Op::SetFillPattern` (and `Op::SetOutlinePattern` for `CS` and `SCN`). Before, the name was read as the gray level 0, so the fill became black, and `cs` was read as `Op::SetColorSpaceFill`. A form that sets a pattern from its own resources is now read as `XObject::Form` instead of being kept as `XObject::External`. `PdfResources` and `PageState` have a new field, `patterns` and `pattern_spaces`.
-- The README no longer lists conformance checking as unsupported (it is a subset, see the preflight) and no longer says that PDF/X-3:2002 is covered; `PdfConformance` writes the identification and the output intent but does not make a document conform.
+- The README no longer lists conformance checking as unsupported (it is a subset, see the preflight) and no longer says that PDF/X-3:2002 is covered.
 - `Mm` and `Pt` compare NaN equal to NaN and an infinity equal to itself, so `x == x` holds for every value as `Eq` requires. Before, `Mm(f32::NAN) == Mm(f32::NAN)` was false (#292).
 - Pin every GitHub Action to a commit SHA, give workflow tokens no default permissions, and lint the workflows with zizmor. Dependabot keeps the pins up to date (#296).
 - Dependabot opens one pull request for all GitHub Actions updates and one for the minor and patch updates of each crate, instead of one per dependency. Major crate updates stay separate.
@@ -42,6 +48,10 @@ All notable changes to printpdf are documented in this file. The format follows
 - Pages and forms are read and written by the same functions: both use a `PdfResources` as their scope for fonts, images, graphics states and shadings.
 - printpdf depends on `glyph-names` and `encoding_rs` directly (both were in the tree through allsorts).
 - `Pt` and `Mm` order by `f32::total_cmp` (-0.0 sorts before 0.0, NaN last), so `==` and `cmp` can differ within the 0.0005 tolerance of `==`. `Px` addition and subtraction saturate. `PageState` has two more public fields, `untracked_saves` and `untracked_marked_content`.
+- `PdfConformance::must_have_icc_profile` is `true` for `X1A_2001_PDF_1_3`. PDF/X-1a:2001 requires an output intent, and printpdf wrote none, so its files are larger by the FOGRA39 profile (650 KB before compression). `must_have_xmp_metadata` is `true` for the PDF/A variants.
+- The `a` variants (`A1A_2005_PDF_1_4`, `A2A_2011_PDF_1_7`) write `pdfaid:conformance` as `B` and the save warns that level a needs tagged document structure, which printpdf does not write. `A2U_2011_PDF_1_7` writes `B` too, because printpdf does not check that all text maps to Unicode. `get_identifier_string` is unchanged.
+- The Info dictionary of a PDF/A file has no `/GTS_PDFXVersion`. It named a PDF/X standard, and for PDF/A it held a string such as `PDF/A-1b:2005`.
+- The README roadmap and the `conformance` module docs say what saving a standard writes, what it only warns about, and that the preflight is not a certification. The output has not been checked with veraPDF.
 
 ### Documentation
 
@@ -55,6 +65,7 @@ All notable changes to printpdf are documented in this file. The format follows
 
 ### Fixed
 
+- The XMP dates (`xmp:CreateDate`, `xmp:ModifyDate`, `xmp:MetadataDate`) are ISO 8601, `2018-09-19T10:05:05+00:00`. They had the `D:` prefix and the `+00'00'` offset of PDF dates, which XMP does not allow.
 - The output intent that PDF/X-3 and the other standards with an ICC profile write names the profile with `/DestOutputProfile`. It used `/DestinationOutputProfile`, which readers do not look for.
 - The XMP metadata escapes the title, creator, subject, keywords, identifier and producer. A title with `&` or `<` made the XMP packet invalid XML.
 - `PdfConformance::is_layering_allowed` is `false` for PDF/A-1b and PDF/A-1a, which forbid optional content.

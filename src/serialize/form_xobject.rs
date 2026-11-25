@@ -34,6 +34,8 @@ pub(crate) struct SaveScope<'a> {
     pub xobjects: &'a BTreeMap<XObjectId, XObject>,
     /// How many forms enclose the content, so that a model nested too deeply is not written.
     pub depth: usize,
+    /// Whether the standard fonts of a scope are embedded (the standard requires it).
+    pub embed_builtin_fonts: bool,
 }
 
 /// Writes every XObject of a scope as an object of `doc` and returns the `/XObject` dictionary.
@@ -124,6 +126,7 @@ fn write_form(
                 local,
                 &form.ops,
                 parent.depth.saturating_add(1),
+                parent.embed_builtin_fonts,
                 opts,
                 warnings,
             );
@@ -173,6 +176,7 @@ pub(crate) fn write_local_scope(
     local: &PdfResources,
     ops: &[Op],
     depth: usize,
+    embed_builtin_fonts: bool,
     opts: &PdfSaveOptions,
     warnings: &mut Vec<PdfWarnMsg>,
 ) -> LocalScope {
@@ -184,10 +188,17 @@ pub(crate) fn write_local_scope(
         font_infos: &font_infos,
         xobjects: &local.xobjects.map,
         depth,
+        embed_builtin_fonts,
     };
     let xobject_dict = write_xobjects(doc, &local.xobjects.map, &scope, opts, warnings);
     let pattern_dict = write_patterns(doc, &local.patterns.map, &scope, opts, warnings);
-    let font_dict = write_font_dict(doc, &subset_fonts, used_builtin_fonts(&streams), warnings);
+    let font_dict = write_font_dict(
+        doc,
+        &subset_fonts,
+        used_builtin_fonts(&streams),
+        embed_builtin_fonts,
+        warnings,
+    );
 
     let mut resources = LoDictionary::new();
     for (category, entries) in [
