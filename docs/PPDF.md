@@ -50,18 +50,54 @@ file holds the string exactly as it was, so the round trip is lossless, and a
 reference may only name a plain file inside `DIR`. `ppdf fonts -o` and
 `ppdf images -o` write the decoded files.
 
+## Preflight
+
+`ppdf check FILE [--profile general|pdfa-1b|pdfa-2b|pdfx-1a|pdfx-3] [--json]`
+runs the preflight of the library (`printpdf::preflight`, source in
+`src/preflight.rs` and `src/preflight/`). It reports problems with a severity
+(error, warning, info), a rule id, a page and an object. Exit code 0 means no
+errors were found, 1 that errors were found and 2 that the file could not be read.
+`-v` also prints the information messages and the list of what is not checked.
+
+What it is: a check of the rules that can be decided from the bytes of the file
+with readable code. The file is read with `lopdf` (which repairs many kinds of
+damage, and the repair is reported as a finding), then checked in these parts:
+
+- the header, the end of the file and the cross-reference table, read from the bytes;
+- the trailer, the catalog, the Info dictionary, the output intents and the XMP packet;
+- every reachable object (streams, filters, actions, annotations, embedded files);
+- the page tree, and for each page its boxes, its resources and its content streams,
+  including the forms, patterns and appearance streams that the content draws.
+
+What it is not: a certification. No errors means that none of the rules found one,
+not that the file conforms. It does not replace veraPDF or Acrobat Preflight. The
+rules are listed in the module documentation of `printpdf::preflight` and as
+`RULES`; what is not checked is `NOT_CHECKED`, and both are part of the JSON report.
+
+The work is bounded (pages, objects, nesting, decoded bytes, operators and findings),
+and reaching a bound is reported as the rule `check-limit-reached`, so a report of a
+very large or hostile file says that it is incomplete.
+
+Rule ids are stable. To add a rule, add its id and description to `RULES`, report it
+with that id, and add a test in `src/preflight/tests.rs` with a small PDF built with
+`lopdf` that triggers it and one that does not. A test checks that every id in `RULES`
+is mentioned by a test.
+
+Known limits of `check`: it is about the file, so it does not render anything. The
+`standard_reference` of a finding (a clause such as `ISO 19005-1 6.3.4`) is set only for
+PDF/A-1b rules whose clause number is certain.
+
 ## Status
 
 Implemented: `json`, `pdf`, `text`, `boxes`, `svg`, `info`, `fonts`, `images`,
-`html`.
+`html`, `check`.
 
 Next, roughly in this order:
 
 1. `pages`: select, reorder and merge pages without `jq`.
 2. `render`: PNG output, needed for OCR.
 3. `optimize`: compress and prune.
-4. `validate`.
-5. `ocr`.
+4. `ocr`.
 
 ## OCR (planned)
 

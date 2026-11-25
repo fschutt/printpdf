@@ -16,7 +16,8 @@ mod pages;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use printpdf::{
     Base64OrRaw, GeneratePdfOptions, ImageOptimizationOptions, OutputImageFormat, PdfDocument,
-    PdfParseErrorSeverity, PdfParseOptions, PdfSaveOptions, PdfToSvgOptions, PdfWarnMsg, XObject,
+    PdfParseErrorSeverity, PdfParseOptions, PdfSaveOptions, PdfToSvgOptions, PdfWarnMsg,
+    PreflightProfile, XObject, preflight_bytes,
 };
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
@@ -34,7 +35,7 @@ type Res<T> = Result<T, Box<dyn std::error::Error>>;
 #[command(
     name = "ppdf",
     version,
-    about = "PDF <-> JSON <-> PDF, text and box extraction, SVG rendering, HTML to PDF"
+    about = "PDF <-> JSON <-> PDF, text and box extraction, SVG rendering, HTML to PDF, preflight checks"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -44,7 +45,7 @@ struct Cli {
     #[arg(long, global = true, value_enum, default_value_t = WarnFormat::Text)]
     warnings: WarnFormat,
 
-    /// Include info-level messages in the text warning output
+    /// Include info-level messages in the text output (of the warnings, and of `check`)
     #[arg(short, long, global = true)]
     verbose: bool,
 
@@ -83,6 +84,50 @@ enum Cmd {
     Images(ExtractArgs),
     /// HTML to PDF
     Html(HtmlArgs),
+    /// Check a PDF for problems (preflight). Exit code 0: no errors, 1: errors found, 2: unreadable
+    Check(CheckArgs),
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum ProfileArg {
+    /// Structure and resource integrity, no standard
+    General,
+    /// PDF/A-1b
+    #[value(name = "pdfa-1b")]
+    Pdfa1b,
+    /// PDF/A-2b
+    #[value(name = "pdfa-2b")]
+    Pdfa2b,
+    /// PDF/X-1a:2001
+    #[value(name = "pdfx-1a")]
+    Pdfx1a,
+    /// PDF/X-3:2002
+    #[value(name = "pdfx-3")]
+    Pdfx3,
+}
+
+impl ProfileArg {
+    fn profile(self) -> PreflightProfile {
+        match self {
+            ProfileArg::General => PreflightProfile::General,
+            ProfileArg::Pdfa1b => PreflightProfile::PdfA1b,
+            ProfileArg::Pdfa2b => PreflightProfile::PdfA2b,
+            ProfileArg::Pdfx1a => PreflightProfile::PdfX1a_2001,
+            ProfileArg::Pdfx3 => PreflightProfile::PdfX3_2002,
+        }
+    }
+}
+
+#[derive(Args)]
+struct CheckArgs {
+    /// Input PDF ("-" or none: stdin)
+    input: Option<PathBuf>,
+    /// The rules to apply
+    #[arg(long, value_enum, default_value_t = ProfileArg::General)]
+    profile: ProfileArg,
+    /// Print the report as JSON
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Args)]
@@ -211,6 +256,10 @@ struct HtmlArgs {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    // `check` has its own exit codes: 0 no errors, 1 errors found, 2 unreadable.
+    if let Cmd::Check(a) = &cli.cmd {
+        return cmd_check(a, cli.verbose);
+    }
     let mut warnings = Vec::new();
     let result = run(&cli, &mut warnings);
     report_warnings(&warnings, cli.warnings, cli.verbose);
@@ -242,6 +291,101 @@ fn run(cli: &Cli, w: &mut Vec<PdfWarnMsg>) -> Res<()> {
         Cmd::Fonts(a) => cmd_fonts(a, cli.strict, w),
         Cmd::Images(a) => cmd_images(a, cli.strict, w),
         Cmd::Html(a) => cmd_html(a, w),
+        // Handled in `main`, because of its exit codes.
+        Cmd::Check(_) => Ok(()),
+    }
+}
+
+fn cmd_check(a: &CheckArgs, verbose: bool) -> ExitCode {
+    let bytes = match read_input(&a.input) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("ppdf: error: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    let profile = a.profile.profile();
+    let report = preflight_bytes(&bytes, profile);
+    let unreadable = report.findings.iter().any(|f| f.rule == "file-unreadable");
+
+    if a.json {
+        match serde_json::to_string_pretty(&report) {
+            Ok(text) => println!("{text}"),
+            Err(e) => {
+                eprintln!("ppdf: error: cannot serialize the report: {e}");
+                return ExitCode::from(2);
+            }
+        }
+    } else {
+        print_report(&report, verbose);
+    }
+
+    if unreadable {
+        ExitCode::from(2)
+    } else if report.has_errors() {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+fn print_report(report: &printpdf::preflight::PreflightReport, verbose: bool) {
+    use printpdf::preflight::Severity;
+
+    println!("Preflight, profile {}", report.profile.label());
+    for f in &report.findings {
+        if f.severity == Severity::Info && !verbose {
+            continue;
+        }
+        let mut place = Vec::new();
+        if let Some(p) = f.page {
+            place.push(format!("page {p}"));
+        }
+        if let Some((n, g)) = f.object {
+            place.push(format!("object {n} {g}"));
+        }
+        let place = if place.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", place.join(", "))
+        };
+        let reference = f
+            .standard_reference
+            .map(|r| format!(" [{r}]"))
+            .unwrap_or_default();
+        println!(
+            "{:<7} {}{}: {}{}",
+            f.severity.as_str(),
+            f.rule,
+            place,
+            f.message,
+            reference
+        );
+    }
+
+    let s = &report.summary;
+    println!(
+        "{} errors, {} warnings, {} infos ({} pages, {} objects visited)",
+        s.errors, s.warnings, s.infos, s.pages_checked, s.objects_visited
+    );
+    if s.suppressed > 0 {
+        println!("{} more findings were left out of the report", s.suppressed);
+    }
+    if s.infos > 0 && !verbose {
+        println!("Information messages are hidden; add -v to show them.");
+    }
+    if report.has_errors() {
+        return;
+    }
+    println!(
+        "No errors found. This is not a certification of {}: the preflight checks only some rules.",
+        report.profile.label()
+    );
+    if verbose {
+        println!("Not checked:");
+        for line in &report.not_checked {
+            println!("  - {line}");
+        }
     }
 }
 

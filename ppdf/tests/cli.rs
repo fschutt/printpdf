@@ -487,3 +487,53 @@ fn a_pdf_without_its_trailer_is_still_read() {
     std::fs::write(&junk, with_junk).unwrap();
     assert!(ok(&["text", &junk]).text().contains("Page one"));
 }
+
+#[test]
+fn check_exits_with_0_1_or_2() {
+    let pdf = three_pages();
+    let dir = scratch("check");
+
+    // No errors in the General profile.
+    let out = run(&["check", &pdf], &[]);
+    assert_eq!(out.code, 0, "{}", out.text());
+    assert!(out.text().contains("not a certification"), "{}", out.text());
+
+    // Errors for a standard that the file does not meet.
+    let out = run(&["check", &pdf, "--profile", "pdfx-3"], &[]);
+    assert_eq!(out.code, 1, "{}", out.text());
+    assert!(out.text().contains("output-intent-missing"), "{}", out.text());
+
+    // Not a PDF, and a file that does not exist.
+    let junk = path(&dir, "junk.pdf");
+    std::fs::write(&junk, b"this is not a PDF").unwrap();
+    let out = run(&["check", &junk], &[]);
+    assert_eq!(out.code, 2, "{}", out.text());
+    assert!(out.text().contains("file-unreadable"), "{}", out.text());
+    let out = run(&["check", &path(&dir, "missing.pdf")], &[]);
+    assert_eq!(out.code, 2);
+    assert!(out.stderr.contains("missing.pdf"), "{}", out.stderr);
+}
+
+#[test]
+fn check_prints_json_and_reads_stdin() {
+    let pdf = three_pages();
+    let bytes = std::fs::read(&pdf).unwrap();
+
+    let out = run(&["check", "-", "--profile", "pdfa-1b", "--json"], &bytes);
+    assert_eq!(out.code, 1);
+    let report = out.json();
+    assert_eq!(report["profile"], "pdfa-1b");
+    let rules: Vec<&str> = report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["rule"].as_str().unwrap())
+        .collect();
+    assert!(rules.contains(&"xmp-missing"), "{rules:?}");
+    assert!(report["summary"]["errors"].as_u64().unwrap() >= 1);
+    assert!(report["notChecked"].as_array().unwrap().len() > 3);
+
+    // An unknown profile is a usage error.
+    let out = run(&["check", &pdf, "--profile", "pdfx-9"], &[]);
+    assert_eq!(out.code, 2);
+}

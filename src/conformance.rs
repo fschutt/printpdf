@@ -17,9 +17,11 @@
 //! * If [`must_have_xmp_metadata`](PdfConformance::must_have_xmp_metadata) is true, an XMP
 //!   metadata stream is added to the catalog.
 //!
-//! The crate does not validate a document against a standard. Choosing a variant does not
-//! embed fonts, convert colors or reject content that the standard forbids; the
-//! `is_*_allowed` methods only report what the standard permits.
+//! Choosing a variant does not embed fonts, convert colors or reject content that the standard
+//! forbids; the `is_*_allowed` methods only report what the standard permits. To see what a
+//! file is still missing, run the [preflight](crate::preflight) (`PdfDocument::preflight`,
+//! `preflight_bytes` or `ppdf check`). It checks a subset of the rules of PDF/A-1b, PDF/A-2b,
+//! PDF/X-1a:2001 and PDF/X-3:2002 and is not a certification.
 //!
 //! The default is [`PdfConformance::Custom`] with the default [`CustomPdfConformance`]: no
 //! identifier, no XMP metadata and no output intent, which gives the smallest files.
