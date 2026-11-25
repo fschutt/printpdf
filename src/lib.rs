@@ -1260,7 +1260,8 @@ impl PdfMetadata {
         use crate::render::escape_xml_text as esc;
 
         // PDF/A: the identification, and the same values as the Info dictionary (title, author,
-        // subject, creator, producer, keywords, dates). PDF/X fields do not belong in it.
+        // subject, creator, producer, keywords, dates). PDF/X fields do not belong in it, and
+        // neither does pdf:Trapped: veraPDF does not accept it in a PDF/A packet.
         if let Some(part) = self.info.conformance.pdfa_part() {
             let pdfa_document_id = random_character_string_32();
             // Level a (and u) needs tagged structure, which is not written: the file claims b.
@@ -1285,7 +1286,6 @@ impl PdfMetadata {
                 creator = esc(&self.info.creator),
                 producer = esc(&self.info.producer),
                 keywords = esc(&self.info.keywords.join(",")),
-                trapping = trapping,
                 id = pdfa_document_id,
                 instance = instance_id,
                 rendition = rendition,

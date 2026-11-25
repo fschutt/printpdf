@@ -827,3 +827,75 @@ fn verapdf_accepts_a1b() {
         assert!(ok, "veraPDF rejects the PDF/A-1b file:\n{text}");
     }
 }
+
+fn assert_verapdf(flavour: &str, doc: &PdfDocument, opts: &PdfSaveOptions, name: &str) {
+    let mut warnings = Vec::new();
+    let bytes = doc.save(opts, &mut warnings);
+    if let Some((ok, text)) = verapdf_report(flavour, &bytes, name) {
+        assert!(ok, "veraPDF rejects {name} ({flavour}):\n{text}");
+    }
+}
+
+/// Only built-in fonts, no embedded TrueType font.
+fn builtin_only(conformance: PdfConformance) -> PdfDocument {
+    let mut doc = PdfDocument::new("Built-in only");
+    doc.metadata.info.conformance = conformance;
+    let mut ops = text_at(PdfFontHandle::Builtin(BuiltinFont::Helvetica), 280.0, "Plain Helvetica");
+    ops.extend(text_at(PdfFontHandle::Builtin(BuiltinFont::TimesBoldItalic), 260.0, "Times caf\u{E9}"));
+    ops.extend(rect(50.0, Color::Greyscale(Greyscale::new(0.3, None))));
+    doc.pages.push(PdfPage::new(Mm(210.0), Mm(297.0), ops));
+    doc
+}
+
+#[test]
+fn verapdf_accepts_builtin_fonts_only() {
+    for (flavour, c) in [("1b", PdfConformance::A1B_2005_PDF_1_4), ("2b", PdfConformance::A2B_2011_PDF_1_7)] {
+        assert_verapdf(flavour, &builtin_only(c), &PdfSaveOptions::default(), &format!("builtin-{flavour}"));
+    }
+}
+
+#[test]
+fn verapdf_accepts_subset_and_complete_fonts() {
+    for (flavour, c) in [("1b", PdfConformance::A1B_2005_PDF_1_4), ("2b", PdfConformance::A2B_2011_PDF_1_7)] {
+        for subset in [true, false] {
+            let opts = PdfSaveOptions { subset_fonts: subset, ..Default::default() };
+            assert_verapdf(flavour, &document(c.clone(), true), &opts, &format!("fonts-{flavour}-{subset}"));
+        }
+        let opts = PdfSaveOptions { optimize: false, ..Default::default() };
+        assert_verapdf(flavour, &document(c.clone(), true), &opts, &format!("plain-{flavour}"));
+    }
+}
+
+#[test]
+fn verapdf_accepts_a1b_without_rgb() {
+    let doc = document(PdfConformance::A1B_2005_PDF_1_4, false);
+    assert_verapdf("1b", &doc, &PdfSaveOptions::default(), "a1b-gray");
+}
+
+#[test]
+fn verapdf_accepts_a2b_with_transparency_and_an_alpha_image() {
+    let mut doc = document(PdfConformance::A2B_2011_PDF_1_7, true);
+    let gs = doc.add_graphics_state(ExtendedGraphicsState::default().with_current_fill_alpha(0.5));
+    let rgba = RawImage {
+        pixels: RawImageData::U8(vec![255, 0, 0, 128, 0, 255, 0, 255, 0, 0, 255, 255, 9, 9, 9, 0]),
+        width: 2,
+        height: 2,
+        data_format: RawImageFormat::RGBA8,
+        tag: Vec::new(),
+    };
+    let id = doc.add_image(&rgba);
+    if let Some(page) = doc.pages.first_mut() {
+        page.ops.insert(0, Op::LoadGraphicsState { gs });
+        page.ops.push(Op::UseXobject { id, transform: XObjectTransform::default() });
+    }
+    assert_verapdf("2b", &doc, &PdfSaveOptions::default(), "a2b-alpha");
+}
+
+#[test]
+fn verapdf_accepts_a_cmyk_only_a1b() {
+    let mut doc = document(PdfConformance::A1B_2005_PDF_1_4, false);
+    if let Some(page) = doc.pages.first_mut() {
+        page.ops.extend(rect(300.0, Color::Cmyk(Cmyk::new(0.1, 0.2, 0.3, 0.4, None))));
+    }
+    assert_verapdf("1b", &doc, &PdfSaveOptions::default(), "a1b-cmyk");
+}
