@@ -14,9 +14,11 @@
 //! `<g>` groups).
 //!
 //! Not rendered: gradients (`sh`), transparency, blend modes and soft masks from an ExtGState,
-//! inline images (a warning is added), and colorspace changes (`cs`, `CS`). Unknown operators
-//! become an XML comment. A font is embedded in the SVG as a `@font-face` rule, so the SVG can be
-//! large.
+//! inline images (a warning is added), and colorspace changes (`cs`, `CS`). A pattern as the fill
+//! or stroke color is drawn as one solid color (see
+//! [`Pattern::approximate_color`](crate::Pattern::approximate_color)), with a warning. Unknown
+//! operators become an XML comment. A font is embedded in the SVG as a `@font-face` rule, so the
+//! SVG can be large.
 //!
 //! The entry points are [`PdfPage::to_svg`](crate::PdfPage::to_svg), [`render_to_svg`] and
 //! [`render_to_svg_async`].
@@ -688,6 +690,7 @@ fn render_to_svg_internal(
         form_fonts: BTreeMap::new(),
         form_tags: BTreeMap::new(),
         walk: FormWalk::new(),
+        warned_patterns: std::collections::BTreeSet::new(),
         full: false,
     };
     renderer.render_ops(&page.ops, resources, "", warnings);
@@ -741,6 +744,8 @@ struct SvgRenderer<'a> {
     /// The tag of each form that has resources of its own, by the address of the form.
     form_tags: BTreeMap<usize, String>,
     walk: FormWalk,
+    /// The patterns that a warning has been written for: one message per pattern.
+    warned_patterns: std::collections::BTreeSet<String>,
     /// [`MAX_SVG_BYTES`] is reached: nothing more is written.
     full: bool,
 }
@@ -803,6 +808,14 @@ impl<'a> SvgRenderer<'a> {
                 }
                 Op::SetOutlineColor { col } => {
                     self.gst.set_outline_color(col.clone());
+                }
+                Op::SetFillPattern { id, color } => {
+                    let col = self.pattern_stand_in(scope, id, color.as_ref(), warnings);
+                    self.gst.set_fill_color(col);
+                }
+                Op::SetOutlinePattern { id, color } => {
+                    let col = self.pattern_stand_in(scope, id, color.as_ref(), warnings);
+                    self.gst.set_outline_color(col);
                 }
                 Op::SetOutlineThickness { pt } => {
                     self.gst.set_stroke_width(*pt);
@@ -1119,6 +1132,31 @@ impl<'a> SvgRenderer<'a> {
                 }
             }
         }
+    }
+
+    /// The solid color that is drawn where the pattern `id` of `scope` is the fill or stroke.
+    /// The SVG has no patterns, so a warning says that, once per pattern.
+    fn pattern_stand_in(
+        &mut self,
+        scope: &PdfResources,
+        id: &crate::PatternId,
+        underlying: Option<&Color>,
+        warnings: &mut Vec<PdfWarnMsg>,
+    ) -> Color {
+        let pattern = scope.patterns.map.get(id);
+        let color = match pattern {
+            Some(pattern) => pattern.approximate_color(underlying),
+            None => Color::Rgb(crate::Rgb::new(0.5, 0.5, 0.5, None)),
+        };
+        if self.warned_patterns.insert(id.0.clone()) {
+            let what = if pattern.is_some() {
+                "is drawn as a solid color in the SVG"
+            } else {
+                "is not in the resources and is drawn as grey in the SVG"
+            };
+            warnings.push(PdfWarnMsg::warning(0, 0, format!("pattern {} {what}", id.0)));
+        }
+        color
     }
 
     /// The font program of an external font that is selected, in the page's resources or in

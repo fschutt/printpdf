@@ -1546,6 +1546,8 @@ pub fn apply_margin_offset(ops: &mut [Op], offset_x: crate::Mm, offset_y: crate:
             | Op::RestoreGraphicsState
             | Op::LoadGraphicsState { .. }
             | Op::PaintShading { .. }
+            | Op::SetFillPattern { .. }
+            | Op::SetOutlinePattern { .. }
             | Op::StartTextSection
             | Op::EndTextSection
             | Op::SetFont { .. }

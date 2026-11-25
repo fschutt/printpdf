@@ -57,9 +57,9 @@
 //! - [`PdfDocument`]: metadata ([`PdfMetadata`]), shared [`PdfResources`], bookmarks and pages.
 //! - [`PdfResources`]: things that pages refer to by id and that are stored once per file:
 //!   fonts ([`FontId`]), images and other XObjects ([`XObjectId`]), extended graphics states
-//!   ([`ExtendedGraphicsStateId`]), shadings and layers. Register them with
-//!   [`PdfDocument::add_font`], [`PdfDocument::add_image`] and the other `add_*` methods, which
-//!   return the id to use in an `Op`.
+//!   ([`ExtendedGraphicsStateId`]), shadings, patterns ([`PatternId`]) and layers. Register
+//!   them with [`PdfDocument::add_font`], [`PdfDocument::add_image`] and the other `add_*`
+//!   methods, which return the id to use in an `Op`.
 //! - [`PdfPage`]: a page size and a `Vec<Op>`.
 //! - [`Op`]: one content stream instruction. The documentation of each variant names the PDF
 //!   operator it writes (`q`, `Tf`, `re`, ...).
@@ -281,6 +281,8 @@ pub mod graphics;
 pub use graphics::*;
 pub mod shading;
 pub use shading::*;
+pub mod pattern;
+pub use pattern::*;
 pub mod ops;
 pub mod text_boxes;
 pub use ops::*;
@@ -607,7 +609,7 @@ impl Default for IccProfileId {
 pub struct PdfDocument {
     /// Title, author, dates and the PDF conformance level.
     pub metadata: PdfMetadata,
-    /// Fonts, XObjects, graphics states, shadings and layers that pages refer to by id.
+    /// Fonts, XObjects, graphics states, shadings, patterns and layers that pages refer to by id.
     pub resources: PdfResources,
     /// Bookmarks (the outline panel of a viewer). Page numbers start at 1.
     pub bookmarks: PageAnnotMap,
@@ -670,6 +672,14 @@ impl PdfDocument {
     pub fn add_shading(&mut self, shading: crate::shading::Shading) -> crate::shading::ShadingId {
         let id = crate::shading::ShadingId::new();
         self.resources.shadings.map.insert(id.clone(), shading);
+        id
+    }
+
+    /// Registers a tiling or shading pattern and returns the id for `Op::SetFillPattern` and
+    /// `Op::SetOutlinePattern`. See the [`pattern`] module for an example.
+    pub fn add_pattern(&mut self, pattern: crate::pattern::Pattern) -> crate::pattern::PatternId {
+        let id = crate::pattern::PatternId::new();
+        self.resources.patterns.map.insert(id.clone(), pattern);
         id
     }
 
@@ -1056,6 +1066,9 @@ impl PdfDocument {
         for (id, sh) in other.shadings.map {
             self.resources.shadings.map.entry(id).or_insert(sh);
         }
+        for (id, pattern) in other.patterns.map {
+            self.resources.patterns.map.entry(id).or_insert(pattern);
+        }
         for (id, layer) in other.layers.map {
             self.resources.layers.map.entry(id).or_insert(layer);
         }
@@ -1129,6 +1142,10 @@ pub struct PdfResources {
     /// Axial and radial shadings (gradients), by the id `Op::PaintShading` uses.
     #[serde(default)]
     pub shadings: ShadingMap,
+    /// Tiling and shading patterns, by the id `Op::SetFillPattern` and `Op::SetOutlinePattern`
+    /// use.
+    #[serde(default)]
+    pub patterns: PatternMap,
     /// Layers (optional content groups), by the id `Op::BeginLayer` uses.
     #[serde(default)]
     pub layers: PdfLayerMap,
@@ -1192,6 +1209,16 @@ pub struct ExtendedGraphicsStateMap {
 pub struct ShadingMap {
     /// The shadings.
     pub map: BTreeMap<ShadingId, crate::shading::Shading>,
+}
+
+/// Patterns by id.
+///
+/// Serialized as the plain map.
+#[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PatternMap {
+    /// The patterns.
+    pub map: BTreeMap<crate::pattern::PatternId, crate::pattern::Pattern>,
 }
 
 /// Document metadata that a PDF stores in two places.

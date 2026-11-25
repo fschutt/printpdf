@@ -8,10 +8,14 @@
 //! Saving builds a [`lopdf`] document from the [`PdfDocument`] and lets lopdf write it (version
 //! 1.3, classic cross-reference table):
 //!
-//! - One resource dictionary with the fonts, XObjects, ExtGState dictionaries and shadings of the
+//! - One resource dictionary with the fonts, XObjects, ExtGState dictionaries, shadings and patterns of the
 //!   document is shared by all pages. A form XObject ([`XObject::Form`]) is written as a form
 //!   stream of its own, with a `/Resources` dictionary built from its own fonts (subset to the
-//!   glyphs it uses), nested XObjects, graphics states and shadings.
+//!   glyphs it uses), nested XObjects, graphics states, shadings and patterns.
+//! - A tiling pattern is written as a stream with resources of its own, like a form, and a
+//!   shading pattern as a dictionary. [`Op::SetFillPattern`] becomes `/Pattern cs /Name scn`.
+//!   The color of an uncolored tiling pattern needs a `[/Pattern /DeviceRGB]` color space, which
+//!   is added to the `/ColorSpace` resources of the scope.
 //! - Each [`PdfPage`](crate::PdfPage) becomes a page object with its boxes, a content stream
 //!   translated from its [`Op`]s, and an `/Annots` array built from its
 //!   [`Op::LinkAnnotation`]s.
@@ -57,7 +61,9 @@ use lopdf::{
 use serde_derive::{Deserialize, Serialize};
 
 mod form_xobject;
+mod pattern;
 use form_xobject::{write_xobjects, SaveScope};
+use pattern::{pattern_color_space_dict, write_patterns};
 
 use crate::{
     color::IccProfile,
@@ -327,6 +333,24 @@ pub fn to_lopdf_doc(
 
     let global_shading_dict_id = doc.add_object(shading_dict(&pdf.resources));
 
+    // The patterns of the document, written against the fonts of the document.
+    let global_pattern_dict = write_patterns(
+        &mut doc,
+        &pdf.resources.patterns.map,
+        &SaveScope {
+            font_infos: &font_infos,
+            xobjects: &pdf.resources.xobjects.map,
+            depth: 0,
+        },
+        opts,
+        warnings,
+    );
+    let global_pattern_dict_id =
+        (!global_pattern_dict.is_empty()).then(|| doc.add_object(global_pattern_dict));
+    let global_color_space_dict = pattern_color_space_dict(&streams);
+    let global_color_space_dict_id =
+        (!global_color_space_dict.is_empty()).then(|| doc.add_object(global_color_space_dict));
+
     let page_ids_reserved = pdf
         .pages
         .iter()
@@ -381,6 +405,12 @@ pub fn to_lopdf_doc(
             page_resources.set("XObject", Reference(global_xobject_dict_id));
             page_resources.set("ExtGState", Reference(global_extgstate_dict_id));
             page_resources.set("Shading", Reference(global_shading_dict_id));
+            if let Some(id) = global_pattern_dict_id {
+                page_resources.set("Pattern", Reference(id));
+            }
+            if let Some(id) = global_color_space_dict_id {
+                page_resources.set("ColorSpace", Reference(id));
+            }
 
             // one text object per line instead of per glyph run (see text_merge.rs)
             let merged_ops;
@@ -537,6 +567,37 @@ fn used_builtin_fonts(streams: &[&[Op]]) -> BTreeSet<BuiltinFont> {
     }
 
     fonts
+}
+
+/// `/Pattern cs /Name scn`, or for a pattern that needs an underlying color
+/// `/PdfPatternRgb cs r g b /Name scn`. `space_op` and `color_op` are the stroke or fill pair.
+fn pattern_color_ops(
+    space_op: &str,
+    color_op: &str,
+    id: &crate::PatternId,
+    color: Option<&Color>,
+    warnings: &mut Vec<PdfWarnMsg>,
+) -> Vec<LoOp> {
+    let mut operands: Vec<lopdf::Object> = Vec::new();
+    let space = match color {
+        None => "Pattern",
+        Some(color) => {
+            if color.is_out_of_range() {
+                warnings.push(PdfWarnMsg::error(
+                    0,
+                    0,
+                    format!("PDF color {color:?} is out of range, must be normalized to 0.0 - 1.0"),
+                ));
+            }
+            operands.extend(color.into_vec().into_iter().map(Real));
+            pattern::pattern_space(color).0
+        }
+    };
+    operands.push(Name(id.0.as_bytes().to_vec()));
+    vec![
+        LoOp::new(space_op, vec![Name(space.as_bytes().to_vec())]),
+        LoOp::new(color_op, operands),
+    ]
 }
 
 /// The `/ExtGState` dictionary of a resource scope.
@@ -843,6 +904,12 @@ pub(crate) fn translate_operations(
             }
             Op::LoadGraphicsState { gs } => {
                 content.push(LoOp::new("gs", vec![Name(gs.0.as_bytes().to_vec())]));
+            }
+            Op::SetFillPattern { id, color } => {
+                content.append(&mut pattern_color_ops("cs", "scn", id, color.as_ref(), warnings));
+            }
+            Op::SetOutlinePattern { id, color } => {
+                content.append(&mut pattern_color_ops("CS", "SCN", id, color.as_ref(), warnings));
             }
             Op::PaintShading { id } => {
                 // `sh` paints the named shading over the current clip region.
